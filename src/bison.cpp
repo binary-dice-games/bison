@@ -3,11 +3,7 @@
 namespace bdg {
 namespace bison {
 
-std::atomic<int32_t> node::watchdog_{0};
-
-std::unordered_map<hash_t, node, hash_t, hash_t> node::classes_{};
-
-node::node(hash_t klass, std::map<hash_t, field> &&fields)
+node::node(key_t klass, std::map<key_t, field> &&fields)
   : fields_(std::move(fields))
 {
   fields_["__class"_key] = klass;
@@ -23,63 +19,136 @@ node node::clone() const
 size_t node::size() const
 {
   auto it = fields_.rbegin();
-  return it != fields_.rend() && it->first >= 0 ? (size_t)(it->first + 1): 0;
+  return it != fields_.rend() && it->first >= 0 ? (size_t)(it->first + 1) : 0;
 }
 
 bool node::erase(size_t pos)
 {
-  return fields_.erase(static_cast<key_t>(pos)) != 0;
+  return fields_.erase(static_cast<hash_t>(pos)) != 0;
+}
+
+void node::clear()
+{
+  fields_.erase(fields_.lower_bound(0), fields_.end());
 }
 
 field &node::operator[](size_t pos)
 {
-  return fields_[static_cast<key_t>(pos)];
+  return fields_[static_cast<hash_t>(pos)];
 }
 
 const field &node::operator[](size_t pos) const
 {
-  return fields_[static_cast<key_t>(pos)];
+  return fields_[static_cast<hash_t>(pos)];
 }
 
-field &node::operator[](hash_t name)
+field &node::operator[](key_t name)
 {
-  return fields_[name];
+  auto field = findField(name);
+  return field != nullptr ? *field : fields_[name];
 }
 
-const field &node::operator[](hash_t name) const
+const field &node::operator[](key_t name) const
 {
-  return fields_[name];
+  auto field = findField(name);
+  return field != nullptr ? *field : fields_[name];
 }
 
-bool node::addMethod(hash_t name, method fn)
+bool node::addField(key_t name, field value)
 {
-  return false;
+  return fields_.emplace(std::make_pair(name, std::move(value))).second;
 }
 
-node node::call(hash_t name, const node &params)
+bool node::addMethod(key_t name, method fn)
 {
-  return node{0};
+  return methods_.emplace(std::make_pair(name, fn)).second;
 }
 
-bool node::addClass(const hash_t name, const hash_t parent, node &&klass)
+node node::call(key_t name, const node &params)
 {
-  int32_t value = 0;
-  while (!watchdog_.compare_exchange_weak(value, -1)) {
+  auto fn = findMethod(name);
+  if (fn == nullptr) {
+    throw std::runtime_error("Method not found");
+  }
+  return (*fn)(*this, params);
+}
+
+bool node::addClass(const key_t parent, node &&klass)
+{
+  std::unique_lock<std::mutex> lk(getMutex());
+  auto name = klass.as<key_t>("__class"_key);
+  klass["__parent"_key] = parent;
+
+  auto ancestor = parent;
+  auto &classes = getClasses();
+  auto it = classes.find(parent);
+  while (it != classes.end() && ancestor != name) {
+    ancestor = it->second.as<key_t>("__parent"_key);
+    it = classes.find(ancestor);
   }
 
-  classes_.try_emplace(name, std::move(klass));
-  return true;
+  if (ancestor == name) {
+    return false;
+  }
+
+  return classes.try_emplace(name, std::move(klass)).second;
 }
 
-//node make_node(std::initializer_list<std::pair<hash_t, field>> initList)
-//{
-//  node node;
-//  for (const auto &pair : initList) {
-//    auto test = field(pair.second);
-//    node[pair.first] = std::move(test);
-//  }
-//  return node;
-//}
+field *node::findField(key_t name) const
+{
+  auto it = fields_.find(name);
+  if (it == fields_.end()) {
+    std::unique_lock<std::mutex> lk(getMutex());
+    auto &classes = getClasses();
+    auto itClass = classes.find(as<key_t>("__parent"_key));
+    while (itClass != classes.end() && it == fields_.end()) {
+      auto &klass = itClass->second;
+      auto itField = klass.fields_.find(name);
+      if (itField != klass.fields_.end()) {
+        it = fields_.insert(std::make_pair(name, itField->second)).first;
+      } else {
+        itClass = classes.find(klass.as<key_t>("__parent"_key));
+      }
+    }
+  }
+
+  return it != fields_.end() ? &it->second : nullptr;
+}
+
+method *node::findMethod(key_t name) const
+{
+  auto it = methods_.find(name);
+  if (it == methods_.end()) {
+    std::unique_lock<std::mutex> lk(getMutex());
+    auto &classes = getClasses();
+    auto itClass = classes.find(as<key_t>("__parent"_key));
+    while (itClass != classes.end() && it == methods_.end()) {
+      auto &klass = itClass->second;
+      auto itMethod = klass.methods_.find(name);
+      if (itMethod != klass.methods_.end()) {
+        it = methods_.insert(std::make_pair(name, itMethod->second)).first;
+      } else {
+        itClass = classes.find(klass.as<key_t>("__parent"_key));
+      }
+    }
+  }
+
+  return it != methods_.end() ? &it->second : nullptr;
+}
+
+node *node::findClass(key_t name) const
+{
+  std::unique_lock<std::mutex> lk(getMutex());
+  auto &classes = getClasses();
+  auto klass = as<key_t>("__class"_key);
+  auto it = classes.find(klass);
+  while (it != classes.end() && klass != name) {
+    klass = it->second.as<key_t>("__parent"_key);
+    it = classes.find(klass);
+  }
+
+  return it != classes.end() ? &it->second : nullptr;
+}
 
 }
 }

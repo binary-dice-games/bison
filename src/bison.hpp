@@ -3,6 +3,7 @@
 #include <variant>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <string>
 #include <atomic>
 #include <chrono>
@@ -16,7 +17,7 @@ using hash_t = int32_t;
 constexpr hash_t hash(const char *input)
 {
   hash_t value = sizeof(hash_t) == 8 ? 0xcbf29ce484222325 : 0x811c9dc5;
-  hash_t mask = sizeof(hash_t) == 8 ? 0x8FFFFFFFFFFFFFFF : 0x8FFFFFFF;
+  hash_t mask = sizeof(hash_t) == 8 ? 0x8000000000000000 : 0x80000000;
   const hash_t prime = sizeof(hash_t) == 8 ? 0x00000100000001b3 : 0x01000193;
 
   while (*input) {
@@ -25,7 +26,7 @@ constexpr hash_t hash(const char *input)
     ++input;
   }
 
-  return value & mask;
+  return value | mask;
 }
 
 constexpr hash_t operator""_key(const char *name, std::size_t size) noexcept
@@ -36,10 +37,10 @@ constexpr hash_t operator""_key(const char *name, std::size_t size) noexcept
 struct _key_t {
   _key_t(hash_t v = 0) : id(v) {}
   operator hash_t() const { return id; }
-  std::size_t operator()(const struct _key_t &k) const { return 0; }
+  std::size_t operator()(const struct _key_t &k) const { return id; }
   bool operator()(const struct _key_t &lhs, const struct _key_t &rhs) const
   {
-    return false;
+    return lhs.id == rhs.id;
   }
   hash_t id;
 };
@@ -50,13 +51,13 @@ class node;
 
 using method = std::function<node(node & /*self*/, const node & /*params*/)>;
 using field =
-  std::variant<std::monostate, hash_t, bool, int32_t, float, std::string, node,
+  std::variant<std::monostate, key_t, bool, int32_t, float, std::string, node,
                std::vector<bool>, std::vector<int32_t>, std::vector<float>,
                std::vector<std::string>>;
 
 class node {
   public:
-  node(hash_t klass = ""_key, std::map<hash_t, field> &&fields = {});
+  node(key_t klass = ""_key, std::map<key_t, field> &&fields = {});
   node(const node &that) = default;
   node(node &&that) noexcept = default;
   node &operator=(const node &that) = delete;
@@ -66,20 +67,15 @@ class node {
   node clone() const;
   size_t size() const;
   bool erase(size_t pos);
+  void clear();
 
   field &operator[](size_t pos);
   const field &operator[](size_t pos) const;
 
-  field &operator[](hash_t name);
-  const field &operator[](hash_t name) const;
+  field &operator[](key_t name);
+  const field &operator[](key_t name) const;
 
-  template<typename T> node &with(hash_t name, T value)
-  {
-    fields_[name] = std::move(value);
-    return *this;
-  }
-
-  template<typename T> T &as(hash_t name, T def = T{})
+  template<typename T> T &as(key_t name, T def = T{})
   {
     auto &field = fields_[name];
     if (std::holds_alternative<std::monostate>(field)) {
@@ -90,7 +86,7 @@ class node {
     return std::get<T>(field);
   }
 
-  template<typename T> const T &as(hash_t name, T def = T{}) const
+  template<typename T> const T &as(key_t name, T def = T{}) const
   {
     auto &field = fields_[name];
     if (std::holds_alternative<std::monostate>(field)) {
@@ -101,20 +97,32 @@ class node {
     return std::get<T>(field);
   }
 
-  bool addMethod(hash_t name, method fn);
-  node call(hash_t name, const node &params);
+  bool addField(key_t name, field value);
+  bool addMethod(key_t name, method fn);
+  node call(key_t name, const node &params);
 
-  static bool addClass(const hash_t name, const hash_t parent, node &&klass);
+  static bool addClass(const key_t parent, node &&klass);
 
   private:
-  mutable std::map<hash_t, field> fields_;
-  mutable std::map<hash_t, method> methods_;
+  mutable std::map<key_t, field> fields_;
+  mutable std::map<key_t, method> methods_;
 
-  static std::atomic<int32_t> watchdog_;
-  static std::unordered_map<hash_t, node, hash_t, hash_t> classes_;
+  field* findField(key_t name) const;
+  method* findMethod(key_t name) const;
+  node* findClass(key_t name) const;
+
+  static inline std::mutex &getMutex()
+  {
+    static std::mutex mutex;
+    return mutex;
+  }
+
+  static inline std::unordered_map<key_t, node, key_t, key_t> &getClasses()
+  {
+    static std::unordered_map<key_t, node, key_t, key_t> classes;
+    return classes;
+  }
 };
-
-//node make_node(std::initializer_list<std::pair<hash_t, field>> initList);
 
 }
 }
