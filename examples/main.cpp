@@ -13,7 +13,7 @@ class Test {
   Test(Test &&that) noexcept = default;
   Test &operator=(const Test &that) = delete;
 
-  mutable std::map<int, std::variant<std::monostate, int, Test>> nodes_;
+  mutable std::map<int, std::variant<std::monostate, int, Test>> dynamics_;
 };
 
 int main()
@@ -21,69 +21,69 @@ int main()
   // std::pair<int, Test> mypair{1, Test()};
   // std::cout << mypair.first;
   std::map<int, Test> mymap{};
-  auto &x = mymap[0].nodes_[0];
+  auto &x = mymap[0].dynamics_[0];
   //std::variant<std::monostate, int, Test> val;
   //x = val;
 
-  //node a{};
+  //dynamic a{};
   //auto b = std::move(a);
 
   std::cout << "Hello World!\n";
 
-  node::addClass("apartment"_key, node{"room"_key});
-  node::addClass("floor"_key, node{"apartment"_key});
-  node::addClass("building"_key, node{"floor"_key});
-  node::addClass("room"_key, node{"building"_key});
+  dynamic::addClass("apartment"_key, dynamic{"room"_key});
+  dynamic::addClass("floor"_key, dynamic{"apartment"_key});
+  dynamic::addClass("building"_key, dynamic{"floor"_key});
+  dynamic::addClass("room"_key, dynamic{"building"_key});
 
   //std::map<hash_t, field> othermap{{"a"_key, {}}};
 
-  node node{"test"_key, {}};
-  node["a"_key] = 12;
-  int64_t value = node.as<int32_t>("a"_key);
+  dynamic dynamic{"test"_key, {}};
+  dynamic["a"_key] = 12;
+  int64_t value = dynamic.as<int32_t>("a"_key);
 
-  auto size = node.size();
-  node[3] = false;
-  size = node.size();
-  //node[0] = false;
-  node[1] = false;
-  node[2] = false;
-  node[5] = 14;
-  size = node.size();
-  node[8] = std::string("test");
-  size = node.size();
-  node.clear();
+  auto size = dynamic.size();
+  dynamic[3] = false;
+  size = dynamic.size();
+  //dynamic[0] = false;
+  dynamic[1] = false;
+  dynamic[2] = false;
+  dynamic[5] = 14;
+  size = dynamic.size();
+  dynamic[8] = std::string("test");
+  size = dynamic.size();
+  dynamic.clear();
 
-  node.erase(5);
-  size = node.size();
-  node.erase(4);
-  size = node.size();
-  node.erase(8);
-  size = node.size();
-  node["child"_key] = bdg::bison::node();
+  dynamic.erase(5);
+  size = dynamic.size();
+  dynamic.erase(4);
+  size = dynamic.size();
+  dynamic.erase(8);
+  size = dynamic.size();
+  dynamic["child"_key] = bdg::bison::dynamic();
 
-  //auto onemore = make_node({{"a"_key, field(1)}});
+  //auto onemore = make_dynamic({{"a"_key, field(1)}});
 
-  bdg::bison::node node2{
+  bdg::bison::dynamic dynamic2{
     "parent"_key,
     {{"a"_key, 1},
      {"b"_key, std::string("dos")},
      {"c"_key,
-      bdg::bison::node{"child"_key, {{"a"_key, std::string("tres")}}}}}};
+      bdg::bison::dynamic{"child"_key, {{"a"_key, std::string("tres")}}}}}};
 
-  node.as<std::string>("pos_x"_key) = "test";
-  //node.as<bool>("pos_x"_key) = false;
+  dynamic.as<std::string>("pos_x"_key) = "test";
+  //dynamic.as<bool>("pos_x"_key) = false;
 
-  auto clone = node.clone();
+  auto clone = dynamic.clone();
 
-  auto type = std::holds_alternative<std::string>(node["pos_x"_key]);
+  auto type = std::holds_alternative<std::string>(dynamic["pos_x"_key]);
 
-  auto &val1 = node.as<std::string>("pos_x"_key);
+  auto &val1 = dynamic.as<std::string>("pos_x"_key);
   val1 = "other";
 
-  auto &val2 = node.as<std::string>("pos_x"_key);
+  auto &val2 = dynamic.as<std::string>("pos_x"_key);
 
-  node["pos_y"_key] = 12;
-  auto val3 = std::get<int32_t>(node["pos_y"_key]);
+  dynamic["pos_y"_key] = 12;
+  auto val3 = std::get<int32_t>(dynamic["pos_y"_key]);
 
   return 0;
 }
