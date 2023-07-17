@@ -48,22 +48,59 @@ struct _key_t {
 
 using key_t = struct _key_t;
 
+class field;
 class dynamic;
 
 using method =
     std::function<dynamic(dynamic& /*self*/, const dynamic& /*params*/)>;
-using field = std::variant<
+
+using dynamic_ptr = std::shared_ptr<dynamic>;
+
+using field_base = std::variant<
     std::monostate,
     key_t,
     bool,
     int32_t,
     float,
+    dynamic_ptr,
     std::string,
-    dynamic,
     std::vector<bool>,
     std::vector<int32_t>,
     std::vector<float>,
     std::vector<std::string>>;
+
+class field : public field_base {
+ public:
+  using field_base::field_base;
+
+  template <typename T>
+  operator T() const {
+    if (!std::holds_alternative<T>(*this)) {
+      throw std::runtime_error("Invalid type");
+    }
+    return std::get<T>(*this);
+  }
+
+  template <typename T>
+  T& as(T def = T{}) {
+    if (std::holds_alternative<std::monostate>(*this)) {
+      *this = def;
+    } else if (!std::holds_alternative<T>(*this)) {
+      throw std::runtime_error("Invalid type");
+    }
+    return std::get<T>(*this);
+  }
+
+  template <typename T>
+  const T& as(T def = T{}) const {
+    if (std::holds_alternative<std::monostate>(*this)) {
+      *this = def;
+    } else if (!std::holds_alternative<T>(*this)) {
+      throw std::runtime_error("Invalid type");
+    }
+    return std::get<T>(*this);
+  }
+};
 
 class dynamic {
  public:
@@ -72,7 +109,6 @@ class dynamic {
     fields_["__class"_key] = klass;
   }
 
-  dynamic(const dynamic& that) = default;
   dynamic(dynamic&& that) noexcept = default;
   dynamic& operator=(const dynamic& that) = delete;
   dynamic& operator=(dynamic&& that) = default;
@@ -116,23 +152,13 @@ class dynamic {
   template <typename T>
   T& as(key_t name, T def = T{}) {
     auto& field = fields_[name];
-    if (std::holds_alternative<std::monostate>(field)) {
-      field = def;
-    } else if (!std::holds_alternative<T>(field)) {
-      throw std::runtime_error("Invalid type");
-    }
-    return std::get<T>(field);
+    return field.as<T>();
   }
 
   template <typename T>
   const T& as(key_t name, T def = T{}) const {
     auto& field = fields_[name];
-    if (std::holds_alternative<std::monostate>(field)) {
-      field = def;
-    } else if (!std::holds_alternative<T>(field)) {
-      throw std::runtime_error("Invalid type");
-    }
-    return std::get<T>(field);
+    return field.as<T>();
   }
 
   inline bool addField(key_t name, field value) {
@@ -174,6 +200,8 @@ class dynamic {
  private:
   mutable std::map<key_t, field> fields_;
   mutable std::map<key_t, method> methods_;
+
+  dynamic(const dynamic& that) = default;
 
   field* findField(key_t name) const {
     auto it = fields_.find(name);
@@ -238,6 +266,16 @@ class dynamic {
     return classes;
   }
 };
+
+static std::shared_ptr<dynamic> make_dynamic(
+    key_t klass = ""_key,
+    std::initializer_list<std::pair<key_t, field>> params = {}) {
+  std::map<key_t, field> fields;
+  for (auto& it : params) {
+    fields[it.first] = it.second;
+  }
+  return std::make_shared<dynamic>(klass, std::move(fields));
+}
 
 } // namespace bison
 } // namespace bdg
