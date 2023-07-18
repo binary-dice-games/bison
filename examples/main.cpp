@@ -3,6 +3,7 @@
 //
 
 #include <iostream>
+#include <sstream>
 #include "src/bison.hpp"
 
 using namespace bdg::bison;
@@ -18,6 +19,9 @@ class Test {
 };
 
 int main() {
+
+  auto swap = byte_swap(int32_t{0x01020304});
+
   // std::pair<int, Test> mypair{1, Test()};
   // std::cout << mypair.first;
   std::map<int, Test> mymap{};
@@ -47,32 +51,31 @@ int main() {
 
   // std::map<hash_t, field> othermap{{"a"_key, {}}};
 
-  dynamic_ptr dyn{"test"_key, {}};
-  auto& dynamic = *dyn;
+  dynamic_ptr dynamic{"test"_key, {}};
   dynamic["a"_key] = 12;
-  int64_t value = dynamic.as<int32_t>("a"_key);
+  int64_t value = dynamic->as<int32_t>("a"_key);
   auto value2 = 2 * dynamic["a"_key].as<int32_t>();
   auto value3 = 2 * (int32_t)(dynamic["a"_key]);
   // std::string value4 = dynamic["a"_key];
 
-  auto size = dynamic.size();
+  auto size = dynamic->size();
   dynamic[3] = false;
-  size = dynamic.size();
+  size = dynamic->size();
   // dynamic[0] = false;
   dynamic[1] = false;
   dynamic[2] = false;
   dynamic[5] = 14;
-  size = dynamic.size();
+  size = dynamic->size();
   dynamic[8] = std::string("test");
-  size = dynamic.size();
-  dynamic.clear();
+  size = dynamic->size();
+  dynamic->clear();
 
-  dynamic.erase(5);
-  size = dynamic.size();
-  dynamic.erase(4);
-  size = dynamic.size();
-  dynamic.erase(8);
-  size = dynamic.size();
+  dynamic->erase(5);
+  size = dynamic->size();
+  dynamic->erase(4);
+  size = dynamic->size();
+  dynamic->erase(8);
+  size = dynamic->size();
   // dynamic["child"_key] = make_dynamic(
   //     ""_key,
   //     {{"a"_key, 1},
@@ -80,22 +83,26 @@ int main() {
   //      {"c"_key, make_dynamic(""_key, {})}});
   dynamic["child"_key] = dynamic_ptr{"class"_key, {{"example"_key, "example"}}};
 
+  std::stringstream ss;
+  dynamic.serialize(ss);
+  dynamic.deserialize(ss);
+
   // auto onemore = make_dynamic({{"a"_key, field(1)}});
 
   bdg::bison::dynamic_ptr dynamic2{
       "parent"_key, {{"a"_key, 1}, {"b"_key, std::string("dos")}}};
 
-  dynamic.as<std::string>("pos_x"_key) = "test";
+  dynamic->as<std::string>("pos_x"_key) = "test";
   // dynamic.as<bool>("pos_x"_key) = false;
 
-  auto clone = dynamic.clone();
+  auto clone = dynamic->clone();
 
   auto type = std::holds_alternative<std::string>(dynamic["pos_x"_key]);
 
-  auto& val1 = dynamic.as<std::string>("pos_x"_key);
+  auto& val1 = dynamic->as<std::string>("pos_x"_key);
   val1 = "other";
 
-  auto& val2 = dynamic.as<std::string>("pos_x"_key);
+  auto& val2 = dynamic->as<std::string>("pos_x"_key);
 
   dynamic["pos_y"_key] = 12;
   auto val3 = std::get<int32_t>(dynamic["pos_y"_key]);

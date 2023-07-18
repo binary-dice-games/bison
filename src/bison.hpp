@@ -12,6 +12,29 @@
 namespace bdg {
 namespace bison {
 
+namespace endian {
+const size_t little = 0;
+const size_t big = 1;
+const size_t native = []() {
+  uint32_t i = 0x01020304;
+  return ((char*)&i)[0] == 0x04 ? little : big;
+}();
+} // namespace endian
+
+template <typename T>
+constexpr T byte_swap(T value) {
+  if (endian::native == endian::little) {
+    return value;
+  } else {
+    T result = 0;
+    const size_t size = sizeof(T);
+    for (size_t i = 0; i < size; ++i) {
+      result = (result << 8) | ((value >> (i * 8)) & 0xFF);
+    }
+    return result;
+  }
+}
+
 using hash_t = int32_t;
 
 constexpr hash_t hash(const char* input) {
@@ -203,7 +226,7 @@ class dynamic {
   mutable std::map<key_t, field> fields_;
   mutable std::map<key_t, method> methods_;
 
-  dynamic(key_t klass = ""_key, std::map<key_t, field>&& fields = {})
+  dynamic(key_t klass = 0, std::map<key_t, field>&& fields = {})
       : fields_(std::move(fields)) {
     fields_["__class"_key] = klass;
   }
@@ -277,6 +300,12 @@ class dynamic {
 class dynamic_ptr : public std::shared_ptr<dynamic> {
  public:
   using std::shared_ptr<dynamic>::shared_ptr;
+
+  dynamic_ptr(dynamic&& that) {
+    auto dyn = new dynamic{std::move(that)};
+    *this = std::shared_ptr<dynamic>(dyn);
+  }
+
   dynamic_ptr(
       key_t klass = 0,
       std::initializer_list<std::pair<key_t, field>> params = {}) {
@@ -285,6 +314,34 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
       fields[it.first] = it.second;
     }
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
+  }
+
+  //inline field& operator[](size_t pos) {
+  //  return (*this)->operator[](static_cast<hash_t>(pos));
+  //}
+
+  //inline const field& operator[](size_t pos) const {
+  //  return (*this)->operator[](static_cast<hash_t>(pos));
+  //}
+
+  //inline field& operator[](key_t name) {
+  //  auto field = (*this)->findField(name);
+  //  return field != nullptr ? *field : (*this)->operator[](name);
+  //}
+
+  //inline const field& operator[](key_t name) const {
+  //  auto field = (*this)->findField(name);
+  //  return field != nullptr ? *field : (*this)->operator[](name);
+  //}
+
+  inline dynamic_ptr serialize(std::ostream& out) {
+    out.write("abc", 3);
+    return *this;
+  }
+
+  inline dynamic_ptr deserialize(std::istream& in) {
+    *this = dynamic_ptr{"class"_key, {{"example"_key, "example"}}};
+    return *this;
   }
 };
 
