@@ -40,14 +40,15 @@ int main() {
 
   auto json_value = extensions::from_json(json);
 
-  dynamic::addClass("apartment"_key, dynamic{"room"_key});
-  dynamic::addClass("floor"_key, dynamic{"apartment"_key});
-  dynamic::addClass("building"_key, dynamic{"floor"_key});
-  dynamic::addClass("room"_key, dynamic{"building"_key});
+  dynamic::addClass("apartment"_key, dynamic_ptr{"room"_key});
+  dynamic::addClass("floor"_key, dynamic_ptr{"apartment"_key});
+  dynamic::addClass("building"_key, dynamic_ptr{"floor"_key});
+  dynamic::addClass("room"_key, dynamic_ptr{"building"_key});
 
   // std::map<hash_t, field> othermap{{"a"_key, {}}};
 
-  dynamic dynamic{"test"_key, {}};
+  dynamic_ptr dyn{"test"_key, {}};
+  auto& dynamic = *dyn;
   dynamic["a"_key] = 12;
   int64_t value = dynamic.as<int32_t>("a"_key);
   auto value2 = 2 * dynamic["a"_key].as<int32_t>();
@@ -81,7 +82,7 @@ int main() {
 
   // auto onemore = make_dynamic({{"a"_key, field(1)}});
 
-  bdg::bison::dynamic dynamic2{
+  bdg::bison::dynamic_ptr dynamic2{
       "parent"_key, {{"a"_key, 1}, {"b"_key, std::string("dos")}}};
 
   dynamic.as<std::string>("pos_x"_key) = "test";

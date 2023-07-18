@@ -69,6 +69,9 @@ using field_base = std::variant<
     std::vector<float>,
     std::vector<std::string>>;
 
+using collection =
+    std::unordered_map<key_t, std::shared_ptr<dynamic>, key_t, key_t>;
+
 class field : public field_base {
  public:
   using field_base::field_base;
@@ -106,10 +109,7 @@ class field : public field_base {
 
 class dynamic {
  public:
-  dynamic(key_t klass = ""_key, std::map<key_t, field>&& fields = {})
-      : fields_(std::move(fields)) {
-    fields_["__class"_key] = klass;
-  }
+  friend class dynamic_ptr;
 
   dynamic(dynamic&& that) noexcept = default;
   dynamic& operator=(const dynamic& that) = delete;
@@ -179,16 +179,16 @@ class dynamic {
     return (*fn)(*this, params);
   }
 
-  static bool addClass(const key_t parent, dynamic&& klass) {
+  static bool addClass(const key_t parent, std::shared_ptr<dynamic> klass) {
     std::unique_lock<std::mutex> lk(getMutex());
-    auto name = klass.as<key_t>("__class"_key);
-    klass["__parent"_key] = parent;
+    auto name = klass->as<key_t>("__class"_key);
+    (*klass)["__parent"_key] = parent;
 
     auto ancestor = parent;
     auto& classes = getClasses();
     auto it = classes.find(parent);
     while (it != classes.end() && ancestor != name) {
-      ancestor = it->second.as<key_t>("__parent"_key);
+      ancestor = it->second->as<key_t>("__parent"_key);
       it = classes.find(ancestor);
     }
 
@@ -203,6 +203,11 @@ class dynamic {
   mutable std::map<key_t, field> fields_;
   mutable std::map<key_t, method> methods_;
 
+  dynamic(key_t klass = ""_key, std::map<key_t, field>&& fields = {})
+      : fields_(std::move(fields)) {
+    fields_["__class"_key] = klass;
+  }
+
   dynamic(const dynamic& that) = default;
 
   field* findField(key_t name) const {
@@ -213,11 +218,11 @@ class dynamic {
       auto itClass = classes.find(as<key_t>("__parent"_key));
       while (itClass != classes.end() && it == fields_.end()) {
         auto& klass = itClass->second;
-        auto itField = klass.fields_.find(name);
-        if (itField != klass.fields_.end()) {
+        auto itField = klass->fields_.find(name);
+        if (itField != klass->fields_.end()) {
           it = fields_.insert(std::make_pair(name, itField->second)).first;
         } else {
-          itClass = classes.find(klass.as<key_t>("__parent"_key));
+          itClass = classes.find(klass->as<key_t>("__parent"_key));
         }
       }
     }
@@ -233,11 +238,11 @@ class dynamic {
       auto itClass = classes.find(as<key_t>("__parent"_key));
       while (itClass != classes.end() && it == methods_.end()) {
         auto& klass = itClass->second;
-        auto itMethod = klass.methods_.find(name);
-        if (itMethod != klass.methods_.end()) {
+        auto itMethod = klass->methods_.find(name);
+        if (itMethod != klass->methods_.end()) {
           it = methods_.insert(std::make_pair(name, itMethod->second)).first;
         } else {
-          itClass = classes.find(klass.as<key_t>("__parent"_key));
+          itClass = classes.find(klass->as<key_t>("__parent"_key));
         }
       }
     }
@@ -251,11 +256,11 @@ class dynamic {
     auto klass = as<key_t>("__class"_key);
     auto it = classes.find(klass);
     while (it != classes.end() && klass != name) {
-      klass = it->second.as<key_t>("__parent"_key);
+      klass = it->second->as<key_t>("__parent"_key);
       it = classes.find(klass);
     }
 
-    return it != classes.end() ? &it->second : nullptr;
+    return it != classes.end() ? it->second.get() : nullptr;
   }
 
   static inline std::mutex& getMutex() {
@@ -263,8 +268,8 @@ class dynamic {
     return mutex;
   }
 
-  static inline std::unordered_map<key_t, dynamic, key_t, key_t>& getClasses() {
-    static std::unordered_map<key_t, dynamic, key_t, key_t> classes;
+  static inline collection& getClasses() {
+    static collection classes;
     return classes;
   }
 };
@@ -279,7 +284,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
     for (auto& it : params) {
       fields[it.first] = it.second;
     }
-    *this = std::make_shared<dynamic>(klass, std::move(fields));
+    *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 };
 
