@@ -30,6 +30,16 @@ int main() {
 
   std::cout << "Hello World!\n";
 
+  auto json = R"({
+    "a": "b",
+    "c": {
+      "d": "e",
+      "f": "g"
+    }
+  })";
+
+  auto json_value = extensions::from_json(json);
+
   dynamic::addClass("apartment"_key, dynamic{"room"_key});
   dynamic::addClass("floor"_key, dynamic{"apartment"_key});
   dynamic::addClass("building"_key, dynamic{"floor"_key});
@@ -42,7 +52,7 @@ int main() {
   int64_t value = dynamic.as<int32_t>("a"_key);
   auto value2 = 2 * dynamic["a"_key].as<int32_t>();
   auto value3 = 2 * (int32_t)(dynamic["a"_key]);
-  //std::string value4 = dynamic["a"_key];
+  // std::string value4 = dynamic["a"_key];
 
   auto size = dynamic.size();
   dynamic[3] = false;
@@ -62,8 +72,12 @@ int main() {
   size = dynamic.size();
   dynamic.erase(8);
   size = dynamic.size();
-  dynamic["child"_key] = make_dynamic(
-      ""_key, {{"a"_key, 1}, {"b"_key, std::string("dos")}});
+  // dynamic["child"_key] = make_dynamic(
+  //     ""_key,
+  //     {{"a"_key, 1},
+  //      {"b"_key, std::string("dos")},
+  //      {"c"_key, make_dynamic(""_key, {})}});
+  dynamic["child"_key] = dynamic_ptr{"class"_key, {{"example"_key, "example"}}};
 
   // auto onemore = make_dynamic({{"a"_key, field(1)}});
 

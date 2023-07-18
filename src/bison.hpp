@@ -34,6 +34,8 @@ constexpr hash_t operator""_key(const char* name, std::size_t size) noexcept {
 
 struct _key_t {
   _key_t(hash_t v = 0) : id(v) {}
+  _key_t(const char* input) : id(hash(input)) {}
+  _key_t(const std::string& input) : id(hash(input.c_str())) {}
   operator hash_t() const {
     return id;
   }
@@ -54,15 +56,13 @@ class dynamic;
 using method =
     std::function<dynamic(dynamic& /*self*/, const dynamic& /*params*/)>;
 
-using dynamic_ptr = std::shared_ptr<dynamic>;
-
 using field_base = std::variant<
     std::monostate,
     key_t,
     bool,
     int32_t,
     float,
-    dynamic_ptr,
+    std::shared_ptr<dynamic>,
     std::string,
     std::vector<bool>,
     std::vector<int32_t>,
@@ -72,6 +72,8 @@ using field_base = std::variant<
 class field : public field_base {
  public:
   using field_base::field_base;
+
+  field(const char* text) : field_base(std::string{text}){};
 
   template <typename T>
   operator T() const {
@@ -267,15 +269,23 @@ class dynamic {
   }
 };
 
-static std::shared_ptr<dynamic> make_dynamic(
-    key_t klass = ""_key,
-    std::initializer_list<std::pair<key_t, field>> params = {}) {
-  std::map<key_t, field> fields;
-  for (auto& it : params) {
-    fields[it.first] = it.second;
+class dynamic_ptr : public std::shared_ptr<dynamic> {
+ public:
+  using std::shared_ptr<dynamic>::shared_ptr;
+  dynamic_ptr(
+      key_t klass = 0,
+      std::initializer_list<std::pair<key_t, field>> params = {}) {
+    std::map<key_t, field> fields;
+    for (auto& it : params) {
+      fields[it.first] = it.second;
+    }
+    *this = std::make_shared<dynamic>(klass, std::move(fields));
   }
-  return std::make_shared<dynamic>(klass, std::move(fields));
-}
+};
+
+namespace extensions {
+std::shared_ptr<dynamic> from_json(std::string json);
+} // namespace extensions
 
 } // namespace bison
 } // namespace bdg

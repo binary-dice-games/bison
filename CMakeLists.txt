@@ -22,6 +22,8 @@ set(BISON_PRIVATE_SOURCES
 
 include_directories(. include)
 
+add_subdirectory("extern/json")
+
 add_library(bison STATIC
   ${BISON_PUBLIC_HEADERS}
   ${BISON_PRIVATE_SOURCES}
@@ -33,6 +35,8 @@ target_include_directories(bison
     PUBLIC
         include
 )
+
+target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json)
 
 if(PACKAGE_TESTS)
     enable_testing()
