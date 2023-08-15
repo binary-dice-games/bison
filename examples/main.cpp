@@ -44,6 +44,11 @@ int main() {
 
   auto json_value = extensions::from_json(json);
 
+  dynamic_ptr values{"test"_key, {{"a"_key, true}}};
+  std::stringstream ss;
+  values.serialize(ss);
+  values.deserialize(ss);
+
   dynamic::addClass("apartment"_key, dynamic_ptr{"room"_key});
   dynamic::addClass("floor"_key, dynamic_ptr{"apartment"_key});
   dynamic::addClass("building"_key, dynamic_ptr{"floor"_key});
@@ -82,10 +87,6 @@ int main() {
   //      {"b"_key, std::string("dos")},
   //      {"c"_key, make_dynamic(""_key, {})}});
   dynamic["child"_key] = dynamic_ptr{"class"_key, {{"example"_key, "example"}}};
-
-  std::stringstream ss;
-  dynamic.serialize(ss);
-  dynamic.deserialize(ss);
 
   // auto onemore = make_dynamic({{"a"_key, field(1)}});
 

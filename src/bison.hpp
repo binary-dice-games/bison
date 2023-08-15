@@ -95,6 +95,27 @@ using field_base = std::variant<
 using collection =
     std::unordered_map<key_t, std::shared_ptr<dynamic>, key_t, key_t>;
 
+class serializer {
+ public:
+  serializer(std::ostream& out) : out_(out) {}
+  serializer(const serializer& that) = delete;
+  serializer(serializer&& that) = delete;
+
+  template <typename T>
+  serializer& write(const T& data) {
+    T value = byte_swap(data);
+    out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
+    return *this;
+  }
+  serializer& write(const char* data, std::streamsize count) {
+    out_.write(data, count);
+    return *this;
+  }
+
+ private:
+  std::ostream& out_;
+};
+
 class field : public field_base {
  public:
   using field_base::field_base;
@@ -127,6 +148,19 @@ class field : public field_base {
       throw std::runtime_error("Invalid type");
     }
     return std::get<T>(*this);
+  }
+
+  template <typename T, std::size_t index = 0>
+  constexpr static std::size_t index_of() {
+    if constexpr (index == std::variant_size_v<field_base>) {
+      return index;
+    } else if constexpr (std::is_same_v<
+                             std::variant_alternative_t<index, field_base>,
+                             T>) {
+      return index;
+    } else {
+      return index_of<T, index + 1>();
+    }
   }
 };
 
@@ -316,26 +350,46 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 
-  //inline field& operator[](size_t pos) {
-  //  return (*this)->operator[](static_cast<hash_t>(pos));
-  //}
+  inline field& operator[](size_t pos) {
+    return (*this)->operator[](static_cast<hash_t>(pos));
+  }
 
-  //inline const field& operator[](size_t pos) const {
-  //  return (*this)->operator[](static_cast<hash_t>(pos));
-  //}
+  inline const field& operator[](size_t pos) const {
+    return (*this)->operator[](static_cast<hash_t>(pos));
+  }
 
-  //inline field& operator[](key_t name) {
-  //  auto field = (*this)->findField(name);
-  //  return field != nullptr ? *field : (*this)->operator[](name);
-  //}
+  inline field& operator[](key_t name) {
+    auto field = (*this)->findField(name);
+    return field != nullptr ? *field : (*this)->operator[](name);
+  }
 
-  //inline const field& operator[](key_t name) const {
-  //  auto field = (*this)->findField(name);
-  //  return field != nullptr ? *field : (*this)->operator[](name);
-  //}
+  inline const field& operator[](key_t name) const {
+    auto field = (*this)->findField(name);
+    return field != nullptr ? *field : (*this)->operator[](name);
+  }
 
   inline dynamic_ptr serialize(std::ostream& out) {
-    out.write("abc", 3);
+    auto& dyn = *this;
+    serializer s(out);
+    if (dyn != nullptr) {
+      s.write(dyn->fields_.size());
+      for (auto& field : dyn->fields_) {
+        unsigned char type = field.second.index();
+        s.write(type);
+        s.write(field.first);
+
+        switch (type) {
+          case field::index_of<key_t>():
+            s.write(std::get<key_t>(field.second));
+            break;
+          case field::index_of<bool>():
+            s.write(std::get<bool>(field.second));
+            break;
+          default:
+            throw std::runtime_error("Not implemented");
+        }
+      }
+    }
     return *this;
   }
 
