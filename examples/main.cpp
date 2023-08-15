@@ -44,10 +44,12 @@ int main() {
 
   auto json_value = extensions::from_json(json);
 
-  dynamic_ptr values{"test"_key, {{"a"_key, true}}};
+  dynamic_ptr source{"test"_key, {{"a"_key, true}}};
   std::stringstream ss;
-  values.serialize(ss);
-  values.deserialize(ss);
+  source.serialize(ss);
+
+  dynamic_ptr target;
+  target.deserialize(ss);
 
   dynamic::addClass("apartment"_key, dynamic_ptr{"room"_key});
   dynamic::addClass("floor"_key, dynamic_ptr{"apartment"_key});

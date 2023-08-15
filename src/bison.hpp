@@ -102,11 +102,12 @@ class serializer {
   serializer(serializer&& that) = delete;
 
   template <typename T>
-  serializer& write(const T& data) {
-    T value = byte_swap(data);
-    out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
+  serializer& write(T data) {
+    data = byte_swap(data);
+    out_.write(reinterpret_cast<const char*>(&data), sizeof(T));
     return *this;
   }
+
   serializer& write(const char* data, std::streamsize count) {
     out_.write(data, count);
     return *this;
@@ -114,6 +115,36 @@ class serializer {
 
  private:
   std::ostream& out_;
+};
+
+class deserializer {
+ public:
+  deserializer(std::istream& in) : in_(in) {}
+  deserializer(const deserializer& that) = delete;
+  deserializer(deserializer&& that) = delete;
+
+  template <typename T>
+  T read() {
+    T data{};
+    in_.read(reinterpret_cast<char*>(&data), sizeof(T));
+    data = byte_swap(data);
+    return data;
+  }
+
+  template <typename T>
+  deserializer& read(T& data) {
+    in_.read(reinterpret_cast<char*>(&data), sizeof(T));
+    data = byte_swap(data);
+    return *this;
+  }
+
+  deserializer& read(char* data, std::streamsize count) {
+    in_.read(data, count);
+    return *this;
+  }
+
+ private:
+  std::istream& in_;
 };
 
 class field : public field_base {
@@ -394,7 +425,30 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   }
 
   inline dynamic_ptr deserialize(std::istream& in) {
-    *this = dynamic_ptr{"class"_key, {{"example"_key, "example"}}};
+    auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+    deserializer s(in);
+    size_t count = 0;
+    s.read(count);
+    for (size_t i = 0; i < count; ++i) {
+      unsigned char type = 0;
+      key_t key = 0;
+      s.read(type);
+      s.read(key);
+
+      field field;
+      switch (type) {
+        case field::index_of<key_t>():
+          dyn->fields_[key] = s.read<key_t>();
+          break;
+        case field::index_of<bool>():
+          dyn->fields_[key] = s.read<bool>();
+          break;
+        default:
+          throw std::runtime_error("Not implemented");
+      }
+    }
+
+    *this = dyn;
     return *this;
   }
 };
