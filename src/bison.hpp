@@ -193,6 +193,36 @@ class field : public field_base {
       return index_of<T, index + 1>();
     }
   }
+
+  inline void serialize(serializer& out) {
+    out.write(static_cast<unsigned char>(index()));
+    switch (index()) {
+      case field::index_of<key_t>():
+        out.write(std::get<key_t>(*this));
+        break;
+      case field::index_of<bool>():
+        out.write(std::get<bool>(*this));
+        break;
+      default:
+        throw std::runtime_error("Not implemented");
+    }
+  }
+
+  inline static field deserialize(deserializer& in) {
+    field field{};
+    auto type = in.read<unsigned char>();
+    switch (type) {
+      case field::index_of<key_t>():
+        field = in.read<key_t>();
+        break;
+      case field::index_of<bool>():
+        field = in.read<bool>();
+        break;
+      default:
+        throw std::runtime_error("Not implemented");
+    }
+    return field;
+  }
 };
 
 class dynamic {
@@ -249,6 +279,25 @@ class dynamic {
   const T& as(key_t name, T def = T{}) const {
     auto& field = fields_[name];
     return field.as<T>();
+  }
+
+  inline void serialize(serializer& out) {
+    out.write(fields_.size());
+    for (auto& field : fields_) {
+      out.write(field.first);
+      field.second.serialize(out);
+    }
+  }
+
+  inline static std::shared_ptr<dynamic> deserialize(deserializer& in) {
+    auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+    auto count = in.read<size_t>();
+    for (size_t i = 0; i < count; ++i) {
+      auto key = in.read<key_t>();
+      dyn->fields_[key] = field::deserialize(in);
+    }
+
+    return dyn;
   }
 
   inline bool addField(key_t name, field value) {
@@ -379,77 +428,6 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
       fields[it.first] = it.second;
     }
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
-  }
-
-  inline field& operator[](size_t pos) {
-    return (*this)->operator[](static_cast<hash_t>(pos));
-  }
-
-  inline const field& operator[](size_t pos) const {
-    return (*this)->operator[](static_cast<hash_t>(pos));
-  }
-
-  inline field& operator[](key_t name) {
-    auto field = (*this)->findField(name);
-    return field != nullptr ? *field : (*this)->operator[](name);
-  }
-
-  inline const field& operator[](key_t name) const {
-    auto field = (*this)->findField(name);
-    return field != nullptr ? *field : (*this)->operator[](name);
-  }
-
-  inline dynamic_ptr serialize(std::ostream& out) {
-    auto& dyn = *this;
-    serializer s(out);
-    if (dyn != nullptr) {
-      s.write(dyn->fields_.size());
-      for (auto& field : dyn->fields_) {
-        unsigned char type = field.second.index();
-        s.write(type);
-        s.write(field.first);
-
-        switch (type) {
-          case field::index_of<key_t>():
-            s.write(std::get<key_t>(field.second));
-            break;
-          case field::index_of<bool>():
-            s.write(std::get<bool>(field.second));
-            break;
-          default:
-            throw std::runtime_error("Not implemented");
-        }
-      }
-    }
-    return *this;
-  }
-
-  inline dynamic_ptr deserialize(std::istream& in) {
-    auto dyn = std::shared_ptr<dynamic>(new dynamic{});
-    deserializer s(in);
-    size_t count = 0;
-    s.read(count);
-    for (size_t i = 0; i < count; ++i) {
-      unsigned char type = 0;
-      key_t key = 0;
-      s.read(type);
-      s.read(key);
-
-      field field;
-      switch (type) {
-        case field::index_of<key_t>():
-          dyn->fields_[key] = s.read<key_t>();
-          break;
-        case field::index_of<bool>():
-          dyn->fields_[key] = s.read<bool>();
-          break;
-        default:
-          throw std::runtime_error("Not implemented");
-      }
-    }
-
-    *this = dyn;
-    return *this;
   }
 };
 
