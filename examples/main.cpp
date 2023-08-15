@@ -42,6 +42,9 @@ int main() {
     }
   })";
 
+  auto swapped = byte_swap(1234.1234f);
+  auto original = byte_swap(swapped);
+
   auto json_value = extensions::from_json(json);
 
   std::stringstream ss;

@@ -13,6 +13,7 @@ namespace bdg {
 namespace bison {
 
 namespace endian {
+const size_t default = 1;
 const size_t little = 0;
 const size_t big = 1;
 const size_t native = []() {
@@ -23,13 +24,13 @@ const size_t native = []() {
 
 template <typename T>
 constexpr T byte_swap(T value) {
-  if (endian::native == endian::little) {
+  if (endian::native == endian::default) {
     return value;
   } else {
     T result = 0;
     const size_t size = sizeof(T);
     for (size_t i = 0; i < size; ++i) {
-      result = (result << 8) | ((value >> (i * 8)) & 0xFF);
+      ((unsigned char*)&result)[size - i - 1] = ((unsigned char*)&value)[i];
     }
     return result;
   }
@@ -89,8 +90,7 @@ using field_base = std::variant<
     std::string,
     std::vector<bool>,
     std::vector<int32_t>,
-    std::vector<float>,
-    std::vector<std::string>>;
+    std::vector<float>>;
 
 using collection =
     std::unordered_map<key_t, std::shared_ptr<dynamic>, key_t, key_t>;
@@ -112,10 +112,17 @@ class serializer {
   serializer& write(const std::vector<T>& data) {
     size_t count = byte_swap(data.size());
     out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
-    for (auto& it : data) {
+    for (auto it : data) {
       T value = byte_swap(it);
       out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
     }
+    return *this;
+  }
+
+  serializer& write(const std::string& data) {
+    size_t count = byte_swap(data.size());
+    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
+    out_.write(data.data(), data.size());
     return *this;
   }
 
@@ -153,12 +160,22 @@ class deserializer {
   deserializer& read(std::vector<T>& data) {
     size_t count = 0;
     in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
-    data.resize(byte_swap(count));
+    count = byte_swap(count);
+    data.resize(count);
     for (size_t idx = 0; idx < count; ++idx) {
       T value{};
       in_.read(reinterpret_cast<char*>(&value), sizeof(T));
       data[idx] = byte_swap(value);
     }
+    return *this;
+  }
+
+  deserializer& read(std::string& data) {
+    size_t count = 0;
+    in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
+    count = byte_swap(count);
+    data.resize(count);
+    in_.read(data.data(), data.size());
     return *this;
   }
 
@@ -173,6 +190,7 @@ class deserializer {
 
 class field : public field_base {
  public:
+  friend class dynamic;
   using field_base::field_base;
 
   field(const char* text) : field_base(std::string{text}){};
@@ -218,46 +236,13 @@ class field : public field_base {
     }
   }
 
-  inline void serialize(serializer& out) {
-    out.write(static_cast<unsigned char>(index()));
-    switch (index()) {
-      case field::index_of<key_t>():
-        out.write(std::get<key_t>(*this));
-        break;
-      case field::index_of<bool>():
-        out.write(std::get<bool>(*this));
-        break;
-      case field::index_of<std::vector<int32_t>>():
-        out.write(std::get<std::vector<int32_t>>(*this));
-        break;
-      default:
-        throw std::runtime_error("Not implemented");
-    }
-  }
-
-  inline static field deserialize(deserializer& in) {
-    field field{};
-    auto type = in.read<unsigned char>();
-    switch (type) {
-      case field::index_of<key_t>():
-        field = in.read<key_t>();
-        break;
-      case field::index_of<bool>():
-        field = in.read<bool>();
-        break;
-      case field::index_of<std::vector<int32_t>>():
-        field = std::vector<int32_t>{};
-        in.read(std::get<std::vector<int32_t>>(field));
-        break;
-      default:
-        throw std::runtime_error("Not implemented");
-    }
-    return field;
-  }
+  inline void serialize(serializer& out);
+  inline static field deserialize(deserializer& in);
 };
 
 class dynamic {
  public:
+  friend class field;
   friend class dynamic_ptr;
 
   dynamic(dynamic&& that) noexcept = default;
@@ -312,24 +297,8 @@ class dynamic {
     return field.as<T>();
   }
 
-  inline void serialize(serializer& out) {
-    out.write(fields_.size());
-    for (auto& field : fields_) {
-      out.write(field.first);
-      field.second.serialize(out);
-    }
-  }
-
-  inline static std::shared_ptr<dynamic> deserialize(deserializer& in) {
-    auto dyn = std::shared_ptr<dynamic>(new dynamic{});
-    auto count = in.read<size_t>();
-    for (size_t i = 0; i < count; ++i) {
-      auto key = in.read<key_t>();
-      dyn->fields_[key] = field::deserialize(in);
-    }
-
-    return dyn;
-  }
+  inline void serialize(serializer& out);
+  inline static std::shared_ptr<dynamic> deserialize(deserializer& in);
 
   inline bool addField(key_t name, field value) {
     return fields_.emplace(std::make_pair(name, std::move(value))).second;
@@ -461,6 +430,114 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 };
+
+inline void field::serialize(serializer& out) {
+  out.write(static_cast<unsigned char>(index()));
+  switch (index()) {
+    case field::index_of<std::monostate>(): {
+    } break;
+    case field::index_of<key_t>(): {
+      out.write(std::get<key_t>(*this));
+    } break;
+    case field::index_of<bool>(): {
+      out.write(std::get<bool>(*this));
+    } break;
+    case field::index_of<int32_t>(): {
+      out.write(std::get<int32_t>(*this));
+    } break;
+    case field::index_of<float>(): {
+      out.write(std::get<float>(*this));
+    } break;
+    case field::index_of<std::shared_ptr<dynamic>>(): {
+      auto& dyn = std::get<std::shared_ptr<dynamic>>(*this);
+      out.write(dyn != nullptr);
+      if (dyn != nullptr) {
+        dyn->serialize(out);
+      }
+    } break;
+    case field::index_of<std::string>(): {
+      out.write(std::get<std::string>(*this));
+    } break;
+    case field::index_of<std::vector<bool>>(): {
+      out.write(std::get<std::vector<bool>>(*this));
+    } break;
+    case field::index_of<std::vector<int32_t>>(): {
+      out.write(std::get<std::vector<int32_t>>(*this));
+    } break;
+    case field::index_of<std::vector<float>>(): {
+      out.write(std::get<std::vector<float>>(*this));
+    } break;
+    default:
+      throw std::runtime_error("Not implemented");
+  }
+}
+
+inline field field::deserialize(deserializer& in) {
+  field field{};
+  auto type = in.read<unsigned char>();
+  switch (type) {
+    case field::index_of<std::monostate>(): {
+      field = std::monostate{};
+    } break;
+    case field::index_of<key_t>(): {
+      field = in.read<key_t>();
+    } break;
+    case field::index_of<bool>(): {
+      field = in.read<bool>();
+    } break;
+    case field::index_of<int32_t>(): {
+      field = in.read<int32_t>();
+    } break;
+    case field::index_of<float>(): {
+      field = in.read<float>();
+    } break;
+    case field::index_of<std::shared_ptr<dynamic>>(): {
+      field = nullptr;
+      if (in.read<bool>()) {
+        auto value = std::shared_ptr<dynamic>(new dynamic{});
+        value->deserialize(in);
+        field = value;
+      }
+    } break;
+    case field::index_of<std::string>(): {
+      field = in.read<float>();
+    } break;
+    case field::index_of<std::vector<bool>>(): {
+      field = std::vector<bool>{};
+      in.read(std::get<std::vector<bool>>(field));
+    } break;
+    case field::index_of<std::vector<int32_t>>(): {
+      field = std::vector<int32_t>{};
+      in.read(std::get<std::vector<int32_t>>(field));
+    } break;
+    case field::index_of<std::vector<float>>(): {
+      field = std::vector<float>{};
+      in.read(std::get<std::vector<float>>(field));
+    } break;
+    default:
+      throw std::runtime_error("Not implemented");
+  }
+  return field;
+}
+
+inline void dynamic::serialize(serializer& out) {
+  out.write(fields_.size());
+  for (auto& field : fields_) {
+    out.write(field.first);
+    field.second.serialize(out);
+  }
+}
+
+inline std::shared_ptr<dynamic> dynamic::deserialize(deserializer& in) {
+  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+  auto count = in.read<size_t>();
+  for (size_t i = 0; i < count; ++i) {
+    auto key = in.read<key_t>();
+    dyn->fields_[key] = field::deserialize(in);
+  }
+
+  return dyn;
+}
 
 namespace extensions {
 std::shared_ptr<dynamic> from_json(std::string json);
