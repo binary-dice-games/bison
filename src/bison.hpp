@@ -108,6 +108,17 @@ class serializer {
     return *this;
   }
 
+  template <typename T>
+  serializer& write(const std::vector<T>& data) {
+    size_t count = byte_swap(data.size());
+    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
+    for (auto& it : data) {
+      T value = byte_swap(it);
+      out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
+    }
+    return *this;
+  }
+
   serializer& write(const char* data, std::streamsize count) {
     out_.write(data, count);
     return *this;
@@ -135,6 +146,19 @@ class deserializer {
   deserializer& read(T& data) {
     in_.read(reinterpret_cast<char*>(&data), sizeof(T));
     data = byte_swap(data);
+    return *this;
+  }
+
+  template <typename T>
+  deserializer& read(std::vector<T>& data) {
+    size_t count = 0;
+    in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
+    data.resize(byte_swap(count));
+    for (size_t idx = 0; idx < count; ++idx) {
+      T value{};
+      in_.read(reinterpret_cast<char*>(&value), sizeof(T));
+      data[idx] = byte_swap(value);
+    }
     return *this;
   }
 
@@ -203,6 +227,9 @@ class field : public field_base {
       case field::index_of<bool>():
         out.write(std::get<bool>(*this));
         break;
+      case field::index_of<std::vector<int32_t>>():
+        out.write(std::get<std::vector<int32_t>>(*this));
+        break;
       default:
         throw std::runtime_error("Not implemented");
     }
@@ -217,6 +244,10 @@ class field : public field_base {
         break;
       case field::index_of<bool>():
         field = in.read<bool>();
+        break;
+      case field::index_of<std::vector<int32_t>>():
+        field = std::vector<int32_t>{};
+        in.read(std::get<std::vector<int32_t>>(field));
         break;
       default:
         throw std::runtime_error("Not implemented");

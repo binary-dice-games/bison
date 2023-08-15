@@ -47,6 +47,7 @@ int main() {
   std::stringstream ss;
   dynamic_ptr target;
   dynamic_ptr source{"test"_key, {{"a"_key, true}}};
+  (*source)["list"_key] = std::vector<int32_t>{1, 2, 3, 4};
   source->serialize(serializer(ss));
   target = dynamic::deserialize(deserializer(ss));
 
