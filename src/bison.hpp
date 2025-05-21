@@ -279,7 +279,7 @@ class field : public field_base {
     return nullptr;
   }
 
-  inline void serialize(serializer& out);
+  inline void serialize(serializer& out) const;
   inline static field deserialize(deserializer& in);
 
  private:
@@ -291,9 +291,12 @@ class dynamic {
   friend class field;
   friend class dynamic_ptr;
 
+  static inline const key_t CLASS = "__class"_key;
+  static inline const key_t PARENT = "__parent"_key;
+
   dynamic(key_t klass = 0, std::map<key_t, field>&& fields = {})
       : fields_(std::move(fields)) {
-    fields_["__class"_key] = klass;
+    fields_[CLASS] = klass;
   }
 
   dynamic(const dynamic& that) = default;
@@ -365,7 +368,7 @@ class dynamic {
     return field.as<T>();
   }
 
-  inline void serialize(serializer& out);
+  inline void serialize(serializer& out) const;
   inline static std::shared_ptr<dynamic> deserialize(deserializer& in);
 
   inline bool addField(key_t name, field value) {
@@ -385,15 +388,15 @@ class dynamic {
   }
 
   static bool addClass(const key_t parent, std::shared_ptr<dynamic> klass) {
-    std::unique_lock<std::mutex> lk(getMutex());
-    auto name = klass->as<key_t>("__class"_key);
-    (*klass)["__parent"_key] = parent;
+    std::unique_lock<std::recursive_mutex> lk(getMutex());
+    auto name = klass->as<key_t>(CLASS);
+    (*klass)[PARENT] = parent;
 
     auto ancestor = parent;
     auto& classes = getClasses();
     auto it = classes.find(parent);
     while (it != classes.end() && ancestor != name) {
-      ancestor = it->second->as<key_t>("__parent"_key);
+      ancestor = it->second->as<key_t>(PARENT);
       it = classes.find(ancestor);
     }
 
@@ -407,16 +410,16 @@ class dynamic {
   field* findField(key_t name) const {
     auto it = fields_.find(name);
     if (it == fields_.end()) {
-      std::unique_lock<std::mutex> lk(getMutex());
+      std::unique_lock<std::recursive_mutex> lk(getMutex());
       auto& classes = getClasses();
-      auto itClass = classes.find(as<key_t>("__parent"_key));
+      auto itClass = classes.find(as<key_t>(PARENT));
       while (itClass != classes.end() && it == fields_.end()) {
         auto& klass = itClass->second;
         auto itField = klass->fields_.find(name);
         if (itField != klass->fields_.end()) {
           it = fields_.insert(std::make_pair(name, itField->second)).first;
         } else {
-          itClass = classes.find(klass->as<key_t>("__parent"_key));
+          itClass = classes.find(klass->as<key_t>(PARENT));
         }
       }
     }
@@ -427,16 +430,16 @@ class dynamic {
   method* findMethod(key_t name) const {
     auto it = methods_.find(name);
     if (it == methods_.end()) {
-      std::unique_lock<std::mutex> lk(getMutex());
+      std::unique_lock<std::recursive_mutex> lk(getMutex());
       auto& classes = getClasses();
-      auto itClass = classes.find(as<key_t>("__parent"_key));
+      auto itClass = classes.find(as<key_t>(PARENT));
       while (itClass != classes.end() && it == methods_.end()) {
         auto& klass = itClass->second;
         auto itMethod = klass->methods_.find(name);
         if (itMethod != klass->methods_.end()) {
           it = methods_.insert(std::make_pair(name, itMethod->second)).first;
         } else {
-          itClass = classes.find(klass->as<key_t>("__parent"_key));
+          itClass = classes.find(klass->as<key_t>(PARENT));
         }
       }
     }
@@ -445,20 +448,20 @@ class dynamic {
   }
 
   dynamic* findClass(key_t name) const {
-    std::unique_lock<std::mutex> lk(getMutex());
+    std::unique_lock<std::recursive_mutex> lk(getMutex());
     auto& classes = getClasses();
-    auto klass = as<key_t>("__class"_key);
+    auto klass = as<key_t>(CLASS);
     auto it = classes.find(klass);
     while (it != classes.end() && klass != name) {
-      klass = it->second->as<key_t>("__parent"_key);
+      klass = it->second->as<key_t>(PARENT);
       it = classes.find(klass);
     }
 
     return it != classes.end() ? it->second.get() : nullptr;
   }
 
-  static inline std::mutex& getMutex() {
-    static std::mutex mutex;
+  static inline std::recursive_mutex& getMutex() {
+    static std::recursive_mutex mutex;
     return mutex;
   }
 
@@ -486,7 +489,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   }
 };
 
-inline void field::serialize(serializer& out) {
+inline void field::serialize(serializer& out) const {
   out.write(static_cast<unsigned char>(index()));
   switch (index()) {
     case field::index_of<std::monostate>(): {
@@ -575,7 +578,7 @@ inline field field::deserialize(deserializer& in) {
   return field;
 }
 
-inline void dynamic::serialize(serializer& out) {
+inline void dynamic::serialize(serializer& out) const {
   out.write(fields_.size());
   for (auto& field : fields_) {
     out.write(field.first);
