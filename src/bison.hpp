@@ -6,6 +6,7 @@
 #include <iostream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <variant>
 
@@ -369,7 +370,10 @@ class dynamic {
   }
 
   inline void serialize(serializer& out) const;
+  inline void serializeWithTemplate(serializer& out) const;
   inline static std::shared_ptr<dynamic> deserialize(deserializer& in);
+  inline static std::shared_ptr<dynamic> deserializeWithTemplate(
+      deserializer& in);
 
   inline bool addField(key_t name, field value) {
     return fields_.emplace(std::make_pair(name, std::move(value))).second;
@@ -586,12 +590,45 @@ inline void dynamic::serialize(serializer& out) const {
   }
 }
 
+inline void dynamic::serializeWithTemplate(serializer& out) const {
+  auto& classes = getClasses();
+  auto klass = as<key_t>(CLASS);
+  auto it = classes.find(klass);
+
+  out.write(klass);
+  while (it != classes.end()) {
+    for (const auto& kv : it->second->fields_) {
+      kv.second.serialize(out);
+    }
+    klass = it->second->as<key_t>(PARENT);
+    it = classes.find(klass);
+  }
+}
+
 inline std::shared_ptr<dynamic> dynamic::deserialize(deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   auto count = in.read<size_t>();
   for (size_t i = 0; i < count; ++i) {
     auto key = in.read<key_t>();
     dyn->fields_[key] = field::deserialize(in);
+  }
+
+  return dyn;
+}
+
+inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
+    deserializer& in) {
+  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+  auto klass = in.read<key_t>();
+  auto& classes = getClasses();
+  auto it = classes.find(klass);
+
+  while (it != classes.end()) {
+    for (const auto& kv : it->second->fields_) {
+      dyn->fields_[kv.first] = field::deserialize(in);
+    }
+    klass = it->second->as<key_t>(PARENT);
+    it = classes.find(klass);
   }
 
   return dyn;
