@@ -15,7 +15,7 @@ std::shared_ptr<dynamic> from_json_array(json::array_t data) {
   for (auto it = data.begin(); it != data.end(); ++it) {
     switch (it->type()) {
       case json::value_t::null:
-        (*dyn)[idx++] = nullptr;
+        (*dyn)[idx++] = std::shared_ptr<dynamic>{};
         break;
       case json::value_t::boolean:
         (*dyn)[idx++] = bool{*it};
@@ -49,7 +49,7 @@ std::shared_ptr<dynamic> from_json_object(json::object_t data) {
   for (auto it = data.begin(); it != data.end(); ++it) {
     switch (it->second.type()) {
       case json::value_t::null:
-        (*dyn)[it->first] = nullptr;
+        (*dyn)[it->first] = std::shared_ptr<dynamic>{};
         break;
       case json::value_t::boolean:
         (*dyn)[it->first] = bool{it->second};

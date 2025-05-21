@@ -47,6 +47,9 @@ int main() {
 
   auto json_value = extensions::from_json(json);
 
+  (*json_value)["a"_key] = std::string{"ejemplo"};
+  std::cout << (*json_value)["a"_key].as<std::string>() << std::endl;
+
   std::stringstream ss;
   dynamic_ptr target;
   dynamic_ptr source{"test"_key, {{"a"_key, true}}};

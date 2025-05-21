@@ -12,6 +12,13 @@
 namespace bdg {
 namespace bison {
 
+class serializer;
+class deserializer;
+class attribute;
+class field;
+class dynamic;
+class dynamic_ptr;
+
 namespace endian {
 const size_t default = 1;
 const size_t little = 0;
@@ -188,12 +195,24 @@ class deserializer {
   std::istream& in_;
 };
 
+class attribute {};
+
+template <typename T, typename... Args>
+std::shared_ptr<const attribute> attr(Args&&... args) {
+  static_assert(
+      std::is_base_of_v<attribute, T>, "T must derive from attribute");
+  return std::make_shared<T>(std::forward<Args>(args)...);
+}
+
 class field : public field_base {
  public:
   friend class dynamic;
-  using field_base::field_base;
 
-  field(const char* text) : field_base(std::string{text}){};
+  field() : field_base(std::monostate{}) {}
+
+  template <typename T, typename... Attrs>
+  field(T value, Attrs&&... attrs)
+      : field_base(value), attributes_{std::forward<Attrs>(attrs)...} {}
 
   template <typename T>
   operator T() const {
@@ -201,6 +220,18 @@ class field : public field_base {
       throw std::runtime_error("Invalid type");
     }
     return std::get<T>(*this);
+  }
+
+  template <typename T>
+  field& operator=(const T& value) {
+    if (std::holds_alternative<std::monostate>(*this)) {
+      field_base::operator=(value);
+    } else if (!std::holds_alternative<T>(*this)) {
+      throw std::runtime_error("Invalid type");
+    } else {
+      field_base::operator=(value);
+    }
+    return *this;
   }
 
   template <typename T>
@@ -236,8 +267,23 @@ class field : public field_base {
     }
   }
 
+  template <typename T>
+  const T* findAttribute() const {
+    static_assert(
+        std::is_base_of_v<attribute, T>, "T must derive from attribute");
+    for (const auto& attr_ptr : attributes_) {
+      if (const T* result = dynamic_cast<const T*>(attr_ptr.get())) {
+        return result;
+      }
+    }
+    return nullptr;
+  }
+
   inline void serialize(serializer& out);
   inline static field deserialize(deserializer& in);
+
+ private:
+  mutable std::vector<std::shared_ptr<const attribute>> attributes_;
 };
 
 class dynamic {
@@ -245,6 +291,12 @@ class dynamic {
   friend class field;
   friend class dynamic_ptr;
 
+  dynamic(key_t klass = 0, std::map<key_t, field>&& fields = {})
+      : fields_(std::move(fields)) {
+    fields_["__class"_key] = klass;
+  }
+
+  dynamic(const dynamic& that) = default;
   dynamic(dynamic&& that) noexcept = default;
   dynamic& operator=(const dynamic& that) = delete;
   dynamic& operator=(dynamic&& that) = default;
@@ -283,6 +335,22 @@ class dynamic {
   inline const field& operator[](key_t name) const {
     auto field = findField(name);
     return field != nullptr ? *field : fields_[name];
+  }
+
+  field& at(key_t name) {
+    return (*this)[name];
+  }
+
+  const field& at(key_t name) const {
+    return (*this)[name];
+  }
+
+  field& at(size_t pos) {
+    return (*this)[pos];
+  }
+
+  const field& at(size_t pos) const {
+    return (*this)[pos];
   }
 
   template <typename T>
@@ -335,17 +403,6 @@ class dynamic {
 
     return classes.try_emplace(name, std::move(klass)).second;
   }
-
- private:
-  mutable std::map<key_t, field> fields_;
-  mutable std::map<key_t, method> methods_;
-
-  dynamic(key_t klass = 0, std::map<key_t, field>&& fields = {})
-      : fields_(std::move(fields)) {
-    fields_["__class"_key] = klass;
-  }
-
-  dynamic(const dynamic& that) = default;
 
   field* findField(key_t name) const {
     auto it = fields_.find(name);
@@ -409,6 +466,10 @@ class dynamic {
     static collection classes;
     return classes;
   }
+
+ private:
+  mutable std::map<key_t, field> fields_;
+  mutable std::map<key_t, method> methods_;
 };
 
 class dynamic_ptr : public std::shared_ptr<dynamic> {
@@ -420,13 +481,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
     *this = std::shared_ptr<dynamic>(dyn);
   }
 
-  dynamic_ptr(
-      key_t klass = 0,
-      std::initializer_list<std::pair<key_t, field>> params = {}) {
-    std::map<key_t, field> fields;
-    for (auto& it : params) {
-      fields[it.first] = it.second;
-    }
+  dynamic_ptr(key_t klass = 0, std::map<key_t, field>&& fields = {}) {
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 };
@@ -492,7 +547,7 @@ inline field field::deserialize(deserializer& in) {
       field = in.read<float>();
     } break;
     case field::index_of<std::shared_ptr<dynamic>>(): {
-      field = nullptr;
+      field = std::shared_ptr<dynamic>{};
       if (in.read<bool>()) {
         auto value = std::shared_ptr<dynamic>(new dynamic{});
         value->deserialize(in);
@@ -500,7 +555,7 @@ inline field field::deserialize(deserializer& in) {
       }
     } break;
     case field::index_of<std::string>(): {
-      field = in.read<float>();
+      field = in.read<std::string>();
     } break;
     case field::index_of<std::vector<bool>>(): {
       field = std::vector<bool>{};
