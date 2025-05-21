@@ -19,7 +19,6 @@ class Test {
 };
 
 int main() {
-
   auto swap = byte_swap(int32_t{0x01020304});
 
   // std::pair<int, Test> mypair{1, Test()};
@@ -37,7 +36,7 @@ int main() {
   auto json = R"({
     "a": "b",
     "c": {
-      "d": "e",
+      "d": 3,
       "f": "g"
     }
   })";
@@ -51,13 +50,22 @@ int main() {
   std::cout << (*json_value)["a"_key].as<std::string>() << std::endl;
 
   std::stringstream ss;
-  dynamic_ptr target;
-  dynamic_ptr source{"test"_key, {{"a"_key, true}}};
-  (*source)["list"_key] = std::vector<int32_t>{1, 2, 3, 4};
-  source->serialize(serializer(ss));
+  dynamic_ptr target{
+      "test"_key,
+      {{"a"_key, {true, attr<attribute>(), attr<attribute>()}},
+       {"b"_key, 3.14159f}}};
+  dynamic source{
+      "test"_key,
+      {{"a"_key, {true, attr<attribute>(), attr<attribute>()}},
+       {"b"_key, 3.14159f}}};
+  source["list"_key] = std::vector<int32_t>{1, 2, 3, 4};
+  source.serialize(serializer(ss));
   target = dynamic::deserialize(deserializer(ss));
 
-  (*source)["other"_key] = 1234;
+  auto copy = source.clone();
+  auto attr = copy["a"_key].findAttribute<attribute>();
+
+  source["other"_key] = 1234;
 
   dynamic::addClass("apartment"_key, dynamic_ptr{"room"_key});
   dynamic::addClass("floor"_key, dynamic_ptr{"apartment"_key});
