@@ -49,15 +49,20 @@ int main() {
   (*json_value)["a"_key] = std::string{"ejemplo"};
   std::cout << (*json_value)["a"_key].as<std::string>() << std::endl;
 
+  dynamic_ptr inner{0, {{"d"_key, 3.14159f}}};
+
   std::stringstream ss;
   dynamic_ptr target{
-      "test"_key,
+      0,
       {{"a"_key, {true, attr<attribute>(), attr<attribute>()}},
-       {"b"_key, 3.14159f}}};
+       {"b"_key, 3.14159f},
+       {"c"_key, inner}}};
+
   dynamic source{
       "test"_key,
       {{"a"_key, {true, attr<attribute>(), attr<attribute>()}},
        {"b"_key, 3.14159f}}};
+
   source["list"_key] = std::vector<int32_t>{1, 2, 3, 4};
   source.serialize(serializer(ss));
   target = dynamic::deserialize(deserializer(ss));

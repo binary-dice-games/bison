@@ -10,8 +10,7 @@
 #include <string>
 #include <variant>
 
-namespace bdg {
-namespace bison {
+namespace bdg::bison {
 
 class serializer;
 class deserializer;
@@ -213,7 +212,13 @@ class field : public field_base {
 
   template <typename T, typename... Attrs>
   field(T value, Attrs&&... attrs)
-      : field_base(value), attributes_{std::forward<Attrs>(attrs)...} {}
+      : field_base(
+            std::conditional_t<
+                std::is_same_v<std::decay_t<T>, char*> ||
+                    std::is_same_v<std::decay_t<T>, const char*>,
+                std::string,
+                std::decay_t<T>>(std::forward<T>(value))),
+        attributes_{std::forward<Attrs>(attrs)...} {}
 
   template <typename T>
   operator T() const {
@@ -389,6 +394,10 @@ class dynamic {
       throw std::runtime_error("Method not found");
     }
     return (*fn)(*this, params);
+  }
+
+  static dynamic instantiate(const key_t klass) {
+    return dynamic{klass};
   }
 
   static bool addClass(const key_t parent, std::shared_ptr<dynamic> klass) {
@@ -638,5 +647,4 @@ namespace extensions {
 std::shared_ptr<dynamic> from_json(std::string json);
 } // namespace extensions
 
-} // namespace bison
-} // namespace bdg
+} // namespace bdg::bison

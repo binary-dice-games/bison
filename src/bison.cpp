@@ -3,8 +3,7 @@
 
 using json = nlohmann::json;
 
-namespace bdg {
-namespace bison {
+namespace bdg::bison {
 
 std::shared_ptr<dynamic> from_json_array(json::array_t data);
 std::shared_ptr<dynamic> from_json_object(json::object_t data);
@@ -85,5 +84,4 @@ std::shared_ptr<dynamic> from_json(std::string text) {
 }
 
 } // namespace extensions
-} // namespace bison
-} // namespace bdg
+} // namespace bdg::bison
