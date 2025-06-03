@@ -52,11 +52,11 @@ int main() {
   dynamic_ptr inner{0, {{"d"_key, 3.14159f}}};
 
   std::stringstream ss;
-  dynamic_ptr target{
+  auto target = dynamic_ptr(
       0,
       {{"a"_key, {true, attr<attribute>(), attr<attribute>()}},
        {"b"_key, 3.14159f},
-       {"c"_key, inner}}};
+       {"c"_key, inner}});
 
   dynamic source{
       "test"_key,

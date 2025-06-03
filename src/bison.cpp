@@ -1,3 +1,7 @@
+// MIT License © 2025 Binary Dice Games
+// Permission is hereby granted, free of charge, to use, copy, modify, and distribute this file.
+// See the LICENSE file or https://opensource.org/licenses/MIT for details.
+
 #include <bison.hpp>
 #include <nlohmann/json.hpp>
 

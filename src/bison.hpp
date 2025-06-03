@@ -1,3 +1,8 @@
+// MIT License © 2025 Binary Dice Games
+// Permission is hereby granted, free of charge, to use, copy, modify, and
+// distribute this file. See the LICENSE file or
+// https://opensource.org/licenses/MIT for details.
+
 #pragma once
 
 #include <atomic>
@@ -101,6 +106,8 @@ using field_base = std::variant<
 
 using collection =
     std::unordered_map<key_t, std::shared_ptr<dynamic>, key_t, key_t>;
+
+class userdata {};
 
 class serializer {
  public:
@@ -208,16 +215,23 @@ class field : public field_base {
  public:
   friend class dynamic;
 
+  template <typename T>
+  static auto to_field_value(T&& value) {
+    using value_type = std::decay_t<T>;
+    if constexpr (
+        std::is_same_v<value_type, char*> ||
+        std::is_same_v<value_type, const char*>) {
+      return std::string(value);
+    } else {
+      return std::forward<T>(value);
+    }
+  }
+
   field() : field_base(std::monostate{}) {}
 
   template <typename T, typename... Attrs>
   field(T value, Attrs&&... attrs)
-      : field_base(
-            std::conditional_t<
-                std::is_same_v<std::decay_t<T>, char*> ||
-                    std::is_same_v<std::decay_t<T>, const char*>,
-                std::string,
-                std::decay_t<T>>(std::forward<T>(value))),
+      : field_base(to_field_value(std::forward<T>(value))),
         attributes_{std::forward<Attrs>(attrs)...} {}
 
   template <typename T>
@@ -230,14 +244,21 @@ class field : public field_base {
 
   template <typename T>
   field& operator=(const T& value) {
+    auto v = to_field_value(value);
+    using value_type = decltype(v);
     if (std::holds_alternative<std::monostate>(*this)) {
-      field_base::operator=(value);
-    } else if (!std::holds_alternative<T>(*this)) {
+      field_base::operator=(v);
+    } else if (!std::holds_alternative<value_type>(*this)) {
       throw std::runtime_error("Invalid type");
     } else {
-      field_base::operator=(value);
+      field_base::operator=(v);
     }
     return *this;
+  }
+
+  template <typename T>
+  bool is() const {
+    return std::holds_alternative<T>(*this);
   }
 
   template <typename T>
@@ -300,8 +321,11 @@ class dynamic {
   static inline const key_t CLASS = "__class"_key;
   static inline const key_t PARENT = "__parent"_key;
 
-  dynamic(key_t klass = 0, std::map<key_t, field>&& fields = {})
-      : fields_(std::move(fields)) {
+  dynamic(
+      key_t klass = 0,
+      std::map<key_t, field>&& fields = {},
+      std::shared_ptr<userdata> userdata = nullptr)
+      : fields_(std::move(fields)), userdata_(userdata) {
     fields_[CLASS] = klass;
   }
 
@@ -322,6 +346,10 @@ class dynamic {
 
   inline bool erase(size_t pos) {
     return fields_.erase(static_cast<hash_t>(pos)) != 0;
+  }
+
+  inline bool empty() const {
+    return fields_.empty();
   }
 
   inline void clear() {
@@ -386,6 +414,14 @@ class dynamic {
 
   inline bool addMethod(key_t name, method fn) {
     return methods_.emplace(std::make_pair(name, fn)).second;
+  }
+
+  inline void setUserdata(std::shared_ptr<userdata> userdata) {
+    userdata_ = std::move(userdata);
+  }
+
+  inline std::shared_ptr<userdata> getUserdata() const {
+    return userdata_;
   }
 
   inline dynamic call(key_t name, const dynamic& params) {
@@ -486,6 +522,7 @@ class dynamic {
  private:
   mutable std::map<key_t, field> fields_;
   mutable std::map<key_t, method> methods_;
+  mutable std::shared_ptr<userdata> userdata_;
 };
 
 class dynamic_ptr : public std::shared_ptr<dynamic> {
