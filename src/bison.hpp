@@ -39,7 +39,7 @@ constexpr T byte_swap(T value) {
   if (endian::native == endian::default) {
     return value;
   } else {
-    T result = 0;
+    T result = 0U;
     const size_t size = sizeof(T);
     for (size_t i = 0; i < size; ++i) {
       ((unsigned char*)&result)[size - i - 1] = ((unsigned char*)&value)[i];
@@ -48,7 +48,7 @@ constexpr T byte_swap(T value) {
   }
 }
 
-using hash_t = int32_t;
+using hash_t = uint32_t;
 
 constexpr hash_t hash(const char* input) {
   hash_t value = sizeof(hash_t) == 8 ? 0xcbf29ce484222325 : 0x811c9dc5;
@@ -94,6 +94,7 @@ using method =
 
 using field_base = std::variant<
     std::monostate,
+    hash_t,
     key_t,
     bool,
     int32_t,
@@ -318,11 +319,11 @@ class dynamic {
   friend class field;
   friend class dynamic_ptr;
 
-  static inline const key_t CLASS = "__class"_key;
-  static inline const key_t PARENT = "__parent"_key;
+  static inline constexpr hash_t CLASS = "__class"_key;
+  static inline constexpr hash_t PARENT = "__parent"_key;
 
   dynamic(
-      key_t klass = 0,
+      key_t klass = 0U,
       std::map<key_t, field>&& fields = {},
       std::shared_ptr<userdata> userdata = nullptr)
       : fields_(std::move(fields)), userdata_(userdata) {
@@ -353,7 +354,7 @@ class dynamic {
   }
 
   inline void clear() {
-    fields_.erase(fields_.lower_bound(0), fields_.end());
+    fields_.erase(fields_.lower_bound(0U), fields_.end());
   }
 
   inline field& operator[](size_t pos) {
@@ -534,7 +535,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
     *this = std::shared_ptr<dynamic>(dyn);
   }
 
-  dynamic_ptr(key_t klass = 0, std::map<key_t, field>&& fields = {}) {
+  dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {}) {
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 };

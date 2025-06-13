@@ -49,11 +49,11 @@ int main() {
   (*json_value)["a"_key] = std::string{"ejemplo"};
   std::cout << (*json_value)["a"_key].as<std::string>() << std::endl;
 
-  dynamic_ptr inner{0, {{"d"_key, 3.14159f}}};
+  dynamic_ptr inner{0U, {{"d"_key, 3.14159f}}};
 
   std::stringstream ss;
   auto target = dynamic_ptr(
-      0,
+      0U,
       {{"a"_key, {true, attr<attribute>(), attr<attribute>()}},
        {"b"_key, 3.14159f},
        {"c"_key, inner}});
