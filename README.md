@@ -86,6 +86,60 @@ cmake -E chdir build/examples/Debug bison_examples.exe
 
 The example output intentionally uses ASCII-only separators so it renders correctly in default Windows PowerShell and other terminals without additional encoding configuration.
 
+## Performance Benchmark
+
+The repository also includes a benchmark target named `bison_performance` in `examples/performance.cpp`. It compares the cost of implementing the same record-like object using a plain C++ class, `bison::dynamic`, and `nlohmann::json`.
+
+The benchmark uses repeated samples with optional warm-up passes. Each result is reported as `min/median`, and the ratio columns are calculated from the median times. The `Serialize` and `Deserialize` rows reuse prebuilt objects and payloads so they isolate serialization cost instead of folding object construction into the same measurement.
+
+The benchmark currently measures these operations over a configurable number of iterations:
+
+- create / destroy
+- field set / get
+- method-style calls
+- serialize
+- deserialize
+
+### Build the benchmark
+
+Use `Release` for meaningful timing numbers:
+
+```bash
+cmake -B build
+cmake --build build --config Release --target bison_performance
+```
+
+### Run the benchmark
+
+From the repository root on Windows:
+
+```powershell
+.\build\examples\Release\bison_performance.exe 100000
+```
+
+The positional numeric argument is the iteration count per sample. If you omit it, the executable uses a built-in default.
+
+You can also control the benchmark with flags:
+
+```powershell
+.\build\examples\Release\bison_performance.exe --iterations=100000 --samples=7 --warmup=2 --format=markdown
+```
+
+Supported output formats are `table`, `csv`, and `markdown`.
+
+### Benchmark architecture
+
+The benchmark harness is intentionally structured to keep timing comparisons fair and repeatable:
+
+- **Three equivalent implementations**: each operation is implemented using a plain C++ record, `bison::dynamic`, and `nlohmann::json`.
+- **Sample-based timing**: each row is measured across warm-up passes and multiple timed samples; reported values are `min/median` milliseconds.
+- **Median-based ratios**: `dyn x` and `json x` are computed from median times, which reduces sensitivity to outliers.
+- **State reset per sample**: mutating benchmarks (set/get and method-style call) rebuild their working state for each measured sample.
+- **Prebuilt serialization fixtures**: serialize/deserialize rows reuse precomputed objects and payload buffers so those rows isolate serialization work.
+- **Optimization guard**: benchmark paths feed values into a volatile sink to prevent dead-code elimination.
+
+Together, this keeps the benchmark focused on representation overhead rather than setup noise.
+
 ## Python Binding
 
 The `python/` package is a thin `ctypes` wrapper over the native `bison_c` shared library. It does not build the native code itself, so build the project first.
