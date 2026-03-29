@@ -20,9 +20,10 @@ using namespace bdg::bison;
 // Helper: print a separator line for readability
 // ─────────────────────────────────────────────────────────────────────────────
 static void section(const char* title) {
-  std::cout << "\n══════════════════════════════════════════\n";
-  std::cout << "  " << title << "\n";
-  std::cout << "══════════════════════════════════════════\n";
+  static int index = 0;
+  std::cout << "\n==========================================\n";
+  std::cout << "  " << ++index << ". " << title << "\n";
+  std::cout << "==========================================\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ static void section(const char* title) {
 // is zero runtime string-comparison overhead.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_hashing() {
-  section("1. Hashing and keys");
+  section("Hashing and keys");
 
   // Compile-time hash via the _key literal
   constexpr hash_t k1 = "velocity"_key;
@@ -61,7 +62,7 @@ static void example_hashing() {
 // set to a type, only that same type can be assigned again (or it throws).
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_field() {
-  section("2. field – the variant value type");
+  section("field - the variant value type");
 
   // ── Construction ──────────────────────────────────────────────────────────
   field f_empty;                          // monostate (empty)
@@ -120,7 +121,7 @@ static void example_field() {
 // methods, an optional class tag, and optional userdata.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_dynamic_basics() {
-  section("3. dynamic – the runtime object");
+  section("dynamic - the runtime object");
 
   // ── Named fields ──────────────────────────────────────────────────────────
   dynamic obj{"Person"_key};
@@ -178,7 +179,7 @@ static void example_dynamic_basics() {
 // object without any external schema.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_serialization() {
-  section("4. Binary serialization – standard mode");
+  section("Binary serialization - standard mode");
 
   dynamic src{"Config"_key};
   src["width"_key]  = int32_t{1920};
@@ -226,7 +227,7 @@ static void example_serialization() {
 // with addClass).  This produces smaller payloads for known message types.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_template_serialization() {
-  section("5. Template serialization – compact mode");
+  section("Template serialization - compact mode");
 
   // Clear any leftover classes from previous examples.
   {
@@ -274,7 +275,7 @@ static void example_template_serialization() {
 // and returns a dynamic result.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_methods() {
-  section("6. Methods – attaching behaviour to objects");
+  section("Methods - attaching behaviour to objects");
 
   dynamic calc{"Calculator"_key};
 
@@ -330,7 +331,7 @@ static void example_methods() {
 // the prototype data into each instance upfront.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_inheritance() {
-  section("7. Class hierarchy and inheritance");
+  section("Class hierarchy and inheritance");
 
   // Clear any leftover classes from previous examples.
   {
@@ -395,7 +396,7 @@ static void example_inheritance() {
 // runtime application use.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_userdata() {
-  section("8. Userdata – attaching non-serialized context");
+  section("Userdata - attaching non-serialized context");
 
   class RenderState : public userdata {
    public:
@@ -436,7 +437,7 @@ static void example_userdata() {
 // with numeric indices, null→null shared_ptr<dynamic>).
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_json() {
-  section("9. JSON import");
+  section("JSON import");
 
   auto obj = extensions::from_json(R"({
     "name":    "Alice",
@@ -471,6 +472,40 @@ static void example_json() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Example 10: YAML import (extensions::from_yaml)
+//
+// Convert a YAML document into a dynamic object. Mappings become named fields,
+// sequences become numeric-indexed dynamic objects, and scalar values are
+// parsed into the most specific supported field type.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_yaml() {
+  section("YAML import");
+
+  auto obj = extensions::from_yaml(R"(
+server:
+  host: localhost
+  port: 8080
+debug: true
+threshold: 0.75
+tags:
+  - yaml
+  - bison
+  - example
+)");
+
+  auto server = (*obj)["server"].as<std::shared_ptr<dynamic>>();
+  std::cout << "host      : " << (*server)["host"].as<std::string>() << "\n";
+  std::cout << "port      : " << (*server)["port"].as<int32_t>() << "\n";
+  std::cout << "debug     : " << (*obj)["debug"].as<bool>() << "\n";
+  std::cout << "threshold : " << (*obj)["threshold"].as<float>() << "\n";
+
+  auto tags = (*obj)["tags"].as<std::shared_ptr<dynamic>>();
+  std::cout << "tags[0]   : " << (*tags)[0].as<std::string>() << "\n";
+  std::cout << "tags[2]   : " << (*tags)[2].as<std::string>() << "\n";
+  std::cout << "tag count : " << tags->size() << "\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
 int main() {
@@ -483,6 +518,7 @@ int main() {
   example_inheritance();
   example_userdata();
   example_json();
+  example_yaml();
 
   std::cout << "\nAll examples completed successfully.\n";
   return 0;

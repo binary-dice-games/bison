@@ -57,6 +57,35 @@ Then include the single header:
 #include <bison.hpp>
 ```
 
+## C++ Example
+
+The repository includes a small C++ example target named `bison_examples` in `examples/main.cpp`.
+
+### Build the example
+
+From the repository root:
+
+```bash
+cmake -B build
+cmake --build build --config Debug --target bison_examples
+```
+
+### Run the example
+
+With the Visual Studio generator on Windows, the executable is emitted at `build/examples/Debug/bison_examples.exe`. You can run it directly:
+
+```powershell
+.\build\examples\Debug\bison_examples.exe
+```
+
+If you want to stay within CMake commands, use `cmake -E chdir` to launch it:
+
+```bash
+cmake -E chdir build/examples/Debug bison_examples.exe
+```
+
+The example output intentionally uses ASCII-only separators so it renders correctly in default Windows PowerShell and other terminals without additional encoding configuration.
+
 ## Python Binding
 
 The `python/` package is a thin `ctypes` wrapper over the native `bison_c` shared library. It does not build the native code itself, so build the project first.
