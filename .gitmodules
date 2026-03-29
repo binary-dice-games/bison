@@ -4,3 +4,6 @@
 [submodule "extern/json"]
 	path = extern/json
 	url = https://github.com/nlohmann/json.git
+[submodule "extern/yaml"]
+	path = extern/yaml
+	url = https://github.com/yaml/libyaml.git
