@@ -56,8 +56,8 @@
  *
  * dynamic obj{"MyClass"_key, {{"score"_key, int32_t{42}}}};
  * std::stringstream ss;
- * obj.serialize(serializer(ss));
- * auto copy = dynamic::deserialize(deserializer(ss));
+ * obj.serialize(stream_serializer(ss));
+ * auto copy = dynamic::deserialize(stream_deserializer(ss));
  * @endcode
  */
 
@@ -69,10 +69,10 @@
  */
 namespace bdg::bison {
 
-class serializer;
-class deserializer;
 class buffer_serializer;
 class buffer_deserializer;
+class stream_serializer;
+class stream_deserializer;
 class attribute;
 class field;
 class dynamic;
@@ -333,299 +333,9 @@ class userdata {
 };
 
 /**
- * @brief Writes primitive values, strings, and vectors to a binary stream.
- *
- * `serializer` wraps an `std::ostream` and provides type-safe `write`
- * overloads. Every multi-byte scalar is byte-swapped to big-endian (network)
- * byte order before being written. Strings and vectors are prefixed with a
- * `size_t` element count so that the corresponding `deserializer` can
- * reconstruct them without external length information.
- *
- * The class is non-copyable and non-movable to prevent accidental aliasing of
- * the underlying stream.
- *
- * ### Example
- * @code{.cpp}
- * std::ofstream file("data.bin", std::ios::binary);
- * serializer out(file);
- * out.write(int32_t{42})
- *    .write(std::string{"hello"})
- *    .write(std::vector<float>{1.0f, 2.0f});
- * @endcode
- */
-class serializer {
- public:
-  /** @brief Construct a serializer that writes to @p out. */
-  serializer(std::ostream& out) : out_(out) {}
-  serializer(const serializer& that) = delete;
-  serializer(serializer&& that) = delete;
-
-  /**
-   * @brief Write a single scalar value in big-endian byte order.
-   *
-   * @tparam T  An integral or floating-point type.
-   * @param  data  The value to write.
-   * @return Reference to `*this` for method chaining.
-   */
-  template <typename T>
-  serializer& write(T data) {
-    data = byte_swap(data);
-    out_.write(reinterpret_cast<const char*>(&data), sizeof(T));
-    return *this;
-  }
-
-  /**
-   * @brief Write a `std::vector` prefixed with its element count.
-   *
-   * The count is written as a byte-swapped `size_t`, followed by each element
-   * individually byte-swapped.
-   *
-   * @tparam T  Element type of the vector.
-   * @param  data  The vector to write.
-   * @return Reference to `*this` for method chaining.
-   */
-  template <typename T>
-  serializer& write(const std::vector<T>& data) {
-    size_t count = byte_swap(data.size());
-    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
-    for (auto it : data) {
-      T value = byte_swap(it);
-      out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
-    }
-    return *this;
-  }
-
-  /**
-   * @brief Write a `std::span` prefixed with its element count.
-   *
-   * The count is written as a byte-swapped `size_t`, followed by each element
-   * individually byte-swapped.
-   *
-   * @tparam T  Element type of the span.
-   * @param data  The span to write.
-   * @return Reference to `*this` for method chaining.
-   */
-  template <typename T>
-  serializer& write(std::span<const T> data) {
-    size_t count = byte_swap(data.size());
-    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
-    for (const auto& it : data) {
-      T value = byte_swap(it);
-      out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
-    }
-    return *this;
-  }
-
-  /**
-   * @brief Write a `std::string` prefixed with its byte length.
-   *
-   * The length is written as a byte-swapped `size_t`, followed by the raw
-   * character data (not null-terminated).
-   *
-   * @param data  The string to write.
-   * @return Reference to `*this` for method chaining.
-   */
-  serializer& write(const std::string& data) {
-    size_t count = byte_swap(data.size());
-    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
-    out_.write(data.data(), data.size());
-    return *this;
-  }
-
-  /**
-   * @brief Write a `std::string_view` prefixed with its byte length.
-   *
-   * The length is written as a byte-swapped `size_t`, followed by the raw
-   * character data (not null-terminated).
-   *
-   * @param data  The string view to write.
-   * @return Reference to `*this` for method chaining.
-   */
-  serializer& write(std::string_view data) {
-    size_t count = byte_swap(data.size());
-    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
-    out_.write(data.data(), static_cast<std::streamsize>(data.size()));
-    return *this;
-  }
-
-  /**
-   * @brief Write raw bytes without any transformation.
-   *
-   * @param data   Pointer to the byte buffer.
-   * @param count  Number of bytes to write.
-   * @return Reference to `*this` for method chaining.
-   */
-  serializer& write(const char* data, std::streamsize count) {
-    out_.write(data, count);
-    return *this;
-  }
-
- private:
-  std::ostream& out_;
-};
-
-/**
- * @brief Reads primitive values, strings, and vectors from a binary stream.
- *
- * `deserializer` wraps an `std::istream` and provides type-safe `read`
- * overloads that mirror those of `serializer`. Every multi-byte scalar is
- * byte-swapped from big-endian (network) byte order after being read. Strings
- * and vectors are reconstructed using the size prefix written by `serializer`.
- *
- * The class is non-copyable and non-movable to prevent accidental aliasing of
- * the underlying stream.
- *
- * ### Example
- * @code{.cpp}
- * std::ifstream file("data.bin", std::ios::binary);
- * deserializer in(file);
- * int32_t value = in.read<int32_t>();
- * std::string text;
- * in.read(text);
- * @endcode
- */
-class deserializer {
- public:
-  /** @brief Construct a deserializer that reads from @p in. */
-  deserializer(std::istream& in) : in_(in) {}
-  deserializer(const deserializer& that) = delete;
-  deserializer(deserializer&& that) = delete;
-
-  /**
-   * @brief Read a single scalar value and return it by value.
-   *
-   * @tparam T  An integral or floating-point type.
-   * @return The byte-swapped value read from the stream.
-   */
-  template <typename T>
-  T read() {
-    T data{};
-    in_.read(reinterpret_cast<char*>(&data), sizeof(T));
-    data = byte_swap(data);
-    return data;
-  }
-
-  /**
-   * @brief Read a single scalar value into an existing variable.
-   *
-   * @tparam T  An integral or floating-point type.
-   * @param  data  Output variable that receives the value.
-   * @return Reference to `*this` for method chaining.
-   */
-  template <typename T>
-  deserializer& read(T& data) {
-    in_.read(reinterpret_cast<char*>(&data), sizeof(T));
-    data = byte_swap(data);
-    return *this;
-  }
-
-  /**
-   * @brief Read a size-prefixed vector.
-   *
-   * Reads the element count (a byte-swapped `size_t`), resizes @p data, then
-   * reads and byte-swaps each element individually.
-   *
-   * @tparam T  Element type of the vector.
-   * @param  data  Output vector that receives the elements.
-   * @return Reference to `*this` for method chaining.
-   */
-  template <typename T>
-  deserializer& read(std::vector<T>& data) {
-    size_t count = 0;
-    in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
-    count = byte_swap(count);
-    data.resize(count);
-    for (size_t idx = 0; idx < count; ++idx) {
-      T value{};
-      in_.read(reinterpret_cast<char*>(&value), sizeof(T));
-      data[idx] = byte_swap(value);
-    }
-    return *this;
-  }
-
-  /**
-   * @brief Read a size-prefixed sequence into a fixed-size span.
-   *
-   * Reads the element count (a byte-swapped `size_t`) and verifies it matches
-   * `data.size()`, then reads and byte-swaps each element into the span.
-   *
-   * @tparam T  Element type of the span.
-   * @param data  Output span that receives the elements.
-   * @return Reference to `*this` for method chaining.
-   * @throws std::runtime_error if the serialized element count does not match
-   *         the span size.
-   */
-  template <typename T>
-  deserializer& read(std::span<T> data) {
-    size_t count = 0;
-    in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
-    count = byte_swap(count);
-    if (count != data.size()) {
-      throw std::runtime_error("Invalid span size");
-    }
-    for (size_t idx = 0; idx < count; ++idx) {
-      T value{};
-      in_.read(reinterpret_cast<char*>(&value), sizeof(T));
-      data[idx] = byte_swap(value);
-    }
-    return *this;
-  }
-
-  /**
-   * @brief Read a size-prefixed string.
-   *
-   * Reads the byte length (a byte-swapped `size_t`), resizes @p data, then
-   * reads the raw character data.
-   *
-   * @param data  Output string that receives the characters.
-   * @return Reference to `*this` for method chaining.
-   */
-  deserializer& read(std::string& data) {
-    size_t count = 0;
-    in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
-    count = byte_swap(count);
-    data.resize(count);
-    in_.read(data.data(), data.size());
-    return *this;
-  }
-
-  /**
-   * @brief Read a size-prefixed string into caller-provided storage and expose
-   *        it as `std::string_view`.
-   *
-   * The view aliases @p storage and remains valid while @p storage is alive
-   * and unmodified.
-   *
-   * @param view     Output string_view over @p storage.
-   * @param storage  Output string that owns the characters.
-   * @return Reference to `*this` for method chaining.
-   */
-  deserializer& read(std::string_view& view, std::string& storage) {
-    read(storage);
-    view = storage;
-    return *this;
-  }
-
-  /**
-   * @brief Read raw bytes without any transformation.
-   *
-   * @param data   Buffer that receives the bytes.
-   * @param count  Number of bytes to read.
-   * @return Reference to `*this` for method chaining.
-   */
-  deserializer& read(char* data, std::streamsize count) {
-    in_.read(data, count);
-    return *this;
-  }
-
- private:
-  std::istream& in_;
-};
-
-/**
  * @brief In-memory serializer that writes directly to a `std::vector<char>`.
  *
- * `buffer_serializer` provides the same interface as `serializer` but avoids
+ * `buffer_serializer` provides the same interface as `stream_serializer` but avoids
  * the virtual-dispatch overhead of `std::ostream`.  It writes bytes directly
  * into a heap-allocated buffer, which is significantly faster when the
  * bottleneck is many small `write()` calls.
@@ -786,7 +496,7 @@ class buffer_serializer {
 /**
  * @brief In-memory deserializer that reads directly from a raw byte buffer.
  *
- * `buffer_deserializer` provides the same interface as `deserializer` but
+ * `buffer_deserializer` provides the same interface as `stream_deserializer` but
  * reads from a caller-supplied `const char*` / length pair (or
  * `std::vector<char>`) instead of an `std::istream`, avoiding virtual-dispatch
  * overhead and eliminating unnecessary heap allocations.
@@ -962,6 +672,309 @@ class buffer_deserializer {
 };
 
 /**
+ * @brief Writes primitive values, strings, and vectors to a binary stream.
+ *
+ * `stream_serializer` wraps an `std::ostream` and provides type-safe `write`
+ * overloads. Every multi-byte scalar is byte-swapped to big-endian (network)
+ * byte order before being written. Strings and vectors are prefixed with a
+ * `size_t` element count so that the corresponding `stream_deserializer` can
+ * reconstruct them without external length information.
+ *
+ * The class is non-copyable and non-movable to prevent accidental aliasing of
+ * the underlying stream.
+ *
+ * ### Example
+ * @code{.cpp}
+ * std::ofstream file("data.bin", std::ios::binary);
+ * stream_serializer out(file);
+ * out.write(int32_t{42})
+ *    .write(std::string{"hello"})
+ *    .write(std::vector<float>{1.0f, 2.0f});
+ * @endcode
+ */
+class stream_serializer {
+ public:
+  /** @brief Construct a stream_serializer that writes to @p out. */
+  stream_serializer(std::ostream& out) : out_(out) {}
+  stream_serializer(const stream_serializer& that) = delete;
+  stream_serializer(stream_serializer&& that) = delete;
+
+  /**
+   * @brief Write a single scalar value in big-endian byte order.
+   *
+   * @tparam T  An integral or floating-point type.
+   * @param  data  The value to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  stream_serializer& write(T data) {
+    data = byte_swap(data);
+    out_.write(reinterpret_cast<const char*>(&data), sizeof(T));
+    return *this;
+  }
+
+  /**
+   * @brief Write a `std::vector` prefixed with its element count.
+   *
+   * The count is written as a byte-swapped `size_t`, followed by each element
+   * individually byte-swapped.
+   *
+   * @tparam T  Element type of the vector.
+   * @param  data  The vector to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  stream_serializer& write(const std::vector<T>& data) {
+    buffer_serializer buffered;
+    buffered.write(data);
+    const auto& bytes = buffered.buffer();
+    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+
+  /**
+   * @brief Write a `std::span` prefixed with its element count.
+   *
+   * The count is written as a byte-swapped `size_t`, followed by each element
+   * individually byte-swapped.
+   *
+   * @tparam T  Element type of the span.
+   * @param data  The span to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  stream_serializer& write(std::span<const T> data) {
+    buffer_serializer buffered;
+    buffered.write(data);
+    const auto& bytes = buffered.buffer();
+    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+
+  /**
+   * @brief Write a `std::string` prefixed with its byte length.
+   *
+   * The length is written as a byte-swapped `size_t`, followed by the raw
+   * character data (not null-terminated).
+   *
+   * @param data  The string to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  stream_serializer& write(const std::string& data) {
+    buffer_serializer buffered;
+    buffered.write(data);
+    const auto& bytes = buffered.buffer();
+    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+
+  /**
+   * @brief Write a `std::string_view` prefixed with its byte length.
+   *
+   * The length is written as a byte-swapped `size_t`, followed by the raw
+   * character data (not null-terminated).
+   *
+   * @param data  The string view to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  stream_serializer& write(std::string_view data) {
+    buffer_serializer buffered;
+    buffered.write(data);
+    const auto& bytes = buffered.buffer();
+    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+
+  /**
+   * @brief Write raw bytes without any transformation.
+   *
+   * @param data   Pointer to the byte buffer.
+   * @param count  Number of bytes to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  stream_serializer& write(const char* data, std::streamsize count) {
+    out_.write(data, count);
+    return *this;
+  }
+
+ private:
+  std::ostream& out_;
+};
+
+/**
+ * @brief Reads primitive values, strings, and vectors from a binary stream.
+ *
+ * `stream_deserializer` wraps an `std::istream` and provides type-safe `read`
+ * overloads that mirror those of `stream_serializer`. Every multi-byte scalar is
+ * byte-swapped from big-endian (network) byte order after being read. Strings
+ * and vectors are reconstructed using the size prefix written by `stream_serializer`.
+ *
+ * The class is non-copyable and non-movable to prevent accidental aliasing of
+ * the underlying stream.
+ *
+ * ### Example
+ * @code{.cpp}
+ * std::ifstream file("data.bin", std::ios::binary);
+ * stream_deserializer in(file);
+ * int32_t value = in.read<int32_t>();
+ * std::string text;
+ * in.read(text);
+ * @endcode
+ */
+class stream_deserializer {
+ public:
+  /** @brief Construct a stream_deserializer that reads from @p in. */
+  stream_deserializer(std::istream& in) : in_(in) {}
+  stream_deserializer(const stream_deserializer& that) = delete;
+  stream_deserializer(stream_deserializer&& that) = delete;
+
+  /**
+   * @brief Read a single scalar value and return it by value.
+   *
+   * @tparam T  An integral or floating-point type.
+   * @return The byte-swapped value read from the stream.
+   */
+  template <typename T>
+  T read() {
+    T data{};
+    in_.read(reinterpret_cast<char*>(&data), sizeof(T));
+    data = byte_swap(data);
+    return data;
+  }
+
+  /**
+   * @brief Read a single scalar value into an existing variable.
+   *
+   * @tparam T  An integral or floating-point type.
+   * @param  data  Output variable that receives the value.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  stream_deserializer& read(T& data) {
+    in_.read(reinterpret_cast<char*>(&data), sizeof(T));
+    data = byte_swap(data);
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed vector.
+   *
+   * Reads the element count (a byte-swapped `size_t`), resizes @p data, then
+   * reads and byte-swaps each element individually.
+   *
+   * @tparam T  Element type of the vector.
+   * @param  data  Output vector that receives the elements.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  stream_deserializer& read(std::vector<T>& data) {
+    size_t count_be = 0;
+    in_.read(reinterpret_cast<char*>(&count_be), sizeof(size_t));
+    const size_t count = byte_swap(count_be);
+
+    size_t payload_size = 0;
+    if constexpr (std::is_same_v<T, bool>) {
+      payload_size = count;
+    } else {
+      payload_size = count * sizeof(T);
+    }
+
+    std::vector<char> chunk(sizeof(size_t) + payload_size);
+    std::memcpy(chunk.data(), &count_be, sizeof(size_t));
+    if (payload_size > 0) {
+      in_.read(chunk.data() + sizeof(size_t),
+               static_cast<std::streamsize>(payload_size));
+    }
+
+    buffer_deserializer buffered(chunk);
+    buffered.read(data);
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed sequence into a fixed-size span.
+   *
+   * Reads the element count (a byte-swapped `size_t`) and verifies it matches
+   * `data.size()`, then reads and byte-swaps each element into the span.
+   *
+   * @tparam T  Element type of the span.
+   * @param data  Output span that receives the elements.
+   * @return Reference to `*this` for method chaining.
+   * @throws std::runtime_error if the serialized element count does not match
+   *         the span size.
+   */
+  template <typename T>
+  stream_deserializer& read(std::span<T> data) {
+    size_t count_be = 0;
+    in_.read(reinterpret_cast<char*>(&count_be), sizeof(size_t));
+    const size_t count = byte_swap(count_be);
+    if (count != data.size()) {
+      throw std::runtime_error("Invalid span size");
+    }
+
+    const size_t payload_size = count * sizeof(T);
+    std::vector<char> chunk(sizeof(size_t) + payload_size);
+    std::memcpy(chunk.data(), &count_be, sizeof(size_t));
+    if (payload_size > 0) {
+      in_.read(chunk.data() + sizeof(size_t),
+               static_cast<std::streamsize>(payload_size));
+    }
+
+    buffer_deserializer buffered(chunk);
+    buffered.read(data);
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed string.
+   *
+   * Reads the byte length (a byte-swapped `size_t`), resizes @p data, then
+   * reads the raw character data.
+   *
+   * @param data  Output string that receives the characters.
+   * @return Reference to `*this` for method chaining.
+   */
+  stream_deserializer& read(std::string& data) {
+    size_t count_be = 0;
+    in_.read(reinterpret_cast<char*>(&count_be), sizeof(size_t));
+    const size_t count = byte_swap(count_be);
+    data.resize(count);
+    if (count > 0) {
+      in_.read(data.data(), static_cast<std::streamsize>(count));
+    }
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed string into caller-provided storage and expose
+   *        it as `std::string_view`.
+   *
+   * The view aliases @p storage and remains valid while @p storage is alive
+   * and unmodified.
+   *
+   * @param view     Output string_view over @p storage.
+   * @param storage  Output string that owns the characters.
+   * @return Reference to `*this` for method chaining.
+   */
+  stream_deserializer& read(std::string_view& view, std::string& storage) {
+    read(storage);
+    view = storage;
+    return *this;
+  }
+
+  /**
+   * @brief Read raw bytes without any transformation.
+   *
+   * @param data   Buffer that receives the bytes.
+   * @param count  Number of bytes to read.
+   * @return Reference to `*this` for method chaining.
+   */
+  stream_deserializer& read(char* data, std::streamsize count) {
+    in_.read(data, count);
+    return *this;
+  }
+
+ private:
+  std::istream& in_;
+};
+
+/**
  * @brief Base class for user-defined field attributes.
  *
  * Derive from `attribute` to create typed metadata objects that can be
@@ -1028,7 +1041,7 @@ std::shared_ptr<const attribute> attr(Args&&... args) {
  *   attached at construction time and queried later without touching the
  *   variant value.
  * - **Binary serialisation** — `serialize` / `deserialize` round-trip the
- *   field (type tag + value) through a `serializer` / `deserializer`.
+ *   field (type tag + value) through a `stream_serializer` / `stream_deserializer`.
  *
  * ### Supported value types
  * See `field_base` for the full list of variant alternatives.
@@ -1266,14 +1279,14 @@ class field : public field_base {
    * Writes a single-byte type tag followed by the encoded value. Attributes
    * are **not** serialized.
    *
-   * @param out  The serializer (wraps an `std::ostream`).
+   * @param out  The stream_serializer (wraps an `std::ostream`).
    */
-  inline void serialize(serializer& out) const;
+  inline void serialize(stream_serializer& out) const;
 
   /**
    * @brief Serialize this field to an in-memory buffer.
    *
-   * Equivalent to `serialize(serializer&)` but writes to a
+   * Equivalent to `serialize(stream_serializer&)` but writes to a
    * `buffer_serializer`, avoiding `std::ostream` virtual-dispatch overhead.
    *
    * @param out  The buffer_serializer to write to.
@@ -1285,16 +1298,16 @@ class field : public field_base {
    *
    * Reads the type tag and reconstructs the value. No attributes are restored.
    *
-   * @param in  The deserializer (wraps an `std::istream`).
+   * @param in  The stream_deserializer (wraps an `std::istream`).
    * @return The deserialized `field`.
    * @throws std::runtime_error if the type tag is not recognized.
    */
-  inline static field deserialize(deserializer& in);
+  inline static field deserialize(stream_deserializer& in);
 
   /**
    * @brief Deserialize a field from an in-memory buffer.
    *
-   * Equivalent to `deserialize(deserializer&)` but reads from a
+   * Equivalent to `deserialize(stream_deserializer&)` but reads from a
    * `buffer_deserializer`.
    *
    * @param in  The buffer_deserializer to read from.
@@ -1544,14 +1557,14 @@ class dynamic {
    * Writes the field count followed by each (key, field) pair. The output is
    * fully self-describing: no class registry is needed to deserialize it.
    *
-   * @param out  The serializer to write to.
+   * @param out  The stream_serializer to write to.
    */
-  inline void serialize(serializer& out) const;
+  inline void serialize(stream_serializer& out) const;
 
   /**
    * @brief Serialize this object to an in-memory buffer (standard mode).
    *
-   * Equivalent to `serialize(serializer&)` but uses `buffer_serializer`
+   * Equivalent to `serialize(stream_serializer&)` but uses `buffer_serializer`
    * internally, which avoids `std::ostream` virtual-dispatch overhead.
    *
    * @param out  The buffer_serializer to write to.
@@ -1569,9 +1582,9 @@ class dynamic {
    * The class must have been registered with `addClass` before calling this
    * method.
    *
-   * @param out  The serializer to write to.
+   * @param out  The stream_serializer to write to.
    */
-  inline void serializeWithTemplate(serializer& out) const;
+  inline void serializeWithTemplate(stream_serializer& out) const;
 
   /**
    * @brief Serialize this object using its registered class as a template
@@ -1584,15 +1597,15 @@ class dynamic {
   /**
    * @brief Deserialize an object from a binary stream (standard mode).
    *
-   * @param in  The deserializer to read from.
+   * @param in  The stream_deserializer to read from.
    * @return Shared pointer to the reconstructed `dynamic` object.
    */
-  inline static std::shared_ptr<dynamic> deserialize(deserializer& in);
+  inline static std::shared_ptr<dynamic> deserialize(stream_deserializer& in);
 
   /**
    * @brief Deserialize an object from an in-memory buffer (standard mode).
    *
-   * Equivalent to `deserialize(deserializer&)` but reads from a
+   * Equivalent to `deserialize(stream_deserializer&)` but reads from a
    * `buffer_deserializer`, which avoids `std::istream` virtual-dispatch
    * overhead.
    *
@@ -1608,11 +1621,11 @@ class dynamic {
    * Reads the class name, locates the registered prototype, and reconstructs
    * field values in the order defined by the prototype chain.
    *
-   * @param in  The deserializer to read from.
+   * @param in  The stream_deserializer to read from.
    * @return Shared pointer to the reconstructed `dynamic` object.
    */
   inline static std::shared_ptr<dynamic> deserializeWithTemplate(
-      deserializer& in);
+      stream_deserializer& in);
 
   /**
    * @brief Deserialize an object using a registered class template (compact
@@ -1888,7 +1901,7 @@ class dynamic {
  * ### Example
  * @code{.cpp}
  * dynamic_ptr obj{"Point"_key, {{"x"_key, 0.0f}, {"y"_key, 0.0f}}};
- * obj->serialize(serializer(ss));
+ * obj->serialize(stream_serializer(ss));
  * @endcode
  */
 class dynamic_ptr : public std::shared_ptr<dynamic> {
@@ -1919,29 +1932,14 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   }
 };
 
-inline void field::serialize(serializer& out) const {
-  const field_base& fb = static_cast<const field_base&>(*this);
-  out.write(static_cast<unsigned char>(fb.index()));
-  std::visit(
-      [&out](const auto& v) {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::monostate>) {
-          // nothing to write for an empty field
-        } else if constexpr (std::is_same_v<T, std::shared_ptr<dynamic>>) {
-          out.write(v != nullptr);
-          if (v != nullptr) {
-            v->serialize(out);
-          }
-        } else {
-          // covers hash_t, key_t, bool, int32_t, float,
-          //         std::string, std::vector<bool/int32_t/float>
-          out.write(v);
-        }
-      },
-      fb);
+inline void field::serialize(stream_serializer& out) const {
+  buffer_serializer buffered;
+  serialize(buffered);
+  const auto& bytes = buffered.buffer();
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
-inline field field::deserialize(deserializer& in) {
+inline field field::deserialize(stream_deserializer& in) {
   // Type tags match the variant index order in field_base:
   //  0=monostate  1=hash_t  2=key_t  3=bool  4=int32_t  5=float
   //  6=shared_ptr<dynamic>  7=string  8=vector<bool>
@@ -1983,37 +1981,21 @@ inline field field::deserialize(deserializer& in) {
   }
 }
 
-inline void dynamic::serialize(serializer& out) const {
-  out.write(fields_.size());
-  for (auto& field : fields_) {
-    out.write(field.first);
-    field.second.serialize(out);
-  }
+inline void dynamic::serialize(stream_serializer& out) const {
+  buffer_serializer buffered;
+  serialize(buffered);
+  const auto& bytes = buffered.buffer();
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
-inline void dynamic::serializeWithTemplate(serializer& out) const {
-  auto& classes = getClasses();
-  auto klass = as<key_t>(CLASS);
-  auto it = classes.find(klass);
-
-  out.write(klass);
-  while (it != classes.end()) {
-    for (const auto& kv : it->second->fields_) {
-      // Use the instance's own value for this field when available;
-      // otherwise fall back to the prototype's default value.
-      auto instance_it = fields_.find(kv.first);
-      if (instance_it != fields_.end()) {
-        instance_it->second.serialize(out);
-      } else {
-        kv.second.serialize(out);
-      }
-    }
-    klass = it->second->as<key_t>(PARENT);
-    it = classes.find(klass);
-  }
+inline void dynamic::serializeWithTemplate(stream_serializer& out) const {
+  buffer_serializer buffered;
+  serializeWithTemplate(buffered);
+  const auto& bytes = buffered.buffer();
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
 }
 
-inline std::shared_ptr<dynamic> dynamic::deserialize(deserializer& in) {
+inline std::shared_ptr<dynamic> dynamic::deserialize(stream_deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   auto count = in.read<size_t>();
   for (size_t i = 0; i < count; ++i) {
@@ -2025,7 +2007,7 @@ inline std::shared_ptr<dynamic> dynamic::deserialize(deserializer& in) {
 }
 
 inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
-    deserializer& in) {
+    stream_deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   auto klass = in.read<key_t>();
   auto& classes = getClasses();

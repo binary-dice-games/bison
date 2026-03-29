@@ -213,10 +213,10 @@ int main() {
 
     // --- Serialize to a binary stream ---
     std::stringstream ss;
-    obj.serialize(serializer(ss));
+    obj.serialize(stream_serializer(ss));
 
     // --- Deserialize back ---
-    auto restored = dynamic::deserialize(deserializer(ss));
+    auto restored = dynamic::deserialize(stream_deserializer(ss));
     int32_t score = (*restored)["score"_key].as<int32_t>();  // 100
 }
 ```
@@ -247,7 +247,7 @@ int main() {
 
 ```cpp
 dynamic_ptr obj{"MyClass"_key, {{"x"_key, 1.0f}, {"y"_key, 2.0f}}};
-obj->serialize(serializer(ss));
+obj->serialize(stream_serializer(ss));
 ```
 
 ### Keys — compile-time string hashing
@@ -267,8 +267,8 @@ key_t k2{"position"};      // hashes the string in the constructor
 **Standard** — includes field names (keys) in the output; fully self-describing:
 
 ```cpp
-obj.serialize(serializer(out));
-auto copy = dynamic::deserialize(deserializer(in));
+obj.serialize(stream_serializer(out));
+auto copy = dynamic::deserialize(stream_deserializer(in));
 ```
 
 **Template-based** — uses a pre-registered class definition as the schema; only field values are written, reducing output size:
@@ -277,8 +277,8 @@ auto copy = dynamic::deserialize(deserializer(in));
 // Class must be registered before use
 dynamic::addClass(0U, dynamic_ptr{"Point"_key, {{"x"_key, 0.0f}, {"y"_key, 0.0f}}});
 
-point.serializeWithTemplate(serializer(out));
-auto copy = dynamic::deserializeWithTemplate(deserializer(in));
+point.serializeWithTemplate(stream_serializer(out));
+auto copy = dynamic::deserializeWithTemplate(stream_deserializer(in));
 ```
 
 ### Method registration and invocation
@@ -539,7 +539,7 @@ buffer_deserializer in(bytes);
 auto copy = dynamic::deserialize(in);
 ```
 
-`dynamic`, `field`, `serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
+`dynamic`, `field`, `stream_serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
 
 ### 3. `fields_` retained as `std::map` (ordering is required)
 

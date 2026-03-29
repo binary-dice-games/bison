@@ -224,7 +224,7 @@ NativeRecord deserialize_native_record(const std::string& buffer) {
 /** @brief Serialize a `bison::dynamic` object to Bison binary format (stream). */
 std::string serialize_dynamic_record(const dynamic& obj) {
   std::ostringstream out(std::ios::binary);
-  serializer ser{out};
+  stream_serializer ser{out};
   obj.serialize(ser);
   return out.str();
 }
@@ -232,7 +232,7 @@ std::string serialize_dynamic_record(const dynamic& obj) {
 /** @brief Deserialize a `bison::dynamic` object from Bison binary format (stream). */
 std::shared_ptr<dynamic> deserialize_dynamic_record(const std::string& buffer) {
   std::istringstream in(buffer, std::ios::binary);
-  deserializer des{in};
+  stream_deserializer des{in};
   return dynamic::deserialize(des);
 }
 
@@ -589,17 +589,65 @@ sample_stats measure_stats_stateful(
 
 std::string format_stats(sample_stats stats) {
   std::ostringstream out;
-  out << std::fixed << std::setprecision(2)
+  out << std::fixed << std::setprecision(1)
       << stats.min_ms << "/" << stats.median_ms;
   return out.str();
 }
 
 /** @brief Print benchmark results in human-readable fixed-width table format. */
 void print_table(const benchmark_config& config, const std::vector<benchmark_row>& rows) {
-  constexpr int operation_width = 18;
-  constexpr int stat_width = 14;
-  constexpr int ratio_width = 8;
-  const int total_width = operation_width + stat_width * 3 + ratio_width * 2;
+  struct display_row {
+    std::string operation;
+    std::string cpp;
+    std::string dyn;
+    std::string js;
+    std::string dyn_ratio;
+    std::string json_ratio;
+  };
+
+  std::vector<display_row> display_rows;
+  display_rows.reserve(rows.size());
+
+  std::size_t operation_width = std::string("op").size();
+  std::size_t cpp_width = std::string("cpp").size();
+  std::size_t dyn_width = std::string("dyn").size();
+  std::size_t json_width = std::string("json").size();
+  std::size_t dyn_ratio_width = std::string("d/c").size();
+  std::size_t json_ratio_width = std::string("j/c").size();
+
+  for (const auto& row : rows) {
+    std::ostringstream dyn_ratio_stream;
+    std::ostringstream json_ratio_stream;
+    dyn_ratio_stream << std::fixed << std::setprecision(2)
+                     << ratio(row.native.median_ms, row.dynamic.median_ms);
+    json_ratio_stream << std::fixed << std::setprecision(2)
+                      << ratio(row.native.median_ms, row.json.median_ms);
+
+    display_row rendered{
+        row.operation,
+        format_stats(row.native),
+        format_stats(row.dynamic),
+        format_stats(row.json),
+        dyn_ratio_stream.str(),
+        json_ratio_stream.str()};
+
+    operation_width = std::max(operation_width, rendered.operation.size());
+    cpp_width = std::max(cpp_width, rendered.cpp.size());
+    dyn_width = std::max(dyn_width, rendered.dyn.size());
+    json_width = std::max(json_width, rendered.js.size());
+    dyn_ratio_width = std::max(dyn_ratio_width, rendered.dyn_ratio.size());
+    json_ratio_width = std::max(json_ratio_width, rendered.json_ratio.size());
+
+    display_rows.push_back(std::move(rendered));
+  }
+
+    const std::size_t border_width =
+      1 + operation_width + 1 +
+      cpp_width + 1 +
+      dyn_width + 1 +
+      json_width + 1 +
+      dyn_ratio_width + 1 +
+      json_ratio_width + 1;
 
   std::cout << "Bison performance comparison\n";
   std::cout << "Iterations per sample: " << config.iterations << "\n";
@@ -612,29 +660,26 @@ void print_table(const benchmark_config& config, const std::vector<benchmark_row
 #endif
   std::cout << "Stat cells show min/median milliseconds. Ratios use median times.\n\n";
 
-  std::cout << std::left
-            << std::setw(operation_width) << "Operation"
-            << std::right
-            << std::setw(stat_width) << "C++ m/md"
-            << std::setw(stat_width) << "dyn m/md"
-            << std::setw(stat_width) << "json m/md"
-            << std::setw(ratio_width) << "dyn x"
-            << std::setw(ratio_width) << "json x"
-            << "\n";
-  std::cout << std::string(total_width, '-') << "\n";
+  std::cout << std::string(border_width, '-') << "\n";
+  std::cout << "|" << std::left << std::setw(static_cast<int>(operation_width)) << "op"
+            << "|" << std::right << std::setw(static_cast<int>(cpp_width)) << "cpp"
+            << "|" << std::setw(static_cast<int>(dyn_width)) << "dyn"
+            << "|" << std::setw(static_cast<int>(json_width)) << "json"
+            << "|" << std::setw(static_cast<int>(dyn_ratio_width)) << "d/c"
+            << "|" << std::setw(static_cast<int>(json_ratio_width)) << "j/c"
+            << "|\n";
+  std::cout << std::string(border_width, '-') << "\n";
 
-  for (const auto& row : rows) {
-    std::cout << std::left << std::setw(operation_width) << row.operation
-              << std::right
-              << std::setw(stat_width) << format_stats(row.native)
-              << std::setw(stat_width) << format_stats(row.dynamic)
-              << std::setw(stat_width) << format_stats(row.json)
-              << std::setw(ratio_width) << std::fixed << std::setprecision(2)
-              << ratio(row.native.median_ms, row.dynamic.median_ms)
-              << std::setw(ratio_width)
-              << ratio(row.native.median_ms, row.json.median_ms)
-              << "\n";
+  for (const auto& row : display_rows) {
+    std::cout << "|" << std::left << std::setw(static_cast<int>(operation_width)) << row.operation
+          << "|" << std::right << std::setw(static_cast<int>(cpp_width)) << row.cpp
+          << "|" << std::setw(static_cast<int>(dyn_width)) << row.dyn
+          << "|" << std::setw(static_cast<int>(json_width)) << row.js
+          << "|" << std::setw(static_cast<int>(dyn_ratio_width)) << row.dyn_ratio
+          << "|" << std::setw(static_cast<int>(json_ratio_width)) << row.json_ratio
+          << "|\n";
   }
+  std::cout << std::string(border_width, '-') << "\n";
 
   std::cout << "\nOptimization guard: " << g_sink << "\n";
 }
