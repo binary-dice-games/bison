@@ -134,23 +134,6 @@ max_connections: 100
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Example 6 — MessagePack import
-# ═════════════════════════════════════════════════════════════════════════════
-
-def example_msgpack_import() -> None:
-    """Decode a raw MessagePack byte string."""
-    section("Example 6: MessagePack import")
-
-    # fixmap { "x": 7, "y": 42 }
-    # 0x82  fixstr(1)"x" fixint(7)  fixstr(1)"y" fixint(42)
-    data = bytes([0x82, 0xa1, ord('x'), 0x07, 0xa1, ord('y'), 0x2a])
-
-    with bison.from_msgpack(data) as obj:
-        print(f"x = {obj['x']}")   # 7
-        print(f"y = {obj['y']}")   # 42
-
-
-# ═════════════════════════════════════════════════════════════════════════════
 # Example 7 — Method registration and invocation
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -235,7 +218,6 @@ def main() -> None:
     example_nested_objects()
     example_json_import()
     example_yaml_import()
-    example_msgpack_import()
     example_methods()
     example_key_utility()
     example_class_registry()

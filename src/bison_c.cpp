@@ -105,16 +105,6 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
   }
 }
 
-BISON_API bison_handle bison_from_msgpack(const uint8_t* data, size_t len) {
-  if (!data) return nullptr;
-  try {
-    auto sp = bdg::bison::extensions::from_msgpack(data, len);
-    return as_handle(new sp_dyn(std::move(sp)));
-  } catch (...) {
-    return nullptr;
-  }
-}
-
 // ─── Class registry ─────────────────────────────────────────────────────────
 
 BISON_API bison_error bison_add_class(uint32_t parent_name, bison_handle klass) {

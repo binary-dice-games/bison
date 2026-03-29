@@ -22,6 +22,11 @@ package_add_test(bison_test bison_tests.cpp)
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})
 target_link_libraries(bison_c_test bison_c bison gtest gmock gtest_main)
+add_custom_command(TARGET bison_c_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:bison_c>
+            $<TARGET_FILE_DIR:bison_c_test>
+)
 gtest_discover_tests(bison_c_test
     WORKING_DIRECTORY ${PROJECT_DIR}
     PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"

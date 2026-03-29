@@ -19,7 +19,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import python.bison as bison
-from python.bison import Dynamic, from_json, from_yaml, from_msgpack, key
+from python.bison import Dynamic, from_json, from_yaml, key
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -181,23 +181,6 @@ class TestImportHelpers(unittest.TestCase):
     def test_from_yaml_invalid_raises(self):
         with self.assertRaises(ValueError):
             from_yaml("{broken")
-
-    def test_from_msgpack_fixmap(self):
-        # fixmap { "a": 1 }  →  0x81 0xa1 'a' 0x01
-        data = bytes([0x81, 0xa1, ord('a'), 0x01])
-        with from_msgpack(data) as obj:
-            self.assertEqual(obj["a"], 1)
-
-    def test_from_msgpack_fixarray(self):
-        # fixarray [1, 2, 3]  →  0x93 0x01 0x02 0x03
-        data = bytes([0x93, 0x01, 0x02, 0x03])
-        with from_msgpack(data) as obj:
-            self.assertEqual(obj.size(), 3)
-            self.assertEqual(obj[0], 1)
-
-    def test_from_msgpack_invalid_raises(self):
-        with self.assertRaises(ValueError):
-            from_msgpack(bytes([0x81, 0xa1, ord('k')]))  # truncated (no value)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
