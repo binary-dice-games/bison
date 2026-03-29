@@ -36,7 +36,7 @@ target_include_directories(bison
         include
 )
 
-target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml)
 
 if(PACKAGE_TESTS)
     enable_testing()

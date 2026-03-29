@@ -1481,6 +1481,13 @@ inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
 /**
  * @namespace bdg::bison::extensions
  * @brief Optional extensions that add interoperability with other formats.
+ *
+ * Currently supported import formats:
+ * | Function | Format | Dependency |
+ * |---|---|---|
+ * | `from_json`    | JSON              | nlohmann/json (bundled) |
+ * | `from_yaml`    | YAML 1.1/1.2      | libyaml (system) |
+ * | `from_msgpack` | MessagePack binary | built-in decoder |
  */
 namespace extensions {
 /**
@@ -1508,6 +1515,65 @@ namespace extensions {
  * @endcode
  */
 std::shared_ptr<dynamic> from_json(std::string json);
+
+/**
+ * @brief Parse a YAML string and return it as a `dynamic` object.
+ *
+ * Uses libyaml for parsing.  The type-coercion rules for plain (unquoted)
+ * scalars follow YAML 1.1 core schema conventions:
+ *
+ * | YAML value | `field` type |
+ * |---|---|
+ * | `null` / `~` / empty | `std::shared_ptr<dynamic>{}` (null ptr) |
+ * | `true` / `yes` / `on` | `bool` (`true`) |
+ * | `false` / `no` / `off` | `bool` (`false`) |
+ * | integer literal | `int32_t` |
+ * | floating-point literal | `float` |
+ * | quoted or other string | `std::string` |
+ * | sequence | `dynamic` with zero-based numeric indices |
+ * | mapping | `dynamic` with hashed-string keys |
+ *
+ * @param yaml  A valid YAML string (UTF-8).
+ * @return Shared pointer to the root `dynamic` object.
+ * @throws `std::runtime_error` if @p yaml is not valid YAML.
+ *
+ * @code{.cpp}
+ * auto obj = extensions::from_yaml("x: 1\ny: 2.5\n");
+ * int32_t x = (*obj)["x"].as<int32_t>();
+ * @endcode
+ */
+std::shared_ptr<dynamic> from_yaml(std::string yaml);
+
+/**
+ * @brief Decode a MessagePack binary blob and return it as a `dynamic` object.
+ *
+ * This is a built-in, dependency-free decoder that supports the most common
+ * MessagePack types:
+ *
+ * | MessagePack type | `field` type |
+ * |---|---|
+ * | nil | `std::shared_ptr<dynamic>{}` (null ptr) |
+ * | bool | `bool` |
+ * | int8/16/32, uint8/16/32 | `int32_t` |
+ * | float32 | `float` |
+ * | fixstr, str8/16/32 | `std::string` |
+ * | fixarray, array16/32 | `dynamic` with zero-based numeric indices |
+ * | fixmap, map16/32 | `dynamic` with hashed-string keys |
+ *
+ * @param data  Pointer to the raw MessagePack bytes.
+ * @param len   Number of bytes in @p data.
+ * @return Shared pointer to the decoded `dynamic` object.
+ * @throws `std::runtime_error` on malformed input or unsupported format bytes.
+ *
+ * @code{.cpp}
+ * // fixmap {x: 1} → 0x81 0xa1 'x' 0x01
+ * const uint8_t buf[] = {0x81, 0xa1, 'x', 0x01};
+ * auto obj = extensions::from_msgpack(buf, sizeof buf);
+ * int32_t x = (*obj)["x"].as<int32_t>();
+ * @endcode
+ */
+std::shared_ptr<dynamic> from_msgpack(const uint8_t* data, size_t len);
+
 } // namespace extensions
 
 } // namespace bdg::bison
