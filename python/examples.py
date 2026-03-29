@@ -1,9 +1,11 @@
 """
 examples.py — Python usage examples for the Bison library ctypes binding.
 
-Run with::
+Build ``bison_c`` first, then run this script from the repository root::
 
-    python3 examples.py
+    cmake -B build -DPACKAGE_TESTS=ON
+    cmake --build build --config Debug --target bison_c
+    python python/examples.py
 
 Each example is a self-contained function; the ``main()`` function at the
 bottom runs all of them in sequence.

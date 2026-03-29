@@ -2,8 +2,24 @@
 bison.py — Python ctypes binding for the Bison dynamic-object library.
 
 This module wraps the ``libbison_c`` shared library (``bison_c.h`` / ``bison_c.cpp``)
-using ``ctypes``.  It provides a Pythonic, object-oriented API on top of the
+using ``ctypes``. It provides a Pythonic, object-oriented API on top of the
 opaque C handle, hiding all reference-counting details.
+
+Repository usage
+----------------
+Build the native shared library before importing this module::
+
+    cmake -B build -DPACKAGE_TESTS=ON
+    cmake --build build --config Debug --target bison_c
+
+From the repository root, run the examples and tests with::
+
+    python python/examples.py
+    python -m pytest python/test_bison.py -v
+
+If the shared library is not in the default ``build/`` location, set the
+``BISON_LIB`` environment variable to the full path of ``bison_c.dll``,
+``libbison_c.so``, or ``libbison_c.dylib`` before importing this module.
 
 Quick start
 -----------

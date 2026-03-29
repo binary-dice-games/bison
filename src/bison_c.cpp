@@ -25,8 +25,6 @@
  * `bison_handle`; callers must follow the documented ownership rules.
  */
 
-// Define the macro so BISON_API emits dllexport / visibility("default").
-#define BISON_BUILDING_DLL
 #include "bison_c.h"
 #include "bison.hpp"
 

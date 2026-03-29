@@ -1,6 +1,6 @@
 # Bison
 
-**Bison** is a C++17 library for serializing and deserializing objects in a compact binary format. It is conceptually similar to JSON — objects are self-describing, carrying both field names and values — but the wire format is binary rather than text, making it more efficient in terms of size and parsing speed.
+**Bison** is a C++20 library for serializing and deserializing objects in a compact binary format. It is conceptually similar to JSON — objects are self-describing, carrying both field names and values — but the wire format is binary rather than text, making it more efficient in terms of size and parsing speed.
 
 Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL file to describe the schema. The format is self-contained: every serialized object embeds its own field names and types. Objects can also hold callable methods, making them usable as live runtime entities rather than passive data bags.
 
@@ -19,7 +19,7 @@ Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL 
 
 | Requirement | Version |
 |---|---|
-| C++ standard | C++17 or later |
+| C++ standard | C++20 or later |
 | CMake | 3.10 or later |
 | [nlohmann/json](https://github.com/nlohmann/json) | bundled as git submodule |
 | [libyaml](https://github.com/yaml/libyaml) | bundled as git submodule |
@@ -34,15 +34,17 @@ cd bison
 
 # Configure and build
 cmake -B build
-cmake --build build
+cmake --build build --config Debug
 
 # Build with tests enabled
 cmake -B build -DPACKAGE_TESTS=ON
-cmake --build build
+cmake --build build --config Debug
 ctest --test-dir build -C Debug
 ```
 
-The library compiles as a static library (`libbison.a`). To use it in your own CMake project:
+The project builds the C++ library target `bison` and the shared C API target `bison_c`. The Python binding loads `bison_c`, so make sure that target is built before running Python examples or tests.
+
+To use the C++ library in your own CMake project:
 
 ```cmake
 add_subdirectory(bison)
@@ -53,6 +55,55 @@ Then include the single header:
 
 ```cpp
 #include <bison.hpp>
+```
+
+## Python Binding
+
+The `python/` package is a thin `ctypes` wrapper over the native `bison_c` shared library. It does not build the native code itself, so build the project first.
+
+### Build the native library
+
+From the repository root:
+
+```bash
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug --target bison_c
+```
+
+On Windows, the binding looks for `build/Release/bison_c.dll` first and then `build/Debug/bison_c.dll`. If your DLL is somewhere else, point the binding at it explicitly:
+
+```powershell
+$env:BISON_LIB = (Resolve-Path .\build\Debug\bison_c.dll)
+```
+
+On Linux or macOS, set `BISON_LIB` to the full path of `libbison_c.so` or `libbison_c.dylib` if it is not found automatically.
+
+### Run the Python examples
+
+From the repository root:
+
+```bash
+python python/examples.py
+```
+
+The examples script imports `python.bison` directly from this repository, so no package installation step is required.
+
+### Run the Python tests
+
+The test file supports both `pytest` and the standard library `unittest` runner:
+
+```bash
+python -m pytest python/test_bison.py -v
+```
+
+```bash
+python -m unittest python.test_bison
+```
+
+If `pytest` is not installed, install it with:
+
+```bash
+python -m pip install pytest
 ```
 
 ## Quick Start
