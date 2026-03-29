@@ -1,0 +1,348 @@
+// MIT License © 2025 Binary Dice Games
+// Google Test suite for the pure-C Bison shared-library API.
+
+#include "src/bison_c.h"
+
+#include <gtest/gtest.h>
+#include <cstring>
+#include <cstdint>
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** RAII wrapper so handles are always released even when a test fails early. */
+struct ScopedHandle {
+  bison_handle h;
+  explicit ScopedHandle(bison_handle h) : h(h) {}
+  ~ScopedHandle() { bison_release(h); }
+  operator bison_handle() const { return h; }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 1. Lifecycle: create / add_ref / release
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(LifecycleTests, CreateReturnsNonNull) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_NE(h.h, nullptr);
+}
+
+TEST(LifecycleTests, AddRefReturnsDistinctHandle) {
+  ScopedHandle h1{bison_create(0)};
+  ASSERT_NE(h1.h, nullptr);
+  ScopedHandle h2{bison_add_ref(h1)};
+  EXPECT_NE(h2.h, nullptr);
+  EXPECT_NE(h1.h, h2.h);  // different heap-allocated shared_ptr wrappers
+}
+
+TEST(LifecycleTests, AddRefSharesObject) {
+  ScopedHandle h1{bison_create(0)};
+  ASSERT_NE(h1.h, nullptr);
+  EXPECT_EQ(bison_set_int(h1, "x", 7), BISON_OK);
+
+  ScopedHandle h2{bison_add_ref(h1)};
+  int32_t v = 0;
+  EXPECT_EQ(bison_get_int(h2, "x", &v), BISON_OK);
+  EXPECT_EQ(v, 7);
+}
+
+TEST(LifecycleTests, ReleaseNullIsSafe) {
+  bison_release(nullptr);  // must not crash
+}
+
+TEST(LifecycleTests, AddRefOnNullReturnsNull) {
+  EXPECT_EQ(bison_add_ref(nullptr), nullptr);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2. Setters and getters — named fields
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(SetGetTests, IntRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_int(h, "score", 42), BISON_OK);
+  int32_t v = 0;
+  EXPECT_EQ(bison_get_int(h, "score", &v), BISON_OK);
+  EXPECT_EQ(v, 42);
+}
+
+TEST(SetGetTests, FloatRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_float(h, "ratio", 3.14f), BISON_OK);
+  float v = 0.0f;
+  EXPECT_EQ(bison_get_float(h, "ratio", &v), BISON_OK);
+  EXPECT_NEAR(v, 3.14f, 1e-4f);
+}
+
+TEST(SetGetTests, BoolRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_bool(h, "flag", 1), BISON_OK);
+  int v = 0;
+  EXPECT_EQ(bison_get_bool(h, "flag", &v), BISON_OK);
+  EXPECT_EQ(v, 1);
+}
+
+TEST(SetGetTests, StringRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_string(h, "name", "alice"), BISON_OK);
+  char buf[32] = {};
+  size_t len = 0;
+  EXPECT_EQ(bison_get_string(h, "name", buf, sizeof buf, &len), BISON_OK);
+  EXPECT_STREQ(buf, "alice");
+  EXPECT_EQ(len, 5u);
+}
+
+TEST(SetGetTests, StringQueryLengthWithNullBuf) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_string(h, "msg", "hello");
+  size_t len = 0;
+  EXPECT_EQ(bison_get_string(h, "msg", nullptr, 0, &len), BISON_OK);
+  EXPECT_EQ(len, 5u);
+}
+
+TEST(SetGetTests, NestedObjectRoundTrip) {
+  ScopedHandle parent{bison_create(0)};
+  ScopedHandle child{bison_create(0)};
+  bison_set_int(child, "x", 99);
+
+  EXPECT_EQ(bison_set_object(parent, "inner", child), BISON_OK);
+
+  bison_handle retrieved = nullptr;
+  EXPECT_EQ(bison_get_object(parent, "inner", &retrieved), BISON_OK);
+  ASSERT_NE(retrieved, nullptr);
+  int32_t v = 0;
+  bison_get_int(retrieved, "x", &v);
+  EXPECT_EQ(v, 99);
+  bison_release(retrieved);
+}
+
+TEST(SetGetTests, SetNullObject) {
+  ScopedHandle h{bison_create(0)};
+  // First set a real object so the field type is set.
+  ScopedHandle child{bison_create(0)};
+  bison_set_object(h, "ref", child);
+  // Now set it to null.
+  EXPECT_EQ(bison_set_object(h, "ref", nullptr), BISON_OK);
+}
+
+TEST(SetGetTests, WrongTypeReturnsTypeError) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, "n", 1);
+  float v = 0;
+  EXPECT_EQ(bison_get_float(h, "n", &v), BISON_ERR_TYPE);
+}
+
+TEST(SetGetTests, NullHandleReturnsNullError) {
+  int32_t v = 0;
+  EXPECT_EQ(bison_get_int(nullptr, "x", &v), BISON_ERR_NULL);
+  EXPECT_EQ(bison_set_int(nullptr, "x", 1), BISON_ERR_NULL);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3. Indexed (array-like) access
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(IndexedTests, IntAtRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_int_at(h, 0, 10), BISON_OK);
+  EXPECT_EQ(bison_set_int_at(h, 1, 20), BISON_OK);
+  EXPECT_EQ(bison_set_int_at(h, 2, 30), BISON_OK);
+  EXPECT_EQ(bison_size(h), 3u);
+  int32_t v = 0;
+  EXPECT_EQ(bison_get_int_at(h, 1, &v), BISON_OK);
+  EXPECT_EQ(v, 20);
+}
+
+TEST(IndexedTests, FloatAtRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_float_at(h, 0, 1.5f);
+  float v = 0;
+  EXPECT_EQ(bison_get_float_at(h, 0, &v), BISON_OK);
+  EXPECT_NEAR(v, 1.5f, 1e-4f);
+}
+
+TEST(IndexedTests, StringAtRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_string_at(h, 0, "item0");
+  char buf[32] = {};
+  EXPECT_EQ(bison_get_string_at(h, 0, buf, sizeof buf, nullptr), BISON_OK);
+  EXPECT_STREQ(buf, "item0");
+}
+
+TEST(IndexedTests, SizeOfEmptyObjectIsZero) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_size(h), 0u);
+}
+
+TEST(IndexedTests, SizeOfNullIsZero) {
+  EXPECT_EQ(bison_size(nullptr), 0u);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 4. Import helpers
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(ImportTests, FromJsonObject) {
+  ScopedHandle h{bison_from_json(R"({"x": 1, "y": 2})")};
+  ASSERT_NE(h.h, nullptr);
+  int32_t x = 0, y = 0;
+  EXPECT_EQ(bison_get_int(h, "x", &x), BISON_OK);
+  EXPECT_EQ(bison_get_int(h, "y", &y), BISON_OK);
+  EXPECT_EQ(x, 1);
+  EXPECT_EQ(y, 2);
+}
+
+TEST(ImportTests, FromJsonInvalidReturnsNull) {
+  bison_handle h = bison_from_json("{broken");
+  EXPECT_EQ(h, nullptr);
+}
+
+TEST(ImportTests, FromYamlFlatMapping) {
+  ScopedHandle h{bison_from_yaml("x: 10\nname: test\n")};
+  ASSERT_NE(h.h, nullptr);
+  int32_t x = 0;
+  EXPECT_EQ(bison_get_int(h, "x", &x), BISON_OK);
+  EXPECT_EQ(x, 10);
+  char buf[32] = {};
+  bison_get_string(h, "name", buf, sizeof buf, nullptr);
+  EXPECT_STREQ(buf, "test");
+}
+
+TEST(ImportTests, FromYamlInvalidReturnsNull) {
+  bison_handle h = bison_from_yaml("{broken");
+  EXPECT_EQ(h, nullptr);
+}
+
+TEST(ImportTests, FromMsgpackFixmap) {
+  // fixmap { "a": 1 }  →  0x81 0xa1 'a' 0x01
+  const uint8_t buf[] = {0x81, 0xa1, 'a', 0x01};
+  ScopedHandle h{bison_from_msgpack(buf, sizeof buf)};
+  ASSERT_NE(h.h, nullptr);
+  int32_t v = 0;
+  EXPECT_EQ(bison_get_int(h, "a", &v), BISON_OK);
+  EXPECT_EQ(v, 1);
+}
+
+TEST(ImportTests, FromMsgpackNullDataReturnsNull) {
+  EXPECT_EQ(bison_from_msgpack(nullptr, 0), nullptr);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 5. Class registry
+// ═════════════════════════════════════════════════════════════════════════════
+
+// We clear the class registry using the C++ API to avoid state leakage.
+#include "src/bison.hpp"
+static void clearClasses() {
+  std::unique_lock<std::shared_mutex> lk(bdg::bison::dynamic::getMutex());
+  bdg::bison::dynamic::getClasses().clear();
+}
+
+class ClassRegistryTests : public ::testing::Test {
+ protected:
+  void SetUp()    override { clearClasses(); }
+  void TearDown() override { clearClasses(); }
+};
+
+TEST_F(ClassRegistryTests, AddClassSucceeds) {
+  uint32_t key = bison_key("Shape");
+  ScopedHandle proto{bison_create(key)};
+  bison_set_int(proto, "sides", 3);
+  EXPECT_EQ(bison_add_class(0, proto), BISON_OK);
+}
+
+TEST_F(ClassRegistryTests, AddDuplicateClassFails) {
+  uint32_t key = bison_key("Widget");
+  ScopedHandle p1{bison_create(key)};
+  ScopedHandle p2{bison_create(key)};
+  EXPECT_EQ(bison_add_class(0, p1), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, p2), BISON_ERR_DUPLICATE);
+}
+
+TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
+  uint32_t key = bison_key("Gadget");
+  ScopedHandle proto{bison_create(key)};
+  bison_add_class(0, proto);
+
+  ScopedHandle inst{bison_create(key)};
+  bison_handle found = bison_find_class(inst, key);
+  EXPECT_NE(found, nullptr);
+  bison_release(found);
+}
+
+TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
+  ScopedHandle inst{bison_create(0)};
+  bison_handle found = bison_find_class(inst, bison_key("NoSuchClass"));
+  EXPECT_EQ(found, nullptr);
+}
+
+TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
+  EXPECT_EQ(bison_add_class(0, nullptr), BISON_ERR_NULL);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6. Methods
+// ═════════════════════════════════════════════════════════════════════════════
+
+static void double_counter_fn(bison_handle self, bison_handle /*params*/,
+                               bison_handle result, void* /*user*/) {
+  int32_t n = 0;
+  bison_get_int(self, "n", &n);
+  bison_set_int(self, "n", n * 2);
+  bison_set_int(result, "value", n * 2);
+}
+
+TEST(MethodTests, AddAndCallMethod) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, "n", 5);
+  EXPECT_EQ(bison_add_method(h, "double", double_counter_fn, nullptr), BISON_OK);
+
+  ScopedHandle params{bison_create(0)};
+  bison_handle result = nullptr;
+  EXPECT_EQ(bison_call(h, "double", params, &result), BISON_OK);
+  ASSERT_NE(result, nullptr);
+  int32_t v = 0;
+  bison_get_int(result, "value", &v);
+  EXPECT_EQ(v, 10);
+  bison_release(result);
+}
+
+TEST(MethodTests, CallMissingMethodReturnsNotFound) {
+  ScopedHandle h{bison_create(0)};
+  ScopedHandle params{bison_create(0)};
+  bison_handle result = nullptr;
+  EXPECT_EQ(bison_call(h, "nonexistent", params, &result), BISON_ERR_NOT_FOUND);
+}
+
+TEST(MethodTests, AddDuplicateMethodFails) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_add_method(h, "fn", double_counter_fn, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_method(h, "fn", double_counter_fn, nullptr), BISON_ERR_DUPLICATE);
+}
+
+TEST(MethodTests, NullHandleReturnsNullError) {
+  ScopedHandle params{bison_create(0)};
+  bison_handle result = nullptr;
+  EXPECT_EQ(bison_call(nullptr, "fn", params, &result), BISON_ERR_NULL);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. bison_key utility
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(UtilityTests, BisonKeyHighBitSet) {
+  EXPECT_TRUE(bison_key("hello") & 0x80000000u);
+}
+
+TEST(UtilityTests, BisonKeySameStringProducesSameHash) {
+  EXPECT_EQ(bison_key("foo"), bison_key("foo"));
+}
+
+TEST(UtilityTests, BisonKeyDifferentStringsProduceDifferentHashes) {
+  EXPECT_NE(bison_key("alpha"), bison_key("beta"));
+}
+
+TEST(UtilityTests, BisonKeyNullReturnsZero) {
+  EXPECT_EQ(bison_key(nullptr), 0u);
+}

@@ -17,3 +17,13 @@ macro(package_add_test TESTNAME)
 endmacro()
 
 package_add_test(bison_test bison_tests.cpp)
+
+# C API tests — link bison_c shared library instead of bison static library
+add_executable(bison_c_test bison_c_tests.cpp)
+target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})
+target_link_libraries(bison_c_test bison_c bison gtest gmock gtest_main)
+gtest_discover_tests(bison_c_test
+    WORKING_DIRECTORY ${PROJECT_DIR}
+    PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
+)
+set_target_properties(bison_c_test PROPERTIES FOLDER tests)
