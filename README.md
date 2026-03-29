@@ -541,11 +541,14 @@ auto copy = dynamic::deserialize(in);
 
 `dynamic`, `field`, `serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
 
-### 3. `std::unordered_map` for field storage
+### 3. `fields_` retained as `std::map` (ordering is required)
 
-The `fields_` member of `dynamic` was changed from `std::map<key_t, field>` (O(log n) tree) to `std::unordered_map<key_t, field, key_t, key_t>` (O(1) average hash table).  Field names are already 32-bit FNV-1a hashes, so the hash table key is effectively the identity function — no additional hashing work is needed at the map level.
+`fields_` is used both as a named-field dictionary (keys with the high bit set) and as an array (small numeric keys 0, 1, 2, …).  `std::map` guarantees that entries are visited in ascending key order, which is essential in two ways:
 
-The `size()` method (which counts array-like numeric keys) and the `clear()` method (which erases numeric keys) now iterate over all entries instead of using `lower_bound`; for typical objects with fewer than a few dozen fields this is negligible, and the O(1) field-access improvement more than compensates in all common usage patterns.
+- **Array semantics** — numeric indices must be iterated in order 0, 1, 2, … for `size()` and field iteration to be correct.
+- **Template serialization** — `serializeWithTemplate` writes field *values* in the order they appear in the class prototype's map; `deserializeWithTemplate` must read them back in exactly the same order.  With `std::unordered_map` the iteration order is non-deterministic across process restarts, so template-mode round-trips would silently swap field values.
+
+`fields_` therefore stays as `std::map<key_t, field>`.  The `size()` and `clear()` methods use `lower_bound(0x80000000u)` to efficiently separate the numeric portion of the map from the named portion in O(log n) time.
 
 ### Running the benchmark
 

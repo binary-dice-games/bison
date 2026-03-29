@@ -1315,10 +1315,13 @@ class field : public field_base {
  * reference to its own class and parent class.
  *
  * ## Field access
- * Fields are stored in a `std::unordered_map<key_t, field>` keyed by hashed
- * name, giving O(1) average-case lookup.  Numeric indices (0, 1, 2, …) are
- * used to model ordered, array-like sequences inside the same map;
- * `size()` returns one past the highest numeric index.
+ * Fields are stored in a `std::map<key_t, field>` keyed by hashed name.
+ * Named keys have the high bit set (≥ 0x80000000); numeric indices (0, 1,
+ * 2, …) are small positive integers that do not have the high bit set.
+ * `std::map` preserves key order, which ensures that numeric (array-like)
+ * indices are iterated in ascending order and that `serializeWithTemplate` /
+ * `deserializeWithTemplate` visit fields in a deterministic, reproducible
+ * sequence.  `size()` returns one past the highest numeric index.
  *
  * ## Class hierarchy & inheritance
  * Named prototypes can be registered with `addClass`. Each prototype stores a
@@ -1366,7 +1369,7 @@ class dynamic {
    */
   dynamic(
       key_t klass = 0U,
-      std::unordered_map<key_t, field, key_t, key_t>&& fields = {},
+      std::map<key_t, field>&& fields = {},
       std::shared_ptr<userdata> userdata = nullptr)
       : fields_(std::move(fields)), userdata_(userdata) {
     fields_[CLASS] = klass;
@@ -1402,17 +1405,11 @@ class dynamic {
   inline size_t size() const {
     // Named keys have the high bit set (>= 0x80000000u); numeric array
     // indices are small positive integers that do not have the high bit set.
-    // Scan all entries to find the highest numeric key.
-    size_t max_index = 0;
-    bool has_numeric = false;
-    for (const auto& kv : fields_) {
-      if (kv.first.id < 0x80000000u) {
-        has_numeric = true;
-        size_t idx  = static_cast<size_t>(kv.first.id) + 1u;
-        if (idx > max_index) max_index = idx;
-      }
-    }
-    return max_index;
+    // Find the last numeric key by stopping just before the named-key range.
+    auto it = fields_.lower_bound(key_t{0x80000000u});
+    if (it == fields_.begin()) return 0;
+    --it;
+    return static_cast<size_t>(it->first.id + 1);
   }
 
   /**
@@ -1440,14 +1437,7 @@ class dynamic {
   inline void clear() {
     // Erase only numeric (array-like) keys.  Named keys have the high bit set
     // (>= 0x80000000u) and are preserved.
-    auto it = fields_.begin();
-    while (it != fields_.end()) {
-      if (it->first.id < 0x80000000u) {
-        it = fields_.erase(it);
-      } else {
-        ++it;
-      }
-    }
+    fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
   }
 
   /**
@@ -1878,7 +1868,7 @@ class dynamic {
   }
 
  private:
-  mutable std::unordered_map<key_t, field, key_t, key_t> fields_;
+  mutable std::map<key_t, field> fields_;
   mutable std::unordered_map<key_t, method, key_t, key_t> methods_;
   mutable std::shared_ptr<userdata> userdata_;
 };
@@ -1891,7 +1881,7 @@ class dynamic {
  * compatible everywhere a `shared_ptr<dynamic>` is expected. It adds two extra
  * constructors:
  * - `dynamic_ptr(dynamic&&)` — takes ownership of an rvalue `dynamic`.
- * - `dynamic_ptr(key_t, unordered_map<key_t, field, key_t, key_t>&&)` — directly constructs the
+ * - `dynamic_ptr(key_t, std::map<key_t, field>&&)` — directly constructs the
  *   managed `dynamic` with a class key and initial fields, matching the
  *   `dynamic` constructor signature.
  *
@@ -1924,7 +1914,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
    * @param fields  Initial named fields.
    */
   dynamic_ptr(key_t klass = 0U,
-              std::unordered_map<key_t, field, key_t, key_t>&& fields = {}) {
+              std::map<key_t, field>&& fields = {}) {
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 };
@@ -2145,7 +2135,6 @@ inline void dynamic::serializeWithTemplate(buffer_serializer& out) const {
 inline std::shared_ptr<dynamic> dynamic::deserialize(buffer_deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   const auto count = in.read<size_t>();
-  dyn->fields_.reserve(count + 1);  // +1 for CLASS key
   for (size_t i = 0; i < count; ++i) {
     auto key = in.read<key_t>();
     dyn->fields_[key] = field::deserialize(in);
