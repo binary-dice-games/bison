@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Reflection;
+using System.Collections.Generic;
 
 namespace Bdg.Bison;
 
@@ -38,6 +40,37 @@ internal static class Native
 
     private const string LibName = "bison_c";
 
+    static Native()
+    {
+        NativeLibrary.SetDllImportResolver(typeof(Native).Assembly, ResolveImport);
+    }
+
+    private static IntPtr ResolveImport(
+        string libraryName,
+        Assembly assembly,
+        DllImportSearchPath? searchPath)
+    {
+        if (!string.Equals(libraryName, LibName, StringComparison.Ordinal))
+        {
+            return IntPtr.Zero;
+        }
+
+        string resolved = ResolveLibPath();
+
+        if (Path.IsPathRooted(resolved) && File.Exists(resolved) &&
+            NativeLibrary.TryLoad(resolved, out IntPtr fromPath))
+        {
+            return fromPath;
+        }
+
+        if (NativeLibrary.TryLoad(resolved, assembly, searchPath, out IntPtr fromName))
+        {
+            return fromName;
+        }
+
+        return IntPtr.Zero;
+    }
+
     /// <summary>
     /// Return the resolved native library path based on environment or
     /// canonical build/ directory probing.
@@ -47,19 +80,54 @@ internal static class Native
         var env = Environment.GetEnvironmentVariable("BISON_LIB");
         if (!string.IsNullOrEmpty(env)) return env;
 
-        // Try the canonical build/ sub-directories relative to cwd.
-        string[] candidates = {
-            Path.Combine("..", "build", "libbison_c.so"),    // Linux
-            Path.Combine("..", "build", "libbison_c.dylib"), // macOS
-            Path.Combine("..", "build", "Release", "bison_c.dll"),
-            Path.Combine("..", "build", "Debug",   "bison_c.dll"),
+        var probeRoots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        AddRootAndParents(probeRoots, Directory.GetCurrentDirectory());
+        AddRootAndParents(probeRoots, AppContext.BaseDirectory);
+        AddRootAndParents(probeRoots, Path.GetDirectoryName(typeof(Native).Assembly.Location));
+
+        string[] nativeNames = {
+            "bison_c.dll",
+            "libbison_c.so",
+            "libbison_c.dylib",
         };
-        foreach (var candidate in candidates)
+
+        foreach (var root in probeRoots)
         {
-            if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+            foreach (var name in nativeNames)
+            {
+                string[] candidates = {
+                    Path.Combine(root, name),
+                    Path.Combine(root, "build", name),
+                    Path.Combine(root, "build", "Debug", name),
+                    Path.Combine(root, "build", "Release", name),
+                };
+
+                foreach (var candidate in candidates)
+                {
+                    if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+                }
+            }
         }
 
         return LibName; // fall back to system search path
+    }
+
+    private static void AddRootAndParents(HashSet<string> roots, string? start)
+    {
+        if (string.IsNullOrWhiteSpace(start)) return;
+
+        var dir = new DirectoryInfo(Path.GetFullPath(start));
+        if (!dir.Exists)
+        {
+            dir = dir.Parent ?? dir;
+        }
+
+        while (dir is not null)
+        {
+            roots.Add(dir.FullName);
+            dir = dir.Parent;
+        }
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
