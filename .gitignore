@@ -4,3 +4,10 @@ build/
 __pycache__/
 *.pyc
 *.pyo
+# .NET build artifacts
+csharp/obj/
+csharp/bin/
+csharp/tests/obj/
+csharp/tests/bin/
+# Java build artifacts
+java/target/
