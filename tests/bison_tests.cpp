@@ -4,6 +4,7 @@
 #include "src/bison.hpp"
 
 #include <gtest/gtest.h>
+#include <shared_mutex>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -19,7 +20,7 @@ using bison_key_t = bdg::bison::key_t;
 // state leaking from one class-registration test into another.
 // ─────────────────────────────────────────────────────────────────────────────
 static void clearClassRegistry() {
-  std::unique_lock<std::recursive_mutex> lk(dynamic::getMutex());
+  std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
   dynamic::getClasses().clear();
 }
 

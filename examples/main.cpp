@@ -6,6 +6,7 @@
 // see the output.
 
 #include <iostream>
+#include <shared_mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -229,7 +230,7 @@ static void example_template_serialization() {
 
   // Clear any leftover classes from previous examples.
   {
-    std::unique_lock<std::recursive_mutex> lk(dynamic::getMutex());
+    std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
     dynamic::getClasses().clear();
   }
 
@@ -261,7 +262,7 @@ static void example_template_serialization() {
             << " z=" << (*restored)["z"_key].as<float>() << "\n";
 
   // Clean up
-  std::unique_lock<std::recursive_mutex> lk(dynamic::getMutex());
+  std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
   dynamic::getClasses().clear();
 }
 
@@ -333,7 +334,7 @@ static void example_inheritance() {
 
   // Clear any leftover classes from previous examples.
   {
-    std::unique_lock<std::recursive_mutex> lk(dynamic::getMutex());
+    std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
     dynamic::getClasses().clear();
   }
 
@@ -382,7 +383,7 @@ static void example_inheritance() {
   std::cout << "c is-a Shape: " << (c.findClass("Shape"_key) != nullptr) << "\n";
 
   // Clean up
-  std::unique_lock<std::recursive_mutex> lk(dynamic::getMutex());
+  std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
   dynamic::getClasses().clear();
 }
 

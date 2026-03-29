@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -807,8 +808,11 @@ class field : public field_base {
  * into the instance's own map for fast subsequent access.
  *
  * ## Thread safety
- * The **global class registry** (`getClasses()`) and all operations that read
- * or write it are protected by `getMutex()` (a `std::recursive_mutex`).
+ * The **global class registry** (`getClasses()`) is protected by `getMutex()`
+ * (a `std::shared_mutex`).  Multiple threads may **read** the registry
+ * concurrently using a `std::shared_lock`; write operations (`addClass`)
+ * acquire an exclusive `std::unique_lock`.  `findField`, `findMethod`, and
+ * `findClass` hold only a shared (read) lock while consulting the registry.
  * The **per-instance** field and method maps are **not** thread-safe; callers
  * must synchronise concurrent access to the same `dynamic` instance themselves.
  *
@@ -1163,7 +1167,7 @@ class dynamic {
    * @endcode
    */
   static bool addClass(const key_t parent, std::shared_ptr<dynamic> klass) {
-    std::unique_lock<std::recursive_mutex> lk(getMutex());
+    std::unique_lock<std::shared_mutex> lk(getMutex());
     auto name = klass->as<key_t>(CLASS);
     (*klass)[PARENT] = parent;
 
@@ -1197,7 +1201,7 @@ class dynamic {
   field* findField(key_t name) const {
     auto it = fields_.find(name);
     if (it == fields_.end()) {
-      std::unique_lock<std::recursive_mutex> lk(getMutex());
+      std::shared_lock<std::shared_mutex> lk(getMutex());
       auto& classes = getClasses();
       // Begin the search at the instance's own registered class prototype, then
       // walk up the PARENT chain stored on each prototype.
@@ -1229,7 +1233,7 @@ class dynamic {
   method* findMethod(key_t name) const {
     auto it = methods_.find(name);
     if (it == methods_.end()) {
-      std::unique_lock<std::recursive_mutex> lk(getMutex());
+      std::shared_lock<std::shared_mutex> lk(getMutex());
       auto& classes = getClasses();
       // Begin the search at the instance's own registered class prototype, then
       // walk up the PARENT chain stored on each prototype.
@@ -1259,7 +1263,7 @@ class dynamic {
    * @return Non-owning pointer to the matching prototype, or `nullptr`.
    */
   dynamic* findClass(key_t name) const {
-    std::unique_lock<std::recursive_mutex> lk(getMutex());
+    std::shared_lock<std::shared_mutex> lk(getMutex());
     auto& classes = getClasses();
     auto klass = as<key_t>(CLASS);
     auto it = classes.find(klass);
@@ -1272,16 +1276,18 @@ class dynamic {
   }
 
   /**
-   * @brief Return the library-wide recursive mutex that protects the class
+   * @brief Return the library-wide shared mutex that protects the class
    *        registry.
    *
    * External code may acquire this lock when performing multi-step operations
-   * on the class registry that must be atomic.
+   * on the class registry that must be atomic.  Use
+   * `std::shared_lock<std::shared_mutex>` for read-only access and
+   * `std::unique_lock<std::shared_mutex>` for mutations.
    *
-   * @return Reference to the static `std::recursive_mutex`.
+   * @return Reference to the static `std::shared_mutex`.
    */
-  static inline std::recursive_mutex& getMutex() {
-    static std::recursive_mutex mutex;
+  static inline std::shared_mutex& getMutex() {
+    static std::shared_mutex mutex;
     return mutex;
   }
 
