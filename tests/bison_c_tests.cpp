@@ -19,12 +19,19 @@ struct ScopedHandle {
   operator bison_handle() const { return h; }
 };
 
+static bison_hash H(const char* name) { return bison_key(name); }
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Lifecycle: create / add_ref / release
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST(LifecycleTests, CreateReturnsNonNull) {
   ScopedHandle h{bison_create(0)};
+  EXPECT_NE(h.h, nullptr);
+}
+
+TEST(LifecycleTests, InstantiateReturnsNonNull) {
+  ScopedHandle h{bison_instantiate(0)};
   EXPECT_NE(h.h, nullptr);
 }
 
@@ -39,11 +46,11 @@ TEST(LifecycleTests, AddRefReturnsDistinctHandle) {
 TEST(LifecycleTests, AddRefSharesObject) {
   ScopedHandle h1{bison_create(0)};
   ASSERT_NE(h1.h, nullptr);
-  EXPECT_EQ(bison_set_int(h1, "x", 7), BISON_OK);
+  EXPECT_EQ(bison_set_int(h1, H("x"), 7), BISON_OK);
 
   ScopedHandle h2{bison_add_ref(h1)};
   int32_t v = 0;
-  EXPECT_EQ(bison_get_int(h2, "x", &v), BISON_OK);
+  EXPECT_EQ(bison_get_int(h2, H("x"), &v), BISON_OK);
   EXPECT_EQ(v, 7);
 }
 
@@ -61,58 +68,58 @@ TEST(LifecycleTests, AddRefOnNullReturnsNull) {
 
 TEST(SetGetTests, IntRoundTrip) {
   ScopedHandle h{bison_create(0)};
-  EXPECT_EQ(bison_set_int(h, "score", 42), BISON_OK);
+  EXPECT_EQ(bison_set_int(h, H("score"), 42), BISON_OK);
   int32_t v = 0;
-  EXPECT_EQ(bison_get_int(h, "score", &v), BISON_OK);
+  EXPECT_EQ(bison_get_int(h, H("score"), &v), BISON_OK);
   EXPECT_EQ(v, 42);
 }
 
 TEST(SetGetTests, FloatRoundTrip) {
   ScopedHandle h{bison_create(0)};
-  EXPECT_EQ(bison_set_float(h, "ratio", 3.14f), BISON_OK);
+  EXPECT_EQ(bison_set_float(h, H("ratio"), 3.14f), BISON_OK);
   float v = 0.0f;
-  EXPECT_EQ(bison_get_float(h, "ratio", &v), BISON_OK);
+  EXPECT_EQ(bison_get_float(h, H("ratio"), &v), BISON_OK);
   EXPECT_NEAR(v, 3.14f, 1e-4f);
 }
 
 TEST(SetGetTests, BoolRoundTrip) {
   ScopedHandle h{bison_create(0)};
-  EXPECT_EQ(bison_set_bool(h, "flag", 1), BISON_OK);
+  EXPECT_EQ(bison_set_bool(h, H("flag"), 1), BISON_OK);
   int v = 0;
-  EXPECT_EQ(bison_get_bool(h, "flag", &v), BISON_OK);
+  EXPECT_EQ(bison_get_bool(h, H("flag"), &v), BISON_OK);
   EXPECT_EQ(v, 1);
 }
 
 TEST(SetGetTests, StringRoundTrip) {
   ScopedHandle h{bison_create(0)};
-  EXPECT_EQ(bison_set_string(h, "name", "alice"), BISON_OK);
+  EXPECT_EQ(bison_set_string(h, H("name"), "alice"), BISON_OK);
   char buf[32] = {};
   size_t len = 0;
-  EXPECT_EQ(bison_get_string(h, "name", buf, sizeof buf, &len), BISON_OK);
+  EXPECT_EQ(bison_get_string(h, H("name"), buf, sizeof buf, &len), BISON_OK);
   EXPECT_STREQ(buf, "alice");
   EXPECT_EQ(len, 5u);
 }
 
 TEST(SetGetTests, StringQueryLengthWithNullBuf) {
   ScopedHandle h{bison_create(0)};
-  bison_set_string(h, "msg", "hello");
+  bison_set_string(h, H("msg"), "hello");
   size_t len = 0;
-  EXPECT_EQ(bison_get_string(h, "msg", nullptr, 0, &len), BISON_OK);
+  EXPECT_EQ(bison_get_string(h, H("msg"), nullptr, 0, &len), BISON_OK);
   EXPECT_EQ(len, 5u);
 }
 
 TEST(SetGetTests, NestedObjectRoundTrip) {
   ScopedHandle parent{bison_create(0)};
   ScopedHandle child{bison_create(0)};
-  bison_set_int(child, "x", 99);
+  bison_set_int(child, H("x"), 99);
 
-  EXPECT_EQ(bison_set_object(parent, "inner", child), BISON_OK);
+  EXPECT_EQ(bison_set_object(parent, H("inner"), child), BISON_OK);
 
   bison_handle retrieved = nullptr;
-  EXPECT_EQ(bison_get_object(parent, "inner", &retrieved), BISON_OK);
+  EXPECT_EQ(bison_get_object(parent, H("inner"), &retrieved), BISON_OK);
   ASSERT_NE(retrieved, nullptr);
   int32_t v = 0;
-  bison_get_int(retrieved, "x", &v);
+  bison_get_int(retrieved, H("x"), &v);
   EXPECT_EQ(v, 99);
   bison_release(retrieved);
 }
@@ -121,22 +128,22 @@ TEST(SetGetTests, SetNullObject) {
   ScopedHandle h{bison_create(0)};
   // First set a real object so the field type is set.
   ScopedHandle child{bison_create(0)};
-  bison_set_object(h, "ref", child);
+  bison_set_object(h, H("ref"), child);
   // Now set it to null.
-  EXPECT_EQ(bison_set_object(h, "ref", nullptr), BISON_OK);
+  EXPECT_EQ(bison_set_object(h, H("ref"), nullptr), BISON_OK);
 }
 
 TEST(SetGetTests, WrongTypeReturnsTypeError) {
   ScopedHandle h{bison_create(0)};
-  bison_set_int(h, "n", 1);
+  bison_set_int(h, H("n"), 1);
   float v = 0;
-  EXPECT_EQ(bison_get_float(h, "n", &v), BISON_ERR_TYPE);
+  EXPECT_EQ(bison_get_float(h, H("n"), &v), BISON_ERR_TYPE);
 }
 
 TEST(SetGetTests, NullHandleReturnsNullError) {
   int32_t v = 0;
-  EXPECT_EQ(bison_get_int(nullptr, "x", &v), BISON_ERR_NULL);
-  EXPECT_EQ(bison_set_int(nullptr, "x", 1), BISON_ERR_NULL);
+  EXPECT_EQ(bison_get_int(nullptr, H("x"), &v), BISON_ERR_NULL);
+  EXPECT_EQ(bison_set_int(nullptr, H("x"), 1), BISON_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -187,8 +194,8 @@ TEST(ImportTests, FromJsonObject) {
   ScopedHandle h{bison_from_json(R"({"x": 1, "y": 2})")};
   ASSERT_NE(h.h, nullptr);
   int32_t x = 0, y = 0;
-  EXPECT_EQ(bison_get_int(h, "x", &x), BISON_OK);
-  EXPECT_EQ(bison_get_int(h, "y", &y), BISON_OK);
+  EXPECT_EQ(bison_get_int(h, H("x"), &x), BISON_OK);
+  EXPECT_EQ(bison_get_int(h, H("y"), &y), BISON_OK);
   EXPECT_EQ(x, 1);
   EXPECT_EQ(y, 2);
 }
@@ -202,10 +209,10 @@ TEST(ImportTests, FromYamlFlatMapping) {
   ScopedHandle h{bison_from_yaml("x: 10\nname: test\n")};
   ASSERT_NE(h.h, nullptr);
   int32_t x = 0;
-  EXPECT_EQ(bison_get_int(h, "x", &x), BISON_OK);
+  EXPECT_EQ(bison_get_int(h, H("x"), &x), BISON_OK);
   EXPECT_EQ(x, 10);
   char buf[32] = {};
-  bison_get_string(h, "name", buf, sizeof buf, nullptr);
+  bison_get_string(h, H("name"), buf, sizeof buf, nullptr);
   EXPECT_STREQ(buf, "test");
 }
 
@@ -234,7 +241,7 @@ class ClassRegistryTests : public ::testing::Test {
 TEST_F(ClassRegistryTests, AddClassSucceeds) {
   uint32_t key = bison_key("Shape");
   ScopedHandle proto{bison_create(key)};
-  bison_set_int(proto, "sides", 3);
+  bison_set_int(proto, H("sides"), 3);
   EXPECT_EQ(bison_add_class(0, proto), BISON_OK);
 }
 
@@ -257,6 +264,18 @@ TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
   bison_release(found);
 }
 
+TEST_F(ClassRegistryTests, FindClassFromInstantiatedObjectReturnsHandle) {
+  uint32_t key = bison_key("WidgetInst");
+  ScopedHandle proto{bison_create(key)};
+  bison_set_int(proto, H("v"), 1);
+  ASSERT_EQ(bison_add_class(0, proto), BISON_OK);
+
+  ScopedHandle inst{bison_instantiate(key)};
+  bison_handle found = bison_find_class(inst, key);
+  EXPECT_NE(found, nullptr);
+  bison_release(found);
+}
+
 TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
   ScopedHandle inst{bison_create(0)};
   bison_handle found = bison_find_class(inst, bison_key("NoSuchClass"));
@@ -274,22 +293,22 @@ TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
 static void double_counter_fn(bison_handle self, bison_handle /*params*/,
                                bison_handle result, void* /*user*/) {
   int32_t n = 0;
-  bison_get_int(self, "n", &n);
-  bison_set_int(self, "n", n * 2);
-  bison_set_int(result, "value", n * 2);
+  bison_get_int(self, H("n"), &n);
+  bison_set_int(self, H("n"), n * 2);
+  bison_set_int(result, H("value"), n * 2);
 }
 
 TEST(MethodTests, AddAndCallMethod) {
   ScopedHandle h{bison_create(0)};
-  bison_set_int(h, "n", 5);
-  EXPECT_EQ(bison_add_method(h, "double", double_counter_fn, nullptr), BISON_OK);
+  bison_set_int(h, H("n"), 5);
+  EXPECT_EQ(bison_add_method(h, H("double"), double_counter_fn, nullptr), BISON_OK);
 
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
-  EXPECT_EQ(bison_call(h, "double", params, &result), BISON_OK);
+  EXPECT_EQ(bison_call(h, H("double"), params, &result), BISON_OK);
   ASSERT_NE(result, nullptr);
   int32_t v = 0;
-  bison_get_int(result, "value", &v);
+  bison_get_int(result, H("value"), &v);
   EXPECT_EQ(v, 10);
   bison_release(result);
 }
@@ -298,19 +317,19 @@ TEST(MethodTests, CallMissingMethodReturnsNotFound) {
   ScopedHandle h{bison_create(0)};
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
-  EXPECT_EQ(bison_call(h, "nonexistent", params, &result), BISON_ERR_NOT_FOUND);
+  EXPECT_EQ(bison_call(h, H("nonexistent"), params, &result), BISON_ERR_NOT_FOUND);
 }
 
 TEST(MethodTests, AddDuplicateMethodFails) {
   ScopedHandle h{bison_create(0)};
-  EXPECT_EQ(bison_add_method(h, "fn", double_counter_fn, nullptr), BISON_OK);
-  EXPECT_EQ(bison_add_method(h, "fn", double_counter_fn, nullptr), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_method(h, H("fn"), double_counter_fn, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_method(h, H("fn"), double_counter_fn, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST(MethodTests, NullHandleReturnsNullError) {
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
-  EXPECT_EQ(bison_call(nullptr, "fn", params, &result), BISON_ERR_NULL);
+  EXPECT_EQ(bison_call(nullptr, H("fn"), params, &result), BISON_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
