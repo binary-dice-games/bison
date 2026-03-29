@@ -341,8 +341,11 @@ BISON_API bison_error bison_add_method(bison_handle h, const char* name,
   try {
     bdg::bison::method wrapped = [fn, user](bdg::bison::dynamic& self,
                                              const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
-      // Create a non-owning handle for self using a no-op deleter so that the
-      // C callback can read/write the actual self object directly.
+      // Create a non-owning handle for self using a no-op deleter.
+      // We wrap &self (a C++ reference to the actual dynamic) in a
+      // shared_ptr that does NOT delete the object when destroyed, so
+      // the C callback can read and mutate self in-place through the
+      // handle without any extra copy/propagation step.
       auto* self_sp  = new sp_dyn(&self, [](bdg::bison::dynamic*){});
       // params is const; make a heap copy so the callback can hold a handle.
       auto* param_sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(params));
