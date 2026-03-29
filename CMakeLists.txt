@@ -25,8 +25,7 @@ include_directories(. include)
 add_subdirectory("extern/json")
 # Allow legacy subprojects (libyaml currently declares cmake_minimum_required 3.0).
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-# Keep third-party yaml tools/tests out of the default build to avoid external warnings.
-add_subdirectory("extern/yaml" EXCLUDE_FROM_ALL)
+add_subdirectory("extern/yaml")
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
