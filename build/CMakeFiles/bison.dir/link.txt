@@ -1,2 +1,0 @@
-/usr/bin/ar qc libbison.a CMakeFiles/bison.dir/src/bison.cpp.o
-/usr/bin/ranlib libbison.a
