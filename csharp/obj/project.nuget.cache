@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "dgSpecHash": "g3wip2R5sWc=",
+  "success": true,
+  "projectFilePath": "/home/runner/work/bison/bison/csharp/Bison.csproj",
+  "expectedPackageFiles": [
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.ref/6.0.36/microsoft.netcore.app.ref.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.runtime.win-x64/6.0.36/microsoft.netcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.runtime.linux-x64/6.0.36/microsoft.netcore.app.runtime.linux-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.runtime.osx-x64/6.0.36/microsoft.netcore.app.runtime.osx-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.runtime.osx-arm64/6.0.36/microsoft.netcore.app.runtime.osx-arm64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.aspnetcore.app.ref/6.0.36/microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.aspnetcore.app.runtime.win-x64/6.0.36/microsoft.aspnetcore.app.runtime.win-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.aspnetcore.app.runtime.linux-x64/6.0.36/microsoft.aspnetcore.app.runtime.linux-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.aspnetcore.app.runtime.osx-x64/6.0.36/microsoft.aspnetcore.app.runtime.osx-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.aspnetcore.app.runtime.osx-arm64/6.0.36/microsoft.aspnetcore.app.runtime.osx-arm64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.host.win-x64/6.0.36/microsoft.netcore.app.host.win-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.host.linux-x64/6.0.36/microsoft.netcore.app.host.linux-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.host.osx-x64/6.0.36/microsoft.netcore.app.host.osx-x64.6.0.36.nupkg.sha512",
+    "/tmp/codeql-scratch-d3a51ccdd517cdfb/dbs/csharp/working/packages/microsoft.netcore.app.host.osx-arm64/6.0.36/microsoft.netcore.app.host.osx-arm64.6.0.36.nupkg.sha512"
+  ],
+  "logs": []
+}

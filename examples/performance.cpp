@@ -1,31 +1,10 @@
 // MIT License (c) 2025 Binary Dice Games
 // examples/performance.cpp
 //
-// Simple micro-benchmark comparing equivalent operations implemented with:
+// Micro-benchmark comparing equivalent operations implemented with:
 // 1. A plain C++ class
 // 2. bdg::bison::dynamic
 // 3. nlohmann::json
-
-#include <chrono>
-#include <algorithm>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <exception>
-#include <iomanip>
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <string_view>
-#include <vector>
-
-#include <nlohmann/json.hpp>
-
-#include "src/bison.hpp"
-
-using namespace bdg::bison;
-using json = nlohmann::json;
-// MIT License (c) 2025 Binary Dice Games
 
 /**
  * @file performance.cpp
@@ -40,8 +19,8 @@ using json = nlohmann::json;
  * - Create / destroy
  * - Field set / get
  * - Method-style call
- * - Serialize
- * - Deserialize
+ * - Serialize        (stream-based and buffer-based variants for dynamic)
+ * - Deserialize      (stream-based and buffer-based variants for dynamic)
  *
  * The harness supports warmup + repeated measured samples and reports min/median
  * timings. Results can be printed as table, CSV, or Markdown.
@@ -242,7 +221,7 @@ NativeRecord deserialize_native_record(const std::string& buffer) {
   return obj;
 }
 
-/** @brief Serialize a `bison::dynamic` object to Bison binary format. */
+/** @brief Serialize a `bison::dynamic` object to Bison binary format (stream). */
 std::string serialize_dynamic_record(const dynamic& obj) {
   std::ostringstream out(std::ios::binary);
   serializer ser{out};
@@ -250,11 +229,31 @@ std::string serialize_dynamic_record(const dynamic& obj) {
   return out.str();
 }
 
-/** @brief Deserialize a `bison::dynamic` object from Bison binary format. */
+/** @brief Deserialize a `bison::dynamic` object from Bison binary format (stream). */
 std::shared_ptr<dynamic> deserialize_dynamic_record(const std::string& buffer) {
   std::istringstream in(buffer, std::ios::binary);
   deserializer des{in};
   return dynamic::deserialize(des);
+}
+
+/**
+ * @brief Serialize a `bison::dynamic` object to Bison binary format using
+ *        the buffer_serializer (no stream overhead).
+ */
+std::vector<char> serialize_dynamic_record_buf(const dynamic& obj) {
+  buffer_serializer out;
+  obj.serialize(out);
+  return out.release();
+}
+
+/**
+ * @brief Deserialize a `bison::dynamic` object from Bison binary format
+ *        using the buffer_deserializer (no stream overhead).
+ */
+std::shared_ptr<dynamic> deserialize_dynamic_record_buf(
+    const std::vector<char>& buf) {
+  buffer_deserializer in(buf);
+  return dynamic::deserialize(in);
 }
 
 /** @brief Serialize a JSON object using text encoding (`dump`). */
@@ -276,6 +275,7 @@ struct benchmark_pool {
   std::vector<json> json_records;
   std::vector<std::string> native_payloads;
   std::vector<std::string> dynamic_payloads;
+  std::vector<std::vector<char>> dynamic_buf_payloads;  // buffer_serializer payloads
   std::vector<std::string> json_payloads;
 };
 
@@ -291,6 +291,7 @@ benchmark_pool build_serialization_pool(std::size_t pool_size) {
   pool.json_records.reserve(pool_size);
   pool.native_payloads.reserve(pool_size);
   pool.dynamic_payloads.reserve(pool_size);
+  pool.dynamic_buf_payloads.reserve(pool_size);
   pool.json_payloads.reserve(pool_size);
 
   // Build object fixtures first.
@@ -304,6 +305,7 @@ benchmark_pool build_serialization_pool(std::size_t pool_size) {
   for (std::size_t iteration = 0; iteration < pool_size; ++iteration) {
     pool.native_payloads.push_back(serialize_native_record(pool.native_records[iteration]));
     pool.dynamic_payloads.push_back(serialize_dynamic_record(pool.dynamic_records[iteration]));
+    pool.dynamic_buf_payloads.push_back(serialize_dynamic_record_buf(pool.dynamic_records[iteration]));
     pool.json_payloads.push_back(serialize_json_record(pool.json_records[iteration]));
   }
 
@@ -687,7 +689,7 @@ int main(int argc, char** argv) {
   const benchmark_config config = parse_config(argc, argv);
   const benchmark_pool pool = build_serialization_pool(SERIALIZATION_POOL_SIZE);
   std::vector<benchmark_row> rows;
-  rows.reserve(5);
+  rows.reserve(7);
 
   // 1) Cost of constructing and tearing down objects each iteration.
   rows.push_back({
@@ -806,6 +808,25 @@ int main(int argc, char** argv) {
         consume_u64(static_cast<std::uint64_t>(payload.size()));
       })});
 
+  // 4b) Serialization using buffer_serializer (no stream overhead).
+  rows.push_back({
+      "Serialize (buf)",
+      measure_stats(config, [&pool](std::size_t iteration) {
+        const NativeRecord& obj = pool.native_records[iteration % pool.native_records.size()];
+        const std::string payload = serialize_native_record(obj);
+        consume_u64(static_cast<std::uint64_t>(payload.size()));
+      }),
+      measure_stats(config, [&pool](std::size_t iteration) {
+        const dynamic& obj = pool.dynamic_records[iteration % pool.dynamic_records.size()];
+        const auto payload = serialize_dynamic_record_buf(obj);
+        consume_u64(static_cast<std::uint64_t>(payload.size()));
+      }),
+      measure_stats(config, [&pool](std::size_t iteration) {
+        const json& obj = pool.json_records[iteration % pool.json_records.size()];
+        const std::string payload = serialize_json_record(obj);
+        consume_u64(static_cast<std::uint64_t>(payload.size()));
+      })});
+
   // 5) Pure deserialization cost using prebuilt payload fixtures.
   rows.push_back({
       "Deserialize",
@@ -818,6 +839,29 @@ int main(int argc, char** argv) {
       measure_stats(config, [&pool](std::size_t iteration) {
         const std::string& payload = pool.dynamic_payloads[iteration % pool.dynamic_payloads.size()];
         const auto obj = deserialize_dynamic_record(payload);
+        consume_i32((*obj)[KEY_ID].as<std::int32_t>() + (*obj)[KEY_LEVEL].as<std::int32_t>());
+        consume_string((*obj)[KEY_NAME].as<std::string>());
+      }),
+      measure_stats(config, [&pool](std::size_t iteration) {
+        const std::string& payload = pool.json_payloads[iteration % pool.json_payloads.size()];
+        const json obj = deserialize_json_record(payload);
+        consume_i32(obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
+        consume_string(obj["name"].get_ref<const std::string&>());
+      })});
+
+  // 5b) Deserialization using buffer_deserializer (no stream overhead).
+  rows.push_back({
+      "Deserialize (buf)",
+      measure_stats(config, [&pool](std::size_t iteration) {
+        const std::string& payload = pool.native_payloads[iteration % pool.native_payloads.size()];
+        const NativeRecord obj = deserialize_native_record(payload);
+        consume_i32(obj.id + obj.level);
+        consume_string(obj.name);
+      }),
+      measure_stats(config, [&pool](std::size_t iteration) {
+        const std::vector<char>& payload =
+            pool.dynamic_buf_payloads[iteration % pool.dynamic_buf_payloads.size()];
+        const auto obj = deserialize_dynamic_record_buf(payload);
         consume_i32((*obj)[KEY_ID].as<std::int32_t>() + (*obj)[KEY_LEVEL].as<std::int32_t>());
         consume_string((*obj)[KEY_NAME].as<std::string>());
       }),

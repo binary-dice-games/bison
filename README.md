@@ -398,6 +398,167 @@ doxygen Doxyfile
 
 A `Doxyfile` can be generated with `doxygen -g` and configured to point `INPUT` at `src/`.
 
+## Java Binding
+
+The `java/` directory contains a JNA (Java Native Access) binding that mirrors the Python `ctypes` approach.  It wraps `libbison_c` and exposes a `Dynamic` class with the same feature set.
+
+### Requirements
+
+| Requirement | Version |
+|---|---|
+| Java | 11 or later |
+| Maven | 3.6 or later |
+| JNA | 5.14 (fetched automatically by Maven) |
+| JUnit 5 | 5.10 (test scope, fetched automatically) |
+
+### Build the native library
+
+```bash
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug --target bison_c
+```
+
+### Run the Java examples
+
+From the `java/` directory:
+
+```bash
+cd java
+mvn compile exec:java -Dexec.mainClass=com.bdg.bison.examples.BisonExamples
+```
+
+If the shared library is not found automatically, set `BISON_LIB` first:
+
+```bash
+export BISON_LIB=$(pwd)/../build/libbison_c.so   # Linux
+# macOS: export BISON_LIB=$(pwd)/../build/libbison_c.dylib
+# Windows: set BISON_LIB=..\build\Debug\bison_c.dll
+```
+
+### Run the Java tests
+
+```bash
+cd java
+mvn test
+```
+
+### Quick-start Java snippet
+
+```java
+try (Dynamic obj = new Dynamic()) {
+    obj.setInt("hp",      100);
+    obj.setFloat("speed", 9.5f);
+    obj.setBool("alive",  true);
+    obj.setString("name", "hero");
+
+    System.out.println(obj.getInt("hp"));     // 100
+    System.out.println(obj.getFloat("speed")); // 9.5
+}
+
+// JSON import
+try (Dynamic root = Dynamic.fromJson("{\"x\": 1, \"y\": 2}")) {
+    System.out.println(root.getInt("x")); // 1
+}
+```
+
+## C# Binding
+
+The `csharp/` directory contains a P/Invoke binding for .NET 6+.  It wraps `libbison_c` and exposes a `Dynamic` class that implements `IDisposable`.
+
+### Requirements
+
+| Requirement | Version |
+|---|---|
+| .NET SDK | 6.0 or later |
+| xUnit | 2.7 (test project, fetched automatically by NuGet) |
+
+### Build the native library
+
+```bash
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug --target bison_c
+```
+
+### Run the C# examples
+
+From the `csharp/` directory:
+
+```bash
+cd csharp
+dotnet run -- examples
+```
+
+Set `BISON_LIB` if the shared library is not found automatically (same approach as the Java binding).
+
+### Run the C# tests
+
+```bash
+cd csharp/tests
+dotnet test
+```
+
+### Quick-start C# snippet
+
+```csharp
+using Bdg.Bison;
+
+using var obj = new Dynamic();
+obj.SetInt("hp",     100);
+obj.SetFloat("speed", 9.5f);
+obj.SetBool("alive", true);
+obj.SetString("name", "hero");
+
+Console.WriteLine(obj.GetInt("hp"));      // 100
+Console.WriteLine(obj.GetFloat("speed")); // 9.5
+
+// JSON import
+using var root = Dynamic.FromJson("{\"x\": 1, \"y\": 2}");
+Console.WriteLine(root.GetInt("x")); // 1
+```
+
+## Performance Optimizations
+
+The library has been optimised for serialization and deserialization throughput.  The changes described below are in `src/bison.hpp`.
+
+### 1. Compiler-intrinsic `byte_swap`
+
+The byte-swapping function that converts scalars to network (big-endian) byte order now uses `__builtin_bswap16/32/64` on GCC and Clang, and `_byteswap_ushort/ulong/uint64` on MSVC.  The compiler lowers these intrinsics to a single `bswap` (x86) or `rev` (ARM) instruction, which is faster than the loop-based fallback retained for other compilers.
+
+### 2. Buffer-based serializer / deserializer
+
+Two new classes — `buffer_serializer` and `buffer_deserializer` — write and read directly from a `std::vector<char>` (or `const char*` / length pair) without going through an `std::ostream` / `std::istream`.  Every `write()` / `read()` call on the stream classes dispatches virtually; the buffer variants eliminate that overhead entirely.
+
+```cpp
+// --- Serialize ---
+buffer_serializer out;
+obj.serialize(out);
+std::vector<char> bytes = out.release();
+
+// --- Deserialize ---
+buffer_deserializer in(bytes);
+auto copy = dynamic::deserialize(in);
+```
+
+`dynamic`, `field`, `serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
+
+### 3. `std::unordered_map` for field storage
+
+The `fields_` member of `dynamic` was changed from `std::map<key_t, field>` (O(log n) tree) to `std::unordered_map<key_t, field, key_t, key_t>` (O(1) average hash table).  Field names are already 32-bit FNV-1a hashes, so the hash table key is effectively the identity function — no additional hashing work is needed at the map level.
+
+The `size()` method (which counts array-like numeric keys) and the `clear()` method (which erases numeric keys) now iterate over all entries instead of using `lower_bound`; for typical objects with fewer than a few dozen fields this is negligible, and the O(1) field-access improvement more than compensates in all common usage patterns.
+
+### Running the benchmark
+
+Build in `Release` for meaningful timings:
+
+```bash
+cmake -B build
+cmake --build build --config Release --target bison_performance
+./build/examples/bison_performance --iterations=100000 --format=table
+```
+
+The output now includes `Serialize (buf)` and `Deserialize (buf)` rows alongside the original stream-based rows, making it easy to see the speedup from the buffer path.
+
 ## License
 
 MIT License © 2025 Binary Dice Games.  

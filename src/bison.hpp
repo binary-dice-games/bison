@@ -6,8 +6,10 @@
 #pragma once
 
 #include <atomic>
+#include <bit>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -21,6 +23,7 @@
 #include <span>
 #include <unordered_map>
 #include <variant>
+#include <vector>
 
 /**
  * @file bison.hpp
@@ -68,6 +71,8 @@ namespace bdg::bison {
 
 class serializer;
 class deserializer;
+class buffer_serializer;
+class buffer_deserializer;
 class attribute;
 class field;
 class dynamic;
@@ -101,22 +106,59 @@ const size_t native = []() {
  * platforms every multi-byte scalar must be swapped before writing and after
  * reading. On big-endian platforms the function is a no-op.
  *
+ * Optimisation: on GCC / Clang the compiler built-ins
+ * `__builtin_bswap16/32/64` are used for 2-, 4-, and 8-byte types; on MSVC
+ * the equivalent `_byteswap_ushort/ulong/uint64` intrinsics are used.
+ * Both sets are recognised by the compiler and lowered to a single `bswap`
+ * instruction (x86) or `rev` instruction (ARM).  For all other platforms the
+ * loop-based portable fallback is retained.
+ *
  * @tparam T  An integral or floating-point type.
  * @param  value  The value whose bytes may be reversed.
  * @return The byte-swapped value (or the original value on big-endian hosts).
  */
 template <typename T>
 constexpr T byte_swap(T value) {
-  if (endian::native == endian::big) {
-    return value;
-  } else {
-    T result = 0U;
-    const size_t size = sizeof(T);
-    for (size_t i = 0; i < size; ++i) {
-      ((unsigned char*)&result)[size - i - 1] = ((unsigned char*)&value)[i];
-    }
-    return result;
+  if constexpr (sizeof(T) == 1) return value;
+  if (endian::native == endian::big) return value;
+#if defined(__GNUC__) || defined(__clang__)
+  if constexpr (sizeof(T) == 2) {
+    uint16_t u = std::bit_cast<uint16_t>(value);
+    u = __builtin_bswap16(u);
+    return std::bit_cast<T>(u);
+  } else if constexpr (sizeof(T) == 4) {
+    uint32_t u = std::bit_cast<uint32_t>(value);
+    u = __builtin_bswap32(u);
+    return std::bit_cast<T>(u);
+  } else if constexpr (sizeof(T) == 8) {
+    uint64_t u = std::bit_cast<uint64_t>(value);
+    u = __builtin_bswap64(u);
+    return std::bit_cast<T>(u);
   }
+#elif defined(_MSC_VER)
+  if constexpr (sizeof(T) == 2) {
+    uint16_t u = std::bit_cast<uint16_t>(value);
+    u = _byteswap_ushort(u);
+    return std::bit_cast<T>(u);
+  } else if constexpr (sizeof(T) == 4) {
+    uint32_t u = std::bit_cast<uint32_t>(value);
+    u = _byteswap_ulong(u);
+    return std::bit_cast<T>(u);
+  } else if constexpr (sizeof(T) == 8) {
+    uint64_t u = std::bit_cast<uint64_t>(value);
+    u = _byteswap_uint64(u);
+    return std::bit_cast<T>(u);
+  }
+#endif
+
+  // Portable fallback: byte-by-byte reversal.
+  T result{};
+  const size_t size = sizeof(T);
+  for (size_t i = 0; i < size; ++i) {
+    reinterpret_cast<unsigned char*>(&result)[size - i - 1] =
+        reinterpret_cast<const unsigned char*>(&value)[i];
+  }
+  return result;
 }
 
 /** @brief Unsigned 32-bit integer used as a hashed field key. */
@@ -581,6 +623,345 @@ class deserializer {
 };
 
 /**
+ * @brief In-memory serializer that writes directly to a `std::vector<char>`.
+ *
+ * `buffer_serializer` provides the same interface as `serializer` but avoids
+ * the virtual-dispatch overhead of `std::ostream`.  It writes bytes directly
+ * into a heap-allocated buffer, which is significantly faster when the
+ * bottleneck is many small `write()` calls.
+ *
+ * The internal buffer is grown automatically.  Use `buffer()` to obtain a
+ * read-only view or `release()` to take ownership of the accumulated bytes.
+ *
+ * ### Example
+ * @code{.cpp}
+ * buffer_serializer out;
+ * out.write(int32_t{42}).write(std::string{"hello"});
+ * std::vector<char> bytes = out.release();
+ * @endcode
+ */
+class buffer_serializer {
+ public:
+  /** @brief Construct an empty serializer; reserves @p initial_capacity bytes. */
+  explicit buffer_serializer(size_t initial_capacity = 256) {
+    buf_.reserve(initial_capacity);
+  }
+  buffer_serializer(const buffer_serializer&) = delete;
+  buffer_serializer(buffer_serializer&&)      = default;
+
+  /** @brief Return a read-only view of the accumulated bytes. */
+  const std::vector<char>& buffer() const { return buf_; }
+
+  /** @brief Move the accumulated bytes out of the serializer. */
+  std::vector<char> release() { return std::move(buf_); }
+
+  /**
+   * @brief Write a single scalar value in big-endian byte order.
+   *
+   * @tparam T  An integral or floating-point type.
+   * @param  data  The value to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  buffer_serializer& write(T data) {
+    data = byte_swap(data);
+    const char* p = reinterpret_cast<const char*>(&data);
+    buf_.insert(buf_.end(), p, p + sizeof(T));
+    return *this;
+  }
+
+  /**
+   * @brief Write a `std::vector` prefixed with its element count.
+   *
+   * On little-endian platforms the entire element array is byte-swapped into
+   * a temporary buffer and written in a single insertion, reducing the number
+   * of individual `insert` calls.
+   *
+   * @tparam T  Element type of the vector.
+   * @param  data  The vector to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  buffer_serializer& write(const std::vector<T>& data) {
+    size_t count = byte_swap(data.size());
+    const char* cp = reinterpret_cast<const char*>(&count);
+    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    if constexpr (std::is_same_v<T, bool>) {
+      // std::vector<bool> has no contiguous storage; iterate element by element.
+      for (bool elem : data) {
+        unsigned char val = elem ? 1u : 0u;
+        buf_.push_back(static_cast<char>(val));
+      }
+    } else if constexpr (sizeof(T) == 1) {
+      // Single-byte elements need no swapping; copy in bulk.
+      const char* p = reinterpret_cast<const char*>(data.data());
+      buf_.insert(buf_.end(), p, p + data.size());
+    } else if (endian::native == endian::big) {
+      // Big-endian: no byte-swap needed; copy in bulk.
+      const char* p = reinterpret_cast<const char*>(data.data());
+      buf_.insert(buf_.end(), p, p + data.size() * sizeof(T));
+    } else {
+      // Little-endian: swap each element individually.
+      for (const auto& elem : data) {
+        T value = byte_swap(elem);
+        const char* p = reinterpret_cast<const char*>(&value);
+        buf_.insert(buf_.end(), p, p + sizeof(T));
+      }
+    }
+    return *this;
+  }
+
+  /**
+   * @brief Write a `std::span` prefixed with its element count.
+   *
+   * @tparam T  Element type of the span.
+   * @param data  The span to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  buffer_serializer& write(std::span<const T> data) {
+    size_t count = byte_swap(data.size());
+    const char* cp = reinterpret_cast<const char*>(&count);
+    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    if constexpr (sizeof(T) == 1) {
+      const char* p = reinterpret_cast<const char*>(data.data());
+      buf_.insert(buf_.end(), p, p + data.size());
+    } else if (endian::native == endian::big) {
+      const char* p = reinterpret_cast<const char*>(data.data());
+      buf_.insert(buf_.end(), p, p + data.size() * sizeof(T));
+    } else {
+      for (const auto& elem : data) {
+        T value = byte_swap(elem);
+        const char* p = reinterpret_cast<const char*>(&value);
+        buf_.insert(buf_.end(), p, p + sizeof(T));
+      }
+    }
+    return *this;
+  }
+
+  /**
+   * @brief Write a `std::string` prefixed with its byte length.
+   *
+   * @param data  The string to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  buffer_serializer& write(const std::string& data) {
+    size_t count = byte_swap(data.size());
+    const char* cp = reinterpret_cast<const char*>(&count);
+    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    buf_.insert(buf_.end(), data.begin(), data.end());
+    return *this;
+  }
+
+  /**
+   * @brief Write a `std::string_view` prefixed with its byte length.
+   *
+   * @param data  The string view to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  buffer_serializer& write(std::string_view data) {
+    size_t count = byte_swap(data.size());
+    const char* cp = reinterpret_cast<const char*>(&count);
+    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    buf_.insert(buf_.end(), data.begin(), data.end());
+    return *this;
+  }
+
+  /**
+   * @brief Write raw bytes without any transformation.
+   *
+   * @param data   Pointer to the byte buffer.
+   * @param count  Number of bytes to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  buffer_serializer& write(const char* data, std::streamsize count) {
+    buf_.insert(buf_.end(), data, data + count);
+    return *this;
+  }
+
+ private:
+  std::vector<char> buf_;
+};
+
+/**
+ * @brief In-memory deserializer that reads directly from a raw byte buffer.
+ *
+ * `buffer_deserializer` provides the same interface as `deserializer` but
+ * reads from a caller-supplied `const char*` / length pair (or
+ * `std::vector<char>`) instead of an `std::istream`, avoiding virtual-dispatch
+ * overhead and eliminating unnecessary heap allocations.
+ *
+ * ### Example
+ * @code{.cpp}
+ * std::vector<char> bytes = serialize_something();
+ * buffer_deserializer in(bytes);
+ * int32_t v = in.read<int32_t>();
+ * @endcode
+ */
+class buffer_deserializer {
+ public:
+  /**
+   * @brief Construct from a raw byte range.
+   *
+   * @param data  Pointer to the first byte.
+   * @param size  Number of bytes available.
+   */
+  buffer_deserializer(const char* data, size_t size)
+      : begin_(data), end_(data + size), pos_(data) {}
+
+  /** @brief Construct from a `std::vector<char>`. */
+  explicit buffer_deserializer(const std::vector<char>& buf)
+      : buffer_deserializer(buf.data(), buf.size()) {}
+
+  /** @brief Construct from a `std::string`. */
+  explicit buffer_deserializer(const std::string& buf)
+      : buffer_deserializer(buf.data(), buf.size()) {}
+
+  buffer_deserializer(const buffer_deserializer&) = delete;
+  buffer_deserializer(buffer_deserializer&&)      = default;
+
+  /**
+   * @brief Read a single scalar value and return it by value.
+   *
+   * @tparam T  An integral or floating-point type.
+   * @return The byte-swapped value read from the buffer.
+   * @throws std::runtime_error on buffer underflow.
+   */
+  template <typename T>
+  T read() {
+    if (pos_ + sizeof(T) > end_) {
+      throw std::runtime_error("buffer_deserializer: buffer underflow");
+    }
+    T data{};
+    std::memcpy(&data, pos_, sizeof(T));
+    pos_ += sizeof(T);
+    return byte_swap(data);
+  }
+
+  /**
+   * @brief Read a single scalar value into an existing variable.
+   *
+   * @tparam T  An integral or floating-point type.
+   * @param  data  Output variable that receives the value.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  buffer_deserializer& read(T& data) {
+    data = read<T>();
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed vector.
+   *
+   * @tparam T  Element type of the vector.
+   * @param  data  Output vector that receives the elements.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  buffer_deserializer& read(std::vector<T>& data) {
+    const size_t count = read<size_t>();
+    data.resize(count);
+    if constexpr (std::is_same_v<T, bool>) {
+      // std::vector<bool> has no contiguous storage; iterate element by element.
+      for (size_t idx = 0; idx < count; ++idx) {
+        data[idx] = (read<unsigned char>() != 0u);
+      }
+    } else if constexpr (sizeof(T) == 1) {
+      if (pos_ + count > end_) {
+        throw std::runtime_error("buffer_deserializer: buffer underflow");
+      }
+      std::memcpy(data.data(), pos_, count);
+      pos_ += count;
+    } else if (endian::native == endian::big) {
+      const size_t bytes = count * sizeof(T);
+      if (pos_ + bytes > end_) {
+        throw std::runtime_error("buffer_deserializer: buffer underflow");
+      }
+      std::memcpy(data.data(), pos_, bytes);
+      pos_ += bytes;
+    } else {
+      for (size_t idx = 0; idx < count; ++idx) {
+        data[idx] = read<T>();
+      }
+    }
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed sequence into a fixed-size span.
+   *
+   * @tparam T  Element type of the span.
+   * @param data  Output span that receives the elements.
+   * @return Reference to `*this` for method chaining.
+   * @throws std::runtime_error if the serialized element count does not match
+   *         the span size.
+   */
+  template <typename T>
+  buffer_deserializer& read(std::span<T> data) {
+    const size_t count = read<size_t>();
+    if (count != data.size()) {
+      throw std::runtime_error("buffer_deserializer: Invalid span size");
+    }
+    for (size_t idx = 0; idx < count; ++idx) {
+      data[idx] = read<T>();
+    }
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed string.
+   *
+   * @param data  Output string that receives the characters.
+   * @return Reference to `*this` for method chaining.
+   */
+  buffer_deserializer& read(std::string& data) {
+    const size_t count = read<size_t>();
+    if (pos_ + count > end_) {
+      throw std::runtime_error("buffer_deserializer: buffer underflow");
+    }
+    data.assign(pos_, count);
+    pos_ += count;
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed string into caller-provided storage and
+   *        expose it as `std::string_view`.
+   *
+   * @param view     Output string_view over @p storage.
+   * @param storage  Output string that owns the characters.
+   * @return Reference to `*this` for method chaining.
+   */
+  buffer_deserializer& read(std::string_view& view, std::string& storage) {
+    read(storage);
+    view = storage;
+    return *this;
+  }
+
+  /**
+   * @brief Read raw bytes without any transformation.
+   *
+   * @param data   Buffer that receives the bytes.
+   * @param count  Number of bytes to read.
+   * @return Reference to `*this` for method chaining.
+   */
+  buffer_deserializer& read(char* data, std::streamsize count) {
+    if (pos_ + count > end_) {
+      throw std::runtime_error("buffer_deserializer: buffer underflow");
+    }
+    std::memcpy(data, pos_, count);
+    pos_ += count;
+    return *this;
+  }
+
+ private:
+  const char* begin_;
+  const char* end_;
+  const char* pos_;
+};
+
+/**
  * @brief Base class for user-defined field attributes.
  *
  * Derive from `attribute` to create typed metadata objects that can be
@@ -890,6 +1271,16 @@ class field : public field_base {
   inline void serialize(serializer& out) const;
 
   /**
+   * @brief Serialize this field to an in-memory buffer.
+   *
+   * Equivalent to `serialize(serializer&)` but writes to a
+   * `buffer_serializer`, avoiding `std::ostream` virtual-dispatch overhead.
+   *
+   * @param out  The buffer_serializer to write to.
+   */
+  inline void serialize(buffer_serializer& out) const;
+
+  /**
    * @brief Deserialize a field from a binary stream.
    *
    * Reads the type tag and reconstructs the value. No attributes are restored.
@@ -899,6 +1290,18 @@ class field : public field_base {
    * @throws std::runtime_error if the type tag is not recognized.
    */
   inline static field deserialize(deserializer& in);
+
+  /**
+   * @brief Deserialize a field from an in-memory buffer.
+   *
+   * Equivalent to `deserialize(deserializer&)` but reads from a
+   * `buffer_deserializer`.
+   *
+   * @param in  The buffer_deserializer to read from.
+   * @return The deserialized `field`.
+   * @throws std::runtime_error if the type tag is not recognized.
+   */
+  inline static field deserialize(buffer_deserializer& in);
 
  private:
   mutable std::vector<std::shared_ptr<const attribute>> attributes_;
@@ -912,9 +1315,10 @@ class field : public field_base {
  * reference to its own class and parent class.
  *
  * ## Field access
- * Fields are stored in a `std::map<key_t, field>` keyed by hashed name.
- * Numeric indices (0, 1, 2, …) are used to model ordered, array-like sequences
- * inside the same map; `size()` returns one past the highest numeric index.
+ * Fields are stored in a `std::unordered_map<key_t, field>` keyed by hashed
+ * name, giving O(1) average-case lookup.  Numeric indices (0, 1, 2, …) are
+ * used to model ordered, array-like sequences inside the same map;
+ * `size()` returns one past the highest numeric index.
  *
  * ## Class hierarchy & inheritance
  * Named prototypes can be registered with `addClass`. Each prototype stores a
@@ -962,7 +1366,7 @@ class dynamic {
    */
   dynamic(
       key_t klass = 0U,
-      std::map<key_t, field>&& fields = {},
+      std::unordered_map<key_t, field, key_t, key_t>&& fields = {},
       std::shared_ptr<userdata> userdata = nullptr)
       : fields_(std::move(fields)), userdata_(userdata) {
     fields_[CLASS] = klass;
@@ -998,11 +1402,17 @@ class dynamic {
   inline size_t size() const {
     // Named keys have the high bit set (>= 0x80000000u); numeric array
     // indices are small positive integers that do not have the high bit set.
-    // Find the last numeric key by stopping just before the named-key range.
-    auto it = fields_.lower_bound(key_t{0x80000000u});
-    if (it == fields_.begin()) return 0;
-    --it;
-    return static_cast<size_t>(it->first.id + 1);
+    // Scan all entries to find the highest numeric key.
+    size_t max_index = 0;
+    bool has_numeric = false;
+    for (const auto& kv : fields_) {
+      if (kv.first.id < 0x80000000u) {
+        has_numeric = true;
+        size_t idx  = static_cast<size_t>(kv.first.id) + 1u;
+        if (idx > max_index) max_index = idx;
+      }
+    }
+    return max_index;
   }
 
   /**
@@ -1030,7 +1440,14 @@ class dynamic {
   inline void clear() {
     // Erase only numeric (array-like) keys.  Named keys have the high bit set
     // (>= 0x80000000u) and are preserved.
-    fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
+    auto it = fields_.begin();
+    while (it != fields_.end()) {
+      if (it->first.id < 0x80000000u) {
+        it = fields_.erase(it);
+      } else {
+        ++it;
+      }
+    }
   }
 
   /**
@@ -1142,6 +1559,16 @@ class dynamic {
   inline void serialize(serializer& out) const;
 
   /**
+   * @brief Serialize this object to an in-memory buffer (standard mode).
+   *
+   * Equivalent to `serialize(serializer&)` but uses `buffer_serializer`
+   * internally, which avoids `std::ostream` virtual-dispatch overhead.
+   *
+   * @param out  The buffer_serializer to write to.
+   */
+  inline void serialize(buffer_serializer& out) const;
+
+  /**
    * @brief Serialize this object using its registered class as a template
    *        (compact mode).
    *
@@ -1157,12 +1584,32 @@ class dynamic {
   inline void serializeWithTemplate(serializer& out) const;
 
   /**
+   * @brief Serialize this object using its registered class as a template
+   *        (compact mode, in-memory buffer variant).
+   *
+   * @param out  The buffer_serializer to write to.
+   */
+  inline void serializeWithTemplate(buffer_serializer& out) const;
+
+  /**
    * @brief Deserialize an object from a binary stream (standard mode).
    *
    * @param in  The deserializer to read from.
    * @return Shared pointer to the reconstructed `dynamic` object.
    */
   inline static std::shared_ptr<dynamic> deserialize(deserializer& in);
+
+  /**
+   * @brief Deserialize an object from an in-memory buffer (standard mode).
+   *
+   * Equivalent to `deserialize(deserializer&)` but reads from a
+   * `buffer_deserializer`, which avoids `std::istream` virtual-dispatch
+   * overhead.
+   *
+   * @param in  The buffer_deserializer to read from.
+   * @return Shared pointer to the reconstructed `dynamic` object.
+   */
+  inline static std::shared_ptr<dynamic> deserialize(buffer_deserializer& in);
 
   /**
    * @brief Deserialize an object using a registered class template (compact
@@ -1176,6 +1623,16 @@ class dynamic {
    */
   inline static std::shared_ptr<dynamic> deserializeWithTemplate(
       deserializer& in);
+
+  /**
+   * @brief Deserialize an object using a registered class template (compact
+   *        mode, in-memory buffer variant).
+   *
+   * @param in  The buffer_deserializer to read from.
+   * @return Shared pointer to the reconstructed `dynamic` object.
+   */
+  inline static std::shared_ptr<dynamic> deserializeWithTemplate(
+      buffer_deserializer& in);
 
   /**
    * @brief Add a named field to this object.
@@ -1421,8 +1878,8 @@ class dynamic {
   }
 
  private:
-  mutable std::map<key_t, field> fields_;
-  mutable std::map<key_t, method> methods_;
+  mutable std::unordered_map<key_t, field, key_t, key_t> fields_;
+  mutable std::unordered_map<key_t, method, key_t, key_t> methods_;
   mutable std::shared_ptr<userdata> userdata_;
 };
 
@@ -1434,7 +1891,7 @@ class dynamic {
  * compatible everywhere a `shared_ptr<dynamic>` is expected. It adds two extra
  * constructors:
  * - `dynamic_ptr(dynamic&&)` — takes ownership of an rvalue `dynamic`.
- * - `dynamic_ptr(key_t, map<key_t, field>&&)` — directly constructs the
+ * - `dynamic_ptr(key_t, unordered_map<key_t, field, key_t, key_t>&&)` — directly constructs the
  *   managed `dynamic` with a class key and initial fields, matching the
  *   `dynamic` constructor signature.
  *
@@ -1466,7 +1923,8 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
    * @param klass   Class name key (default 0 = anonymous).
    * @param fields  Initial named fields.
    */
-  dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {}) {
+  dynamic_ptr(key_t klass = 0U,
+              std::unordered_map<key_t, field, key_t, key_t>&& fields = {}) {
     *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
   }
 };
@@ -1578,6 +2036,125 @@ inline std::shared_ptr<dynamic> dynamic::deserialize(deserializer& in) {
 
 inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
     deserializer& in) {
+  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+  auto klass = in.read<key_t>();
+  auto& classes = getClasses();
+  auto it = classes.find(klass);
+
+  while (it != classes.end()) {
+    for (const auto& kv : it->second->fields_) {
+      dyn->fields_[kv.first] = field::deserialize(in);
+    }
+    klass = it->second->as<key_t>(PARENT);
+    it = classes.find(klass);
+  }
+
+  return dyn;
+}
+
+// ─── buffer_serializer overloads for field ────────────────────────────────────
+
+inline void field::serialize(buffer_serializer& out) const {
+  const field_base& fb = static_cast<const field_base&>(*this);
+  out.write(static_cast<unsigned char>(fb.index()));
+  std::visit(
+      [&out](const auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          // nothing to write for an empty field
+        } else if constexpr (std::is_same_v<T, std::shared_ptr<dynamic>>) {
+          out.write(v != nullptr);
+          if (v != nullptr) {
+            v->serialize(out);
+          }
+        } else {
+          out.write(v);
+        }
+      },
+      fb);
+}
+
+inline field field::deserialize(buffer_deserializer& in) {
+  const auto type = in.read<unsigned char>();
+  switch (type) {
+    case 0: return field{std::monostate{}};
+    case 1: return field{in.read<hash_t>()};
+    case 2: return field{in.read<key_t>()};
+    case 3: return field{in.read<bool>()};
+    case 4: return field{in.read<int32_t>()};
+    case 5: return field{in.read<float>()};
+    case 6: {
+      if (!in.read<bool>()) return field{std::shared_ptr<dynamic>{}};
+      return field{dynamic::deserialize(in)};
+    }
+    case 7: {
+      std::string s;
+      in.read(s);
+      return field{std::move(s)};
+    }
+    case 8: {
+      std::vector<bool> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
+    case 9: {
+      std::vector<int32_t> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
+    case 10: {
+      std::vector<float> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
+    default:
+      throw std::runtime_error("Not implemented");
+  }
+}
+
+// ─── buffer_serializer overloads for dynamic ─────────────────────────────────
+
+inline void dynamic::serialize(buffer_serializer& out) const {
+  out.write(fields_.size());
+  for (const auto& kv : fields_) {
+    out.write(kv.first);
+    kv.second.serialize(out);
+  }
+}
+
+inline void dynamic::serializeWithTemplate(buffer_serializer& out) const {
+  auto& classes = getClasses();
+  auto klass = as<key_t>(CLASS);
+  auto it = classes.find(klass);
+
+  out.write(klass);
+  while (it != classes.end()) {
+    for (const auto& kv : it->second->fields_) {
+      auto instance_it = fields_.find(kv.first);
+      if (instance_it != fields_.end()) {
+        instance_it->second.serialize(out);
+      } else {
+        kv.second.serialize(out);
+      }
+    }
+    klass = it->second->as<key_t>(PARENT);
+    it = classes.find(klass);
+  }
+}
+
+inline std::shared_ptr<dynamic> dynamic::deserialize(buffer_deserializer& in) {
+  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+  const auto count = in.read<size_t>();
+  dyn->fields_.reserve(count + 1);  // +1 for CLASS key
+  for (size_t i = 0; i < count; ++i) {
+    auto key = in.read<key_t>();
+    dyn->fields_[key] = field::deserialize(in);
+  }
+  return dyn;
+}
+
+inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
+    buffer_deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   auto klass = in.read<key_t>();
   auto& classes = getClasses();

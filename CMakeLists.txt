@@ -26,6 +26,8 @@ add_subdirectory("extern/json")
 # Allow legacy subprojects (libyaml currently declares cmake_minimum_required 3.0).
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory("extern/yaml")
+# libyaml is used in a shared library; it must be compiled with -fPIC.
+set_property(TARGET yaml PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
