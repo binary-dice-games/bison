@@ -17,6 +17,8 @@
 #include <shared_mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <span>
 #include <unordered_map>
 #include <variant>
 
@@ -352,6 +354,27 @@ class serializer {
   }
 
   /**
+   * @brief Write a `std::span` prefixed with its element count.
+   *
+   * The count is written as a byte-swapped `size_t`, followed by each element
+   * individually byte-swapped.
+   *
+   * @tparam T  Element type of the span.
+   * @param data  The span to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  template <typename T>
+  serializer& write(std::span<const T> data) {
+    size_t count = byte_swap(data.size());
+    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
+    for (const auto& it : data) {
+      T value = byte_swap(it);
+      out_.write(reinterpret_cast<const char*>(&value), sizeof(T));
+    }
+    return *this;
+  }
+
+  /**
    * @brief Write a `std::string` prefixed with its byte length.
    *
    * The length is written as a byte-swapped `size_t`, followed by the raw
@@ -364,6 +387,22 @@ class serializer {
     size_t count = byte_swap(data.size());
     out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
     out_.write(data.data(), data.size());
+    return *this;
+  }
+
+  /**
+   * @brief Write a `std::string_view` prefixed with its byte length.
+   *
+   * The length is written as a byte-swapped `size_t`, followed by the raw
+   * character data (not null-terminated).
+   *
+   * @param data  The string view to write.
+   * @return Reference to `*this` for method chaining.
+   */
+  serializer& write(std::string_view data) {
+    size_t count = byte_swap(data.size());
+    out_.write(reinterpret_cast<const char*>(&count), sizeof(size_t));
+    out_.write(data.data(), static_cast<std::streamsize>(data.size()));
     return *this;
   }
 
@@ -463,6 +502,34 @@ class deserializer {
   }
 
   /**
+   * @brief Read a size-prefixed sequence into a fixed-size span.
+   *
+   * Reads the element count (a byte-swapped `size_t`) and verifies it matches
+   * `data.size()`, then reads and byte-swaps each element into the span.
+   *
+   * @tparam T  Element type of the span.
+   * @param data  Output span that receives the elements.
+   * @return Reference to `*this` for method chaining.
+   * @throws std::runtime_error if the serialized element count does not match
+   *         the span size.
+   */
+  template <typename T>
+  deserializer& read(std::span<T> data) {
+    size_t count = 0;
+    in_.read(reinterpret_cast<char*>(&count), sizeof(size_t));
+    count = byte_swap(count);
+    if (count != data.size()) {
+      throw std::runtime_error("Invalid span size");
+    }
+    for (size_t idx = 0; idx < count; ++idx) {
+      T value{};
+      in_.read(reinterpret_cast<char*>(&value), sizeof(T));
+      data[idx] = byte_swap(value);
+    }
+    return *this;
+  }
+
+  /**
    * @brief Read a size-prefixed string.
    *
    * Reads the byte length (a byte-swapped `size_t`), resizes @p data, then
@@ -477,6 +544,23 @@ class deserializer {
     count = byte_swap(count);
     data.resize(count);
     in_.read(data.data(), data.size());
+    return *this;
+  }
+
+  /**
+   * @brief Read a size-prefixed string into caller-provided storage and expose
+   *        it as `std::string_view`.
+   *
+   * The view aliases @p storage and remains valid while @p storage is alive
+   * and unmodified.
+   *
+   * @param view     Output string_view over @p storage.
+   * @param storage  Output string that owns the characters.
+   * @return Reference to `*this` for method chaining.
+   */
+  deserializer& read(std::string_view& view, std::string& storage) {
+    read(storage);
+    view = storage;
     return *this;
   }
 
@@ -647,6 +731,17 @@ class field : public field_base {
    * `std::string(field_value)` syntax.
    */
   operator std::string() const {
+    return as<std::string>();
+  }
+
+  /**
+   * @brief Implicit conversion to `const std::string&`.
+   *
+   * Provides zero-copy read access to the underlying string value.
+   *
+   * @throws std::runtime_error if the held type is not `std::string`.
+   */
+  operator const std::string&() const {
     return as<std::string>();
   }
 

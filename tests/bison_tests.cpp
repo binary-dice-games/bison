@@ -4,6 +4,7 @@
 #include "src/bison.hpp"
 
 #include <gtest/gtest.h>
+#include <array>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
@@ -150,6 +151,63 @@ TEST(SerializerTests, VectorFloatRoundTrip) {
   for (size_t i = 0; i < v.size(); ++i) EXPECT_FLOAT_EQ(out[i], v[i]);
 }
 
+TEST(SerializerTests, SpanInt32RoundTripToVector) {
+  std::stringstream ss;
+  std::array<int32_t, 4> values{11, 22, 33, 44};
+  { serializer s{ss}; s.write(std::span<const int32_t>(values)); }
+
+  std::vector<int32_t> out;
+  deserializer d{ss};
+  d.read(out);
+  ASSERT_EQ(out.size(), values.size());
+  for (size_t i = 0; i < values.size(); ++i) EXPECT_EQ(out[i], values[i]);
+}
+
+TEST(SerializerTests, SpanFloatRoundTripIntoFixedBuffer) {
+  std::stringstream ss;
+  std::array<float, 3> values{1.25f, 2.5f, 5.0f};
+  { serializer s{ss}; s.write(std::span<const float>(values)); }
+
+  std::array<float, 3> out{};
+  deserializer d{ss};
+  d.read(std::span<float>(out));
+  for (size_t i = 0; i < values.size(); ++i) EXPECT_FLOAT_EQ(out[i], values[i]);
+}
+
+TEST(SerializerTests, SpanReadSizeMismatchThrows) {
+  std::stringstream ss;
+  std::array<int32_t, 3> values{1, 2, 3};
+  { serializer s{ss}; s.write(std::span<const int32_t>(values)); }
+
+  std::array<int32_t, 2> too_small{};
+  deserializer d{ss};
+  EXPECT_THROW(d.read(std::span<int32_t>(too_small)), std::runtime_error);
+}
+
+TEST(SerializerTests, StringViewWriteRoundTrip) {
+  std::stringstream ss;
+  std::string backing = "hello view";
+  std::string_view view{backing};
+  { serializer s{ss}; s.write(view); }
+
+  std::string out;
+  deserializer d{ss};
+  d.read(out);
+  EXPECT_EQ(out, backing);
+}
+
+TEST(SerializerTests, StringViewReadAliasesStorage) {
+  std::stringstream ss;
+  { serializer s{ss}; s.write(std::string{"alias me"}); }
+
+  std::string storage;
+  std::string_view view;
+  deserializer d{ss};
+  d.read(view, storage);
+  EXPECT_EQ(view, "alias me");
+  EXPECT_EQ(view.data(), storage.data());
+}
+
 TEST(SerializerTests, MultipleValuesInOrder) {
   std::stringstream ss;
   serializer s{ss};
@@ -192,6 +250,14 @@ TEST(FieldTests, ConstructString) {
   field f{std::string{"hello"}};
   EXPECT_TRUE(f.is<std::string>());
   EXPECT_EQ(f.as<std::string>(), "hello");
+}
+
+TEST(FieldTests, ImplicitConversionToConstStringRefAvoidsCopy) {
+  const field f{std::string{"hello"}};
+  const std::string& by_ref = static_cast<const std::string&>(f);
+  const std::string& stored = f.as<std::string>();
+  EXPECT_EQ(by_ref, "hello");
+  EXPECT_EQ(&by_ref, &stored);
 }
 
 TEST(FieldTests, ConstructFromStringLiteralPromotesToString) {
