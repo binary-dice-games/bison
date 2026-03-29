@@ -7,7 +7,8 @@ set_target_properties(gmock_main PROPERTIES FOLDER extern)
 
 macro(package_add_test TESTNAME)
     add_executable(${TESTNAME} ${ARGN})
-    target_link_libraries(${TESTNAME} gtest gmock gtest_main)
+    target_link_libraries(${TESTNAME} bison gtest gmock gtest_main)
+    target_include_directories(${TESTNAME} PRIVATE ${PROJECT_SOURCE_DIR})
     gtest_discover_tests(${TESTNAME}
         WORKING_DIRECTORY ${PROJECT_DIR}
         PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"

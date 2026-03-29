@@ -7,12 +7,16 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <variant>
 
 /**
@@ -75,12 +79,10 @@ class dynamic_ptr;
  * reflects the byte order of the current platform.
  */
 namespace endian {
-/** @brief Default / reference byte order (big-endian, value = 1). */
-const size_t default = 1;
+/** @brief Big-endian / network byte order (value = 1). This is the reference byte order used on the wire. */
+const size_t big = 1;
 /** @brief Little-endian constant (value = 0). */
 const size_t little = 0;
-/** @brief Big-endian constant (value = 1). */
-const size_t big = 1;
 /** @brief Native byte order of the current platform, detected at startup. */
 const size_t native = []() {
   uint32_t i = 0x01020304;
@@ -102,7 +104,7 @@ const size_t native = []() {
  */
 template <typename T>
 constexpr T byte_swap(T value) {
-  if (endian::native == endian::default) {
+  if (endian::native == endian::big) {
     return value;
   } else {
     T result = 0U;
@@ -280,7 +282,10 @@ using collection =
  * auto ctx = std::dynamic_pointer_cast<MyCtx>(obj.getUserdata());
  * @endcode
  */
-class userdata {};
+class userdata {
+ public:
+  virtual ~userdata() = default;
+};
 
 /**
  * @brief Writes primitive values, strings, and vectors to a binary stream.
@@ -498,6 +503,9 @@ class deserializer {
  * in a `shared_ptr` vector alongside the field value and can be retrieved with
  * `field::findAttribute<T>()`.
  *
+ * The virtual destructor makes `attribute` polymorphic so that
+ * `dynamic_cast<T*>` inside `findAttribute` works correctly on derived types.
+ *
  * @code{.cpp}
  * class Required : public attribute {};
  * class MinLength : public attribute {
@@ -512,7 +520,10 @@ class deserializer {
  *
  * @see attr()
  */
-class attribute {};
+class attribute {
+ public:
+  virtual ~attribute() = default;
+};
 
 /**
  * @brief Helper that creates a `shared_ptr<const attribute>` for a concrete
@@ -572,9 +583,13 @@ class field : public field_base {
 
   /** @cond INTERNAL */
   /**
-   * Promotes `const char*` / `char*` to `std::string` so that string literals
-   * can be stored in `field` without decaying to a pointer. All other types
-   * are perfect-forwarded unchanged.
+   * Normalises a value before storing it in `field_base`:
+   * - `const char*` / `char*`   → `std::string`
+   * - Any type that is implicitly convertible to `std::shared_ptr<dynamic>`
+   *   but is not already `std::shared_ptr<dynamic>` (e.g. `dynamic_ptr`) →
+   *   `std::shared_ptr<dynamic>`.  This allows `dynamic_ptr` to be assigned
+   *   to a field without an explicit cast.
+   * - Everything else is perfect-forwarded unchanged.
    */
   template <typename T>
   static auto to_field_value(T&& value) {
@@ -583,6 +598,12 @@ class field : public field_base {
         std::is_same_v<value_type, char*> ||
         std::is_same_v<value_type, const char*>) {
       return std::string(value);
+    } else if constexpr (
+        !std::is_same_v<value_type, std::shared_ptr<dynamic>> &&
+        std::is_convertible_v<value_type, std::shared_ptr<dynamic>>) {
+      // Upcast dynamic_ptr (and any other shared_ptr<dynamic> subclass) to
+      // the canonical variant alternative type.
+      return std::shared_ptr<dynamic>(std::forward<T>(value));
     } else {
       return std::forward<T>(value);
     }
@@ -615,10 +636,10 @@ class field : public field_base {
    */
   template <typename T>
   operator T() const {
-    if (!std::holds_alternative<T>(*this)) {
+    if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     }
-    return std::get<T>(*this);
+    return std::get<T>(static_cast<const field_base&>(*this));
   }
 
   /**
@@ -637,9 +658,9 @@ class field : public field_base {
   field& operator=(const T& value) {
     auto v = to_field_value(value);
     using value_type = decltype(v);
-    if (std::holds_alternative<std::monostate>(*this)) {
+    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
       field_base::operator=(v);
-    } else if (!std::holds_alternative<value_type>(*this)) {
+    } else if (!std::holds_alternative<value_type>(static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     } else {
       field_base::operator=(v);
@@ -655,7 +676,7 @@ class field : public field_base {
    */
   template <typename T>
   bool is() const {
-    return std::holds_alternative<T>(*this);
+    return std::holds_alternative<T>(static_cast<const field_base&>(*this));
   }
 
   /**
@@ -670,36 +691,33 @@ class field : public field_base {
    */
   template <typename T>
   T& as(T def = T{}) {
-    if (std::holds_alternative<std::monostate>(*this)) {
+    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
       *this = def;
-    } else if (!std::holds_alternative<T>(*this)) {
+    } else if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     }
-    return std::get<T>(*this);
+    return std::get<T>(static_cast<field_base&>(*this));
   }
 
   /**
    * @brief Return a const reference to the held value of type `T`.
    *
-   * If the field is empty (monostate), it is first initialised to @p def as a
-   * lazy-initialisation convenience: callers can read a field's value using a
-   * sensible default without having to check for emptiness first.  The
-   * internal `mutable` storage of `field_base` allows this single write on
-   * an otherwise const object.
+   * Unlike the non-const overload, this version does **not** perform lazy
+   * initialisation; it simply validates the active type and returns a
+   * reference.  Call the non-const overload on a mutable field if you need
+   * on-demand default initialisation.
    *
    * @tparam T   The expected value type.
-   * @param  def Default value used to initialise an empty field.
+   * @param  def Ignored; present for API symmetry with the non-const overload.
    * @return Const reference to the `T` value stored in the field.
-   * @throws std::runtime_error if the held type is non-empty and is not `T`.
+   * @throws std::runtime_error if the held type is not `T`.
    */
   template <typename T>
   const T& as(T def = T{}) const {
-    if (std::holds_alternative<std::monostate>(*this)) {
-      *this = def;
-    } else if (!std::holds_alternative<T>(*this)) {
+    if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     }
-    return std::get<T>(*this);
+    return std::get<T>(static_cast<const field_base&>(*this));
   }
 
   /**
@@ -858,8 +876,13 @@ class dynamic {
    * @return Element count for the indexed portion of the object.
    */
   inline size_t size() const {
-    auto it = fields_.rbegin();
-    return it != fields_.rend() && it->first >= 0 ? (size_t)(it->first + 1) : 0;
+    // Named keys have the high bit set (>= 0x80000000u); numeric array
+    // indices are small positive integers that do not have the high bit set.
+    // Find the last numeric key by stopping just before the named-key range.
+    auto it = fields_.lower_bound(key_t{0x80000000u});
+    if (it == fields_.begin()) return 0;
+    --it;
+    return static_cast<size_t>(it->first.id + 1);
   }
 
   /**
@@ -885,7 +908,9 @@ class dynamic {
    * Named fields (keys with the high bit set, i.e. hash values) are retained.
    */
   inline void clear() {
-    fields_.erase(fields_.lower_bound(0U), fields_.end());
+    // Erase only numeric (array-like) keys.  Named keys have the high bit set
+    // (>= 0x80000000u) and are preserved.
+    fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
   }
 
   /**
@@ -1174,7 +1199,9 @@ class dynamic {
     if (it == fields_.end()) {
       std::unique_lock<std::recursive_mutex> lk(getMutex());
       auto& classes = getClasses();
-      auto itClass = classes.find(as<key_t>(PARENT));
+      // Begin the search at the instance's own registered class prototype, then
+      // walk up the PARENT chain stored on each prototype.
+      auto itClass = classes.find(as<key_t>(CLASS));
       while (itClass != classes.end() && it == fields_.end()) {
         auto& klass = itClass->second;
         auto itField = klass->fields_.find(name);
@@ -1204,7 +1231,9 @@ class dynamic {
     if (it == methods_.end()) {
       std::unique_lock<std::recursive_mutex> lk(getMutex());
       auto& classes = getClasses();
-      auto itClass = classes.find(as<key_t>(PARENT));
+      // Begin the search at the instance's own registered class prototype, then
+      // walk up the PARENT chain stored on each prototype.
+      auto itClass = classes.find(as<key_t>(CLASS));
       while (itClass != classes.end() && it == methods_.end()) {
         auto& klass = itClass->second;
         auto itMethod = klass->methods_.find(name);
@@ -1296,6 +1325,7 @@ class dynamic {
 class dynamic_ptr : public std::shared_ptr<dynamic> {
  public:
   using std::shared_ptr<dynamic>::shared_ptr;
+  using std::shared_ptr<dynamic>::operator=;
 
   /**
    * @brief Construct from an rvalue `dynamic`, taking ownership.
@@ -1320,92 +1350,67 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
 };
 
 inline void field::serialize(serializer& out) const {
-  out.write(static_cast<unsigned char>(index()));
-  switch (index()) {
-    case field::index_of<std::monostate>(): {
-    } break;
-    case field::index_of<key_t>(): {
-      out.write(std::get<key_t>(*this));
-    } break;
-    case field::index_of<bool>(): {
-      out.write(std::get<bool>(*this));
-    } break;
-    case field::index_of<int32_t>(): {
-      out.write(std::get<int32_t>(*this));
-    } break;
-    case field::index_of<float>(): {
-      out.write(std::get<float>(*this));
-    } break;
-    case field::index_of<std::shared_ptr<dynamic>>(): {
-      auto& dyn = std::get<std::shared_ptr<dynamic>>(*this);
-      out.write(dyn != nullptr);
-      if (dyn != nullptr) {
-        dyn->serialize(out);
-      }
-    } break;
-    case field::index_of<std::string>(): {
-      out.write(std::get<std::string>(*this));
-    } break;
-    case field::index_of<std::vector<bool>>(): {
-      out.write(std::get<std::vector<bool>>(*this));
-    } break;
-    case field::index_of<std::vector<int32_t>>(): {
-      out.write(std::get<std::vector<int32_t>>(*this));
-    } break;
-    case field::index_of<std::vector<float>>(): {
-      out.write(std::get<std::vector<float>>(*this));
-    } break;
-    default:
-      throw std::runtime_error("Not implemented");
-  }
+  const field_base& fb = static_cast<const field_base&>(*this);
+  out.write(static_cast<unsigned char>(fb.index()));
+  std::visit(
+      [&out](const auto& v) {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+          // nothing to write for an empty field
+        } else if constexpr (std::is_same_v<T, std::shared_ptr<dynamic>>) {
+          out.write(v != nullptr);
+          if (v != nullptr) {
+            v->serialize(out);
+          }
+        } else {
+          // covers hash_t, key_t, bool, int32_t, float,
+          //         std::string, std::vector<bool/int32_t/float>
+          out.write(v);
+        }
+      },
+      fb);
 }
 
 inline field field::deserialize(deserializer& in) {
-  field field{};
-  auto type = in.read<unsigned char>();
+  // Type tags match the variant index order in field_base:
+  //  0=monostate  1=hash_t  2=key_t  3=bool  4=int32_t  5=float
+  //  6=shared_ptr<dynamic>  7=string  8=vector<bool>
+  //  9=vector<int32_t>  10=vector<float>
+  const auto type = in.read<unsigned char>();
   switch (type) {
-    case field::index_of<std::monostate>(): {
-      field = std::monostate{};
-    } break;
-    case field::index_of<key_t>(): {
-      field = in.read<key_t>();
-    } break;
-    case field::index_of<bool>(): {
-      field = in.read<bool>();
-    } break;
-    case field::index_of<int32_t>(): {
-      field = in.read<int32_t>();
-    } break;
-    case field::index_of<float>(): {
-      field = in.read<float>();
-    } break;
-    case field::index_of<std::shared_ptr<dynamic>>(): {
-      field = std::shared_ptr<dynamic>{};
-      if (in.read<bool>()) {
-        auto value = std::shared_ptr<dynamic>(new dynamic{});
-        value->deserialize(in);
-        field = value;
-      }
-    } break;
-    case field::index_of<std::string>(): {
-      field = in.read<std::string>();
-    } break;
-    case field::index_of<std::vector<bool>>(): {
-      field = std::vector<bool>{};
-      in.read(std::get<std::vector<bool>>(field));
-    } break;
-    case field::index_of<std::vector<int32_t>>(): {
-      field = std::vector<int32_t>{};
-      in.read(std::get<std::vector<int32_t>>(field));
-    } break;
-    case field::index_of<std::vector<float>>(): {
-      field = std::vector<float>{};
-      in.read(std::get<std::vector<float>>(field));
-    } break;
+    case 0: return field{std::monostate{}};
+    case 1: return field{in.read<hash_t>()};
+    case 2: return field{in.read<key_t>()};
+    case 3: return field{in.read<bool>()};
+    case 4: return field{in.read<int32_t>()};
+    case 5: return field{in.read<float>()};
+    case 6: {
+      if (!in.read<bool>()) return field{std::shared_ptr<dynamic>{}};
+      return field{dynamic::deserialize(in)};
+    }
+    case 7: {
+      std::string s;
+      in.read(s);
+      return field{std::move(s)};
+    }
+    case 8: {
+      std::vector<bool> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
+    case 9: {
+      std::vector<int32_t> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
+    case 10: {
+      std::vector<float> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
     default:
       throw std::runtime_error("Not implemented");
   }
-  return field;
 }
 
 inline void dynamic::serialize(serializer& out) const {
@@ -1424,7 +1429,14 @@ inline void dynamic::serializeWithTemplate(serializer& out) const {
   out.write(klass);
   while (it != classes.end()) {
     for (const auto& kv : it->second->fields_) {
-      kv.second.serialize(out);
+      // Use the instance's own value for this field when available;
+      // otherwise fall back to the prototype's default value.
+      auto instance_it = fields_.find(kv.first);
+      if (instance_it != fields_.end()) {
+        instance_it->second.serialize(out);
+      } else {
+        kv.second.serialize(out);
+      }
     }
     klass = it->second->as<key_t>(PARENT);
     it = classes.find(klass);
