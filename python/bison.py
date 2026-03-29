@@ -159,9 +159,6 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_from_yaml.restype  = _Handle
     lib.bison_from_yaml.argtypes = [ctypes.c_char_p]
 
-    lib.bison_from_msgpack.restype  = _Handle
-    lib.bison_from_msgpack.argtypes = [ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t]
-
     # Class registry
     lib.bison_add_class.restype  = _Error
     lib.bison_add_class.argtypes = [ctypes.c_uint32, _Handle]
@@ -623,31 +620,6 @@ def from_yaml(text: str) -> Dynamic:
     h = _get_lib().bison_from_yaml(text.encode())
     if not h:
         raise ValueError("from_yaml: invalid or unsupported YAML")
-    return Dynamic(_handle=h)
-
-
-def from_msgpack(data: bytes) -> Dynamic:
-    """Decode a MessagePack binary blob and return the root object.
-
-    Parameters
-    ----------
-    data : bytes
-        Raw MessagePack bytes.
-
-    Returns
-    -------
-    Dynamic
-        The decoded root object (caller must release).
-
-    Raises
-    ------
-    ValueError
-        If *data* is not valid MessagePack.
-    """
-    buf = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
-    h = _get_lib().bison_from_msgpack(buf, len(data))
-    if not h:
-        raise ValueError("from_msgpack: invalid or unsupported MessagePack data")
     return Dynamic(_handle=h)
 
 

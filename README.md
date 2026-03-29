@@ -22,6 +22,7 @@ Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL 
 | C++ standard | C++17 or later |
 | CMake | 3.10 or later |
 | [nlohmann/json](https://github.com/nlohmann/json) | bundled as git submodule |
+| [libyaml](https://github.com/yaml/libyaml) | bundled as git submodule |
 | [Google Test](https://github.com/google/googletest) | bundled as git submodule (tests only) |
 
 ## Building
@@ -38,7 +39,7 @@ cmake --build build
 # Build with tests enabled
 cmake -B build -DPACKAGE_TESTS=ON
 cmake --build build
-ctest --test-dir build
+ctest --test-dir build -C Debug
 ```
 
 The library compiles as a static library (`libbison.a`). To use it in your own CMake project:

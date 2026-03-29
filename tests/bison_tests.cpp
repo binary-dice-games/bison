@@ -920,7 +920,7 @@ TEST(YamlTests, BooleanValues) {
 TEST(YamlTests, NullValue) {
   auto obj = extensions::from_yaml("key: null\n");
   ASSERT_NE(obj, nullptr);
-  auto sp = std::shared_ptr<dynamic>((*obj)["key"]);
+  std::shared_ptr<dynamic> sp = (*obj)["key"];
   EXPECT_EQ(sp, nullptr);
 }
 
@@ -936,7 +936,7 @@ TEST(YamlTests, SequenceTopLevel) {
 TEST(YamlTests, NestedMapping) {
   auto obj = extensions::from_yaml("person:\n  name: bob\n  age: 30\n");
   ASSERT_NE(obj, nullptr);
-  auto person = std::shared_ptr<dynamic>((*obj)["person"]);
+  std::shared_ptr<dynamic> person = (*obj)["person"];
   ASSERT_NE(person, nullptr);
   EXPECT_EQ((*person)["name"].as<std::string>(), "bob");
   EXPECT_EQ((*person)["age"].as<int32_t>(), 30);
@@ -945,7 +945,7 @@ TEST(YamlTests, NestedMapping) {
 TEST(YamlTests, SequenceInsideMapping) {
   auto obj = extensions::from_yaml("items:\n  - apple\n  - banana\n");
   ASSERT_NE(obj, nullptr);
-  auto items = std::shared_ptr<dynamic>((*obj)["items"]);
+  std::shared_ptr<dynamic> items = (*obj)["items"];
   ASSERT_NE(items, nullptr);
   EXPECT_EQ(items->size(), 2u);
   EXPECT_EQ((*items)[size_t{0}].as<std::string>(), "apple");
@@ -961,66 +961,4 @@ TEST(YamlTests, QuotedStringNotCoerced) {
 
 TEST(YamlTests, InvalidYamlThrows) {
   EXPECT_THROW(extensions::from_yaml("{broken"), std::runtime_error);
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// 15. MessagePack import (extensions::from_msgpack)
-// ═════════════════════════════════════════════════════════════════════════════
-
-TEST(MsgpackTests, FixmapStringKeys) {
-  // fixmap {x: 1}  →  0x81  fixstr(1)"x"  fixint(1)
-  const uint8_t buf[] = {0x81, 0xa1, 'x', 0x01};
-  auto obj = extensions::from_msgpack(buf, sizeof buf);
-  ASSERT_NE(obj, nullptr);
-  EXPECT_EQ((*obj)["x"].as<int32_t>(), 1);
-}
-
-TEST(MsgpackTests, FixarrayIntegers) {
-  // fixarray [1, 2, 3]  →  0x93  0x01  0x02  0x03
-  const uint8_t buf[] = {0x93, 0x01, 0x02, 0x03};
-  auto obj = extensions::from_msgpack(buf, sizeof buf);
-  ASSERT_NE(obj, nullptr);
-  EXPECT_EQ(obj->size(), 3u);
-  EXPECT_EQ((*obj)[size_t{0}].as<int32_t>(), 1);
-  EXPECT_EQ((*obj)[size_t{1}].as<int32_t>(), 2);
-  EXPECT_EQ((*obj)[size_t{2}].as<int32_t>(), 3);
-}
-
-TEST(MsgpackTests, NilFalseTrue) {
-  // fixmap { a: nil, b: false, c: true }
-  // 0x83  0xa1 'a' 0xc0   0xa1 'b' 0xc2   0xa1 'c' 0xc3
-  const uint8_t buf[] = {0x83,
-                         0xa1, 'a', 0xc0,
-                         0xa1, 'b', 0xc2,
-                         0xa1, 'c', 0xc3};
-  auto obj = extensions::from_msgpack(buf, sizeof buf);
-  ASSERT_NE(obj, nullptr);
-  auto a = std::shared_ptr<dynamic>((*obj)["a"]);
-  EXPECT_EQ(a, nullptr);
-  EXPECT_FALSE(bool((*obj)["b"]));
-  EXPECT_TRUE(bool((*obj)["c"]));
-}
-
-TEST(MsgpackTests, Float32) {
-  // fixmap { v: float32(3.14) }
-  // float 3.14 ≈ 0x4048F5C3
-  const uint8_t buf[] = {0x81, 0xa1, 'v', 0xca, 0x40, 0x48, 0xf5, 0xc3};
-  auto obj = extensions::from_msgpack(buf, sizeof buf);
-  ASSERT_NE(obj, nullptr);
-  EXPECT_NEAR((*obj)["v"].as<float>(), 3.14f, 0.001f);
-}
-
-TEST(MsgpackTests, Str8) {
-  // fixmap { k: str8("hello") }
-  // 0x81  0xa1 'k'  0xd9 0x05  'h' 'e' 'l' 'l' 'o'
-  const uint8_t buf[] = {0x81, 0xa1, 'k', 0xd9, 0x05,
-                         'h', 'e', 'l', 'l', 'o'};
-  auto obj = extensions::from_msgpack(buf, sizeof buf);
-  ASSERT_NE(obj, nullptr);
-  EXPECT_EQ((*obj)["k"].as<std::string>(), "hello");
-}
-
-TEST(MsgpackTests, UnexpectedEndThrows) {
-  const uint8_t buf[] = {0x81, 0xa1, 'k'};  // truncated
-  EXPECT_THROW(extensions::from_msgpack(buf, sizeof buf), std::runtime_error);
 }

@@ -196,15 +196,6 @@ BISON_API bison_handle bison_from_json(const char* json);
  */
 BISON_API bison_handle bison_from_yaml(const char* yaml);
 
-/**
- * @brief Decode a MessagePack binary blob and return the root object.
- *
- * @param data  Pointer to raw MessagePack bytes.
- * @param len   Number of bytes.
- * @return New handle (ref-count 1), or `NULL` on decode error.
- */
-BISON_API bison_handle bison_from_msgpack(const uint8_t* data, size_t len);
-
 /* ═══════════════════════════════════════════════════════════════════════════
  * Class registry
  * ═════════════════════════════════════════════════════════════════════════ */

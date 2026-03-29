@@ -214,20 +214,6 @@ TEST(ImportTests, FromYamlInvalidReturnsNull) {
   EXPECT_EQ(h, nullptr);
 }
 
-TEST(ImportTests, FromMsgpackFixmap) {
-  // fixmap { "a": 1 }  →  0x81 0xa1 'a' 0x01
-  const uint8_t buf[] = {0x81, 0xa1, 'a', 0x01};
-  ScopedHandle h{bison_from_msgpack(buf, sizeof buf)};
-  ASSERT_NE(h.h, nullptr);
-  int32_t v = 0;
-  EXPECT_EQ(bison_get_int(h, "a", &v), BISON_OK);
-  EXPECT_EQ(v, 1);
-}
-
-TEST(ImportTests, FromMsgpackNullDataReturnsNull) {
-  EXPECT_EQ(bison_from_msgpack(nullptr, 0), nullptr);
-}
-
 // ═════════════════════════════════════════════════════════════════════════════
 // 5. Class registry
 // ═════════════════════════════════════════════════════════════════════════════
