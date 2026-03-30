@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file remote_dynamic.hpp
+ * @brief Remote object proxy API used by the RMI client.
+ */
 #pragma once
 
 #include "src/core/bison.hpp"
@@ -79,7 +83,7 @@ class dynamic {
   void get(bison::dynamic& fields);
 
   /**
-   * @brief Invoke a callable behaviour on the remote object.
+    * @brief Invoke a callable behavior on the remote object.
    *
    * @param params  Call arguments.
    * @param oneway  When true the server does not send a response and the

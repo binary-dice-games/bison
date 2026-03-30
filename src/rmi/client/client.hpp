@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file client.hpp
+ * @brief RMI client runtime for request/response and event dispatch.
+ */
 #pragma once
 
 #include "src/core/bison.hpp"
@@ -20,6 +24,17 @@
 
 namespace bdg::bison::rmi {
 
+/**
+ * @brief Owns a transport connection and performs RMI protocol operations.
+ *
+ * The client serializes requests into RMI envelopes, receives responses on a
+ * background worker thread, resolves pending futures by request ID, and routes
+ * server events to user-registered handlers.
+ *
+ * @tparam TTransport Transport type accepted by the constructor. It must
+ *         provide `open`, `send`, `receive`, and `shutdown` methods with
+ *         signatures compatible with the internal type-erased wrapper.
+ */
 class client {
  public:
   template <typename TTransport>
@@ -34,21 +49,64 @@ class client {
 
   ~client();
 
+  /**
+   * @brief Open the transport and start the client worker loop.
+   * @param params Optional transport-specific startup parameters.
+   */
   void            connect(bison::dynamic params = bison::dynamic{});
+
+  /**
+   * @brief Request class metadata from the server.
+   * @param klass Optional class key. Pass `0` to request full metadata.
+   * @return Description payload returned by the server.
+   */
   bison::dynamic  describe(bison::key_t klass = 0U);
+
+  /**
+   * @brief Create a remote object instance on the server.
+   * @param klass Class key to instantiate.
+   * @param params Optional constructor parameters.
+   * @return Move-only proxy that references the server-side object.
+   */
   remote::dynamic instantiate(bison::key_t klass,
                               bison::dynamic params = bison::dynamic{});
+
+  /**
+   * @brief Destroy a remote object represented by @p proxy.
+   * @param proxy Owning proxy to invalidate and destroy remotely.
+   */
   void            destroy(remote::dynamic&& proxy);
+
+  /** @brief Gracefully disconnect from the server and stop worker threads. */
   void            disconnect();
 
+  /**
+   * @brief Send a low-level RMI request.
+   * @param op Operation key.
+   * @param object_id Target object ID (empty for non-object operations).
+   * @param payload Operation payload object.
+   * @param oneway When true, no response is expected from the server.
+   * @return Future resolved with response payload (or empty dynamic for oneway).
+   */
   std::future<bison::dynamic> send_request(bison::key_t       op,
                                             const std::string& object_id,
                                             bison::dynamic     payload,
                                             bool               oneway);
 
+  /**
+   * @brief Register a handler for server-sent events on an object.
+   * @param object_id Remote object identifier.
+   * @param name Event name token.
+   * @param handler Callback invoked with event payload.
+   */
   void register_event_handler(const std::string&                  object_id,
                                bison::key_t                        name,
                                std::function<void(bison::dynamic)> handler);
+
+  /**
+   * @brief Remove all event handlers associated with an object ID.
+   * @param object_id Remote object identifier.
+   */
   void unregister_object_events(const std::string& object_id);
 
  private:

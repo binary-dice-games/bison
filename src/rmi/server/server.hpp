@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file server.hpp
+ * @brief RMI server runtime that accepts connections and dispatches requests.
+ */
 #pragma once
 
 #include "src/core/bison.hpp"
@@ -16,17 +20,32 @@
 
 namespace bdg::bison::rmi {
 
+/**
+ * @brief Hosts RMI objects over a transport and serves protocol operations.
+ *
+ * The server owns an accept loop and spawns worker threads for active
+ * connections. Each request envelope is decoded and routed to the matching
+ * operation handler (`connect`, `instantiate`, `call`, etc.).
+ */
 class server {
  public:
   // ── Template constructors (must stay in header for instantiation) ─────────
 
-  /// Constructs the server holding a reference to an external transport.
+  /**
+   * @brief Construct a server that references an external transport.
+   * @tparam TTransport Transport type with `start/accept/stop` API.
+   * @param transport Existing transport instance owned by the caller.
+   */
   template <typename TTransport>
   explicit server(TTransport& transport)
       : transport_(
             std::make_unique<transport_ref_wrapper<TTransport>>(transport)) {}
 
-  /// Constructs the server taking ownership of a transport by move.
+  /**
+   * @brief Construct a server by taking ownership of a transport.
+   * @tparam TTransport Transport type with `start/accept/stop` API.
+   * @param transport Transport instance moved into the server.
+   */
   template <typename TTransport>
   explicit server(TTransport&& transport,
                   std::enable_if_t<!std::is_lvalue_reference_v<TTransport>>* = nullptr)
@@ -40,7 +59,13 @@ class server {
 
   ~server();
 
+  /**
+   * @brief Start listening for client connections.
+   * @param params Optional transport-specific listen parameters.
+   */
   void listen(bison::dynamic params = bison::dynamic{});
+
+  /** @brief Stop accept loop, close active workers, and release resources. */
   void stop();
 
  private:

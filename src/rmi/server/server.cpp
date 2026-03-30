@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file server.cpp
+ * @brief Implementation of the RMI server accept loop and request handlers.
+ */
 #include "src/rmi/server/server.hpp"
 
 #include "src/rmi/shared/constants.hpp"
@@ -13,6 +17,13 @@ using namespace shared::constants;
 
 namespace {
 
+/**
+ * @brief Read a key token from a field accepting either `key_t` or `hash_t`.
+ * @param obj Source object.
+ * @param field_name Field key to read.
+ * @return Parsed key token.
+ * @throws std::runtime_error if the field is missing or incompatible.
+ */
 bison::key_t read_key_token(const bison::dynamic& obj, bison::key_t field_name) {
   const auto* f = obj.findField(field_name);
   if (f == nullptr) {
@@ -31,10 +42,12 @@ bison::key_t read_key_token(const bison::dynamic& obj, bison::key_t field_name) 
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
+/** @brief Stops background threads if still running. */
 server::~server() {
   if (running_.load()) { try { stop(); } catch (...) {} }
 }
 
+/** @copydoc bdg::bison::rmi::server::listen */
 void server::listen(bison::dynamic params) {
   shared::register_envelope();
   running_.store(true);
@@ -42,6 +55,7 @@ void server::listen(bison::dynamic params) {
   accept_thread_ = std::thread(&server::accept_loop, this);
 }
 
+/** @copydoc bdg::bison::rmi::server::stop */
 void server::stop() {
   running_.store(false);
   transport_->stop();
@@ -49,6 +63,9 @@ void server::stop() {
   join_workers();
 }
 
+/**
+ * @brief Join and clear all per-connection worker threads.
+ */
 void server::join_workers() {
   std::lock_guard<std::mutex> lk(workers_mutex_);
   for (auto& t : workers_) if (t.joinable()) t.join();
@@ -57,6 +74,9 @@ void server::join_workers() {
 
 // ── Accept loop ───────────────────────────────────────────────────────────────
 
+/**
+ * @brief Accept incoming connections and spawn per-client workers.
+ */
 void server::accept_loop() {
   while (running_.load(std::memory_order_acquire)) {
     auto conn = transport_->accept(std::chrono::milliseconds{100});
@@ -69,6 +89,10 @@ void server::accept_loop() {
 
 // ── Client worker ─────────────────────────────────────────────────────────────
 
+/**
+ * @brief Process one client connection until closed.
+ * @param conn Active connection object.
+ */
 void server::client_worker(std::unique_ptr<connection_iface> conn) {
   context ctx;
   ctx.emit_event = [&conn](const std::string& oid, bison::key_t name,
@@ -121,6 +145,9 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
 
 // ── Envelope helpers ──────────────────────────────────────────────────────────
 
+/**
+ * @brief Send a protocol response envelope.
+ */
 void server::send_response(connection_iface&     conn,
                             const bison::dynamic& env,
                             bison::key_t          op,
@@ -133,6 +160,9 @@ void server::send_response(connection_iface&     conn,
                                     payload_bytes, error_bytes));
 }
 
+/**
+ * @brief Send an error response envelope.
+ */
 void server::send_error(connection_iface&     conn,
                          const bison::dynamic& env,
                          bison::key_t          op,
@@ -143,6 +173,9 @@ void server::send_error(connection_iface&     conn,
 
 // ── Request dispatch ──────────────────────────────────────────────────────────
 
+/**
+ * @brief Validate and route one request envelope to its operation handler.
+ */
 void server::handle_request(context& ctx, const bison::dynamic& env,
                               connection_iface& conn) {
   int32_t version = env.as<int32_t>(FIELD_VERSION);
@@ -169,6 +202,7 @@ void server::handle_request(context& ctx, const bison::dynamic& env,
 
 // ── Operation handlers ────────────────────────────────────────────────────────
 
+/** @brief Handle `connect` handshake requests. */
 void server::handle_connect(context& /*ctx*/, const bison::dynamic& env,
                               connection_iface& conn) {
   bison::dynamic resp;
@@ -176,6 +210,7 @@ void server::handle_connect(context& /*ctx*/, const bison::dynamic& env,
   send_response(conn, env, OP_CONNECT, shared::encode_payload(resp));
 }
 
+/** @brief Handle class metadata requests. */
 void server::handle_describe(context& /*ctx*/, const bison::dynamic& env,
                                connection_iface& conn) {
   std::string pb = env.as<std::string>(FIELD_PAYLOAD);
@@ -211,6 +246,7 @@ void server::handle_describe(context& /*ctx*/, const bison::dynamic& env,
   send_response(conn, env, OP_DESCRIBE, shared::encode_payload(resp));
 }
 
+/** @brief Handle server-side object instantiation requests. */
 void server::handle_instantiate(context& ctx, const bison::dynamic& env,
                                   connection_iface& conn) {
   std::string pb      = env.as<std::string>(FIELD_PAYLOAD);
@@ -254,6 +290,7 @@ void server::handle_instantiate(context& ctx, const bison::dynamic& env,
   send_response(conn, env, OP_INSTANTIATE, shared::encode_payload(resp));
 }
 
+/** @brief Handle clear requests for a live remote object. */
 void server::handle_clear(context& ctx, const bison::dynamic& env,
                             connection_iface& conn) {
   std::string oid = env.as<std::string>(FIELD_OBJECT_ID);
@@ -281,6 +318,7 @@ void server::handle_clear(context& ctx, const bison::dynamic& env,
   send_response(conn, env, OP_CLEAR, {});
 }
 
+/** @brief Handle partial field updates for a live remote object. */
 void server::handle_set(context& ctx, const bison::dynamic& env,
                           connection_iface& conn) {
   std::string oid = env.as<std::string>(FIELD_OBJECT_ID);
@@ -311,6 +349,7 @@ void server::handle_set(context& ctx, const bison::dynamic& env,
   send_response(conn, env, OP_SET, {});
 }
 
+/** @brief Handle object reads with optional projection payload. */
 void server::handle_get(context& ctx, const bison::dynamic& env,
                           connection_iface& conn) {
   std::string oid = env.as<std::string>(FIELD_OBJECT_ID);
@@ -348,6 +387,7 @@ void server::handle_get(context& ctx, const bison::dynamic& env,
   send_response(conn, env, OP_GET, shared::encode_payload(result));
 }
 
+/** @brief Handle method invocation requests. */
 void server::handle_call(context& ctx, const bison::dynamic& env,
                            connection_iface& conn) {
   std::string oid = env.as<std::string>(FIELD_OBJECT_ID);
@@ -372,6 +412,7 @@ void server::handle_call(context& ctx, const bison::dynamic& env,
   }
 }
 
+/** @brief Handle explicit object destruction requests. */
 void server::handle_destroy(context& ctx, const bison::dynamic& env,
                               connection_iface& conn) {
   std::string oid = env.as<std::string>(FIELD_OBJECT_ID);
@@ -389,12 +430,16 @@ void server::handle_destroy(context& ctx, const bison::dynamic& env,
   send_response(conn, env, OP_DESTROY, {});
 }
 
+/** @brief Handle disconnect requests and close the connection context. */
 void server::handle_disconnect(context& ctx, const bison::dynamic& env,
                                  connection_iface& conn) {
   cleanup_context(ctx);
   conn.close();
 }
 
+/**
+ * @brief Run destruction hooks for all objects and clear the session context.
+ */
 void server::cleanup_context(context& ctx) {
   for (auto& [oid, obj] : ctx.objects) {
     if (obj && obj->findMethod(HOOK_DESTRUCT) != nullptr) {

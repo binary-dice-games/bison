@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file client.cpp
+ * @brief Implementation of the RMI client runtime and remote proxy calls.
+ */
 #include "src/rmi/client/client.hpp"
 
 #include <stdexcept>
@@ -9,6 +13,7 @@ using namespace shared::constants;
 
 // ── Destructor ────────────────────────────────────────────────────────────────
 
+/** @brief Ensures active transport resources are shut down before destruction. */
 client::~client() {
   if (running_.load()) {
     try { disconnect(); } catch (...) {}
@@ -17,6 +22,7 @@ client::~client() {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/** @copydoc bdg::bison::rmi::client::connect */
 void client::connect(bison::dynamic params) {
   shared::register_envelope();
   transport_->open(std::move(params));
@@ -29,12 +35,14 @@ void client::connect(bison::dynamic params) {
   f.get();
 }
 
+/** @copydoc bdg::bison::rmi::client::describe */
 bison::dynamic client::describe(bison::key_t klass) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
   return send_request(OP_DESCRIBE, {}, std::move(payload), false).get();
 }
 
+/** @copydoc bdg::bison::rmi::client::instantiate */
 remote::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
   bison::dynamic payload;
   payload[FIELD_KLASS]  = klass;
@@ -45,6 +53,7 @@ remote::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
   return remote::dynamic{this, std::move(oid)};
 }
 
+/** @copydoc bdg::bison::rmi::client::destroy */
 void client::destroy(remote::dynamic&& proxy) {
   std::string oid = proxy.object_id();
   proxy.valid_  = false;
@@ -54,6 +63,7 @@ void client::destroy(remote::dynamic&& proxy) {
   send_request(OP_DESTROY, oid, std::move(payload), false).get();
 }
 
+/** @copydoc bdg::bison::rmi::client::disconnect */
 void client::disconnect() {
   if (!running_.load()) return;
 
@@ -71,6 +81,7 @@ void client::disconnect() {
 
 // ── Request dispatch ──────────────────────────────────────────────────────────
 
+/** @copydoc bdg::bison::rmi::client::send_request */
 std::future<bison::dynamic> client::send_request(bison::key_t       op,
                                                    const std::string& object_id,
                                                    bison::dynamic     payload,
@@ -111,6 +122,7 @@ std::future<bison::dynamic> client::send_request(bison::key_t       op,
   return future;
 }
 
+/** @copydoc bdg::bison::rmi::client::register_event_handler */
 void client::register_event_handler(const std::string&                  object_id,
                                      bison::key_t                        name,
                                      std::function<void(bison::dynamic)> handler) {
@@ -118,6 +130,7 @@ void client::register_event_handler(const std::string&                  object_i
   event_handlers_[object_id][name.id] = std::move(handler);
 }
 
+/** @copydoc bdg::bison::rmi::client::unregister_object_events */
 void client::unregister_object_events(const std::string& object_id) {
   std::lock_guard<std::mutex> lk(event_mutex_);
   event_handlers_.erase(object_id);
@@ -125,6 +138,9 @@ void client::unregister_object_events(const std::string& object_id) {
 
 // ── Worker thread ─────────────────────────────────────────────────────────────
 
+/**
+ * @brief Receive loop that decodes frames and dispatches responses/events.
+ */
 void client::worker_loop() {
   while (running_.load(std::memory_order_acquire)) {
     std::vector<char> frame;
@@ -137,6 +153,10 @@ void client::worker_loop() {
   fail_all_pending(ERR_TRANSPORT_ERROR, "Worker thread exiting");
 }
 
+/**
+ * @brief Route one decoded envelope to response resolution or event delivery.
+ * @param env Decoded envelope object.
+ */
 void client::process_frame(const bison::dynamic& env) {
   bison::key_t kind = env.as<bison::key_t>(FIELD_KIND);
 
@@ -194,6 +214,11 @@ void client::process_frame(const bison::dynamic& env) {
   }
 }
 
+/**
+ * @brief Fail all unresolved requests with a transport-level RMI error.
+ * @param code Error code token.
+ * @param message Human-readable error message.
+ */
 void client::fail_all_pending(bison::key_t code, const std::string& message) {
   std::unordered_map<std::string, std::promise<bison::dynamic>> local;
   {
@@ -210,18 +235,21 @@ void client::fail_all_pending(bison::key_t code, const std::string& message) {
 
 namespace remote {
 
+/** @copydoc bdg::bison::rmi::remote::dynamic::clear */
 void dynamic::clear() {
   auto f = client_->send_request(
       shared::constants::OP_CLEAR, object_id_, bison::dynamic{}, false);
   f.get();
 }
 
+/** @copydoc bdg::bison::rmi::remote::dynamic::set */
 void dynamic::set(bison::dynamic fields) {
   auto f = client_->send_request(
       shared::constants::OP_SET, object_id_, std::move(fields), false);
   f.get();
 }
 
+/** @copydoc bdg::bison::rmi::remote::dynamic::get */
 void dynamic::get(bison::dynamic& fields) {
   bison::dynamic projection = fields;
   auto f = client_->send_request(
@@ -229,11 +257,13 @@ void dynamic::get(bison::dynamic& fields) {
   fields = f.get();
 }
 
+/** @copydoc bdg::bison::rmi::remote::dynamic::call */
 std::future<bison::dynamic> dynamic::call(bison::dynamic params, bool oneway) {
   return client_->send_request(
       shared::constants::OP_CALL, object_id_, std::move(params), oneway);
 }
 
+/** @copydoc bdg::bison::rmi::remote::dynamic::onEvent */
 void dynamic::onEvent(bison::key_t name,
                        std::function<void(bison::dynamic)> handler) {
   client_->register_event_handler(object_id_, name, std::move(handler));

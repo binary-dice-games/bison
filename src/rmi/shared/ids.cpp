@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file ids.cpp
+ * @brief Implementation of opaque ID generation helpers used by RMI.
+ */
 #include "src/rmi/shared/ids.hpp"
 
 #include <cstdint>
@@ -9,6 +13,12 @@
 
 namespace bdg::bison::rmi::shared {
 
+/**
+ * @brief Generate a 32-hex-character identifier from two random 64-bit words.
+ *
+ * Access to the pseudo-random engine is guarded by a mutex, making this
+ * function safe to call concurrently from multiple threads.
+ */
 std::string generate_id() {
   static std::mutex mtx;
   static std::mt19937_64 gen{std::random_device{}()};

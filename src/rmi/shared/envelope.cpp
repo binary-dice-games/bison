@@ -1,4 +1,8 @@
 // MIT License © 2025 Binary Dice Games
+/**
+ * @file envelope.cpp
+ * @brief Envelope encoding/decoding implementation for the RMI wire protocol.
+ */
 #include "src/rmi/shared/envelope.hpp"
 
 #include <shared_mutex>
@@ -6,12 +10,15 @@
 namespace bdg::bison::rmi::shared {
 
 // rmi_error
+/** @copydoc bdg::bison::rmi::shared::rmi_error::rmi_error */
 rmi_error::rmi_error(bison::key_t code, std::string message)
     : std::runtime_error(std::move(message)), code_(code) {}
 
+/** @copydoc bdg::bison::rmi::shared::rmi_error::code */
 bison::key_t rmi_error::code() const { return code_; }
 
 // register_envelope
+/** @copydoc bdg::bison::rmi::shared::register_envelope */
 void register_envelope() {
   using namespace constants;
   {
@@ -34,6 +41,7 @@ void register_envelope() {
 }
 
 // encode_payload / decode_payload
+/** @copydoc bdg::bison::rmi::shared::encode_payload */
 std::string encode_payload(const bison::dynamic& payload) {
   bison::buffer_serializer out;
   payload.serialize(out);
@@ -41,12 +49,14 @@ std::string encode_payload(const bison::dynamic& payload) {
   return {bytes.begin(), bytes.end()};
 }
 
+/** @copydoc bdg::bison::rmi::shared::decode_payload */
 std::shared_ptr<bison::dynamic> decode_payload(const std::string& bytes) {
   if (bytes.empty()) return std::make_shared<bison::dynamic>();
   bison::buffer_deserializer in(bytes);
   return bison::dynamic::deserialize(in);
 }
 
+/** @copydoc bdg::bison::rmi::shared::encode_error */
 std::string encode_error(bison::key_t code, const std::string& message) {
   using namespace constants;
   bison::dynamic err;
@@ -56,6 +66,7 @@ std::string encode_error(bison::key_t code, const std::string& message) {
 }
 
 // encode_envelope / decode_envelope
+/** @copydoc bdg::bison::rmi::shared::encode_envelope */
 std::vector<char> encode_envelope(
     bison::key_t kind,
     bison::key_t op,
@@ -79,6 +90,7 @@ std::vector<char> encode_envelope(
   return out.release();
 }
 
+/** @copydoc bdg::bison::rmi::shared::decode_envelope */
 std::shared_ptr<bison::dynamic> decode_envelope(const std::vector<char>& bytes) {
   bison::buffer_deserializer in(bytes);
   return bison::dynamic::deserializeWithTemplate(in);
