@@ -69,6 +69,12 @@ TEST(RmiIds, ConsecutiveIdsAreDifferent) {
       static_cast<hash_t>(generate_id()), static_cast<hash_t>(generate_id()));
 }
 
+TEST(RmiIds, ConsecutiveIdsAreNotSequentialValues) {
+  const hash_t first = static_cast<hash_t>(generate_id());
+  const hash_t second = static_cast<hash_t>(generate_id());
+  EXPECT_NE(second, first + 1u);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 3. Envelope encode / decode
 // ═════════════════════════════════════════════════════════════════════════════
