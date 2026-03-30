@@ -28,6 +28,18 @@ static void clearClassRegistry() {
   dynamic::getRegistry().wlock()->clear();
 }
 
+#ifdef _WIN32
+static void destroyMovedFromSocketClientTransport() {
+  socket_client_transport transport{"127.0.0.1", 65535};
+  auto moved = std::move(transport);
+}
+
+static void destroyMovedFromPipeClientTransport() {
+  pipe_client_transport transport{"\\.\\pipe\\bison_rmi_test"};
+  auto moved = std::move(transport);
+}
+#endif
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Shared constants
 // ═════════════════════════════════════════════════════════════════════════════
@@ -74,6 +86,16 @@ TEST(RmiIds, ConsecutiveIdsAreNotSequentialValues) {
   const hash_t second = static_cast<hash_t>(generate_id());
   EXPECT_NE(second, first + 1u);
 }
+
+#ifdef _WIN32
+TEST(RmiTransportMove, MovedFromSocketClientTransportDestructionIsSafe) {
+  EXPECT_NO_THROW(destroyMovedFromSocketClientTransport());
+}
+
+TEST(RmiTransportMove, MovedFromPipeClientTransportDestructionIsSafe) {
+  EXPECT_NO_THROW(destroyMovedFromPipeClientTransport());
+}
+#endif
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 3. Envelope encode / decode

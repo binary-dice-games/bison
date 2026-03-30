@@ -86,6 +86,43 @@ cmake -E chdir build/examples/Debug bison_examples.exe
 
 The example output intentionally uses ASCII-only separators so it renders correctly in default Windows PowerShell and other terminals without additional encoding configuration.
 
+## RMI Socket Examples
+
+The repository includes two standalone RMI socket examples:
+
+- `rmi_server_example` in `examples/rmi_server_example.cpp`
+- `rmi_client_example` in `examples/rmi_client_example.cpp`
+
+They are designed to run as separate processes.
+
+### Build the RMI examples
+
+From the repository root:
+
+```bash
+cmake -B build
+cmake --build build --config Debug --target rmi_server_example rmi_client_example
+```
+
+### Run the RMI examples
+
+Start the server first:
+
+```powershell
+.\build\examples\Debug\rmi_server_example.exe
+```
+
+Then run the client in another terminal:
+
+```powershell
+.\build\examples\Debug\rmi_client_example.exe
+```
+
+Optional arguments:
+
+- server: `rmi_server_example.exe [host] [port]`
+- client: `rmi_client_example.exe [host] [port]`
+
 ## Performance Benchmark
 
 The repository also includes a benchmark target named `bison_performance` in `examples/performance.cpp`. It compares the cost of implementing the same record-like object using a plain C++ class, `bison::dynamic`, and `nlohmann::json`.

@@ -156,6 +156,10 @@ pipe_client_transport& pipe_client_transport::operator=(
     pipe_client_transport&&) noexcept = default;
 
 void pipe_client_transport::open(bison::dynamic&& params) {
+  if (!impl_) {
+    throw std::runtime_error("pipe_client_transport::open invalid state");
+  }
+
   impl_->pipe_name = read_pipe_name(params, impl_->pipe_name);
   shutdown();
 
@@ -184,6 +188,9 @@ void pipe_client_transport::open(bison::dynamic&& params) {
 }
 
 void pipe_client_transport::send(bison::buffer frame) {
+  if (!impl_) {
+    throw std::runtime_error("pipe_client_transport::send invalid state");
+  }
   if (!impl_->opened || impl_->pipe == INVALID_HANDLE_VALUE) {
     throw std::runtime_error("pipe_client_transport::send pipe not open");
   }
@@ -195,6 +202,9 @@ void pipe_client_transport::send(bison::buffer frame) {
 bool pipe_client_transport::receive(
     bison::buffer& frame,
     std::chrono::milliseconds timeout) {
+  if (!impl_) {
+    return false;
+  }
   if (!impl_->opened || impl_->pipe == INVALID_HANDLE_VALUE) {
     return false;
   }
@@ -202,6 +212,9 @@ bool pipe_client_transport::receive(
 }
 
 void pipe_client_transport::shutdown() {
+  if (!impl_) {
+    return;
+  }
   if (impl_->pipe != INVALID_HANDLE_VALUE) {
     ::CloseHandle(impl_->pipe);
     impl_->pipe = INVALID_HANDLE_VALUE;
@@ -273,16 +286,25 @@ pipe_server_transport& pipe_server_transport::operator=(
     pipe_server_transport&&) noexcept = default;
 
 void pipe_server_transport::start(bison::dynamic params) {
+  if (!impl_) {
+    throw std::runtime_error("pipe_server_transport::start invalid state");
+  }
   impl_->pipe_name = read_pipe_name(params, impl_->pipe_name);
   impl_->running = true;
 }
 
 pipe_client_transport pipe_server_transport::connect() const {
+  if (!impl_) {
+    throw std::runtime_error("pipe_server_transport::connect invalid state");
+  }
   return pipe_client_transport{impl_->pipe_name};
 }
 
 std::optional<pipe_server_connection> pipe_server_transport::accept(
     std::chrono::milliseconds timeout) {
+  if (!impl_) {
+    return std::nullopt;
+  }
   if (!impl_->running) {
     return std::nullopt;
   }
@@ -339,6 +361,9 @@ std::optional<pipe_server_connection> pipe_server_transport::accept(
 }
 
 void pipe_server_transport::stop() {
+  if (!impl_) {
+    return;
+  }
   impl_->running = false;
 }
 

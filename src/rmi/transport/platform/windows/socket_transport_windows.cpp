@@ -194,6 +194,10 @@ socket_client_transport& socket_client_transport::operator=(
     socket_client_transport&&) noexcept = default;
 
 void socket_client_transport::open(bison::dynamic&& params) {
+  if (!impl_) {
+    throw std::runtime_error("socket_client_transport::open invalid state");
+  }
+
   ensure_winsock_started();
 
   impl_->host = read_string_param(params, "host"_key, impl_->host);
@@ -241,6 +245,9 @@ void socket_client_transport::open(bison::dynamic&& params) {
 }
 
 void socket_client_transport::send(bison::buffer frame) {
+  if (!impl_) {
+    throw std::runtime_error("socket_client_transport::send invalid state");
+  }
   if (!impl_->opened || impl_->sock == INVALID_SOCKET) {
     throw std::runtime_error("socket_client_transport::send socket not open");
   }
@@ -252,6 +259,9 @@ void socket_client_transport::send(bison::buffer frame) {
 bool socket_client_transport::receive(
     bison::buffer& frame,
     std::chrono::milliseconds timeout) {
+  if (!impl_) {
+    return false;
+  }
   if (!impl_->opened || impl_->sock == INVALID_SOCKET) {
     return false;
   }
@@ -259,6 +269,9 @@ bool socket_client_transport::receive(
 }
 
 void socket_client_transport::shutdown() {
+  if (!impl_) {
+    return;
+  }
   if (impl_->sock != INVALID_SOCKET) {
     ::shutdown(impl_->sock, SD_BOTH);
     ::closesocket(impl_->sock);
@@ -333,6 +346,10 @@ socket_server_transport& socket_server_transport::operator=(
     socket_server_transport&&) noexcept = default;
 
 void socket_server_transport::start(bison::dynamic params) {
+  if (!impl_) {
+    throw std::runtime_error("socket_server_transport::start invalid state");
+  }
+
   ensure_winsock_started();
 
   impl_->bind_host = read_string_param(params, "host"_key, impl_->bind_host);
@@ -400,11 +417,17 @@ void socket_server_transport::start(bison::dynamic params) {
 }
 
 socket_client_transport socket_server_transport::connect() const {
+  if (!impl_) {
+    throw std::runtime_error("socket_server_transport::connect invalid state");
+  }
   return socket_client_transport{impl_->bind_host, impl_->port};
 }
 
 std::optional<socket_server_connection> socket_server_transport::accept(
     std::chrono::milliseconds timeout) {
+  if (!impl_) {
+    return std::nullopt;
+  }
   if (!impl_->running || impl_->listen_sock == INVALID_SOCKET) {
     return std::nullopt;
   }
@@ -425,6 +448,9 @@ std::optional<socket_server_connection> socket_server_transport::accept(
 }
 
 void socket_server_transport::stop() {
+  if (!impl_) {
+    return;
+  }
   if (impl_->listen_sock != INVALID_SOCKET) {
     ::closesocket(impl_->listen_sock);
     impl_->listen_sock = INVALID_SOCKET;
