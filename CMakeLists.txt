@@ -13,11 +13,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(BISON_PUBLIC_HEADERS
-  	"${CMAKE_CURRENT_LIST_DIR}/src/bison.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison.hpp"
 )
 
 set(BISON_PRIVATE_SOURCES
-	src/bison.cpp
+  src/core/bison.cpp
 )
 
 include_directories(. include)
@@ -37,7 +37,7 @@ add_library(bison STATIC
 
 target_include_directories(bison
     PRIVATE
-        src
+    src/core
     PUBLIC
         include
 )
@@ -48,15 +48,15 @@ set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─── Shared library (pure-C ABI) ─────────────────────────────────────────────
 add_library(bison_c SHARED
-  src/bison_c.h
-  src/bison_c.cpp
+  src/core/bison_c.h
+  src/core/bison_c.cpp
 )
 
 # bison_c is a superset of bison; it needs the same dependencies.
 target_compile_definitions(bison_c PRIVATE BISON_BUILDING_DLL)
 target_include_directories(bison_c
     PUBLIC
-        ${CMAKE_CURRENT_LIST_DIR}/src
+  ${CMAKE_CURRENT_LIST_DIR}/src/core
         ${CMAKE_CURRENT_LIST_DIR}
 )
 target_link_libraries(bison_c PRIVATE bison nlohmann_json::nlohmann_json yaml)

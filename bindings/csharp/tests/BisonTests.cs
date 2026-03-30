@@ -7,7 +7,7 @@ namespace Bdg.Bison.Tests;
 /// xUnit tests for the Bison C# binding.
 /// </summary>
 /// <remarks>
-/// Build <c>bison_c</c> first, then run from the <c>csharp/tests</c> directory:
+/// Build <c>bison_c</c> first, then run from the <c>bindings/csharp/tests</c> directory:
 /// <code>
 /// cmake -B ../../build -DPACKAGE_TESTS=ON
 /// cmake --build ../../build --config Debug --target bison_c

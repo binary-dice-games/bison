@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "src/bison.hpp"
+#include "src/core/bison.hpp"
 
 using namespace bdg::bison;
 

@@ -223,10 +223,14 @@ public interface BisonLibrary extends Library {
 
             // Probe for a library built in the canonical build/ directory.
             String[] candidates = {
-                "../build/libbison_c.so",    // Linux
-                "../build/libbison_c.dylib", // macOS
-                "../build/Release/bison_c.dll",
-                "../build/Debug/bison_c.dll",
+                "build/libbison_c.so",       // Linux (when cwd is repo root)
+                "build/libbison_c.dylib",    // macOS (when cwd is repo root)
+                "build/Release/bison_c.dll",
+                "build/Debug/bison_c.dll",
+                "../../build/libbison_c.so",    // Linux (when cwd is bindings/java)
+                "../../build/libbison_c.dylib", // macOS (when cwd is bindings/java)
+                "../../build/Release/bison_c.dll",
+                "../../build/Debug/bison_c.dll",
             };
             for (String candidate : candidates) {
                 java.io.File f = new java.io.File(

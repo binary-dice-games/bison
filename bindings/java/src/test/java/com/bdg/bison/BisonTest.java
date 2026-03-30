@@ -9,10 +9,10 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * JUnit 5 tests for the Bison Java binding.
  *
- * <p>Build {@code bison_c} first, then run from the {@code java/} directory:
+ * <p>Build {@code bison_c} first, then run from the {@code bindings/java/} directory:
  * <pre>{@code
- * cmake -B ../build -DPACKAGE_TESTS=ON
- * cmake --build ../build --config Debug --target bison_c
+ * cmake -B ../../build -DPACKAGE_TESTS=ON
+ * cmake --build ../../build --config Debug --target bison_c
  * mvn test
  * }</pre>
  */

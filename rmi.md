@@ -1,0 +1,10 @@
+- Use namespace bdg::bison::rmi and put the code inside the folder src\rmi. The code from the server is in the subfolder src\rmi\server and the client code is in src\rmi\client. The shared code is in src\rmi\shared.
+- The framework should be platform independent, so any functionality that depends on the platform (Windows, Linux, Mac) should be abstracted into a class and implemented in the platform subfolder. The cmakefile for each of the target platforms should only include the code from their corresponding platform (for example, platform\linux for linux), as well as all the code that is not platform dependent. That way, we can have the platform independency without having to use interfaces with virtual methods
+- The purpose is creating a RMI (Remote Method Invocation) system using the bison library for creating remote objects on a server and using them from a client as if they were local objects
+- Use a server / client architecture, similar to the one used in Apache Thrift. The framework is modular and separates the business logic from the transport layer, allowing for different transport protocols (e.g., TCP, HTTP, pipes, in-memory stream).
+- The client class 
+- The server class has the following interface:
+  - constructor(transport): Creates the server using the specified transport layer
+  - listen(bison::dynamic&& params): Starts the listening thread, which waits on connections from the transport layer and spawns a separate thread for each connected client that processes the requests from that client
+  - stop(): Stops the listening thread and closes all the active connections
+- The remote methods can be sync (wait for the result) or async (return a future)

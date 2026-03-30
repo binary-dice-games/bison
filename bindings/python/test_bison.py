@@ -5,11 +5,11 @@ Build ``bison_c`` first, then run the tests from the repository root::
 
     cmake -B build -DPACKAGE_TESTS=ON
     cmake --build build --config Debug --target bison_c
-    python -m pytest python/test_bison.py -v
+    python -m pytest bindings/python/test_bison.py -v
 
 or::
 
-    python -m unittest python.test_bison
+    python -m unittest bindings.python.test_bison
 """
 
 import os

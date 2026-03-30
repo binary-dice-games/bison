@@ -11,7 +11,7 @@ import com.bdg.bison.Dynamic;
  * <pre>{@code
  * cmake -B build -DPACKAGE_TESTS=ON
  * cmake --build build --config Debug --target bison_c
- * cd java && mvn compile exec:java -Dexec.mainClass=com.bdg.bison.examples.BisonExamples
+ * cd bindings/java && mvn compile exec:java -Dexec.mainClass=com.bdg.bison.examples.BisonExamples
  * }</pre>
  *
  * <p>Each method is a self-contained example.  {@link #main(String[])} runs

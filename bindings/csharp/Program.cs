@@ -1,9 +1,9 @@
-// Top-level entry point for the csharp/ project.
+// Top-level entry point for the bindings/csharp project.
 // Run with:   dotnet run -- examples
 //
 // Build bison_c first:
-//   cmake -B ../build -DPACKAGE_TESTS=ON
-//   cmake --build ../build --config Debug --target bison_c
+//   cmake -B ../../build -DPACKAGE_TESTS=ON
+//   cmake --build ../../build --config Debug --target bison_c
 
 if (args.Length > 0 && args[0] == "examples")
     Examples.Run();

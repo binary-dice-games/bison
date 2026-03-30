@@ -142,7 +142,7 @@ Together, this keeps the benchmark focused on representation overhead rather tha
 
 ## Python Binding
 
-The `python/` package is a thin `ctypes` wrapper over the native `bison_c` shared library. It does not build the native code itself, so build the project first.
+The `bindings/python/` package is a thin `ctypes` wrapper over the native `bison_c` shared library. It does not build the native code itself, so build the project first.
 
 ### Build the native library
 
@@ -166,7 +166,7 @@ On Linux or macOS, set `BISON_LIB` to the full path of `libbison_c.so` or `libbi
 From the repository root:
 
 ```bash
-python python/examples.py
+python bindings/python/examples.py
 ```
 
 The examples script imports `python.bison` directly from this repository, so no package installation step is required.
@@ -176,11 +176,11 @@ The examples script imports `python.bison` directly from this repository, so no 
 The test file supports both `pytest` and the standard library `unittest` runner:
 
 ```bash
-python -m pytest python/test_bison.py -v
+python -m pytest bindings/python/test_bison.py -v
 ```
 
 ```bash
-python -m unittest python.test_bison
+python -m unittest bindings.python.test_bison
 ```
 
 If `pytest` is not installed, install it with:
@@ -390,7 +390,7 @@ auto ctx = std::dynamic_pointer_cast<MyContext>(obj.getUserdata());
 
 ## API Reference
 
-Full Doxygen-style documentation is embedded in `src/bison.hpp`. Generate HTML docs with:
+Full Doxygen-style documentation is embedded in `src/core/bison.hpp`. Generate HTML docs with:
 
 ```bash
 doxygen Doxyfile
@@ -400,13 +400,13 @@ A `Doxyfile` can be generated with `doxygen -g` and configured to point `INPUT` 
 
 ## Java Binding
 
-The `java/` directory contains a JNA (Java Native Access) binding that mirrors the Python `ctypes` approach.  It wraps `libbison_c` and exposes a `Dynamic` class with the same feature set.
+The `bindings/java/` directory contains a JNA (Java Native Access) binding that mirrors the Python `ctypes` approach.  It wraps `libbison_c` and exposes a `Dynamic` class with the same feature set.
 
 ### Requirements
 
 | Requirement | Version |
 |---|---|
-| Java | 11 or later |
+| Java | 17 or later |
 | Maven | 3.6 or later |
 | JNA | 5.14 (fetched automatically by Maven) |
 | JUnit 5 | 5.10 (test scope, fetched automatically) |
@@ -420,25 +420,25 @@ cmake --build build --config Debug --target bison_c
 
 ### Run the Java examples
 
-From the `java/` directory:
+From the `bindings/java/` directory:
 
 ```bash
-cd java
-mvn compile exec:java -Dexec.mainClass=com.bdg.bison.examples.BisonExamples
+cd bindings/java
+mvn compile exec:java "-Dexec.mainClass=com.bdg.bison.examples.BisonExamples"
 ```
 
 If the shared library is not found automatically, set `BISON_LIB` first:
 
 ```bash
-export BISON_LIB=$(pwd)/../build/libbison_c.so   # Linux
-# macOS: export BISON_LIB=$(pwd)/../build/libbison_c.dylib
-# Windows: set BISON_LIB=..\build\Debug\bison_c.dll
+export BISON_LIB=$(pwd)/../../build/libbison_c.so   # Linux
+# macOS: export BISON_LIB=$(pwd)/../../build/libbison_c.dylib
+# Windows: set BISON_LIB=..\..\build\Debug\bison_c.dll
 ```
 
 ### Run the Java tests
 
 ```bash
-cd java
+cd bindings/java
 mvn test
 ```
 
@@ -463,7 +463,7 @@ try (Dynamic root = Dynamic.fromJson("{\"x\": 1, \"y\": 2}")) {
 
 ## C# Binding
 
-The `csharp/` directory contains a P/Invoke binding for .NET 6+.  It wraps `libbison_c` and exposes a `Dynamic` class that implements `IDisposable`.
+The `bindings/csharp/` directory contains a P/Invoke binding for .NET 6+.  It wraps `libbison_c` and exposes a `Dynamic` class that implements `IDisposable`.
 
 ### Requirements
 
@@ -481,10 +481,10 @@ cmake --build build --config Debug --target bison_c
 
 ### Run the C# examples
 
-From the `csharp/` directory:
+From the `bindings/csharp/` directory:
 
 ```bash
-cd csharp
+cd bindings/csharp
 dotnet run -- examples
 ```
 
@@ -493,7 +493,7 @@ Set `BISON_LIB` if the shared library is not found automatically (same approach 
 ### Run the C# tests
 
 ```bash
-cd csharp/tests
+cd bindings/csharp/tests
 dotnet test
 ```
 
@@ -518,7 +518,7 @@ Console.WriteLine(root.GetInt("x")); // 1
 
 ## Performance Optimizations
 
-The library has been optimised for serialization and deserialization throughput.  The changes described below are in `src/bison.hpp`.
+The library has been optimised for serialization and deserialization throughput.  The changes described below are in `src/core/bison.hpp`.
 
 ### 1. Compiler-intrinsic `byte_swap`
 

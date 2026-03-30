@@ -8,7 +8,7 @@ using Bdg.Bison;
 /// <code>
 /// cmake -B build -DPACKAGE_TESTS=ON
 /// cmake --build build --config Debug --target bison_c
-/// cd csharp
+/// cd bindings/csharp
 /// dotnet run --project Bison.csproj -- examples
 /// </code>
 /// </remarks>

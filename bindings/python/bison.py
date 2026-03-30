@@ -14,8 +14,8 @@ Build the native shared library before importing this module::
 
 From the repository root, run the examples and tests with::
 
-    python python/examples.py
-    python -m pytest python/test_bison.py -v
+    python bindings/python/examples.py
+    python -m pytest bindings/python/test_bison.py -v
 
 If the shared library is not in the default ``build/`` location, set the
 ``BISON_LIB`` environment variable to the full path of ``bison_c.dll``,
@@ -85,9 +85,9 @@ def _find_library() -> str:
     if env_path:
         return env_path
 
-    # Typical layout: <repo>/python/bison.py → <repo>/build/libbison_c.so
+    # Typical layout: <repo>/bindings/python/bison.py -> <repo>/build/libbison_c.so
     here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(here)
+    repo_root = os.path.dirname(os.path.dirname(here))
     candidates = [
         os.path.join(repo_root, "build", "libbison_c.so"),    # Linux
         os.path.join(repo_root, "build", "libbison_c.dylib"), # macOS

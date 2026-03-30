@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 // Comprehensive unit tests for the Bison library using Google Test.
 
-#include "src/bison.hpp"
+#include "src/core/bison.hpp"
 
 #include <gtest/gtest.h>
 #include <array>
