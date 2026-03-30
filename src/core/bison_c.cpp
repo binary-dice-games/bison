@@ -737,12 +737,14 @@ bison_rmi_proxy_get(bison_rmi_proxy proxy, bison_handle* fields_out) {
 
 BISON_API bison_error bison_rmi_proxy_call(
     bison_rmi_proxy proxy,
+    bison_hash method_name,
     bison_handle params,
     bison_handle* result_out) {
   if (!proxy || !params)
     return BISON_ERR_NULL;
   try {
-    auto fut = proxy->proxy.call(*dyn(params));
+    bdg::bison::key_t name{static_cast<bdg::bison::hash_t>(method_name)};
+    auto fut = proxy->proxy.call(name, std::move(*dyn(params)));
     auto result = fut.get();
     if (result_out) {
       *result_out = as_handle(
@@ -754,12 +756,15 @@ BISON_API bison_error bison_rmi_proxy_call(
   }
 }
 
-BISON_API bison_error
-bison_rmi_proxy_call_oneway(bison_rmi_proxy proxy, bison_handle params) {
+BISON_API bison_error bison_rmi_proxy_call_oneway(
+    bison_rmi_proxy proxy,
+    bison_hash method_name,
+    bison_handle params) {
   if (!proxy || !params)
     return BISON_ERR_NULL;
   try {
-    proxy->proxy.call(*dyn(params), /*oneway=*/true);
+    bdg::bison::key_t name{static_cast<bdg::bison::hash_t>(method_name)};
+    proxy->proxy.call(name, std::move(*dyn(params)), /*oneway=*/true);
     return BISON_OK;
   } catch (...) {
     return BISON_ERR_EXCEPTION;

@@ -429,11 +429,10 @@ TEST_F(RmiE2E, CallMethod) {
   auto proxy = c.instantiate("Calc"_key);
 
   dynamic params;
-  params[FIELD_NAME] = "add"_key; // method name carried in __name
   params["a"_key] = int32_t{10};
   params["b"_key] = int32_t{32};
 
-  auto fut = proxy.call(std::move(params));
+  auto fut = proxy.call("add"_key, std::move(params));
   auto res = fut.get();
   int32_t result = res["result"_key];
   EXPECT_EQ(result, 42);
@@ -455,8 +454,7 @@ TEST_F(RmiE2E, OnewayCallResolvesImmediately) {
   auto proxy = c.instantiate("Sink"_key);
 
   dynamic params;
-  params[FIELD_NAME] = "noop"_key;
-  auto fut = proxy.call(std::move(params), true /* oneway */);
+  auto fut = proxy.call("noop"_key, std::move(params), true /* oneway */);
 
   // Should resolve without blocking on the server.
   auto status = fut.wait_for(std::chrono::milliseconds{500});
@@ -811,9 +809,8 @@ TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   futures.reserve(N);
   for (int i = 0; i < N; ++i) {
     dynamic params;
-    params[FIELD_NAME] = "echo"_key;
     params["id"_key] = int32_t{i};
-    futures.push_back(proxy.call(std::move(params)));
+    futures.push_back(proxy.call("echo"_key, std::move(params)));
   }
 
   // Each future must resolve with the correct id (no response mixing).

@@ -19,14 +19,16 @@
 #include <thread>
 #include <vector>
 
-// ─── Namespaces ───────────────────────────────────────────────────────────────
+// ─── Namespaces
+// ───────────────────────────────────────────────────────────────
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-// ─── Shared output mutex (keeps std::cout lines from interleaving) ────────────
+// ─── Shared output mutex (keeps std::cout lines from interleaving)
+// ────────────
 
 static std::mutex g_cout_mutex;
 
@@ -42,50 +44,55 @@ static void register_calculator() {
   auto proto = dynamic_ptr{"Calculator"_key, {}};
 
   // add(a, b) → result
-  proto->addMethod("add"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
-    float a = params["a"_key];
-    float b = params["b"_key];
-    dynamic result;
-    result["result"_key] = a + b;
-    return result;
-  });
+  proto->addMethod(
+      "add"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        float a = params["a"_key];
+        float b = params["b"_key];
+        dynamic result;
+        result["result"_key] = a + b;
+        return result;
+      });
 
   // subtract(a, b) → result
-  proto->addMethod("subtract"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
-    float a = params["a"_key];
-    float b = params["b"_key];
-    dynamic result;
-    result["result"_key] = a - b;
-    return result;
-  });
+  proto->addMethod(
+      "subtract"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        float a = params["a"_key];
+        float b = params["b"_key];
+        dynamic result;
+        result["result"_key] = a - b;
+        return result;
+      });
 
   // multiply(a, b) → result
-  proto->addMethod("multiply"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
-    float a = params["a"_key];
-    float b = params["b"_key];
-    dynamic result;
-    result["result"_key] = a * b;
-    return result;
-  });
+  proto->addMethod(
+      "multiply"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        float a = params["a"_key];
+        float b = params["b"_key];
+        dynamic result;
+        result["result"_key] = a * b;
+        return result;
+      });
 
   // divide(a, b) → result  (returns 0 and logs error on division by zero)
-  proto->addMethod("divide"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
-    float a = params["a"_key];
-    float b = params["b"_key];
-    dynamic result;
-    if (b == 0.0f) {
-      result["error"_key] = std::string{"division by zero"};
-      result["result"_key] = 0.0f;
-    } else {
-      result["result"_key] = a / b;
-    }
-    return result;
-  });
+  proto->addMethod(
+      "divide"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        float a = params["a"_key];
+        float b = params["b"_key];
+        dynamic result;
+        if (b == 0.0f) {
+          result["error"_key] = std::string{"division by zero"};
+          result["result"_key] = 0.0f;
+        } else {
+          result["result"_key] = a / b;
+        }
+        return result;
+      });
 
   dynamic::addClass(0U, proto);
 }
 
-// ─── Client worker ────────────────────────────────────────────────────────────
+// ─── Client worker
+// ────────────────────────────────────────────────────────────
 
 static void run_client(memory_server_transport& transport, int client_id) {
   // Each client gets its own isolated connection.
@@ -100,10 +107,9 @@ static void run_client(memory_server_transport& transport, int client_id) {
   // ── add ──────────────────────────────────────────────────────────────────
   {
     dynamic params;
-    params[FIELD_NAME] = "add"_key;
-    params["a"_key]    = float(10.0f * client_id);
-    params["b"_key]    = float(3.0f);
-    auto result = calc.call(std::move(params)).get();
+    params["a"_key] = float(10.0f * client_id);
+    params["b"_key] = float(3.0f);
+    auto result = calc.call("add"_key, std::move(params)).get();
     float res = result["result"_key];
     println("[Client ", client_id, "] add(", 10 * client_id, ", 3) = ", res);
   }
@@ -111,32 +117,38 @@ static void run_client(memory_server_transport& transport, int client_id) {
   // ── subtract ─────────────────────────────────────────────────────────────
   {
     dynamic params;
-    params[FIELD_NAME] = "subtract"_key;
-    params["a"_key]    = float(100.0f);
-    params["b"_key]    = float(7.0f * client_id);
-    auto result = calc.call(std::move(params)).get();
+    params["a"_key] = float(100.0f);
+    params["b"_key] = float(7.0f * client_id);
+    auto result = calc.call("subtract"_key, std::move(params)).get();
     float res = result["result"_key];
-    println("[Client ", client_id, "] subtract(100, ", 7 * client_id, ") = ", res);
+    println(
+        "[Client ", client_id, "] subtract(100, ", 7 * client_id, ") = ", res);
   }
 
   // ── multiply ─────────────────────────────────────────────────────────────
   {
     dynamic params;
-    params[FIELD_NAME] = "multiply"_key;
-    params["a"_key]    = float(client_id);
-    params["b"_key]    = float(client_id);
-    auto result = calc.call(std::move(params)).get();
+    params["a"_key] = float(client_id);
+    params["b"_key] = float(client_id);
+    auto result = calc.call("multiply"_key, std::move(params)).get();
     float res = result["result"_key];
-    println("[Client ", client_id, "] multiply(", client_id, ", ", client_id, ") = ", res);
+    println(
+        "[Client ",
+        client_id,
+        "] multiply(",
+        client_id,
+        ", ",
+        client_id,
+        ") = ",
+        res);
   }
 
   // ── divide ────────────────────────────────────────────────────────────────
   {
     dynamic params;
-    params[FIELD_NAME] = "divide"_key;
-    params["a"_key]    = float(42.0f);
-    params["b"_key]    = float(client_id);   // non-zero since client_id >= 1
-    auto result = calc.call(std::move(params)).get();
+    params["a"_key] = float(42.0f);
+    params["b"_key] = float(client_id); // non-zero since client_id >= 1
+    auto result = calc.call("divide"_key, std::move(params)).get();
     float res = result["result"_key];
     println("[Client ", client_id, "] divide(42, ", client_id, ") = ", res);
   }
@@ -146,7 +158,8 @@ static void run_client(memory_server_transport& transport, int client_id) {
   println("[Client ", client_id, "] done.");
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Main
+// ─────────────────────────────────────────────────────────────────────
 
 int main() {
   // Register the Calculator class in the global Bison class registry.
@@ -169,7 +182,8 @@ int main() {
   }
 
   // Wait for all clients to finish.
-  for (auto& t : threads) t.join();
+  for (auto& t : threads)
+    t.join();
 
   // Shut down the server cleanly.
   srv.stop();

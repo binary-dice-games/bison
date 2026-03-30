@@ -85,12 +85,14 @@ class dynamic {
   /**
    * @brief Invoke a callable behavior on the remote object.
    *
-   * @param params  Call arguments.
+   * @param name    Name token of the method to invoke.
+   * @param params  Call arguments (consumed by move).
    * @param oneway  When true the server does not send a response and the
    *                returned future resolves immediately with an empty result.
    * @return Future that resolves with the call result (or empty if oneway).
    */
-  std::future<bison::dynamic> call(bison::dynamic params, bool oneway = false);
+  std::future<bison::dynamic>
+  call(bison::key_t name, bison::dynamic&& params, bool oneway = false);
 
   /**
    * @brief Register a handler for a named server-initiated event.

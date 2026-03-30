@@ -263,9 +263,14 @@ void dynamic::get(bison::dynamic& fields) {
 }
 
 /** @copydoc bdg::bison::rmi::remote::dynamic::call */
-std::future<bison::dynamic> dynamic::call(bison::dynamic params, bool oneway) {
+std::future<bison::dynamic>
+dynamic::call(bison::key_t name, bison::dynamic&& params, bool oneway) {
+  bison::dynamic payload;
+  payload[shared::constants::FIELD_NAME] = name;
+  payload[shared::constants::FIELD_PARAMS] =
+      std::make_shared<bison::dynamic>(std::move(params));
   return client_->send_request(
-      shared::constants::OP_CALL, object_id_, std::move(params), oneway);
+      shared::constants::OP_CALL, object_id_, std::move(payload), oneway);
 }
 
 /** @copydoc bdg::bison::rmi::remote::dynamic::onEvent */

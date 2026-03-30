@@ -509,8 +509,16 @@ void server::handle_call(
   bison::key_t method_name = read_key_token(params.value, FIELD_NAME);
   bool oneway = env.oneway;
 
+  bison::dynamic args;
+  auto& params_field = params.value[FIELD_PARAMS];
+  if (params_field.is<std::shared_ptr<bison::dynamic>>()) {
+    auto ptr = params_field.as<std::shared_ptr<bison::dynamic>>();
+    if (ptr)
+      args = std::move(*ptr);
+  }
+
   try {
-    bison::dynamic res = obj.call(method_name, params.value);
+    bison::dynamic res = obj.call(method_name, args);
     if (!oneway)
       send_response(conn, env, OP_CALL, shared::payload{std::move(res)});
   } catch (const std::exception& e) {
