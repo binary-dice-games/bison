@@ -7,6 +7,7 @@
 
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/ids.hpp"
+#include "src/rmi/shared/schemas.hpp"
 
 #include <shared_mutex>
 #include <stdexcept>
@@ -57,7 +58,7 @@ server::~server() {
 
 /** @copydoc bdg::bison::rmi::server::listen */
 void server::listen(bison::dynamic params) {
-  shared::schema_registry::register_all_schemas();
+  shared::register_all_schemas();
   running_.store(true);
   transport_->start(std::move(params));
   accept_thread_ = std::thread(&server::accept_loop, this);
@@ -112,17 +113,14 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
       [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
         bison::dynamic ev_payload;
         ev_payload[FIELD_NAME] = name;
-        ev_payload[FIELD_PARAMS] =
-            std::make_shared<bison::dynamic>(std::move(params));
-        auto frame =
-            shared::envelope{
-                KIND_EVENT,
-                OP_EVENT,
-                {},
-                oid,
-                true,
-                shared::payload{std::move(ev_payload)}}
-                .encode();
+        ev_payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
+        shared::envelope event_env;
+        event_env.kind = KIND_EVENT;
+        event_env.op = OP_EVENT;
+        event_env.object_id = oid;
+        event_env.oneway = true;
+        event_env.payload = std::move(ev_payload);
+        auto frame = event_env.encode();
         conn->send(std::move(frame));
       };
 
@@ -136,16 +134,16 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
       env = shared::envelope::decode(frame);
     } catch (const std::exception& e) {
       try {
-        auto frame_err = shared::envelope{
-            KIND_RESPONSE,
-            OP_CONNECT,
-            {},
-            {},
-            false,
-            shared::payload{},
-            shared::error{
-                ERR_INVALID_REQUEST,
-                e.what()}}.encode();
+        bison::dynamic error_payload{CLASS_ERROR};
+        error_payload[FIELD_ERROR_CODE] = ERR_INVALID_REQUEST;
+        error_payload[FIELD_ERROR_MESSAGE] = std::string{e.what()};
+
+        shared::envelope frame_err_env;
+        frame_err_env.kind = KIND_RESPONSE;
+        frame_err_env.op = OP_CONNECT;
+        frame_err_env.oneway = false;
+        frame_err_env.error = std::move(error_payload);
+        auto frame_err = frame_err_env.encode();
         conn->send(std::move(frame_err));
       } catch (...) {
       }
@@ -175,16 +173,15 @@ void server::send_response(
     connection_iface& conn,
     const shared::envelope& env,
     bison::key_t op,
-    shared::payload&& pl) {
-  conn.send(
-      shared::envelope{
-          KIND_RESPONSE,
-          op,
-          env.request_id,
-          env.object_id,
-          false,
-          std::move(pl)}
-          .encode());
+    bison::dynamic payload) {
+  shared::envelope response_env;
+  response_env.kind = KIND_RESPONSE;
+  response_env.op = op;
+  response_env.request_id = env.request_id;
+  response_env.object_id = env.object_id;
+  response_env.oneway = false;
+  response_env.payload = std::move(payload);
+  conn.send(response_env.encode());
 }
 
 /**
@@ -196,16 +193,18 @@ void server::send_error(
     bison::key_t op,
     bison::key_t code,
     const std::string& message) {
-  conn.send(
-      shared::envelope{
-          KIND_RESPONSE,
-          op,
-          env.request_id,
-          env.object_id,
-          false,
-          shared::payload{},
-          shared::error{code, message}}
-          .encode());
+  bison::dynamic error_payload{CLASS_ERROR};
+  error_payload[FIELD_ERROR_CODE] = code;
+  error_payload[FIELD_ERROR_MESSAGE] = message;
+
+  shared::envelope response_env;
+  response_env.kind = KIND_RESPONSE;
+  response_env.op = op;
+  response_env.request_id = env.request_id;
+  response_env.object_id = env.object_id;
+  response_env.oneway = false;
+  response_env.error = std::move(error_payload);
+  conn.send(response_env.encode());
 }
 
 // ── Request dispatch
@@ -279,7 +278,7 @@ void server::handle_connect(
     connection_iface& conn) {
   bison::dynamic resp;
   resp[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
-  send_response(conn, env, OP_CONNECT, shared::payload{std::move(resp)});
+  send_response(conn, env, OP_CONNECT, std::move(resp));
 }
 
 /** @brief Handle class metadata requests. */
@@ -287,9 +286,9 @@ void server::handle_describe(
     context& /*ctx*/,
     const shared::envelope& env,
     connection_iface& conn) {
-  auto p = shared::payload::decode(env.payload);
+  const auto& p = env.payload;
 
-  bison::key_t requested = p.value.as<bison::key_t>(FIELD_KLASS);
+  bison::key_t requested = p.as<bison::key_t>(FIELD_KLASS);
   bison::dynamic resp;
 
   {
@@ -303,7 +302,7 @@ void server::handle_describe(
           continue;
         bison::dynamic desc;
         desc[FIELD_KLASS] = klass;
-        resp[idx++] = std::make_shared<bison::dynamic>(std::move(desc));
+        resp[idx++] = bison::dynamic_ptr{std::move(desc)};
       }
     } else {
       auto it = classes.find(requested);
@@ -319,7 +318,7 @@ void server::handle_describe(
     }
   }
 
-  send_response(conn, env, OP_DESCRIBE, shared::payload{std::move(resp)});
+  send_response(conn, env, OP_DESCRIBE, std::move(resp));
 }
 
 /** @brief Handle server-side object instantiation requests. */
@@ -327,9 +326,9 @@ void server::handle_instantiate(
     context& ctx,
     const shared::envelope& env,
     connection_iface& conn) {
-  auto p = shared::payload::decode(env.payload);
+  const auto& p = env.payload;
 
-  bison::key_t klass = p.value.as<bison::key_t>(FIELD_KLASS);
+  bison::key_t klass = p.as<bison::key_t>(FIELD_KLASS);
 
   {
     auto lp = bison::dynamic::getRegistry().rlock();
@@ -350,9 +349,9 @@ void server::handle_instantiate(
   if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
     try {
       bison::dynamic construct_params;
-      auto& pf = p.value[FIELD_PARAMS];
-      if (pf.is<std::shared_ptr<bison::dynamic>>()) {
-        auto ptr = pf.as<std::shared_ptr<bison::dynamic>>();
+      auto& pf = p[FIELD_PARAMS];
+      if (pf.is<bison::dynamic_ptr>()) {
+        auto ptr = pf.as<bison::dynamic_ptr>();
         if (ptr)
           construct_params = std::move(*ptr);
       }
@@ -374,7 +373,7 @@ void server::handle_instantiate(
   bison::dynamic resp;
   resp[FIELD_OBJECT_ID] = oid;
   resp[FIELD_KLASS] = klass;
-  send_response(conn, env, OP_INSTANTIATE, shared::payload{std::move(resp)});
+  send_response(conn, env, OP_INSTANTIATE, std::move(resp));
 }
 
 /** @brief Handle clear requests for a live remote object. */
@@ -407,7 +406,7 @@ void server::handle_clear(
     }
   }
 
-  send_response(conn, env, OP_CLEAR, shared::payload{});
+  send_response(conn, env, OP_CLEAR, bison::dynamic{});
 }
 
 /** @brief Handle partial field updates for a live remote object. */
@@ -423,11 +422,11 @@ void server::handle_set(
   }
   auto& obj = *it->second;
 
-  auto patch = shared::payload::decode(env.payload);
+  bison::dynamic patch = env.payload.clone();
 
   if (obj.findMethod(HOOK_SETTER) != nullptr) {
     try {
-      patch.value = obj.call(HOOK_SETTER, patch.value);
+      patch = obj.call(HOOK_SETTER, patch);
     } catch (const std::exception& e) {
       send_error(
           conn,
@@ -439,12 +438,12 @@ void server::handle_set(
     }
   }
 
-  patch.value.forEach([&obj](bison::key_t k, const bison::field& v) {
+  patch.forEach([&obj](bison::key_t k, const bison::field& v) {
     if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT)
       obj[k] = v;
   });
 
-  send_response(conn, env, OP_SET, shared::payload{});
+  send_response(conn, env, OP_SET, bison::dynamic{});
 }
 
 /** @brief Handle object reads with optional projection payload. */
@@ -460,10 +459,10 @@ void server::handle_get(
   }
   auto& obj = *it->second;
 
-  auto projection = shared::payload::decode(env.payload);
+  const auto& projection = env.payload;
 
   bool has_projection = false;
-  projection.value.forEach([&](bison::key_t k, const bison::field&) {
+  projection.forEach([&](bison::key_t k, const bison::field&) {
     if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT)
       has_projection = true;
   });
@@ -472,7 +471,7 @@ void server::handle_get(
   if (!has_projection) {
     result = obj.clone();
   } else {
-    projection.value.forEach([&](bison::key_t k, const bison::field&) {
+    projection.forEach([&](bison::key_t k, const bison::field&) {
       if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT)
         return;
       auto* f = obj.findField(k);
@@ -488,7 +487,7 @@ void server::handle_get(
     }
   }
 
-  send_response(conn, env, OP_GET, shared::payload{std::move(result)});
+  send_response(conn, env, OP_GET, std::move(result));
 }
 
 /** @brief Handle method invocation requests. */
@@ -504,15 +503,15 @@ void server::handle_call(
   }
   auto& obj = *it->second;
 
-  auto params = shared::payload::decode(env.payload);
+  const auto& params = env.payload;
 
-  bison::key_t method_name = read_key_token(params.value, FIELD_NAME);
+  bison::key_t method_name = read_key_token(params, FIELD_NAME);
   bool oneway = env.oneway;
 
   bison::dynamic args;
-  auto& params_field = params.value[FIELD_PARAMS];
-  if (params_field.is<std::shared_ptr<bison::dynamic>>()) {
-    auto ptr = params_field.as<std::shared_ptr<bison::dynamic>>();
+  auto& params_field = params[FIELD_PARAMS];
+  if (params_field.is<bison::dynamic_ptr>()) {
+    auto ptr = params_field.as<bison::dynamic_ptr>();
     if (ptr)
       args = std::move(*ptr);
   }
@@ -520,7 +519,7 @@ void server::handle_call(
   try {
     bison::dynamic res = obj.call(method_name, args);
     if (!oneway)
-      send_response(conn, env, OP_CALL, shared::payload{std::move(res)});
+      send_response(conn, env, OP_CALL, std::move(res));
   } catch (const std::exception& e) {
     if (!oneway)
       send_error(conn, env, OP_CALL, ERR_INTERNAL_ERROR, e.what());
@@ -547,7 +546,7 @@ void server::handle_destroy(
   }
 
   ctx.objects.erase(it);
-  send_response(conn, env, OP_DESTROY, shared::payload{});
+  send_response(conn, env, OP_DESTROY, bison::dynamic{});
 }
 
 /** @brief Handle disconnect requests and close the connection context. */

@@ -5,103 +5,76 @@
  */
 #include "src/rmi/shared/envelope.hpp"
 
-#include <shared_mutex>
+#include "src/rmi/shared/schemas.hpp"
 
 namespace bdg::bison::rmi::shared {
 
 namespace {
 
-[[maybe_unused]] const bool envelope_schema_provider_registered =
-    schema_registry::register_provider<envelope>();
+bison::dynamic normalize_error_payload(const bison::dynamic& error) {
+  bison::dynamic normalized{constants::CLASS_ERROR};
+  error.forEach([&normalized](bison::key_t key, const bison::field& value) {
+    if (key != bison::dynamic::CLASS) {
+      normalized[key] = value;
+    }
+  });
+  return normalized;
+}
 
 } // namespace
 
-envelope::envelope(
-    bison::key_t kind_arg,
-    bison::key_t op_arg,
-    bison::key_t request_id_arg,
-    bison::key_t object_id_arg,
-    bool oneway_arg,
-    ::bdg::bison::rmi::shared::payload&& pl)
-    : version(constants::PROTOCOL_VERSION),
-      kind(kind_arg),
-      op(op_arg),
-      request_id(request_id_arg),
-      object_id(object_id_arg),
-      oneway(oneway_arg),
-      payload(pl.encode()),
-      error{} {}
-
-envelope::envelope(
-    bison::key_t kind_arg,
-    bison::key_t op_arg,
-    bison::key_t request_id_arg,
-    bison::key_t object_id_arg,
-    bool oneway_arg,
-    ::bdg::bison::rmi::shared::payload&& pl,
-    ::bdg::bison::rmi::shared::error&& err)
-    : version(constants::PROTOCOL_VERSION),
-      kind(kind_arg),
-      op(op_arg),
-      request_id(request_id_arg),
-      object_id(object_id_arg),
-      oneway(oneway_arg),
-      payload(pl.encode()),
-      error(err.encode()) {}
-
 bison::buffer envelope::encode() const {
   using namespace constants;
+  bison::buffer_serializer buffer;
+  bison::buffer_serializer error_buffer;
+  if (with_schema) {
+    payload.serializeWithSchema(buffer);
+  } else {
+    payload.serialize(buffer);
+  }
+
+  normalize_error_payload(error).serializeWithSchema(error_buffer);
+
   bison::dynamic env{CLASS_ENVELOPE};
   env[FIELD_VERSION] = version;
   env[FIELD_KIND] = kind;
   env[FIELD_OP] = op;
   env[FIELD_REQUEST_ID] = request_id;
   env[FIELD_OBJECT_ID] = object_id;
+  env[FIELD_WITH_SCHEMA] = with_schema;
+  env[FIELD_PAYLOAD] = buffer.release();
+  env[FIELD_ERROR] = error_buffer.release();
   env[FIELD_ONEWAY] = oneway;
-  env[FIELD_PAYLOAD] = payload;
-  env[FIELD_ERROR] = error;
+
   bison::buffer_serializer out;
-  env.serializeWithTemplate(out);
+  env.serializeWithSchema(out);
   return out.release();
 }
 
 envelope envelope::decode(const bison::buffer& bytes) {
   using namespace constants;
   bison::buffer_deserializer in(bytes);
-  auto out = bison::dynamic::deserializeWithTemplate(in);
+  auto out = bison::dynamic::deserializeWithSchema(in);
 
   ::bdg::bison::rmi::shared::envelope decoded;
-  decoded.version = out->as<int32_t>(FIELD_VERSION);
-  decoded.kind = out->as<bison::key_t>(FIELD_KIND);
-  decoded.op = out->as<bison::key_t>(FIELD_OP);
-  decoded.request_id = out->as<bison::key_t>(FIELD_REQUEST_ID);
-  decoded.object_id = out->as<bison::key_t>(FIELD_OBJECT_ID);
-  decoded.oneway = out->as<bool>(FIELD_ONEWAY);
-  decoded.payload = out->as<bison::buffer>(FIELD_PAYLOAD);
-  decoded.error = out->as<bison::buffer>(FIELD_ERROR);
-  return decoded;
-}
+  decoded.version = out[FIELD_VERSION];
+  decoded.kind = out[FIELD_KIND];
+  decoded.op = out[FIELD_OP];
+  decoded.request_id = out[FIELD_REQUEST_ID];
+  decoded.object_id = out[FIELD_OBJECT_ID];
+  decoded.with_schema = out[FIELD_WITH_SCHEMA];
+  decoded.oneway = out[FIELD_ONEWAY];
 
-void envelope::register_schemas() {
-  using namespace constants;
-  {
-    auto lp = bison::dynamic::getRegistry().rlock();
-    if (lp->count(CLASS_ENVELOPE))
-      return;
+  bison::buffer_deserializer buffer(out[FIELD_PAYLOAD].as<bison::buffer>());
+  bison::buffer_deserializer error_buffer(out[FIELD_ERROR].as<bison::buffer>());
+  if (decoded.with_schema) {
+    decoded.payload = bison::dynamic::deserializeWithSchema(buffer);
+  } else {
+    decoded.payload = bison::dynamic::deserialize(buffer);
   }
-  auto proto = bison::dynamic_ptr{
-      CLASS_ENVELOPE,
-      {
-          {FIELD_VERSION, bison::field{int32_t{1}}},
-          {FIELD_KIND, bison::field{bison::key_t{0u}}},
-          {FIELD_OP, bison::field{bison::key_t{0u}}},
-          {FIELD_REQUEST_ID, bison::field{bison::key_t{0u}}},
-          {FIELD_OBJECT_ID, bison::field{bison::key_t{0u}}},
-          {FIELD_ONEWAY, bison::field{false}},
-          {FIELD_PAYLOAD, bison::field{bison::buffer{}}},
-          {FIELD_ERROR, bison::field{bison::buffer{}}},
-      }};
-  bison::dynamic::addClass(0U, proto);
+  decoded.error = bison::dynamic::deserializeWithSchema(error_buffer);
+
+  return decoded;
 }
 
 } // namespace bdg::bison::rmi::shared

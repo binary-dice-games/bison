@@ -78,7 +78,6 @@ class stream_deserializer;
 class attribute;
 class field;
 class dynamic;
-class dynamic_ptr;
 
 /**
  * @namespace bdg::bison::endian
@@ -257,6 +256,21 @@ using key_t = struct _key_t;
 class field;
 class dynamic;
 
+class dynamic_ptr : public std::shared_ptr<dynamic> {
+ public:
+  using std::shared_ptr<dynamic>::shared_ptr;
+  using std::shared_ptr<dynamic>::operator=;
+
+  dynamic_ptr(const std::shared_ptr<dynamic>& that);
+  dynamic_ptr(std::shared_ptr<dynamic>&& that);
+
+  dynamic_ptr& operator=(const std::shared_ptr<dynamic>& that);
+  dynamic_ptr& operator=(std::shared_ptr<dynamic>&& that);
+
+  dynamic_ptr(dynamic&& that);
+  dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {});
+};
+
 /**
  * @brief Callable type for methods attached to `dynamic` objects.
  *
@@ -292,7 +306,7 @@ using method =
  * | 3 | `bool` |
  * | 4 | `int32_t` |
  * | 5 | `float` |
- * | 6 | `std::shared_ptr<dynamic>` |
+ * | 6 | `dynamic_ptr` |
  * | 7 | `std::string` |
  * | 8 | `std::vector<bool>` |
  * | 9 | `std::vector<int32_t>` |
@@ -306,7 +320,7 @@ using field_base = std::variant<
     bool,
     int32_t,
     float,
-    std::shared_ptr<dynamic>,
+    dynamic_ptr,
     std::string,
     std::vector<bool>,
     std::vector<int32_t>,
@@ -318,8 +332,7 @@ using field_base = std::variant<
  *
  * Maps a class name (as a `key_t`) to its shared `dynamic` prototype.
  */
-using collection =
-    std::unordered_map<key_t, std::shared_ptr<dynamic>, key_t, key_t>;
+using collection = std::unordered_map<key_t, dynamic_ptr, key_t, key_t>;
 
 /**
  * @brief RAII pointer proxy returned by `synchronized` lock operations.
@@ -1366,10 +1379,8 @@ class field : public field_base {
   /**
    * Normalises a value before storing it in `field_base`:
    * - `const char*` / `char*`   → `std::string`
-   * - Any type that is implicitly convertible to `std::shared_ptr<dynamic>`
-   *   but is not already `std::shared_ptr<dynamic>` (e.g. `dynamic_ptr`) →
-   *   `std::shared_ptr<dynamic>`.  This allows `dynamic_ptr` to be assigned
-   *   to a field without an explicit cast.
+   * - `std::shared_ptr<dynamic>` → `dynamic_ptr`. This preserves the
+   *   canonical variant alternative type for object references.
    * - Everything else is perfect-forwarded unchanged.
    */
   template <typename T>
@@ -1379,12 +1390,9 @@ class field : public field_base {
         std::is_same_v<value_type, char*> ||
         std::is_same_v<value_type, const char*>) {
       return std::string(value);
-    } else if constexpr (
-        !std::is_same_v<value_type, std::shared_ptr<dynamic>> &&
-        std::is_convertible_v<value_type, std::shared_ptr<dynamic>>) {
-      // Upcast dynamic_ptr (and any other shared_ptr<dynamic> subclass) to
-      // the canonical variant alternative type.
-      return std::shared_ptr<dynamic>(std::forward<T>(value));
+    } else if constexpr (std::is_same_v<value_type, std::shared_ptr<dynamic>>) {
+      // Normalize to the canonical variant alternative type.
+      return dynamic_ptr(std::forward<T>(value));
     } else {
       return std::forward<T>(value);
     }
@@ -1410,14 +1418,14 @@ class field : public field_base {
         attributes_{std::forward<Attrs>(attrs)...} {}
 
   /**
-   * @brief Implicit conversion to `std::shared_ptr<dynamic>`.
+   * @brief Implicit conversion to `dynamic_ptr`.
    *
    * Kept as a non-template overload so function-style casts like
-   * `std::shared_ptr<dynamic>(field_value)` are accepted consistently across
+   * `dynamic_ptr(field_value)` are accepted consistently across
    * compilers.
    */
-  operator std::shared_ptr<dynamic>() const {
-    return as<std::shared_ptr<dynamic>>();
+  operator dynamic_ptr() const {
+    return as<dynamic_ptr>();
   }
 
   /**
@@ -1561,6 +1569,19 @@ class field : public field_base {
   }
 
   /**
+   * @brief Return the 8-bit wire tag for variant alternative @p T.
+   *
+   * The wire format stores field type tags as one byte, so this helper
+   * centralizes the narrowing cast from the variant index type.
+   */
+  template <typename T>
+  constexpr static unsigned char tag_of() {
+    constexpr std::size_t idx = index_of<T>();
+    static_assert(idx < 256, "field_base alternative count exceeds tag range");
+    return static_cast<unsigned char>(idx);
+  }
+
+  /**
    * @brief Look up an attached attribute by its concrete type.
    *
    * @tparam T  Attribute type to look for (must derive from `attribute`).
@@ -1637,8 +1658,8 @@ class field : public field_base {
  * Named keys have the high bit set (≥ 0x80000000); numeric indices (0, 1,
  * 2, …) are small positive integers that do not have the high bit set.
  * `std::map` preserves key order, which ensures that numeric (array-like)
- * indices are iterated in ascending order and that `serializeWithTemplate` /
- * `deserializeWithTemplate` visit fields in a deterministic, reproducible
+ * indices are iterated in ascending order and that `serializeWithSchema` /
+ * `deserializeWithSchema` visit fields in a deterministic, reproducible
  * sequence.  `size()` returns one past the highest numeric index.
  *
  * ## Class hierarchy & inheritance
@@ -1661,7 +1682,7 @@ class field : public field_base {
  * Two modes are available:
  * - **Standard** (`serialize` / `deserialize`) — includes field keys in the
  *   output; fully self-describing but slightly larger.
- * - **Template** (`serializeWithTemplate` / `deserializeWithTemplate`) — uses
+ * - **Template** (`serializeWithSchema` / `deserializeWithSchema`) — uses
  *   the registered class definition as a schema; only field values are written,
  *   which is more compact.
  *
@@ -1883,14 +1904,14 @@ class dynamic {
    *
    * Only field *values* are written (in the order defined by the class
    * prototype and its parents). The class name is written first so that
-   * `deserializeWithTemplate` can locate the correct template.
+   * `deserializeWithSchema` can locate the correct template.
    *
    * The class must have been registered with `addClass` before calling this
    * method.
    *
    * @param out  The stream_serializer to write to.
    */
-  inline void serializeWithTemplate(stream_serializer& out) const;
+  inline void serializeWithSchema(stream_serializer& out) const;
 
   /**
    * @brief Serialize this object using its registered class as a template
@@ -1898,15 +1919,15 @@ class dynamic {
    *
    * @param out  The buffer_serializer to write to.
    */
-  inline void serializeWithTemplate(buffer_serializer& out) const;
+  inline void serializeWithSchema(buffer_serializer& out) const;
 
   /**
    * @brief Deserialize an object from a binary stream (standard mode).
    *
    * @param in  The stream_deserializer to read from.
-   * @return Shared pointer to the reconstructed `dynamic` object.
+   * @return The reconstructed `dynamic` object.
    */
-  inline static std::shared_ptr<dynamic> deserialize(stream_deserializer& in);
+  inline static dynamic deserialize(stream_deserializer& in);
 
   /**
    * @brief Deserialize an object from an in-memory buffer (standard mode).
@@ -1916,9 +1937,9 @@ class dynamic {
    * overhead.
    *
    * @param in  The buffer_deserializer to read from.
-   * @return Shared pointer to the reconstructed `dynamic` object.
+   * @return The reconstructed `dynamic` object.
    */
-  inline static std::shared_ptr<dynamic> deserialize(buffer_deserializer& in);
+  inline static dynamic deserialize(buffer_deserializer& in);
 
   /**
    * @brief Deserialize an object using a registered class template (compact
@@ -1928,20 +1949,18 @@ class dynamic {
    * field values in the order defined by the prototype chain.
    *
    * @param in  The stream_deserializer to read from.
-   * @return Shared pointer to the reconstructed `dynamic` object.
+   * @return The reconstructed `dynamic` object.
    */
-  inline static std::shared_ptr<dynamic> deserializeWithTemplate(
-      stream_deserializer& in);
+  inline static dynamic deserializeWithSchema(stream_deserializer& in);
 
   /**
    * @brief Deserialize an object using a registered class template (compact
    *        mode, in-memory buffer variant).
    *
    * @param in  The buffer_deserializer to read from.
-   * @return Shared pointer to the reconstructed `dynamic` object.
+   * @return The reconstructed `dynamic` object.
    */
-  inline static std::shared_ptr<dynamic> deserializeWithTemplate(
-      buffer_deserializer& in);
+  inline static dynamic deserializeWithSchema(buffer_deserializer& in);
 
   /**
    * @brief Add a named field to this object.
@@ -2049,7 +2068,7 @@ class dynamic {
    * dynamic::addClass("Animal"_key, dog);
    * @endcode
    */
-  static bool addClass(const key_t parent, std::shared_ptr<dynamic> klass) {
+  static bool addClass(const key_t parent, dynamic_ptr klass) {
     auto name = klass->as<key_t>(CLASS);
     (*klass)[PARENT] = parent;
 
@@ -2214,45 +2233,28 @@ class dynamic {
  * obj->serialize(stream_serializer(ss));
  * @endcode
  */
-class dynamic_ptr : public std::shared_ptr<dynamic> {
- public:
-  using std::shared_ptr<dynamic>::shared_ptr;
-  using std::shared_ptr<dynamic>::operator=;
+inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that)
+    : std::shared_ptr<dynamic>(that) {}
 
-  dynamic_ptr(const std::shared_ptr<dynamic>& that)
-      : std::shared_ptr<dynamic>(that) {}
+inline dynamic_ptr::dynamic_ptr(std::shared_ptr<dynamic>&& that)
+    : std::shared_ptr<dynamic>(std::move(that)) {}
 
-  dynamic_ptr(std::shared_ptr<dynamic>&& that)
-      : std::shared_ptr<dynamic>(std::move(that)) {}
+inline dynamic_ptr& dynamic_ptr::operator=(
+    const std::shared_ptr<dynamic>& that) {
+  std::shared_ptr<dynamic>::operator=(that);
+  return *this;
+}
 
-  dynamic_ptr& operator=(const std::shared_ptr<dynamic>& that) {
-    std::shared_ptr<dynamic>::operator=(that);
-    return *this;
-  }
+inline dynamic_ptr& dynamic_ptr::operator=(std::shared_ptr<dynamic>&& that) {
+  std::shared_ptr<dynamic>::operator=(std::move(that));
+  return *this;
+}
 
-  dynamic_ptr& operator=(std::shared_ptr<dynamic>&& that) {
-    std::shared_ptr<dynamic>::operator=(std::move(that));
-    return *this;
-  }
+inline dynamic_ptr::dynamic_ptr(dynamic&& that)
+    : std::shared_ptr<dynamic>(new dynamic{std::move(that)}) {}
 
-  /**
-   * @brief Construct from an rvalue `dynamic`, taking ownership.
-   *
-   * @param that  The `dynamic` object to move into the heap-allocated managed
-   *              object.
-   */
-  dynamic_ptr(dynamic&& that)
-      : std::shared_ptr<dynamic>(new dynamic{std::move(that)}) {}
-
-  /**
-   * @brief Construct a new `dynamic` in-place with a class key and fields.
-   *
-   * @param klass   Class name key (default 0 = anonymous).
-   * @param fields  Initial named fields.
-   */
-  dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {})
-      : std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)}) {}
-};
+inline dynamic_ptr::dynamic_ptr(key_t klass, std::map<key_t, field>&& fields)
+    : std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)}) {}
 
 inline void field::serialize(stream_serializer& out) const {
   buffer_serializer buffered;
@@ -2264,50 +2266,47 @@ inline void field::serialize(stream_serializer& out) const {
 }
 
 inline field field::deserialize(stream_deserializer& in) {
-  // Type tags match the variant index order in field_base:
-  //  0=monostate  1=hash_t  2=key_t  3=bool  4=int32_t  5=float
-  //  6=shared_ptr<dynamic>  7=string  8=vector<bool>
-  //  9=vector<int32_t>  10=vector<float>  11=vector<uint8_t>
+  // Type tags are derived from the variant index order in field_base.
   const auto type = in.read<unsigned char>();
   switch (type) {
-    case 0:
+    case field::tag_of<std::monostate>():
       return field{std::monostate{}};
-    case 1:
+    case field::tag_of<hash_t>():
       return field{in.read<hash_t>()};
-    case 2:
+    case field::tag_of<key_t>():
       return field{in.read<key_t>()};
-    case 3:
+    case field::tag_of<bool>():
       return field{in.read<bool>()};
-    case 4:
+    case field::tag_of<int32_t>():
       return field{in.read<int32_t>()};
-    case 5:
+    case field::tag_of<float>():
       return field{in.read<float>()};
-    case 6: {
+    case field::tag_of<dynamic_ptr>(): {
       if (!in.read<bool>())
         return field{std::shared_ptr<dynamic>{}};
-      return field{dynamic::deserialize(in)};
+      return field{dynamic_ptr{dynamic::deserialize(in)}};
     }
-    case 7: {
+    case field::tag_of<std::string>(): {
       std::string s;
       in.read(s);
       return field{std::move(s)};
     }
-    case 8: {
+    case field::tag_of<std::vector<bool>>(): {
       std::vector<bool> v;
       in.read(v);
       return field{std::move(v)};
     }
-    case 9: {
+    case field::tag_of<std::vector<int32_t>>(): {
       std::vector<int32_t> v;
       in.read(v);
       return field{std::move(v)};
     }
-    case 10: {
+    case field::tag_of<std::vector<float>>(): {
       std::vector<float> v;
       in.read(v);
       return field{std::move(v)};
     }
-    case 11: {
+    case field::tag_of<std::vector<uint8_t>>(): {
       std::vector<uint8_t> v;
       in.read(v);
       return field{std::move(v)};
@@ -2326,36 +2325,35 @@ inline void dynamic::serialize(stream_serializer& out) const {
       static_cast<std::streamsize>(bytes.size()));
 }
 
-inline void dynamic::serializeWithTemplate(stream_serializer& out) const {
+inline void dynamic::serializeWithSchema(stream_serializer& out) const {
   buffer_serializer buffered;
-  serializeWithTemplate(buffered);
+  serializeWithSchema(buffered);
   const auto& bytes = buffered.buffer();
   out.write(
       reinterpret_cast<const char*>(bytes.data()),
       static_cast<std::streamsize>(bytes.size()));
 }
 
-inline std::shared_ptr<dynamic> dynamic::deserialize(stream_deserializer& in) {
-  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+inline dynamic dynamic::deserialize(stream_deserializer& in) {
+  dynamic dyn{};
   auto count = in.read<size_t>();
   for (size_t i = 0; i < count; ++i) {
     auto key = in.read<key_t>();
-    dyn->fields_[key] = field::deserialize(in);
+    dyn.fields_[key] = field::deserialize(in);
   }
 
   return dyn;
 }
 
-inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
-    stream_deserializer& in) {
-  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+inline dynamic dynamic::deserializeWithSchema(stream_deserializer& in) {
+  dynamic dyn{};
   auto klass = in.read<key_t>();
   auto lp = getRegistry().rlock();
   auto it = lp->find(klass);
 
   while (it != lp->end()) {
     for (const auto& kv : it->second->fields_) {
-      dyn->fields_[kv.first] = field::deserialize(in);
+      dyn.fields_[kv.first] = field::deserialize(in);
     }
     klass = it->second->as<key_t>(PARENT);
     it = lp->find(klass);
@@ -2372,7 +2370,7 @@ inline void field::serialize(buffer_serializer& out) const {
         using T = std::decay_t<decltype(v)>;
         if constexpr (std::is_same_v<T, std::monostate>) {
           // nothing to write for an empty field
-        } else if constexpr (std::is_same_v<T, std::shared_ptr<dynamic>>) {
+        } else if constexpr (std::is_same_v<T, dynamic_ptr>) {
           out.write(v != nullptr);
           if (v != nullptr) {
             v->serialize(out);
@@ -2387,44 +2385,44 @@ inline void field::serialize(buffer_serializer& out) const {
 inline field field::deserialize(buffer_deserializer& in) {
   const auto type = in.read<unsigned char>();
   switch (type) {
-    case 0:
+    case field::tag_of<std::monostate>():
       return field{std::monostate{}};
-    case 1:
+    case field::tag_of<hash_t>():
       return field{in.read<hash_t>()};
-    case 2:
+    case field::tag_of<key_t>():
       return field{in.read<key_t>()};
-    case 3:
+    case field::tag_of<bool>():
       return field{in.read<bool>()};
-    case 4:
+    case field::tag_of<int32_t>():
       return field{in.read<int32_t>()};
-    case 5:
+    case field::tag_of<float>():
       return field{in.read<float>()};
-    case 6: {
+    case field::tag_of<dynamic_ptr>(): {
       if (!in.read<bool>())
         return field{std::shared_ptr<dynamic>{}};
-      return field{dynamic::deserialize(in)};
+      return field{dynamic_ptr{dynamic::deserialize(in)}};
     }
-    case 7: {
+    case field::tag_of<std::string>(): {
       std::string s;
       in.read(s);
       return field{std::move(s)};
     }
-    case 8: {
+    case field::tag_of<std::vector<bool>>(): {
       std::vector<bool> v;
       in.read(v);
       return field{std::move(v)};
     }
-    case 9: {
+    case field::tag_of<std::vector<int32_t>>(): {
       std::vector<int32_t> v;
       in.read(v);
       return field{std::move(v)};
     }
-    case 10: {
+    case field::tag_of<std::vector<float>>(): {
       std::vector<float> v;
       in.read(v);
       return field{std::move(v)};
     }
-    case 11: {
+    case field::tag_of<std::vector<uint8_t>>(): {
       std::vector<uint8_t> v;
       in.read(v);
       return field{std::move(v)};
@@ -2442,7 +2440,7 @@ inline void dynamic::serialize(buffer_serializer& out) const {
   }
 }
 
-inline void dynamic::serializeWithTemplate(buffer_serializer& out) const {
+inline void dynamic::serializeWithSchema(buffer_serializer& out) const {
   auto lp = getRegistry().rlock();
   auto klass = as<key_t>(CLASS);
   auto it = lp->find(klass);
@@ -2462,26 +2460,25 @@ inline void dynamic::serializeWithTemplate(buffer_serializer& out) const {
   }
 }
 
-inline std::shared_ptr<dynamic> dynamic::deserialize(buffer_deserializer& in) {
-  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+inline dynamic dynamic::deserialize(buffer_deserializer& in) {
+  dynamic dyn{};
   const auto count = in.read<size_t>();
   for (size_t i = 0; i < count; ++i) {
     auto key = in.read<key_t>();
-    dyn->fields_[key] = field::deserialize(in);
+    dyn.fields_[key] = field::deserialize(in);
   }
   return dyn;
 }
 
-inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
-    buffer_deserializer& in) {
-  auto dyn = std::shared_ptr<dynamic>(new dynamic{});
+inline dynamic dynamic::deserializeWithSchema(buffer_deserializer& in) {
+  dynamic dyn{};
   auto klass = in.read<key_t>();
   auto lp = getRegistry().rlock();
   auto it = lp->find(klass);
 
   while (it != lp->end()) {
     for (const auto& kv : it->second->fields_) {
-      dyn->fields_[kv.first] = field::deserialize(in);
+      dyn.fields_[kv.first] = field::deserialize(in);
     }
     klass = it->second->as<key_t>(PARENT);
     it = lp->find(klass);
@@ -2525,7 +2522,7 @@ namespace extensions {
  * int32_t x = (*obj)["x"].as<int32_t>();
  * @endcode
  */
-std::shared_ptr<dynamic> from_json(std::string json);
+dynamic_ptr from_json(std::string json);
 
 /**
  * @brief Parse a YAML string and return it as a `dynamic` object.
@@ -2553,7 +2550,7 @@ std::shared_ptr<dynamic> from_json(std::string json);
  * int32_t x = (*obj)["x"].as<int32_t>();
  * @endcode
  */
-std::shared_ptr<dynamic> from_yaml(std::string yaml);
+dynamic_ptr from_yaml(std::string yaml);
 
 } // namespace extensions
 

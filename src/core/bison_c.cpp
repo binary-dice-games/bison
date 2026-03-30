@@ -354,8 +354,7 @@ bison_get_object(bison_handle h, bison_hash name, bison_handle* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
-    auto sp = (*dyn(h))[bdg::bison::key_t{name}]
-                  .as<std::shared_ptr<bdg::bison::dynamic>>();
+    auto sp = (*dyn(h))[bdg::bison::key_t{name}].as<bdg::bison::dynamic_ptr>();
     if (!sp) {
       *out = nullptr;
       return BISON_OK;

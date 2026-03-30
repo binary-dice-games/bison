@@ -163,9 +163,9 @@ static void example_dynamic_basics() {
       0U,
       {{"street"_key, std::string{"123 Main St"}},
        {"city"_key, std::string{"Springfield"}}}};
-  obj["address"_key] = std::shared_ptr<dynamic>{address};
+  obj["address"_key] = dynamic_ptr{address};
 
-  auto addr = obj["address"_key].as<std::shared_ptr<dynamic>>();
+  auto addr = obj["address"_key].as<dynamic_ptr>();
   std::cout << "city: " << (*addr)["city"_key].as<std::string>() << "\n";
 
   // ── Clone ─────────────────────────────────────────────────────────────────
@@ -205,12 +205,12 @@ static void example_serialization() {
   // Deserialize back.
   stream_deserializer in{ss};
   auto dst = dynamic::deserialize(in);
-  std::cout << "width  : " << (*dst)["width"_key].as<int32_t>() << "\n";
-  std::cout << "title  : " << (*dst)["title"_key].as<std::string>() << "\n";
-  std::cout << "scale  : " << (*dst)["scale"_key].as<float>() << "\n";
+  std::cout << "width  : " << dst["width"_key].as<int32_t>() << "\n";
+  std::cout << "title  : " << dst["title"_key].as<std::string>() << "\n";
+  std::cout << "scale  : " << dst["scale"_key].as<float>() << "\n";
   {
     using vb = std::vector<bool>;
-    std::cout << "flags[0]: " << (*dst)["flags"_key].as<vb>()[0] << "\n";
+    std::cout << "flags[0]: " << dst["flags"_key].as<vb>()[0] << "\n";
   }
 
   // ── Nested object serialization ───────────────────────────────────────────
@@ -224,7 +224,7 @@ static void example_serialization() {
   }
   stream_deserializer in2{ss2};
   auto restored = dynamic::deserialize(in2);
-  auto meta = (*restored)["meta"_key].as<std::shared_ptr<dynamic>>();
+  auto meta = restored["meta"_key].as<dynamic_ptr>();
   std::cout << "nested version: " << (*meta)["version"_key].as<int32_t>()
             << "\n";
 }
@@ -232,7 +232,7 @@ static void example_serialization() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Example 5: Template-based serialization (compact mode)
 //
-// serializeWithTemplate() omits field keys from the wire; only values are
+// serializeWithSchema() omits field keys from the wire; only values are
 // written.  The receiver must know the class schema in advance (registered
 // with addClass).  This produces smaller payloads for known message types.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,17 +260,17 @@ static void example_template_serialization() {
   std::stringstream ss;
   {
     stream_serializer out{ss};
-    v.serializeWithTemplate(out);
+    v.serializeWithSchema(out);
   }
 
   std::cout << "Template-serialized size: " << ss.str().size() << " bytes\n";
   // (Compare with self-describing mode which would also write field-name keys.)
 
   stream_deserializer in{ss};
-  auto restored = dynamic::deserializeWithTemplate(in);
-  std::cout << "x=" << (*restored)["x"_key].as<float>()
-            << " y=" << (*restored)["y"_key].as<float>()
-            << " z=" << (*restored)["z"_key].as<float>() << "\n";
+  auto restored = dynamic::deserializeWithSchema(in);
+  std::cout << "x=" << restored["x"_key].as<float>()
+            << " y=" << restored["y"_key].as<float>()
+            << " z=" << restored["z"_key].as<float>() << "\n";
 
   // Clean up
   dynamic::getRegistry().wlock()->clear();
@@ -436,9 +436,9 @@ static void example_userdata() {
   auto restored = dynamic::deserialize(in);
 
   std::cout << "vertex_count preserved: "
-            << (*restored)["vertex_count"_key].as<int32_t>() << "\n";
+            << restored["vertex_count"_key].as<int32_t>() << "\n";
   std::cout << "userdata after deserialize (should be null): "
-            << (restored->getUserdata() == nullptr ? "null" : "present")
+            << (restored.getUserdata() == nullptr ? "null" : "present")
             << "\n";
 }
 
@@ -471,11 +471,11 @@ static void example_json() {
   std::cout << "score  : " << (*obj)["score"].as<float>() << "\n";
 
   // Nested object
-  auto addr = (*obj)["address"].as<std::shared_ptr<dynamic>>();
+  auto addr = (*obj)["address"].as<dynamic_ptr>();
   std::cout << "city   : " << (*addr)["city"].as<std::string>() << "\n";
 
   // Array stored as numeric-indexed dynamic
-  auto tags = (*obj)["tags"].as<std::shared_ptr<dynamic>>();
+  auto tags = (*obj)["tags"].as<dynamic_ptr>();
   std::cout << "tags[0]: " << (*tags)[0].as<std::string>() << "\n";
   std::cout << "tags[2]: " << (*tags)[2].as<std::string>() << "\n";
   std::cout << "tag count: " << tags->size() << "\n";
@@ -507,13 +507,13 @@ tags:
   - example
 )");
 
-  auto server = (*obj)["server"].as<std::shared_ptr<dynamic>>();
+  auto server = (*obj)["server"].as<dynamic_ptr>();
   std::cout << "host      : " << (*server)["host"].as<std::string>() << "\n";
   std::cout << "port      : " << (*server)["port"].as<int32_t>() << "\n";
   std::cout << "debug     : " << (*obj)["debug"].as<bool>() << "\n";
   std::cout << "threshold : " << (*obj)["threshold"].as<float>() << "\n";
 
-  auto tags = (*obj)["tags"].as<std::shared_ptr<dynamic>>();
+  auto tags = (*obj)["tags"].as<dynamic_ptr>();
   std::cout << "tags[0]   : " << (*tags)[0].as<std::string>() << "\n";
   std::cout << "tags[2]   : " << (*tags)[2].as<std::string>() << "\n";
   std::cout << "tag count : " << tags->size() << "\n";

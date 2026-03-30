@@ -207,7 +207,7 @@ Properties:
 
 ### 7.5 dynamic Template Format (Schema-Driven Compact)
 
-serializeWithTemplate and deserializeWithTemplate format:
+serializeWithSchema and deserializeWithSchema format:
 
 1. key_t class id
 2. For each field declared in class prototype chain order: serialized field value only
@@ -220,7 +220,7 @@ Properties:
 
 Known behavior note:
 
-- deserializeWithTemplate currently reconstructs fields by class chain but does not explicitly restore CLASS on the new instance. Consumers relying on CLASS immediately after template deserialization should verify behavior expectations.
+- deserializeWithSchema currently reconstructs fields by class chain but does not explicitly restore CLASS on the new instance. Consumers relying on CLASS immediately after template deserialization should verify behavior expectations.
 
 ## 8. JSON and YAML Extensions
 

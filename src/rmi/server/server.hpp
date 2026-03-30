@@ -158,7 +158,7 @@ class server {
       connection_iface& conn,
       const shared::envelope& env,
       bison::key_t op,
-      shared::payload&& payload);
+      bison::dynamic payload);
 
   static void send_error(
       connection_iface& conn,

@@ -48,9 +48,7 @@ set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─── RMI framework sources ────────────────────────────────────────────────────
 target_sources(bison PRIVATE
-  src/rmi/shared/ids.cpp  src/rmi/shared/payload.cpp
-  src/rmi/shared/error.cpp  src/rmi/shared/envelope.cpp
-  src/rmi/shared/schema_registry.cpp
+  src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
   src/rmi/client/client.cpp
   src/rmi/server/server.cpp

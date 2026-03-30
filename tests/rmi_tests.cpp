@@ -2,6 +2,7 @@
 // RMI framework unit and integration tests.
 
 #include "src/rmi/rmi.hpp"
+#include "src/rmi/shared/schemas.hpp"
 
 #include <gtest/gtest.h>
 
@@ -82,7 +83,7 @@ class RmiEnvelopeTests : public ::testing::Test {
  protected:
   void SetUp() override {
     clearClassRegistry();
-    schema_registry::register_all_schemas();
+    register_all_schemas();
   }
 };
 
@@ -92,10 +93,16 @@ TEST_F(RmiEnvelopeTests, RoundtripRequest) {
   dynamic payload_data;
   payload_data["msg"_key] = std::string{"hello"};
 
-  auto frame =
-      envelope{
-          KIND_REQUEST, OP_CALL, req_id, obj_id, false, payload{payload_data}}
-          .encode();
+  envelope out;
+  out.kind = KIND_REQUEST;
+  out.op = OP_CALL;
+  out.request_id = req_id;
+  out.object_id = obj_id;
+  out.with_schema = false;
+  out.payload = std::move(payload_data);
+  out.oneway = false;
+
+  auto frame = out.encode();
   EXPECT_FALSE(frame.empty());
 
   auto env = envelope::decode(frame);
@@ -109,8 +116,9 @@ TEST_F(RmiEnvelopeTests, RoundtripRequest) {
   EXPECT_EQ(static_cast<hash_t>(env.object_id), static_cast<hash_t>(obj_id));
 
   EXPECT_FALSE(env.payload.empty());
-  auto decoded_pl = payload::decode(env.payload);
-  EXPECT_EQ(decoded_pl.value.as<std::string>("msg"_key), std::string{"hello"});
+  EXPECT_EQ(env.payload.as<std::string>("msg"_key), std::string{"hello"});
+  EXPECT_EQ(
+      static_cast<hash_t>(env.error.as<bison_key_t>(FIELD_ERROR_CODE)), 0u);
 
   bool oneway = env.oneway;
   EXPECT_FALSE(oneway);
@@ -119,57 +127,75 @@ TEST_F(RmiEnvelopeTests, RoundtripRequest) {
 TEST_F(RmiEnvelopeTests, RoundtripWithError) {
   const bison_key_t req_id = "errReq";
 
-  auto frame =
-      envelope{
-          KIND_RESPONSE,
-          OP_CALL,
-          req_id,
-          {},
-          false,
-          payload{},
-          error{ERR_INTERNAL_ERROR, "boom"}}
-          .encode();
+  dynamic error_payload{CLASS_ERROR};
+  error_payload[FIELD_ERROR_CODE] = ERR_INTERNAL_ERROR;
+  error_payload[FIELD_ERROR_MESSAGE] = std::string{"boom"};
+
+  envelope out;
+  out.kind = KIND_RESPONSE;
+  out.op = OP_CALL;
+  out.request_id = req_id;
+  out.object_id = {};
+  out.with_schema = false;
+  out.error = std::move(error_payload);
+  out.oneway = false;
+
+  auto frame = out.encode();
   auto env = envelope::decode(frame);
 
-  EXPECT_FALSE(env.error.empty());
-
-  auto err_obj = error::decode(env.error);
-  bison_key_t code = err_obj.code;
-  std::string message = err_obj.what();
+  bison_key_t code = env.error.as<bison_key_t>(FIELD_ERROR_CODE);
+  std::string message = env.error.as<std::string>(FIELD_ERROR_MESSAGE);
   EXPECT_EQ(static_cast<hash_t>(code), static_cast<hash_t>(ERR_INTERNAL_ERROR));
   EXPECT_EQ(message, "boom");
 }
 
 TEST_F(RmiEnvelopeTests, VersionFieldIsOne) {
-  auto frame =
-      envelope{KIND_REQUEST, OP_CONNECT, "r1", {}, false, payload{}}.encode();
+  envelope out;
+  out.kind = KIND_REQUEST;
+  out.op = OP_CONNECT;
+  out.request_id = "r1";
+  out.object_id = {};
+  out.with_schema = false;
+  out.payload = dynamic{};
+  out.oneway = false;
+  auto frame = out.encode();
   auto env = envelope::decode(frame);
   int32_t v = env.version;
   EXPECT_EQ(v, PROTOCOL_VERSION);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. Payload encode / decode
+// 4. Dynamic encode / decode
 // ═════════════════════════════════════════════════════════════════════════════
 
-TEST(RmiPayload, RoundtripDynamic) {
+TEST(RmiDynamicCodec, RoundtripDynamic) {
   dynamic obj;
   obj["score"_key] = int32_t{99};
   obj["name"_key] = std::string{"Alice"};
 
-  const buffer bytes = payload{obj}.encode();
+  buffer_serializer out;
+  obj.serialize(out);
+  const buffer bytes = out.release();
   EXPECT_FALSE(bytes.empty());
 
-  auto restored = payload::decode(bytes);
-  int32_t score = restored.value["score"_key];
-  std::string name = restored.value.as<std::string>("name"_key);
+  buffer_deserializer in(bytes);
+  auto restored = dynamic::deserialize(in);
+  int32_t score = restored["score"_key];
+  std::string name = restored.as<std::string>("name"_key);
   EXPECT_EQ(score, 99);
   EXPECT_EQ(name, "Alice");
 }
 
-TEST(RmiPayload, EmptyBytesReturnsEmptyDynamic) {
-  auto d = payload::decode({});
-  (void)d;
+TEST(RmiDynamicCodec, RoundtripEmptyDynamic) {
+  dynamic obj;
+  buffer_serializer out;
+  obj.serialize(out);
+  const buffer bytes = out.release();
+
+  buffer_deserializer in(bytes);
+  auto restored = dynamic::deserialize(in);
+  EXPECT_EQ(restored.size(), 0u);
+  EXPECT_EQ(static_cast<hash_t>(restored.as<bison_key_t>(dynamic::CLASS)), 0u);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -270,7 +296,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   // At least one entry in the result array.
   bool found = false;
   for (size_t i = 0; i < result.size(); ++i) {
-    auto ptr = result[i].as<std::shared_ptr<dynamic>>();
+    auto ptr = result[i].as<dynamic_ptr>();
     if (ptr) {
       bison_key_t k = (*ptr)[FIELD_KLASS];
       if (static_cast<hash_t>(k) == static_cast<hash_t>("TestWidget"_key))
@@ -288,7 +314,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
 TEST_F(RmiE2E, InstantiateUnregisteredClassFails) {
   auto c = make_client();
   c.connect();
-  EXPECT_THROW(c.instantiate("NoSuchClass"_key), error);
+  EXPECT_THROW(c.instantiate("NoSuchClass"_key), std::runtime_error);
   c.disconnect();
 }
 
@@ -653,7 +679,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Simplified approach: manually exercise the memory transport round-trip
   // by sending an event frame directly through the transport.
-  schema_registry::register_all_schemas();
+  register_all_schemas();
 
   memory_server_transport mt2;
   mt2.start(dynamic{});
@@ -668,15 +694,15 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
       dynamic{0U, {{"value"_key, field{int32_t{77}}}}});
 
   const bison_key_t oid = "obj_test_001";
-  auto frame =
-      envelope{
-          KIND_EVENT,
-          OP_EVENT,
-          {},
-          oid,
-          true,
-          payload{std::move(event_payload)}}
-          .encode();
+  envelope out;
+  out.kind = KIND_EVENT;
+  out.op = OP_EVENT;
+  out.request_id = {};
+  out.object_id = oid;
+  out.with_schema = false;
+  out.payload = std::move(event_payload);
+  out.oneway = false;
+  auto frame = out.encode();
   conn2->send(std::move(frame));
 
   // Connect a real client to this transport and receive the event.
@@ -701,8 +727,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   EXPECT_EQ(static_cast<hash_t>(env.object_id), static_cast<hash_t>(oid));
 
-  auto decoded_payload = payload::decode(env.payload);
-  bison_key_t name = decoded_payload.value[FIELD_NAME];
+  bison_key_t name = env.payload[FIELD_NAME];
   EXPECT_EQ(static_cast<hash_t>(name), static_cast<hash_t>("onTick"_key));
 
   mt2.stop();

@@ -277,8 +277,8 @@ auto copy = dynamic::deserialize(stream_deserializer(in));
 // Class must be registered before use
 dynamic::addClass(0U, dynamic_ptr{"Point"_key, {{"x"_key, 0.0f}, {"y"_key, 0.0f}}});
 
-point.serializeWithTemplate(stream_serializer(out));
-auto copy = dynamic::deserializeWithTemplate(stream_deserializer(in));
+point.serializeWithSchema(stream_serializer(out));
+auto copy = dynamic::deserializeWithSchema(stream_deserializer(in));
 ```
 
 ### Method registration and invocation
@@ -539,14 +539,14 @@ buffer_deserializer in(bytes);
 auto copy = dynamic::deserialize(in);
 ```
 
-`dynamic`, `field`, `stream_serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
+`dynamic`, `field`, `stream_serializer`-style overloads, and `serializeWithSchema` / `deserializeWithSchema` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
 
 ### 3. `fields_` retained as `std::map` (ordering is required)
 
 `fields_` is used both as a named-field dictionary (keys with the high bit set) and as an array (small numeric keys 0, 1, 2, …).  `std::map` guarantees that entries are visited in ascending key order, which is essential in two ways:
 
 - **Array semantics** — numeric indices must be iterated in order 0, 1, 2, … for `size()` and field iteration to be correct.
-- **Template serialization** — `serializeWithTemplate` writes field *values* in the order they appear in the class prototype's map; `deserializeWithTemplate` must read them back in exactly the same order.  With `std::unordered_map` the iteration order is non-deterministic across process restarts, so template-mode round-trips would silently swap field values.
+- **Template serialization** — `serializeWithSchema` writes field *values* in the order they appear in the class prototype's map; `deserializeWithSchema` must read them back in exactly the same order.  With `std::unordered_map` the iteration order is non-deterministic across process restarts, so template-mode round-trips would silently swap field values.
 
 `fields_` therefore stays as `std::map<key_t, field>`.  The `size()` and `clear()` methods use `lower_bound(0x80000000u)` to efficiently separate the numeric portion of the map from the named portion in O(log n) time.
 

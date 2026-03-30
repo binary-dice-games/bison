@@ -378,8 +378,8 @@ TEST(BufferSerializerTests, DynamicObjectRoundTrip) {
   buffer_deserializer in(buf);
   auto copy = dynamic::deserialize(in);
 
-  EXPECT_EQ((*copy)["x"_key].as<int32_t>(), 7);
-  EXPECT_EQ((*copy)["label"_key].as<std::string>(), "hello");
+  EXPECT_EQ(copy["x"_key].as<int32_t>(), 7);
+  EXPECT_EQ(copy["label"_key].as<std::string>(), "hello");
 }
 
 TEST(BufferSerializerTests, StringViewRoundTrip) {
@@ -602,11 +602,11 @@ TEST(FieldSerializationTests, VectorBool) {
 TEST(FieldSerializationTests, NestedDynamic) {
   // A field holding a nested dynamic object.
   dynamic_ptr inner{"Inner"_key, {{"val"_key, int32_t{7}}}};
-  field f{std::shared_ptr<dynamic>{inner}};
+  field f{dynamic_ptr{inner}};
   field g = field_roundtrip(f);
 
-  ASSERT_TRUE(g.is<std::shared_ptr<dynamic>>());
-  auto nested = g.as<std::shared_ptr<dynamic>>();
+  ASSERT_TRUE(g.is<dynamic_ptr>());
+  auto nested = g.as<dynamic_ptr>();
   ASSERT_NE(nested, nullptr);
   EXPECT_EQ((*nested)["val"_key].as<int32_t>(), 7);
 }
@@ -614,8 +614,8 @@ TEST(FieldSerializationTests, NestedDynamic) {
 TEST(FieldSerializationTests, NullDynamicPtr) {
   field f{std::shared_ptr<dynamic>{}};
   field g = field_roundtrip(f);
-  ASSERT_TRUE(g.is<std::shared_ptr<dynamic>>());
-  EXPECT_EQ(g.as<std::shared_ptr<dynamic>>(), nullptr);
+  ASSERT_TRUE(g.is<dynamic_ptr>());
+  EXPECT_EQ(g.as<dynamic_ptr>(), nullptr);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -715,8 +715,8 @@ TEST(DynamicTests, AtAliasesSubscriptOperator) {
 TEST(DynamicTests, NestedDynamic) {
   dynamic_ptr inner{0U, {{"depth"_key, int32_t{1}}}};
   dynamic outer;
-  outer["child"_key] = std::shared_ptr<dynamic>{inner};
-  auto child = outer["child"_key].as<std::shared_ptr<dynamic>>();
+  outer["child"_key] = dynamic_ptr{inner};
+  auto child = outer["child"_key].as<dynamic_ptr>();
   ASSERT_NE(child, nullptr);
   EXPECT_EQ((*child)["depth"_key].as<int32_t>(), 1);
 }
@@ -725,7 +725,7 @@ TEST(DynamicTests, NestedDynamic) {
 // 6. dynamic serialization round-trips
 // ═════════════════════════════════════════════════════════════════════════════
 
-static std::shared_ptr<dynamic> dynamic_roundtrip(const dynamic& d) {
+static dynamic dynamic_roundtrip(const dynamic& d) {
   std::stringstream ss;
   {
     stream_serializer out{ss};
@@ -742,16 +742,16 @@ TEST(DynamicSerializationTests, BasicFields) {
   src["c"_key] = true;
 
   auto dst = dynamic_roundtrip(src);
-  EXPECT_EQ((*dst)["a"_key].as<int32_t>(), 42);
-  EXPECT_EQ((*dst)["b"_key].as<std::string>(), "hello");
-  EXPECT_TRUE((*dst)["c"_key].as<bool>());
+  EXPECT_EQ(dst["a"_key].as<int32_t>(), 42);
+  EXPECT_EQ(dst["b"_key].as<std::string>(), "hello");
+  EXPECT_TRUE(dst["c"_key].as<bool>());
 }
 
 TEST(DynamicSerializationTests, FloatField) {
   dynamic src;
   src["pi"_key] = 3.14f;
   auto dst = dynamic_roundtrip(src);
-  EXPECT_FLOAT_EQ((*dst)["pi"_key].as<float>(), 3.14f);
+  EXPECT_FLOAT_EQ(dst["pi"_key].as<float>(), 3.14f);
 }
 
 TEST(DynamicSerializationTests, VectorFields) {
@@ -762,7 +762,7 @@ TEST(DynamicSerializationTests, VectorFields) {
 
   auto dst = dynamic_roundtrip(src);
   EXPECT_EQ(
-      (*dst)["ints"_key].as<std::vector<int32_t>>(),
+      dst["ints"_key].as<std::vector<int32_t>>(),
       (std::vector<int32_t>{1, 2, 3}));
 }
 
@@ -773,9 +773,9 @@ TEST(DynamicSerializationTests, IndexedElements) {
   src[2] = int32_t{30};
 
   auto dst = dynamic_roundtrip(src);
-  EXPECT_EQ((*dst)[0].as<int32_t>(), 10);
-  EXPECT_EQ((*dst)[1].as<int32_t>(), 20);
-  EXPECT_EQ((*dst)[2].as<int32_t>(), 30);
+  EXPECT_EQ(dst[0].as<int32_t>(), 10);
+  EXPECT_EQ(dst[1].as<int32_t>(), 20);
+  EXPECT_EQ(dst[2].as<int32_t>(), 30);
 }
 
 TEST(DynamicSerializationTests, NestedDynamic) {
@@ -785,16 +785,16 @@ TEST(DynamicSerializationTests, NestedDynamic) {
   src["child"_key] = dynamic_ptr{std::move(inner)};
 
   auto dst = dynamic_roundtrip(src);
-  auto child = (*dst)["child"_key].as<std::shared_ptr<dynamic>>();
+  auto child = dst["child"_key].as<dynamic_ptr>();
   ASSERT_NE(child, nullptr);
   EXPECT_EQ((*child)["x"_key].as<int32_t>(), 7);
 }
 
 TEST(DynamicSerializationTests, NullNestedPointer) {
   dynamic src;
-  src["ptr"_key] = std::shared_ptr<dynamic>{}; // null
+  src["ptr"_key] = std::shared_ptr<dynamic>{};
   auto dst = dynamic_roundtrip(src);
-  auto ptr = (*dst)["ptr"_key].as<std::shared_ptr<dynamic>>();
+  auto ptr = dst["ptr"_key].as<dynamic_ptr>();
   EXPECT_EQ(ptr, nullptr);
 }
 
@@ -997,13 +997,13 @@ TEST_F(TemplateSerTest, RoundtripWithSingleClass) {
   std::stringstream ss;
   {
     stream_serializer out{ss};
-    pt.serializeWithTemplate(out);
+    pt.serializeWithSchema(out);
   }
 
   stream_deserializer in{ss};
-  auto restored = dynamic::deserializeWithTemplate(in);
-  EXPECT_EQ((*restored)["x"_key].as<int32_t>(), 3);
-  EXPECT_EQ((*restored)["y"_key].as<int32_t>(), 7);
+  auto restored = dynamic::deserializeWithSchema(in);
+  EXPECT_EQ(restored["x"_key].as<int32_t>(), 3);
+  EXPECT_EQ(restored["y"_key].as<int32_t>(), 7);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1034,9 +1034,9 @@ TEST(UserdataTests, UserdataNotIncludedInSerialization) {
 
   auto dst = dynamic_roundtrip(src);
   // Value round-trips correctly...
-  EXPECT_EQ((*dst)["v"_key].as<int32_t>(), 1);
+  EXPECT_EQ(dst["v"_key].as<int32_t>(), 1);
   // ...but userdata is NOT restored.
-  EXPECT_EQ(dst->getUserdata(), nullptr);
+  EXPECT_EQ(dst.getUserdata(), nullptr);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1062,7 +1062,7 @@ TEST(DynamicPtrTests, ConstructFromRvalue) {
 
 TEST(DynamicPtrTests, CompatibleWithSharedPtr) {
   dynamic_ptr dp{"T"_key};
-  std::shared_ptr<dynamic> sp = dp;
+  dynamic_ptr sp = dp;
   EXPECT_EQ(sp.get(), dp.get());
 }
 
@@ -1081,7 +1081,7 @@ TEST(ExtensionsTests, ParseFlatObject) {
 TEST(ExtensionsTests, ParseNestedObject) {
   auto obj = extensions::from_json(R"({"a": {"b": 42}})");
   ASSERT_NE(obj, nullptr);
-  auto inner = (*obj)["a"].as<std::shared_ptr<dynamic>>();
+  auto inner = (*obj)["a"].as<dynamic_ptr>();
   ASSERT_NE(inner, nullptr);
   EXPECT_EQ((*inner)["b"].as<int32_t>(), 42);
 }
@@ -1095,14 +1095,14 @@ TEST(ExtensionsTests, ParseFloat) {
 TEST(ExtensionsTests, ParseNullValue) {
   auto obj = extensions::from_json(R"({"ptr": null})");
   ASSERT_NE(obj, nullptr);
-  auto ptr = (*obj)["ptr"].as<std::shared_ptr<dynamic>>();
+  auto ptr = (*obj)["ptr"].as<dynamic_ptr>();
   EXPECT_EQ(ptr, nullptr);
 }
 
 TEST(ExtensionsTests, ParseArrayAsIndexedDynamic) {
   auto obj = extensions::from_json(R"({"items": [10, 20, 30]})");
   ASSERT_NE(obj, nullptr);
-  auto arr = (*obj)["items"].as<std::shared_ptr<dynamic>>();
+  auto arr = (*obj)["items"].as<dynamic_ptr>();
   ASSERT_NE(arr, nullptr);
   EXPECT_EQ((*arr)[0].as<int32_t>(), 10);
   EXPECT_EQ((*arr)[1].as<int32_t>(), 20);
@@ -1187,7 +1187,7 @@ TEST(YamlTests, BooleanValues) {
 TEST(YamlTests, NullValue) {
   auto obj = extensions::from_yaml("key: null\n");
   ASSERT_NE(obj, nullptr);
-  std::shared_ptr<dynamic> sp = (*obj)["key"];
+  dynamic_ptr sp = (*obj)["key"];
   EXPECT_EQ(sp, nullptr);
 }
 
@@ -1203,7 +1203,7 @@ TEST(YamlTests, SequenceTopLevel) {
 TEST(YamlTests, NestedMapping) {
   auto obj = extensions::from_yaml("person:\n  name: bob\n  age: 30\n");
   ASSERT_NE(obj, nullptr);
-  std::shared_ptr<dynamic> person = (*obj)["person"];
+  dynamic_ptr person = (*obj)["person"];
   ASSERT_NE(person, nullptr);
   EXPECT_EQ((*person)["name"].as<std::string>(), "bob");
   EXPECT_EQ((*person)["age"].as<int32_t>(), 30);
@@ -1212,7 +1212,7 @@ TEST(YamlTests, NestedMapping) {
 TEST(YamlTests, SequenceInsideMapping) {
   auto obj = extensions::from_yaml("items:\n  - apple\n  - banana\n");
   ASSERT_NE(obj, nullptr);
-  std::shared_ptr<dynamic> items = (*obj)["items"];
+  dynamic_ptr items = (*obj)["items"];
   ASSERT_NE(items, nullptr);
   EXPECT_EQ(items->size(), 2u);
   EXPECT_EQ((*items)[size_t{0}].as<std::string>(), "apple");

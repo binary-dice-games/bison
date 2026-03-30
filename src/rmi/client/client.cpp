@@ -4,6 +4,7 @@
  * @brief Implementation of the RMI client runtime and remote proxy calls.
  */
 #include "src/rmi/client/client.hpp"
+#include "src/rmi/shared/schemas.hpp"
 
 #include <stdexcept>
 
@@ -24,7 +25,7 @@ client::~client() {
 
 /** @copydoc bdg::bison::rmi::client::connect */
 void client::connect(bison::dynamic params) {
-  shared::schema_registry::register_all_schemas();
+  shared::register_all_schemas();
   transport_->open(std::move(params));
   running_.store(true);
   worker_ = std::thread(&client::worker_loop, this);
@@ -46,7 +47,7 @@ bison::dynamic client::describe(bison::key_t klass) {
 proxy::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
-  payload[FIELD_PARAMS] = std::make_shared<bison::dynamic>(std::move(params));
+  payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
 
   auto result =
       send_request(OP_INSTANTIATE, {}, std::move(payload), false).get();
@@ -90,15 +91,16 @@ std::future<bison::dynamic> client::send_request(
     bison::dynamic payload,
     bool oneway) {
   const bison::key_t request_id = shared::generate_id();
-  auto frame =
-      shared::envelope{
-          KIND_REQUEST,
-          op,
-          request_id,
-          object_id,
-          oneway,
-          shared::payload{std::move(payload)}}
-          .encode();
+  auto frame = [&]() {
+    shared::envelope env;
+    env.kind = KIND_REQUEST;
+    env.op = op;
+    env.request_id = request_id;
+    env.object_id = object_id;
+    env.oneway = oneway;
+    env.payload = std::move(payload);
+    return env.encode();
+  }();
 
   if (oneway) {
     {
@@ -179,25 +181,31 @@ void client::process_frame(const shared::envelope& env) {
       lp->erase(it);
     }
 
-    if (!env.error.empty()) {
-      auto decoded_error = shared::error::decode(env.error);
-      promise.set_exception(std::make_exception_ptr(std::move(decoded_error)));
+    const auto code = env.error.as<bison::key_t>(FIELD_ERROR_CODE);
+    if (static_cast<bison::hash_t>(code) != 0u) {
+      std::string message = "RMI error";
+      if (const auto* msg = env.error.findField(FIELD_ERROR_MESSAGE);
+          msg != nullptr) {
+        message = msg->as<std::string>();
+      }
+      promise.set_exception(
+          std::make_exception_ptr(
+              std::runtime_error(
+                  message + " (code=" + std::to_string(code.id) + ")")));
     } else {
-      auto decoded_payload = shared::payload::decode(env.payload);
-      promise.set_value(std::move(decoded_payload.value));
+      promise.set_value(env.payload.clone());
     }
 
   } else if (kind == KIND_EVENT) {
     bison::key_t object_id = env.object_id;
-    auto decoded_payload = shared::payload::decode(env.payload);
-    auto& pval = decoded_payload.value;
+    auto& pval = env.payload;
 
     bison::key_t event_name = pval.as<bison::key_t>(FIELD_NAME);
 
     bison::dynamic params;
     auto& params_field = pval[FIELD_PARAMS];
-    if (params_field.is<std::shared_ptr<bison::dynamic>>()) {
-      auto ptr = params_field.as<std::shared_ptr<bison::dynamic>>();
+    if (params_field.is<bison::dynamic_ptr>()) {
+      auto ptr = params_field.as<bison::dynamic_ptr>();
       if (ptr)
         params = std::move(*ptr);
     }
@@ -234,7 +242,9 @@ void client::fail_all_pending(bison::key_t code, const std::string& message) {
   }
   for (auto& [id, promise] : local) {
     promise.set_exception(
-        std::make_exception_ptr(shared::error{code, message}));
+        std::make_exception_ptr(
+            std::runtime_error(
+                message + " (code=" + std::to_string(code.id) + ")")));
   }
 }
 
@@ -268,7 +278,7 @@ dynamic::call(bison::key_t name, bison::dynamic&& params, bool oneway) {
   bison::dynamic payload;
   payload[shared::constants::FIELD_NAME] = name;
   payload[shared::constants::FIELD_PARAMS] =
-      std::make_shared<bison::dynamic>(std::move(params));
+      bison::dynamic_ptr{std::move(params)};
   return client_->send_request(
       shared::constants::OP_CALL, object_id_, std::move(payload), oneway);
 }

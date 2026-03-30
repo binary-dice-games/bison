@@ -237,7 +237,7 @@ std::string serialize_dynamic_record(const dynamic& obj) {
 
 /** @brief Deserialize a `bison::dynamic` object from Bison binary format
  * (stream). */
-std::shared_ptr<dynamic> deserialize_dynamic_record(const std::string& buffer) {
+dynamic deserialize_dynamic_record(const std::string& buffer) {
   std::istringstream in(buffer, std::ios::binary);
   stream_deserializer des{in};
   return dynamic::deserialize(des);
@@ -257,7 +257,7 @@ buffer serialize_dynamic_record_buf(const dynamic& obj) {
  * @brief Deserialize a `bison::dynamic` object from Bison binary format
  *        using the buffer_deserializer (no stream overhead).
  */
-std::shared_ptr<dynamic> deserialize_dynamic_record_buf(const buffer& buf) {
+dynamic deserialize_dynamic_record_buf(const buffer& buf) {
   buffer_deserializer in(buf);
   return dynamic::deserialize(in);
 }
@@ -938,9 +938,9 @@ int main(int argc, char** argv) {
                      [iteration % pool.dynamic_payloads.size()];
              const auto obj = deserialize_dynamic_record(payload);
              consume_i32(
-                 (*obj)[KEY_ID].as<std::int32_t>() +
-                 (*obj)[KEY_LEVEL].as<std::int32_t>());
-             consume_string((*obj)[KEY_NAME].as<std::string>());
+               obj[KEY_ID].as<std::int32_t>() +
+               obj[KEY_LEVEL].as<std::int32_t>());
+             consume_string(obj[KEY_NAME].as<std::string>());
            }),
        measure_stats(config, [&pool](std::size_t iteration) {
          const std::string& payload =
@@ -971,9 +971,9 @@ int main(int argc, char** argv) {
                      [iteration % pool.dynamic_buf_payloads.size()];
              const auto obj = deserialize_dynamic_record_buf(payload);
              consume_i32(
-                 (*obj)[KEY_ID].as<std::int32_t>() +
-                 (*obj)[KEY_LEVEL].as<std::int32_t>());
-             consume_string((*obj)[KEY_NAME].as<std::string>());
+               obj[KEY_ID].as<std::int32_t>() +
+               obj[KEY_LEVEL].as<std::int32_t>());
+             consume_string(obj[KEY_NAME].as<std::string>());
            }),
        measure_stats(config, [&pool](std::size_t iteration) {
          const std::string& payload =
