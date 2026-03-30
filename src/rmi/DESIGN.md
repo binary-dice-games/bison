@@ -46,7 +46,7 @@ The design follows a client/server model similar to Apache Thrift in separation 
 
 - Business object management and invocation are independent from transport.
 - Transport only provides framed message exchange and connection lifecycle.
-- Protocol messages are Bison dynamic payloads with a stable envelope.
+- Protocol messages use a fixed envelope schema for strict validation and compact transfer.
 
 Core layers:
 
@@ -92,17 +92,44 @@ The concrete transport type is injected into `Client`/`Server` constructors.
 Every frame is a `bison::dynamic` object with required fields:
 
 - `version` (int): protocol version, initially `1`
-- `kind` (string): `request`, `response`, or `event`
-- `op` (string): operation name for request/event
+- `kind` (hash/key): hashed token for `request`, `response`, or `event`
+- `op` (hash/key): hashed operation token for request/event
 - `requestId` (uint64): correlation id (required for request/response)
 - `objectId` (uint64): remote object id when applicable
 - `oneway` (bool): request indicates no response expected
 - `payload` (dynamic): operation-specific content
 - `error` (dynamic|null): error object for responses on failure
 
+Token compaction rule:
+
+- For fields with a small bounded vocabulary, protocol uses hashed tokens
+  (`key_t`/`hash_t`) instead of raw strings to reduce frame size.
+- Canonical source names remain stable protocol constants and are hashed with
+  the same key function on both peers.
+- This applies at least to `kind`, `op`, and error `code`.
+- Identifier-like values should default to hashed keys whenever possible
+  (class ids, operation ids, event names, error codes, and similar ids).
+- Free-form or high-cardinality content stays as string or regular dynamic
+  fields.
+
+Envelope encoding rule:
+
+- Envelope MUST be serialized/deserialized with `serializeWithTemplate` and
+  `deserializeWithTemplate`.
+- The envelope class schema is fixed and registered on both client and server.
+- Unknown or missing required envelope fields are treated as protocol
+  validation errors.
+
+Payload encoding rule:
+
+- The `payload` field contains operation data serialized with regular
+  self-describing serialization (`serialize` / `deserialize`).
+- This keeps payloads flexible because remote objects may have dynamic,
+  per-instance fields that are not fixed ahead of time.
+
 ### 6.2 Operations
 
-Supported request operations:
+Supported request operation names (hashed in wire envelope):
 
 - `connect`
 - `describe`
@@ -118,11 +145,18 @@ Supported event operation:
 
 - `event` (server -> client callback dispatch)
 
+Recommended constant pattern:
+
+- Define protocol constants once in shared code, for example
+  `KIND_REQUEST = "request"_key`, `KIND_RESPONSE = "response"_key`,
+  `KIND_EVENT = "event"_key`, and equivalent constants for each operation.
+- Compare hashed constants directly during dispatch.
+
 ### 6.3 Error Model
 
 Error response schema (`error` field):
 
-- `code` (string)
+- `code` (hash/key): hashed canonical error token
 - `message` (string)
 - `details` (dynamic, optional)
 
@@ -139,9 +173,41 @@ Initial canonical codes:
 - `TIMEOUT`
 - `TRANSPORT_ERROR`
 
+Error token rule:
+
+- The canonical names above are specification names.
+- Wire encoding uses their hashed form in `error.code`.
+
 ### 6.4 Oneway Semantics
 
 If `oneway == true`, server executes request but does not send response frame. Client completes the returned future immediately with an empty dynamic result (or dedicated `void` marker payload).
+
+### 6.5 Serialization Policy and Validation
+
+The wire protocol uses a hybrid strategy:
+
+- Protocol envelope: template serialization for strict schema validation,
+  deterministic field order, and lighter frame overhead.
+- Operation payload: standard self-describing serialization to preserve
+  dynamic object field variability.
+
+Validation flow:
+
+1. Decode envelope with template deserialization.
+2. Validate required envelope fields (`version`, `kind`, `op`, `requestId`
+   when applicable).
+3. Decode payload with regular deserialization.
+4. Validate operation-specific payload semantics in handler layer.
+
+Dispatch and validation must use hashed token comparisons for bounded fields
+instead of string comparisons.
+
+Failure handling:
+
+- Envelope template decode failure or required-field mismatch returns
+  `INVALID_REQUEST`.
+- Unsupported envelope version returns `UNSUPPORTED_VERSION`.
+- Payload semantic issues return `VALIDATION_ERROR`.
 
 ## 7. Public API Design
 
@@ -159,11 +225,11 @@ public:
     bison::dynamic describe(const std::string& name = "");
 
     remote::dynamic instantiate(
-        const std::string& klass,
+      bison::key_t klass,
         bison::dynamic&& params = bison::dynamic::object()
     );
 
-    void destroy(uint64_t id);
+    void destroy(remote::dynamic&& obj);
     void disconnect();
 };
 
@@ -175,9 +241,15 @@ Behavior:
 - `connect` initializes transport and starts a worker thread.
 - `describe("")` returns all server-registered classes.
 - `describe(name)` returns schema/fields for specific class.
-- `instantiate` creates server object in current session context and returns proxy.
-- `destroy` releases specific object in current session context.
+- `instantiate` receives a hashed class id, creates server object in current session context, and returns proxy.
+- `destroy` consumes a remote object proxy and releases the corresponding server object in current session context.
 - `disconnect` gracefully tears down worker thread and connection.
+
+Ownership rule:
+
+- `instantiate` returns the unique owning proxy for the remote object.
+- The proxy may be moved but not copied.
+- `destroy` consumes the proxy so the API prevents post-destroy use by construction.
 
 ### 7.2 remote::dynamic Proxy
 
@@ -186,6 +258,11 @@ namespace bdg::bison::rmi::remote {
 
 class dynamic {
 public:
+  dynamic(const dynamic&) = delete;
+  dynamic& operator=(const dynamic&) = delete;
+  dynamic(dynamic&&) noexcept;
+  dynamic& operator=(dynamic&&) noexcept;
+
     void clear();
     void set(bison::dynamic&& fields);
     void get(bison::dynamic& fields);
@@ -208,6 +285,10 @@ public:
 
 Behavior details:
 
+- `remote::dynamic` is move-only and non-copyable.
+- A remote object has exactly one owning proxy instance on the client side.
+- Ownership must be transferred explicitly with move semantics when passing the proxy between scopes or components.
+- A moved-from proxy is invalid for further operations except implementation-defined destruction-safe cleanup behavior.
 - `clear`: clears explicitly set fields and reverts to inherited/default model behavior.
 - `set`: applies partial update to provided fields only.
 - `get`:
@@ -215,6 +296,7 @@ Behavior details:
   - if `fields` is a projection shape, fills only requested members (GraphQL-like projection).
 - `call`: executes remote callable behavior and returns future.
 - `onEvent`: registers per-object callback; callback executes on client worker thread.
+- Unique proxy ownership prevents two live local proxies from independently destroying the same remote object.
 
 ### 7.3 Server
 
@@ -257,6 +339,7 @@ Isolation guarantees:
 - object ids are scoped to the session context.
 - client A cannot access objects created by client B.
 - on disconnect, all objects in that context are destroyed.
+- within one client session, the API is designed so one live remote object maps to one live owning proxy.
 
 ## 9. Threading and Concurrency Model
 
@@ -289,6 +372,7 @@ Flow:
 
 - Client sends optional params for auth/session metadata.
 - Server validates protocol version and returns server capabilities.
+- `payload` in this operation is regular self-describing dynamic data.
 
 ### 10.2 describe
 
@@ -296,39 +380,51 @@ Flow:
 - Response payload:
   - all classes: list/map of class descriptors.
   - single class: field schema, inheritance, callable signature metadata.
+- Request and response payloads use regular self-describing serialization.
 
 ### 10.3 instantiate
 
-- Request payload: `{ "klass": "ClassName", "params": {...} }`
+- Request payload: `{ "klass": <key/hash>, "params": {...} }`
 - Server creates object using registered Bison class factory and binds to session context.
-- Response payload: `{ "objectId": <id>, "klass": "ClassName" }`
+- Response payload: `{ "objectId": <id>, "klass": <key/hash> }`
+- Params and response payload use regular self-describing serialization.
+- Class id field `klass` MUST be transmitted as hashed key/token, not full class string.
 
 ### 10.4 clear
 
 - Clears explicitly assigned fields from remote object.
+- Operation payload (if present) uses regular self-describing serialization.
 
 ### 10.5 set
 
 - Applies partial field updates without resetting unspecified fields.
+- Field patch payload uses regular self-describing serialization.
 
 ### 10.6 get
 
 - Empty projection returns full object snapshot.
 - Non-empty projection returns only selected sub-tree fields.
+- Projection request and snapshot response payloads use regular
+  self-describing serialization.
 
 ### 10.7 call
 
 - Invokes object callable behavior with params payload.
 - Returns call result in response payload, unless oneway.
+- Call params and result payloads use regular self-describing serialization.
 
 ### 10.8 destroy
 
-- Removes object id from context and releases associated resources.
+- Client passes `remote::dynamic&&`; implementation extracts the proxy object id and sends destroy request for that id.
+- Server removes object id from context and releases associated resources.
+- Operation payload (if present) uses regular self-describing serialization.
+- After `destroy`, the consumed proxy is no longer valid, and no second live owning proxy should exist for that object.
 
 ### 10.9 disconnect
 
 - Client requests graceful closure.
 - Server destroys context objects and closes connection.
+- Operation payload (if present) uses regular self-describing serialization.
 
 ## 11. Eventing Model
 
@@ -339,6 +435,12 @@ Event payload:
 - `objectId`
 - `name` (event name)
 - `params` (dynamic)
+
+Event transport rule:
+
+- Event envelope uses template serialization.
+- Event params use regular self-describing serialization.
+- Event kind/op token matching uses hashed constants.
 
 Client dispatch rules:
 
@@ -353,6 +455,7 @@ Recommended defaults:
 - request timeout configurable per client instance.
 - transport read timeout optional; reconnect policy transport-specific.
 - on disconnection, all pending promises fail with `TRANSPORT_ERROR`.
+- if a client disconnects without explicit `destroy`, server-side session cleanup releases all remaining uniquely-owned remote objects in that session.
 
 ## 13. Security and Privacy Baseline
 
@@ -373,6 +476,8 @@ Versioning strategy:
 
 - Envelope `version` field with backward-compatible parsing.
 - Server advertises supported versions/capabilities during `connect`.
+- Envelope schema changes require explicit version bump and template
+  compatibility checks on both peers.
 
 ## 15. Initial Implementation Plan
 
