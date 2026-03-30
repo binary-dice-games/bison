@@ -9,11 +9,13 @@
  */
 #pragma once
 
-#include "src/rmi/shared/constants.hpp"
-#include "src/rmi/shared/ids.hpp"
-#include "src/rmi/shared/envelope.hpp"
-#include "src/rmi/transport/memory_transport.hpp"
-#include "src/rmi/server/context.hpp"
-#include "src/rmi/client/remote_dynamic.hpp"
 #include "src/rmi/client/client.hpp"
+#include "src/rmi/client/remote_dynamic.hpp"
+#include "src/rmi/server/context.hpp"
 #include "src/rmi/server/server.hpp"
+#include "src/rmi/shared/constants.hpp"
+#include "src/rmi/shared/envelope.hpp"
+#include "src/rmi/shared/error.hpp"
+#include "src/rmi/shared/ids.hpp"
+#include "src/rmi/shared/payload.hpp"
+#include "src/rmi/transport/memory_transport.hpp"

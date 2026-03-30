@@ -33,41 +33,40 @@ static void clearClassRegistry() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST(RmiConstants, KindTokensAreDistinct) {
-  EXPECT_NE(static_cast<hash_t>(KIND_REQUEST),
-            static_cast<hash_t>(KIND_RESPONSE));
-  EXPECT_NE(static_cast<hash_t>(KIND_RESPONSE),
-            static_cast<hash_t>(KIND_EVENT));
+  EXPECT_NE(
+      static_cast<hash_t>(KIND_REQUEST), static_cast<hash_t>(KIND_RESPONSE));
+  EXPECT_NE(
+      static_cast<hash_t>(KIND_RESPONSE), static_cast<hash_t>(KIND_EVENT));
 }
 
 TEST(RmiConstants, OperationTokensAreDistinct) {
-  EXPECT_NE(static_cast<hash_t>(OP_CONNECT),
-            static_cast<hash_t>(OP_DISCONNECT));
+  EXPECT_NE(
+      static_cast<hash_t>(OP_CONNECT), static_cast<hash_t>(OP_DISCONNECT));
   EXPECT_NE(static_cast<hash_t>(OP_GET), static_cast<hash_t>(OP_SET));
   EXPECT_NE(static_cast<hash_t>(OP_CALL), static_cast<hash_t>(OP_DESTROY));
 }
 
 TEST(RmiConstants, ErrorCodesAreDistinct) {
-  EXPECT_NE(static_cast<hash_t>(ERR_INVALID_REQUEST),
-            static_cast<hash_t>(ERR_INTERNAL_ERROR));
-  EXPECT_NE(static_cast<hash_t>(ERR_CLASS_NOT_FOUND),
-            static_cast<hash_t>(ERR_OBJECT_NOT_FOUND));
+  EXPECT_NE(
+      static_cast<hash_t>(ERR_INVALID_REQUEST),
+      static_cast<hash_t>(ERR_INTERNAL_ERROR));
+  EXPECT_NE(
+      static_cast<hash_t>(ERR_CLASS_NOT_FOUND),
+      static_cast<hash_t>(ERR_OBJECT_NOT_FOUND));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 2. ID generation
 // ═════════════════════════════════════════════════════════════════════════════
 
-TEST(RmiIds, GenerateIdProduces32CharHexString) {
-  const std::string id = generate_id();
-  EXPECT_EQ(id.size(), 32u);
-  for (char c : id) {
-    EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
-        << "Non-hex char: " << c;
-  }
+TEST(RmiIds, GenerateIdProducesNonZeroKey) {
+  const bison_key_t id = generate_id();
+  EXPECT_NE(static_cast<hash_t>(id), 0u);
 }
 
 TEST(RmiIds, ConsecutiveIdsAreDifferent) {
-  EXPECT_NE(generate_id(), generate_id());
+  EXPECT_NE(
+      static_cast<hash_t>(generate_id()), static_cast<hash_t>(generate_id()));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -78,64 +77,69 @@ class RmiEnvelopeTests : public ::testing::Test {
  protected:
   void SetUp() override {
     clearClassRegistry();
-    register_envelope();
+    envelope::register_envelope();
   }
 };
 
 TEST_F(RmiEnvelopeTests, RoundtripRequest) {
-  const std::string req_id  = "abc123";
-  const std::string obj_id  = "oid456";
-  const std::string payload = "hello";
+  const bison_key_t req_id = "abc123";
+  const bison_key_t obj_id = "oid456";
+  dynamic payload_data;
+  payload_data["msg"_key] = std::string{"hello"};
 
-  auto frame = encode_envelope(KIND_REQUEST, OP_CALL, req_id, obj_id,
-                               false, payload);
+  auto frame =
+      envelope{
+          KIND_REQUEST, OP_CALL, req_id, obj_id, false, payload{payload_data}}
+          .encode();
   EXPECT_FALSE(frame.empty());
 
-  auto env = decode_envelope(frame);
-  ASSERT_NE(env, nullptr);
+  auto env = envelope::decode(frame);
 
-  bison_key_t kind = (*env)[FIELD_KIND];
-  bison_key_t op   = (*env)[FIELD_OP];
+  bison_key_t kind = env.kind;
+  bison_key_t op = env.op;
   EXPECT_EQ(static_cast<hash_t>(kind), static_cast<hash_t>(KIND_REQUEST));
-  EXPECT_EQ(static_cast<hash_t>(op),   static_cast<hash_t>(OP_CALL));
+  EXPECT_EQ(static_cast<hash_t>(op), static_cast<hash_t>(OP_CALL));
 
-  std::string got_req_id = (*env).as<std::string>(FIELD_REQUEST_ID);
-  std::string got_obj_id = (*env).as<std::string>(FIELD_OBJECT_ID);
-  EXPECT_EQ(got_req_id, req_id);
-  EXPECT_EQ(got_obj_id, obj_id);
+  EXPECT_EQ(static_cast<hash_t>(env.request_id), static_cast<hash_t>(req_id));
+  EXPECT_EQ(static_cast<hash_t>(env.object_id), static_cast<hash_t>(obj_id));
 
-  std::string got_payload = (*env).as<std::string>(FIELD_PAYLOAD);
-  EXPECT_EQ(got_payload, payload);
+  EXPECT_FALSE(env.payload.empty());
+  auto decoded_pl = payload::decode(env.payload);
+  EXPECT_EQ(decoded_pl.value.as<std::string>("msg"_key), std::string{"hello"});
 
-  bool oneway = (*env)[FIELD_ONEWAY];
+  bool oneway = env.oneway;
   EXPECT_FALSE(oneway);
 }
 
 TEST_F(RmiEnvelopeTests, RoundtripWithError) {
-  const std::string req_id = "errReq";
-  const std::string err    = encode_error(ERR_INTERNAL_ERROR, "boom");
+  const bison_key_t req_id = "errReq";
 
-  auto frame = encode_envelope(KIND_RESPONSE, OP_CALL, req_id, {},
-                               false, {}, err);
-  auto env   = decode_envelope(frame);
-  ASSERT_NE(env, nullptr);
+  auto frame =
+      envelope{
+          KIND_RESPONSE,
+          OP_CALL,
+          req_id,
+          {},
+          false,
+          payload{},
+          error{ERR_INTERNAL_ERROR, "boom"}}
+          .encode();
+  auto env = envelope::decode(frame);
 
-  std::string got_error = (*env).as<std::string>(FIELD_ERROR);
-  EXPECT_FALSE(got_error.empty());
+  EXPECT_FALSE(env.error.empty());
 
-  auto err_obj = decode_payload(got_error);
-  ASSERT_NE(err_obj, nullptr);
-  bison_key_t  code    = (*err_obj)[FIELD_ERROR_CODE];
-  std::string  message = (*err_obj).as<std::string>(FIELD_ERROR_MESSAGE);
-  EXPECT_EQ(static_cast<hash_t>(code),
-            static_cast<hash_t>(ERR_INTERNAL_ERROR));
+  auto err_obj = error::decode(env.error);
+  bison_key_t code = err_obj.code;
+  std::string message = err_obj.what();
+  EXPECT_EQ(static_cast<hash_t>(code), static_cast<hash_t>(ERR_INTERNAL_ERROR));
   EXPECT_EQ(message, "boom");
 }
 
 TEST_F(RmiEnvelopeTests, VersionFieldIsOne) {
-  auto frame = encode_envelope(KIND_REQUEST, OP_CONNECT, "r1", {}, false, {});
-  auto env   = decode_envelope(frame);
-  int32_t v  = (*env)[FIELD_VERSION];
+  auto frame =
+      envelope{KIND_REQUEST, OP_CONNECT, "r1", {}, false, payload{}}.encode();
+  auto env = envelope::decode(frame);
+  int32_t v = env.version;
   EXPECT_EQ(v, PROTOCOL_VERSION);
 }
 
@@ -146,22 +150,21 @@ TEST_F(RmiEnvelopeTests, VersionFieldIsOne) {
 TEST(RmiPayload, RoundtripDynamic) {
   dynamic obj;
   obj["score"_key] = int32_t{99};
-  obj["name"_key]  = std::string{"Alice"};
+  obj["name"_key] = std::string{"Alice"};
 
-  const std::string bytes = encode_payload(obj);
+  const buffer bytes = payload{obj}.encode();
   EXPECT_FALSE(bytes.empty());
 
-  auto restored = decode_payload(bytes);
-  ASSERT_NE(restored, nullptr);
-  int32_t     score = (*restored)["score"_key];
-  std::string name  = (*restored).as<std::string>("name"_key);
+  auto restored = payload::decode(bytes);
+  int32_t score = restored.value["score"_key];
+  std::string name = restored.value.as<std::string>("name"_key);
   EXPECT_EQ(score, 99);
   EXPECT_EQ(name, "Alice");
 }
 
 TEST(RmiPayload, EmptyBytesReturnsEmptyDynamic) {
-  auto d = decode_payload({});
-  ASSERT_NE(d, nullptr);
+  auto d = payload::decode({});
+  (void)d;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -173,7 +176,7 @@ TEST(MemoryTransport, SendReceivePair) {
   server_transport.start(dynamic{});
 
   auto client_t = server_transport.connect();
-  auto maybe    = server_transport.accept(std::chrono::milliseconds{500});
+  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
   ASSERT_TRUE(maybe.has_value());
 
   auto& server_conn = *maybe;
@@ -192,7 +195,7 @@ TEST(MemoryTransport, ServerToClientSend) {
   server_transport.start(dynamic{});
 
   auto client_t = server_transport.connect();
-  auto maybe    = server_transport.accept(std::chrono::milliseconds{500});
+  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
   ASSERT_TRUE(maybe.has_value());
 
   auto& server_conn = *maybe;
@@ -229,7 +232,8 @@ class RmiE2E : public ::testing::Test {
   }
 
   void TearDown() override {
-    if (srv) srv->stop();
+    if (srv)
+      srv->stop();
   }
 
   client make_client() {
@@ -249,8 +253,9 @@ TEST_F(RmiE2E, ConnectAndDisconnect) {
 
 TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   // Register a class before connecting.
-  auto proto = dynamic_ptr{"TestWidget"_key,
-                           {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{
+      "TestWidget"_key,
+      {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -278,7 +283,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
 TEST_F(RmiE2E, InstantiateUnregisteredClassFails) {
   auto c = make_client();
   c.connect();
-  EXPECT_THROW(c.instantiate("NoSuchClass"_key), rmi_error);
+  EXPECT_THROW(c.instantiate("NoSuchClass"_key), error);
   c.disconnect();
 }
 
@@ -291,14 +296,15 @@ TEST_F(RmiE2E, InstantiateAndDestroyRegisteredClass) {
 
   auto proxy = c.instantiate("Counter"_key);
   EXPECT_TRUE(proxy.valid());
-  EXPECT_FALSE(proxy.object_id().empty());
+  EXPECT_NE(static_cast<hash_t>(proxy.object_id()), 0u);
 
   EXPECT_NO_THROW(c.destroy(std::move(proxy)));
   c.disconnect();
 }
 
 TEST_F(RmiE2E, SetAndGetField) {
-  auto proto = dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
+  auto proto =
+      dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -325,11 +331,12 @@ TEST_F(RmiE2E, SetAndGetField) {
 }
 
 TEST_F(RmiE2E, GetProjection) {
-  auto proto = dynamic_ptr{"Rect"_key,
-                           {{"left"_key, int32_t{0}},
-                            {"top"_key, int32_t{0}},
-                            {"right"_key, int32_t{0}},
-                            {"bottom"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{
+      "Rect"_key,
+      {{"left"_key, int32_t{0}},
+       {"top"_key, int32_t{0}},
+       {"right"_key, int32_t{0}},
+       {"bottom"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -338,26 +345,27 @@ TEST_F(RmiE2E, GetProjection) {
   auto proxy = c.instantiate("Rect"_key);
 
   dynamic set_fields;
-  set_fields["left"_key]   = int32_t{10};
-  set_fields["top"_key]    = int32_t{20};
-  set_fields["right"_key]  = int32_t{30};
+  set_fields["left"_key] = int32_t{10};
+  set_fields["top"_key] = int32_t{20};
+  set_fields["right"_key] = int32_t{30};
   set_fields["bottom"_key] = int32_t{40};
   proxy.set(std::move(set_fields));
 
   // Projection: only request "left" and "right".
   dynamic projection;
-  projection["left"_key]  = int32_t{0};
+  projection["left"_key] = int32_t{0};
   projection["right"_key] = int32_t{0};
   proxy.get(projection);
 
-  int32_t left  = projection["left"_key];
+  int32_t left = projection["left"_key];
   int32_t right = projection["right"_key];
-  EXPECT_EQ(left,  10);
+  EXPECT_EQ(left, 10);
   EXPECT_EQ(right, 30);
   // "top" and "bottom" should NOT be present in the projection result.
-  EXPECT_FALSE(projection.findField("top"_key) != nullptr &&
-               projection["top"_key].is<int32_t>() &&
-               static_cast<int32_t>(projection["top"_key]) == 20);
+  EXPECT_FALSE(
+      projection.findField("top"_key) != nullptr &&
+      projection["top"_key].is<int32_t>() &&
+      static_cast<int32_t>(projection["top"_key]) == 20);
 
   c.destroy(std::move(proxy));
   c.disconnect();
@@ -416,9 +424,9 @@ TEST_F(RmiE2E, CallMethod) {
   auto proxy = c.instantiate("Calc"_key);
 
   dynamic params;
-  params[FIELD_NAME] = "add"_key;  // method name carried in __name
-  params["a"_key]    = int32_t{10};
-  params["b"_key]    = int32_t{32};
+  params[FIELD_NAME] = "add"_key; // method name carried in __name
+  params["a"_key] = int32_t{10};
+  params["b"_key] = int32_t{32};
 
   auto fut = proxy.call(std::move(params));
   auto res = fut.get();
@@ -462,16 +470,16 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
   std::atomic<int> destruct_count{0};
 
   auto proto = dynamic_ptr{"Hooked"_key, {{"x"_key, int32_t{0}}}};
-  proto->addMethod(HOOK_CONSTRUCT,
-                   [&construct_count](dynamic& /*self*/, const dynamic&) {
-                     ++construct_count;
-                     return dynamic{};
-                   });
-  proto->addMethod(HOOK_DESTRUCT,
-                   [&destruct_count](dynamic& /*self*/, const dynamic&) {
-                     ++destruct_count;
-                     return dynamic{};
-                   });
+  proto->addMethod(
+      HOOK_CONSTRUCT, [&construct_count](dynamic& /*self*/, const dynamic&) {
+        ++construct_count;
+        return dynamic{};
+      });
+  proto->addMethod(
+      HOOK_DESTRUCT, [&destruct_count](dynamic& /*self*/, const dynamic&) {
+        ++destruct_count;
+        return dynamic{};
+      });
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -489,17 +497,18 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
 TEST_F(RmiE2E, SetterHookTransformsPatch) {
   auto proto = dynamic_ptr{"Clamped"_key, {{"v"_key, int32_t{0}}}};
   // __setter clamps v to [0, 100].
-  proto->addMethod(HOOK_SETTER,
-                   [](dynamic& /*self*/, const dynamic& patch) {
-                     dynamic out = patch.clone();
-                     auto* f = out.findField("v"_key);
-                     if (f && f->is<int32_t>()) {
-                       int32_t val = *f;
-                       if (val > 100) out["v"_key] = int32_t{100};
-                       if (val < 0)   out["v"_key] = int32_t{0};
-                     }
-                     return out;
-                   });
+  proto->addMethod(HOOK_SETTER, [](dynamic& /*self*/, const dynamic& patch) {
+    dynamic out = patch.clone();
+    auto* f = out.findField("v"_key);
+    if (f && f->is<int32_t>()) {
+      int32_t val = *f;
+      if (val > 100)
+        out["v"_key] = int32_t{100};
+      if (val < 0)
+        out["v"_key] = int32_t{0};
+    }
+    return out;
+  });
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -508,13 +517,13 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
   auto proxy = c.instantiate("Clamped"_key);
 
   dynamic f;
-  f["v"_key] = int32_t{200};  // over the clamp limit
+  f["v"_key] = int32_t{200}; // over the clamp limit
   proxy.set(std::move(f));
 
   dynamic result;
   proxy.get(result);
   int32_t v = result["v"_key];
-  EXPECT_EQ(v, 100);  // clamped
+  EXPECT_EQ(v, 100); // clamped
 
   c.destroy(std::move(proxy));
   c.disconnect();
@@ -523,16 +532,15 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
 TEST_F(RmiE2E, GetterHookTransformsResult) {
   auto proto = dynamic_ptr{"Doubled"_key, {{"n"_key, int32_t{0}}}};
   // __getter doubles the value of n in the response.
-  proto->addMethod(HOOK_GETTER,
-                   [](dynamic& /*self*/, const dynamic& snap) {
-                     dynamic out = snap.clone();
-                     auto* f = out.findField("n"_key);
-                     if (f && f->is<int32_t>()) {
-                       int32_t val = *f;
-                       out["n"_key] = val * 2;
-                     }
-                     return out;
-                   });
+  proto->addMethod(HOOK_GETTER, [](dynamic& /*self*/, const dynamic& snap) {
+    dynamic out = snap.clone();
+    auto* f = out.findField("n"_key);
+    if (f && f->is<int32_t>()) {
+      int32_t val = *f;
+      out["n"_key] = val * 2;
+    }
+    return out;
+  });
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -547,7 +555,7 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
   dynamic result;
   proxy.get(result);
   int32_t n = result["n"_key];
-  EXPECT_EQ(n, 10);  // getter doubled it
+  EXPECT_EQ(n, 10); // getter doubled it
 
   c.destroy(std::move(proxy));
   c.disconnect();
@@ -570,15 +578,19 @@ TEST_F(RmiE2E, TwoClientsAreIsolated) {
   auto p2 = c2.instantiate("Isolated"_key);
 
   // Set different values in each client's object.
-  dynamic f1; f1["v"_key] = int32_t{111};
+  dynamic f1;
+  f1["v"_key] = int32_t{111};
   p1.set(std::move(f1));
 
-  dynamic f2; f2["v"_key] = int32_t{222};
+  dynamic f2;
+  f2["v"_key] = int32_t{222};
   p2.set(std::move(f2));
 
   // Each client reads back its own value.
-  dynamic r1; p1.get(r1);
-  dynamic r2; p2.get(r2);
+  dynamic r1;
+  p1.get(r1);
+  dynamic r2;
+  p2.get(r2);
   EXPECT_EQ(static_cast<int32_t>(r1["v"_key]), 111);
   EXPECT_EQ(static_cast<int32_t>(r2["v"_key]), 222);
 
@@ -596,28 +608,26 @@ TEST_F(RmiE2E, TwoClientsAreIsolated) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
-  std::atomic<int>  event_count{0};
+  std::atomic<int> event_count{0};
   std::atomic<bool> got_value{false};
 
   // Register a class whose "trigger" method emits an event back to the client.
   auto proto = dynamic_ptr{"Emitter"_key, {}};
-  proto->addMethod("trigger"_key,
-                   [](dynamic& self, const dynamic& params) {
-                     // Retrieve the emit_event callback stored in userdata.
-                     // For this test we smuggle it via a shared_ptr<userdata>.
-                     struct emit_ud : bdg::bison::userdata {
-                       std::function<void(const std::string&, bison_key_t, dynamic)> fn;
-                     };
-                     auto ud = std::dynamic_pointer_cast<emit_ud>(
-                         self.getUserdata());
-                     if (ud && ud->fn) {
-                       // Emit "onTick" event with value = 77.
-                       dynamic ev_params;
-                       ev_params["value"_key] = int32_t{77};
-                       ud->fn({}, "onTick"_key, std::move(ev_params));
-                     }
-                     return dynamic{};
-                   });
+  proto->addMethod("trigger"_key, [](dynamic& self, const dynamic& params) {
+    // Retrieve the emit_event callback stored in userdata.
+    // For this test we smuggle it via a shared_ptr<userdata>.
+    struct emit_ud : bdg::bison::userdata {
+      std::function<void(bison_key_t, bison_key_t, dynamic)> fn;
+    };
+    auto ud = std::dynamic_pointer_cast<emit_ud>(self.getUserdata());
+    if (ud && ud->fn) {
+      // Emit "onTick" event with value = 77.
+      dynamic ev_params;
+      ev_params["value"_key] = int32_t{77};
+      ud->fn({}, "onTick"_key, std::move(ev_params));
+    }
+    return dynamic{};
+  });
   dynamic::addClass(0U, proto);
 
   // Override instantiate so we can attach userdata with the emit callback.
@@ -640,7 +650,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Simplified approach: manually exercise the memory transport round-trip
   // by sending an event frame directly through the transport.
-  register_envelope();
+  envelope::register_envelope();
 
   memory_server_transport mt2;
   mt2.start(dynamic{});
@@ -650,18 +660,24 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Build an event frame manually.
   dynamic event_payload;
-  event_payload[FIELD_NAME]   = bison_key_t{"onTick"_key};
+  event_payload[FIELD_NAME] = bison_key_t{"onTick"_key};
   event_payload[FIELD_PARAMS] = std::make_shared<dynamic>(
       dynamic{0U, {{"value"_key, field{int32_t{77}}}}});
 
-  const std::string oid = "obj_test_001";
-  auto frame = encode_envelope(KIND_EVENT, OP_EVENT,
-                               {}, oid, true,
-                               encode_payload(event_payload));
+  const bison_key_t oid = "obj_test_001";
+  auto frame =
+      envelope{
+          KIND_EVENT,
+          OP_EVENT,
+          {},
+          oid,
+          true,
+          payload{std::move(event_payload)}}
+          .encode();
   conn2->send(std::move(frame));
 
   // Connect a real client to this transport and receive the event.
-  
+
   // We don't need a real server for this transport-level test;
   // use the raw transport directly.
   //
@@ -671,22 +687,19 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
   // conn2 (server side) wrote to s2c_queue; ct2 (client side) reads from s2c.
 
   // So ct2 should receive it.
-  std::vector<char> recv_frame;
+  buffer recv_frame;
   bool ok = ct2.receive(recv_frame, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
 
-  auto env = decode_envelope(recv_frame);
-  ASSERT_NE(env, nullptr);
+  auto env = envelope::decode(recv_frame);
 
-  bison_key_t kind = (*env)[FIELD_KIND];
+  bison_key_t kind = env.kind;
   EXPECT_EQ(static_cast<hash_t>(kind), static_cast<hash_t>(KIND_EVENT));
 
-  std::string got_oid = (*env).as<std::string>(FIELD_OBJECT_ID);
-  EXPECT_EQ(got_oid, oid);
+  EXPECT_EQ(static_cast<hash_t>(env.object_id), static_cast<hash_t>(oid));
 
-  std::string payload_bytes = (*env).as<std::string>(FIELD_PAYLOAD);
-  auto payload = decode_payload(payload_bytes);
-  bison_key_t name = (*payload)[FIELD_NAME];
+  auto decoded_payload = payload::decode(env.payload);
+  bison_key_t name = decoded_payload.value[FIELD_NAME];
   EXPECT_EQ(static_cast<hash_t>(name), static_cast<hash_t>("onTick"_key));
 
   mt2.stop();
@@ -707,13 +720,14 @@ TEST_F(RmiE2E, OnEventHandlerInvokedOnClientThread) {
   c.connect();
 
   auto proxy = c.instantiate("EvtSource"_key);
-  const std::string oid = proxy.object_id();
+  const bison_key_t oid = proxy.object_id();
 
   // Register an event handler.
   proxy.onEvent("update"_key, [&](dynamic params) {
     ++handler_calls;
     auto* f = params.findField("val"_key);
-    if (f && f->is<int32_t>()) received_value.store(static_cast<int32_t>(*f));
+    if (f && f->is<int32_t>())
+      received_value.store(static_cast<int32_t>(*f));
   });
 
   // Inject an event frame directly into the server->client channel by
@@ -748,11 +762,11 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
   std::atomic<int> destruct_count{0};
 
   auto proto = dynamic_ptr{"Ephemeral"_key, {}};
-  proto->addMethod(HOOK_DESTRUCT,
-                   [&destruct_count](dynamic& /*self*/, const dynamic&) {
-                     ++destruct_count;
-                     return dynamic{};
-                   });
+  proto->addMethod(
+      HOOK_DESTRUCT, [&destruct_count](dynamic& /*self*/, const dynamic&) {
+        ++destruct_count;
+        return dynamic{};
+      });
   dynamic::addClass(0U, proto);
 
   auto c = make_client();
@@ -793,20 +807,21 @@ TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   for (int i = 0; i < N; ++i) {
     dynamic params;
     params[FIELD_NAME] = "echo"_key;
-    params["id"_key]   = int32_t{i};
+    params["id"_key] = int32_t{i};
     futures.push_back(proxy.call(std::move(params)));
   }
 
   // Each future must resolve with the correct id (no response mixing).
   std::vector<int32_t> ids(N, -1);
   for (int i = 0; i < N; ++i) {
-    auto res   = futures[i].get();
+    auto res = futures[i].get();
     ids[i] = res["id"_key];
   }
 
   // Sort and verify all ids 0..N-1 were echoed back (order may differ).
   std::sort(ids.begin(), ids.end());
-  for (int i = 0; i < N; ++i) EXPECT_EQ(ids[i], i);
+  for (int i = 0; i < N; ++i)
+    EXPECT_EQ(ids[i], i);
 
   c.destroy(std::move(proxy));
   c.disconnect();

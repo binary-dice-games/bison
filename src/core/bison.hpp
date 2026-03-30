@@ -17,17 +17,18 @@
 #include <mutex>
 #include <set>
 #include <shared_mutex>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <span>
 #include <unordered_map>
 #include <variant>
 #include <vector>
 
 /**
  * @file bison.hpp
- * @brief Bison — self-describing binary serialization and dynamic object library.
+ * @brief Bison — self-describing binary serialization and dynamic object
+ * library.
  *
  * Bison provides a runtime object model where every object (`dynamic`) carries
  * named fields and callable methods. Objects can be serialized to a compact,
@@ -65,7 +66,8 @@
  * @namespace bdg::bison
  * @brief Root namespace for the Bison library.
  *
- * Contains all public types, free functions, and the `extensions` sub-namespace.
+ * Contains all public types, free functions, and the `extensions`
+ * sub-namespace.
  */
 namespace bdg::bison {
 
@@ -87,7 +89,8 @@ class dynamic_ptr;
  * reflects the byte order of the current platform.
  */
 namespace endian {
-/** @brief Big-endian / network byte order (value = 1). This is the reference byte order used on the wire. */
+/** @brief Big-endian / network byte order (value = 1). This is the reference
+ * byte order used on the wire. */
 const size_t big = 1;
 /** @brief Little-endian constant (value = 0). */
 const size_t little = 0;
@@ -119,8 +122,10 @@ const size_t native = []() {
  */
 template <typename T>
 constexpr T byte_swap(T value) {
-  if constexpr (sizeof(T) == 1) return value;
-  if (endian::native == endian::big) return value;
+  if constexpr (sizeof(T) == 1)
+    return value;
+  if (endian::native == endian::big)
+    return value;
 #if defined(__GNUC__) || defined(__clang__)
   if constexpr (sizeof(T) == 2) {
     uint16_t u = std::bit_cast<uint16_t>(value);
@@ -163,6 +168,9 @@ constexpr T byte_swap(T value) {
 
 /** @brief Unsigned 32-bit integer used as a hashed field key. */
 using hash_t = uint32_t;
+
+/** @brief Canonical byte buffer type for serialized binary payloads. */
+using buffer = std::vector<char>;
 
 /**
  * @brief FNV-1a compile-time string hash.
@@ -335,9 +343,9 @@ class userdata {
 /**
  * @brief In-memory serializer that writes directly to a `std::vector<char>`.
  *
- * `buffer_serializer` provides the same interface as `stream_serializer` but avoids
- * the virtual-dispatch overhead of `std::ostream`.  It writes bytes directly
- * into a heap-allocated buffer, which is significantly faster when the
+ * `buffer_serializer` provides the same interface as `stream_serializer` but
+ * avoids the virtual-dispatch overhead of `std::ostream`.  It writes bytes
+ * directly into a heap-allocated buffer, which is significantly faster when the
  * bottleneck is many small `write()` calls.
  *
  * The internal buffer is grown automatically.  Use `buffer()` to obtain a
@@ -352,18 +360,23 @@ class userdata {
  */
 class buffer_serializer {
  public:
-  /** @brief Construct an empty serializer; reserves @p initial_capacity bytes. */
+  /** @brief Construct an empty serializer; reserves @p initial_capacity bytes.
+   */
   explicit buffer_serializer(size_t initial_capacity = 256) {
     buf_.reserve(initial_capacity);
   }
   buffer_serializer(const buffer_serializer&) = delete;
-  buffer_serializer(buffer_serializer&&)      = default;
+  buffer_serializer(buffer_serializer&&) = default;
 
   /** @brief Return a read-only view of the accumulated bytes. */
-  const std::vector<char>& buffer() const { return buf_; }
+  const std::vector<char>& buffer() const {
+    return buf_;
+  }
 
   /** @brief Move the accumulated bytes out of the serializer. */
-  std::vector<char> release() { return std::move(buf_); }
+  std::vector<char> release() {
+    return std::move(buf_);
+  }
 
   /**
    * @brief Write a single scalar value in big-endian byte order.
@@ -397,7 +410,8 @@ class buffer_serializer {
     const char* cp = reinterpret_cast<const char*>(&count);
     buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
     if constexpr (std::is_same_v<T, bool>) {
-      // std::vector<bool> has no contiguous storage; iterate element by element.
+      // std::vector<bool> has no contiguous storage; iterate element by
+      // element.
       for (bool elem : data) {
         unsigned char val = elem ? 1u : 0u;
         buf_.push_back(static_cast<char>(val));
@@ -496,8 +510,8 @@ class buffer_serializer {
 /**
  * @brief In-memory deserializer that reads directly from a raw byte buffer.
  *
- * `buffer_deserializer` provides the same interface as `stream_deserializer` but
- * reads from a caller-supplied `const char*` / length pair (or
+ * `buffer_deserializer` provides the same interface as `stream_deserializer`
+ * but reads from a caller-supplied `const char*` / length pair (or
  * `std::vector<char>`) instead of an `std::istream`, avoiding virtual-dispatch
  * overhead and eliminating unnecessary heap allocations.
  *
@@ -528,7 +542,7 @@ class buffer_deserializer {
       : buffer_deserializer(buf.data(), buf.size()) {}
 
   buffer_deserializer(const buffer_deserializer&) = delete;
-  buffer_deserializer(buffer_deserializer&&)      = default;
+  buffer_deserializer(buffer_deserializer&&) = default;
 
   /**
    * @brief Read a single scalar value and return it by value.
@@ -573,7 +587,8 @@ class buffer_deserializer {
     const size_t count = read<size_t>();
     data.resize(count);
     if constexpr (std::is_same_v<T, bool>) {
-      // std::vector<bool> has no contiguous storage; iterate element by element.
+      // std::vector<bool> has no contiguous storage; iterate element by
+      // element.
       for (size_t idx = 0; idx < count; ++idx) {
         data[idx] = (read<unsigned char>() != 0u);
       }
@@ -801,9 +816,10 @@ class stream_serializer {
  * @brief Reads primitive values, strings, and vectors from a binary stream.
  *
  * `stream_deserializer` wraps an `std::istream` and provides type-safe `read`
- * overloads that mirror those of `stream_serializer`. Every multi-byte scalar is
- * byte-swapped from big-endian (network) byte order after being read. Strings
- * and vectors are reconstructed using the size prefix written by `stream_serializer`.
+ * overloads that mirror those of `stream_serializer`. Every multi-byte scalar
+ * is byte-swapped from big-endian (network) byte order after being read.
+ * Strings and vectors are reconstructed using the size prefix written by
+ * `stream_serializer`.
  *
  * The class is non-copyable and non-movable to prevent accidental aliasing of
  * the underlying stream.
@@ -875,11 +891,12 @@ class stream_deserializer {
       payload_size = count * sizeof(T);
     }
 
-    std::vector<char> chunk(sizeof(size_t) + payload_size);
+    buffer chunk(sizeof(size_t) + payload_size);
     std::memcpy(chunk.data(), &count_be, sizeof(size_t));
     if (payload_size > 0) {
-      in_.read(chunk.data() + sizeof(size_t),
-               static_cast<std::streamsize>(payload_size));
+      in_.read(
+          chunk.data() + sizeof(size_t),
+          static_cast<std::streamsize>(payload_size));
     }
 
     buffer_deserializer buffered(chunk);
@@ -909,11 +926,12 @@ class stream_deserializer {
     }
 
     const size_t payload_size = count * sizeof(T);
-    std::vector<char> chunk(sizeof(size_t) + payload_size);
+    buffer chunk(sizeof(size_t) + payload_size);
     std::memcpy(chunk.data(), &count_be, sizeof(size_t));
     if (payload_size > 0) {
-      in_.read(chunk.data() + sizeof(size_t),
-               static_cast<std::streamsize>(payload_size));
+      in_.read(
+          chunk.data() + sizeof(size_t),
+          static_cast<std::streamsize>(payload_size));
     }
 
     buffer_deserializer buffered(chunk);
@@ -1041,7 +1059,8 @@ std::shared_ptr<const attribute> attr(Args&&... args) {
  *   attached at construction time and queried later without touching the
  *   variant value.
  * - **Binary serialisation** — `serialize` / `deserialize` round-trip the
- *   field (type tag + value) through a `stream_serializer` / `stream_deserializer`.
+ *   field (type tag + value) through a `stream_serializer` /
+ * `stream_deserializer`.
  *
  * ### Supported value types
  * See `field_base` for the full list of variant alternatives.
@@ -1169,9 +1188,11 @@ class field : public field_base {
   field& operator=(const T& value) {
     auto v = to_field_value(value);
     using value_type = decltype(v);
-    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
+    if (std::holds_alternative<std::monostate>(
+            static_cast<const field_base&>(*this))) {
       field_base::operator=(v);
-    } else if (!std::holds_alternative<value_type>(static_cast<const field_base&>(*this))) {
+    } else if (!std::holds_alternative<value_type>(
+                   static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     } else {
       field_base::operator=(v);
@@ -1202,9 +1223,11 @@ class field : public field_base {
    */
   template <typename T>
   T& as(T def = T{}) {
-    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
+    if (std::holds_alternative<std::monostate>(
+            static_cast<const field_base&>(*this))) {
       *this = def;
-    } else if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
+    } else if (!std::holds_alternative<T>(
+                   static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     }
     return std::get<T>(static_cast<field_base&>(*this));
@@ -1246,9 +1269,8 @@ class field : public field_base {
   constexpr static std::size_t index_of() {
     if constexpr (index == std::variant_size_v<field_base>) {
       return index;
-    } else if constexpr (std::is_same_v<
-                             std::variant_alternative_t<index, field_base>,
-                             T>) {
+    } else if constexpr (
+        std::is_same_v<std::variant_alternative_t<index, field_base>, T>) {
       return index;
     } else {
       return index_of<T, index + 1>();
@@ -1420,7 +1442,8 @@ class dynamic {
     // indices are small positive integers that do not have the high bit set.
     // Find the last numeric key by stopping just before the named-key range.
     auto it = fields_.lower_bound(key_t{0x80000000u});
-    if (it == fields_.begin()) return 0;
+    if (it == fields_.begin())
+      return 0;
     --it;
     return static_cast<size_t>(it->first.id + 1);
   }
@@ -1659,7 +1682,8 @@ class dynamic {
    * already exists.
    *
    * @param name  Hashed method name.
-   * @param fn    The callable (`std::function<dynamic(dynamic&, const dynamic&)>`).
+   * @param fn    The callable (`std::function<dynamic(dynamic&, const
+   * dynamic&)>`).
    * @return `true` if the method was registered, `false` if the name was
    *         already taken.
    */
@@ -1893,8 +1917,8 @@ class dynamic {
   /**
    * @brief Return the global class registry.
    *
-   * Maps class name (`key_t`) to the registered prototype (`shared_ptr<dynamic>`).
-   * Access must be protected by `getMutex()`.
+   * Maps class name (`key_t`) to the registered prototype
+   * (`shared_ptr<dynamic>`). Access must be protected by `getMutex()`.
    *
    * @return Reference to the static `collection`.
    */
@@ -1932,16 +1956,30 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   using std::shared_ptr<dynamic>::shared_ptr;
   using std::shared_ptr<dynamic>::operator=;
 
+  dynamic_ptr(const std::shared_ptr<dynamic>& that)
+      : std::shared_ptr<dynamic>(that) {}
+
+  dynamic_ptr(std::shared_ptr<dynamic>&& that)
+      : std::shared_ptr<dynamic>(std::move(that)) {}
+
+  dynamic_ptr& operator=(const std::shared_ptr<dynamic>& that) {
+    std::shared_ptr<dynamic>::operator=(that);
+    return *this;
+  }
+
+  dynamic_ptr& operator=(std::shared_ptr<dynamic>&& that) {
+    std::shared_ptr<dynamic>::operator=(std::move(that));
+    return *this;
+  }
+
   /**
    * @brief Construct from an rvalue `dynamic`, taking ownership.
    *
    * @param that  The `dynamic` object to move into the heap-allocated managed
    *              object.
    */
-  dynamic_ptr(dynamic&& that) {
-    auto dyn = new dynamic{std::move(that)};
-    *this = std::shared_ptr<dynamic>(dyn);
-  }
+  dynamic_ptr(dynamic&& that)
+      : std::shared_ptr<dynamic>(new dynamic{std::move(that)}) {}
 
   /**
    * @brief Construct a new `dynamic` in-place with a class key and fields.
@@ -1949,10 +1987,8 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
    * @param klass   Class name key (default 0 = anonymous).
    * @param fields  Initial named fields.
    */
-  dynamic_ptr(key_t klass = 0U,
-              std::map<key_t, field>&& fields = {}) {
-    *this = std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)});
-  }
+  dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {})
+      : std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)}) {}
 };
 
 inline void field::serialize(stream_serializer& out) const {
@@ -1969,14 +2005,21 @@ inline field field::deserialize(stream_deserializer& in) {
   //  9=vector<int32_t>  10=vector<float>
   const auto type = in.read<unsigned char>();
   switch (type) {
-    case 0: return field{std::monostate{}};
-    case 1: return field{in.read<hash_t>()};
-    case 2: return field{in.read<key_t>()};
-    case 3: return field{in.read<bool>()};
-    case 4: return field{in.read<int32_t>()};
-    case 5: return field{in.read<float>()};
+    case 0:
+      return field{std::monostate{}};
+    case 1:
+      return field{in.read<hash_t>()};
+    case 2:
+      return field{in.read<key_t>()};
+    case 3:
+      return field{in.read<bool>()};
+    case 4:
+      return field{in.read<int32_t>()};
+    case 5:
+      return field{in.read<float>()};
     case 6: {
-      if (!in.read<bool>()) return field{std::shared_ptr<dynamic>{}};
+      if (!in.read<bool>())
+        return field{std::shared_ptr<dynamic>{}};
       return field{dynamic::deserialize(in)};
     }
     case 7: {
@@ -2047,8 +2090,6 @@ inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
   return dyn;
 }
 
-// ─── buffer_serializer overloads for field ────────────────────────────────────
-
 inline void field::serialize(buffer_serializer& out) const {
   const field_base& fb = static_cast<const field_base&>(*this);
   out.write(static_cast<unsigned char>(fb.index()));
@@ -2072,14 +2113,21 @@ inline void field::serialize(buffer_serializer& out) const {
 inline field field::deserialize(buffer_deserializer& in) {
   const auto type = in.read<unsigned char>();
   switch (type) {
-    case 0: return field{std::monostate{}};
-    case 1: return field{in.read<hash_t>()};
-    case 2: return field{in.read<key_t>()};
-    case 3: return field{in.read<bool>()};
-    case 4: return field{in.read<int32_t>()};
-    case 5: return field{in.read<float>()};
+    case 0:
+      return field{std::monostate{}};
+    case 1:
+      return field{in.read<hash_t>()};
+    case 2:
+      return field{in.read<key_t>()};
+    case 3:
+      return field{in.read<bool>()};
+    case 4:
+      return field{in.read<int32_t>()};
+    case 5:
+      return field{in.read<float>()};
     case 6: {
-      if (!in.read<bool>()) return field{std::shared_ptr<dynamic>{}};
+      if (!in.read<bool>())
+        return field{std::shared_ptr<dynamic>{}};
       return field{dynamic::deserialize(in)};
     }
     case 7: {
@@ -2106,8 +2154,6 @@ inline field field::deserialize(buffer_deserializer& in) {
       throw std::runtime_error("Not implemented");
   }
 }
-
-// ─── buffer_serializer overloads for dynamic ─────────────────────────────────
 
 inline void dynamic::serialize(buffer_serializer& out) const {
   out.write(fields_.size());

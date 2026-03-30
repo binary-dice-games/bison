@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <functional>
 #include <future>
-#include <string>
 
 namespace bdg::bison::rmi {
 
@@ -35,23 +34,23 @@ class dynamic {
   friend class bdg::bison::rmi::client;
 
  public:
-  dynamic(const dynamic&)            = delete;
+  dynamic(const dynamic&) = delete;
   dynamic& operator=(const dynamic&) = delete;
 
   dynamic(dynamic&& other) noexcept
       : client_(other.client_),
         object_id_(std::move(other.object_id_)),
         valid_(other.valid_) {
-    other.valid_  = false;
+    other.valid_ = false;
     other.client_ = nullptr;
   }
 
   dynamic& operator=(dynamic&& other) noexcept {
     if (this != &other) {
-      client_    = other.client_;
+      client_ = other.client_;
       object_id_ = std::move(other.object_id_);
-      valid_     = other.valid_;
-      other.valid_  = false;
+      valid_ = other.valid_;
+      other.valid_ = false;
       other.client_ = nullptr;
     }
     return *this;
@@ -59,7 +58,8 @@ class dynamic {
 
   ~dynamic() = default;
 
-  // ── Remote operations ───────────────────────────────────────────────────────
+  // ── Remote operations
+  // ───────────────────────────────────────────────────────
 
   /**
    * @brief Clear explicitly set fields on the remote object, reverting it to
@@ -83,15 +83,14 @@ class dynamic {
   void get(bison::dynamic& fields);
 
   /**
-    * @brief Invoke a callable behavior on the remote object.
+   * @brief Invoke a callable behavior on the remote object.
    *
    * @param params  Call arguments.
    * @param oneway  When true the server does not send a response and the
    *                returned future resolves immediately with an empty result.
    * @return Future that resolves with the call result (or empty if oneway).
    */
-  std::future<bison::dynamic> call(bison::dynamic params,
-                                   bool           oneway = false);
+  std::future<bison::dynamic> call(bison::dynamic params, bool oneway = false);
 
   /**
    * @brief Register a handler for a named server-initiated event.
@@ -103,36 +102,36 @@ class dynamic {
    * @param name     Hashed event name token.
    * @param handler  Callable invoked with the event params dynamic.
    */
-  void onEvent(bison::key_t                             name,
-               std::function<void(bison::dynamic)> handler);
+  void onEvent(bison::key_t name, std::function<void(bison::dynamic)> handler);
 
-  // ── Accessors ───────────────────────────────────────────────────────────────
+  // ── Accessors
+  // ───────────────────────────────────────────────────────────────
 
   /**
-   * @brief Return the high 64 bits of the opaque object identifier as a
-   *        `uint64_t` for use in local bookkeeping.
+   * @brief Return the opaque object identifier token as `uint64_t`.
    */
   uint64_t id() const {
-    if (object_id_.size() >= 16) {
-      return std::stoull(object_id_.substr(0, 16), nullptr, 16);
-    }
-    return 0;
+    return static_cast<uint64_t>(object_id_.id);
   }
 
   /** @brief True when this proxy refers to a live remote object. */
-  bool valid() const { return valid_; }
+  bool valid() const {
+    return valid_;
+  }
 
-  /** @brief Raw opaque object identifier string. */
-  const std::string& object_id() const { return object_id_; }
+  /** @brief Raw opaque object identifier token. */
+  bison::key_t object_id() const {
+    return object_id_;
+  }
 
  private:
   // Only client can construct proxies.
-  dynamic(class bdg::bison::rmi::client* c, std::string id)
+  dynamic(class bdg::bison::rmi::client* c, bison::key_t id)
       : client_(c), object_id_(std::move(id)), valid_(true) {}
 
   class bdg::bison::rmi::client* client_{nullptr};
-  std::string                    object_id_;
-  bool                           valid_{false};
+  bison::key_t object_id_;
+  bool valid_{false};
 };
 
 } // namespace remote

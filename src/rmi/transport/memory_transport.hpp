@@ -28,8 +28,8 @@ struct memory_channel {
   std::mutex mtx;
   std::condition_variable cv_c2s;
   std::condition_variable cv_s2c;
-  std::queue<std::vector<char>> c2s_queue;
-  std::queue<std::vector<char>> s2c_queue;
+  std::queue<bison::buffer> c2s_queue;
+  std::queue<bison::buffer> s2c_queue;
   std::atomic<bool> closed{false};
 };
 
@@ -43,10 +43,10 @@ class memory_client_transport {
 
   /** @brief Open the endpoint. Parameters are accepted for API compatibility.
    */
-  void open(bison::dynamic params);
+  void open(bison::dynamic&& params);
 
   /** @brief Send one encoded frame to the server side. */
-  void send(std::vector<char> frame);
+  void send(bison::buffer frame);
 
   /**
    * @brief Receive one frame from the server side.
@@ -55,7 +55,7 @@ class memory_client_transport {
    * @return `true` when a frame was received; otherwise `false`.
    */
   bool receive(
-      std::vector<char>& frame,
+      bison::buffer& frame,
       std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
 
   /** @brief Close the endpoint and wake blocked waiters. */
@@ -74,7 +74,7 @@ class memory_server_connection {
   explicit memory_server_connection(std::shared_ptr<memory_channel> ch);
 
   /** @brief Send one encoded frame to the client side. */
-  void send(std::vector<char> frame);
+  void send(bison::buffer frame);
 
   /**
    * @brief Receive one frame from the client side.
@@ -83,7 +83,7 @@ class memory_server_connection {
    * @return `true` when a frame was received; otherwise `false`.
    */
   bool receive(
-      std::vector<char>& frame,
+      bison::buffer& frame,
       std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
 
   /** @brief Mark the connection as closed and notify waiters. */

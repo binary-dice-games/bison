@@ -5,36 +5,17 @@
  */
 #include "src/rmi/shared/ids.hpp"
 
+#include <atomic>
 #include <cstdint>
-#include <iomanip>
-#include <mutex>
-#include <random>
-#include <sstream>
 
 namespace bdg::bison::rmi::shared {
 
 /**
- * @brief Generate a 32-hex-character identifier from two random 64-bit words.
- *
- * Access to the pseudo-random engine is guarded by a mutex, making this
- * function safe to call concurrently from multiple threads.
+ * @brief Generate a process-local opaque ID token using an atomic counter.
  */
-std::string generate_id() {
-  static std::mutex mtx;
-  static std::mt19937_64 gen{std::random_device{}()};
-  static std::uniform_int_distribution<uint64_t> dis;
-
-  uint64_t hi, lo;
-  {
-    std::lock_guard<std::mutex> lk(mtx);
-    hi = dis(gen);
-    lo = dis(gen);
-  }
-
-  std::ostringstream oss;
-  oss << std::hex << std::setfill('0') << std::setw(16) << hi
-      << std::setw(16) << lo;
-  return oss.str();
+bison::key_t generate_id() {
+  static std::atomic<bison::hash_t> next{0x80000001u};
+  return bison::key_t{next.fetch_add(1u, std::memory_order_relaxed)};
 }
 
 } // namespace bdg::bison::rmi::shared

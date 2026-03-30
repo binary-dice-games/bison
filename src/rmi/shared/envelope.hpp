@@ -1,87 +1,81 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file envelope.hpp
- * @brief Helpers for encoding/decoding RMI envelopes, payloads, and errors.
+ * @brief RMI envelope frame model and wire codec.
  */
 #pragma once
 
 #include "src/core/bison.hpp"
 #include "src/rmi/shared/constants.hpp"
-
-#include <stdexcept>
-#include <string>
-#include <vector>
+#include "src/rmi/shared/error.hpp"
+#include "src/rmi/shared/payload.hpp"
 
 namespace bdg::bison::rmi::shared {
 
 /**
- * @brief Protocol-level exception containing an RMI error code.
+ * @brief RMI envelope frame model and codec.
+ *
+ * Carries a versioned protocol frame over the transport layer.
+ * The `payload` and `error` fields hold encoded blobs produced by
+ * the corresponding codec structs; their raw bytes are preserved
+ * across encode/decode round-trips.
  */
-class rmi_error : public std::runtime_error {
- public:
-  /**
-   * @brief Construct an RMI error.
-   * @param code Canonical error code token.
-   * @param message Human-readable error message.
-   */
-  rmi_error(bison::key_t code, std::string message);
+struct envelope {
+  int32_t version{constants::PROTOCOL_VERSION};
+  bison::key_t kind{0u};
+  bison::key_t op{0u};
+  bison::key_t request_id{0u};
+  bison::key_t object_id{0u};
+  bool oneway{false};
+  bison::buffer payload{};
+  bison::buffer error{};
 
-  /** @brief Return the protocol error code token. */
-  bison::key_t code() const;
- private:
-  bison::key_t code_;
+  envelope() = default;
+
+  /**
+   * @brief Construct a request/event envelope with a payload.
+   * @param kind       Message kind token.
+   * @param op         Operation token.
+   * @param request_id Correlation identifier.
+   * @param object_id  Target server-side object.
+   * @param oneway     True if no response is expected.
+   * @param pl         Payload to encode into the frame.
+   */
+  envelope(
+      bison::key_t kind,
+      bison::key_t op,
+      bison::key_t request_id,
+      bison::key_t object_id,
+      bool oneway,
+      ::bdg::bison::rmi::shared::payload&& pl);
+
+  /**
+   * @brief Construct a response envelope with both payload and error.
+   * @param kind       Message kind token.
+   * @param op         Operation token.
+   * @param request_id Correlation identifier.
+   * @param object_id  Target server-side object.
+   * @param oneway     True if no response is expected.
+   * @param pl         Payload to encode into the frame.
+   * @param err        Error to encode into the frame.
+   */
+  envelope(
+      bison::key_t kind,
+      bison::key_t op,
+      bison::key_t request_id,
+      bison::key_t object_id,
+      bool oneway,
+      ::bdg::bison::rmi::shared::payload&& pl,
+      ::bdg::bison::rmi::shared::error&& err);
+
+  /** @brief Encode this envelope to a transport frame. */
+  bison::buffer encode() const;
+
+  /** @brief Decode a transport frame into an envelope object. */
+  static envelope decode(const bison::buffer& bytes);
+
+  /** @brief Register the envelope schema in the global class registry. */
+  static void register_envelope();
 };
-
-/** @brief Register the envelope class schema in the global class registry. */
-void register_envelope();
-
-/**
- * @brief Serialize a payload object to bytes.
- * @param payload Payload dynamic object.
- * @return Binary payload representation.
- */
-std::string encode_payload(const bison::dynamic& payload);
-
-/**
- * @brief Deserialize payload bytes into a dynamic object.
- * @param bytes Binary payload bytes.
- * @return Shared pointer to decoded payload object.
- */
-std::shared_ptr<bison::dynamic> decode_payload(const std::string& bytes);
-
-/**
- * @brief Build a serialized error object.
- * @param code Canonical error code token.
- * @param message Human-readable error message.
- * @return Serialized error bytes.
- */
-std::string encode_error(bison::key_t code, const std::string& message);
-
-/**
- * @brief Encode an RMI envelope into a transport frame.
- * @param kind Envelope kind token (`request`, `response`, `event`).
- * @param op Operation token.
- * @param request_id Correlation ID for request/response pairing.
- * @param object_id Target object ID (if applicable).
- * @param oneway Whether a response is expected.
- * @param payload Serialized operation payload bytes.
- * @param error Optional serialized error payload.
- * @return Encoded binary frame bytes.
- */
-std::vector<char> encode_envelope(
-    bison::key_t kind,
-    bison::key_t op,
-    const std::string& request_id,
-    const std::string& object_id,
-    bool oneway,
-    const std::string& payload,
-    const std::string& error = {});
-
-  /**
-   * @brief Decode an RMI envelope frame.
-   * @param bytes Encoded frame bytes.
-   * @return Decoded envelope object.
-   */
-std::shared_ptr<bison::dynamic> decode_envelope(const std::vector<char>& bytes);
 
 } // namespace bdg::bison::rmi::shared

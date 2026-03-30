@@ -4,13 +4,14 @@
  * @brief ID generation utilities for RMI sessions and objects.
  */
 #pragma once
-#include <string>
+
+#include "src/core/bison.hpp"
 
 namespace bdg::bison::rmi::shared {
 
 /**
- * @brief Generate a protocol-safe opaque identifier string.
+ * @brief Generate a lock-free opaque identifier token.
  * @return Newly generated identifier.
  */
-std::string generate_id();
+bison::key_t generate_id();
 } // namespace bdg::bison::rmi::shared
