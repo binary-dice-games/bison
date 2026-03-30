@@ -18,4 +18,5 @@
 #include "src/rmi/shared/error.hpp"
 #include "src/rmi/shared/ids.hpp"
 #include "src/rmi/shared/payload.hpp"
+#include "src/rmi/shared/schema_registry.hpp"
 #include "src/rmi/transport/memory_transport.hpp"

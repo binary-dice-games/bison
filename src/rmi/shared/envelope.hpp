@@ -9,6 +9,7 @@
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/error.hpp"
 #include "src/rmi/shared/payload.hpp"
+#include "src/rmi/shared/schema_registry.hpp"
 
 namespace bdg::bison::rmi::shared {
 
@@ -74,8 +75,8 @@ struct envelope {
   /** @brief Decode a transport frame into an envelope object. */
   static envelope decode(const bison::buffer& bytes);
 
-  /** @brief Register the envelope schema in the global class registry. */
-  static void register_schema();
+  /** @brief Register envelope-related schemas in the global class registry. */
+  static void register_schemas();
 };
 
 } // namespace bdg::bison::rmi::shared

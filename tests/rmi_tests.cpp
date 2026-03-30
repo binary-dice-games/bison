@@ -77,7 +77,7 @@ class RmiEnvelopeTests : public ::testing::Test {
  protected:
   void SetUp() override {
     clearClassRegistry();
-    envelope::register_schema();
+    schema_registry::register_all_schemas();
   }
 };
 
@@ -650,7 +650,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Simplified approach: manually exercise the memory transport round-trip
   // by sending an event frame directly through the transport.
-  envelope::register_schema();
+  schema_registry::register_all_schemas();
 
   memory_server_transport mt2;
   mt2.start(dynamic{});

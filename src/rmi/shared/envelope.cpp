@@ -9,6 +9,13 @@
 
 namespace bdg::bison::rmi::shared {
 
+namespace {
+
+[[maybe_unused]] const bool envelope_schema_provider_registered =
+    schema_registry::register_provider<envelope>();
+
+} // namespace
+
 envelope::envelope(
     bison::key_t kind_arg,
     bison::key_t op_arg,
@@ -75,7 +82,7 @@ envelope envelope::decode(const bison::buffer& bytes) {
   return decoded;
 }
 
-void envelope::register_schema() {
+void envelope::register_schemas() {
   using namespace constants;
   {
     std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
