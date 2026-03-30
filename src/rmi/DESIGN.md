@@ -91,14 +91,14 @@ The concrete transport type is injected into `Client`/`Server` constructors.
 
 Every frame is a `bison::dynamic` object with required fields:
 
-- `version` (int): protocol version, initially `1`
-- `kind` (hash/key): hashed token for `request`, `response`, or `event`
-- `op` (hash/key): hashed operation token for request/event
-- `requestId` (uint64): correlation id (required for request/response)
-- `objectId` (uint64): remote object id when applicable
-- `oneway` (bool): request indicates no response expected
-- `payload` (dynamic): operation-specific content
-- `error` (dynamic|null): error object for responses on failure
+- `__version` (int): protocol version, initially `1`
+- `__kind` (hash/key): hashed token for `request`, `response`, or `event`
+- `__op` (hash/key): hashed operation token for request/event
+- `__requestId` (string/opaque id): correlation id (required for request/response)
+- `__objectId` (string/opaque id): remote object id when applicable
+- `__oneway` (bool): request indicates no response expected
+- `__payload` (dynamic/blob carrier): operation-specific content
+- `__error` (dynamic/blob carrier|null): error object for responses on failure
 
 Token compaction rule:
 
@@ -111,6 +111,8 @@ Token compaction rule:
   (class ids, operation ids, event names, error codes, and similar ids).
 - Free-form or high-cardinality content stays as string or regular dynamic
   fields.
+- By convention, all protocol-defined internal keys use the `__` prefix to
+  avoid collisions with user-defined fields.
 
 Envelope encoding rule:
 
@@ -152,13 +154,139 @@ Recommended constant pattern:
   `KIND_EVENT = "event"_key`, and equivalent constants for each operation.
 - Compare hashed constants directly during dispatch.
 
+### 6.2.1 Shared Hashed Constants
+
+The protocol should define all reserved identifiers in shared code as hashed
+constants so client and server use the exact same tokens.
+
+Recommended constants:
+
+```cpp
+namespace bdg::bison::rmi::shared::constants {
+
+inline constexpr bison::key_t KIND_REQUEST  = "request"_key;
+inline constexpr bison::key_t KIND_RESPONSE = "response"_key;
+inline constexpr bison::key_t KIND_EVENT    = "event"_key;
+
+inline constexpr bison::key_t OP_CONNECT     = "connect"_key;
+inline constexpr bison::key_t OP_DESCRIBE    = "describe"_key;
+inline constexpr bison::key_t OP_INSTANTIATE = "instantiate"_key;
+inline constexpr bison::key_t OP_CLEAR       = "clear"_key;
+inline constexpr bison::key_t OP_SET         = "set"_key;
+inline constexpr bison::key_t OP_GET         = "get"_key;
+inline constexpr bison::key_t OP_CALL        = "call"_key;
+inline constexpr bison::key_t OP_DESTROY     = "destroy"_key;
+inline constexpr bison::key_t OP_DISCONNECT  = "disconnect"_key;
+inline constexpr bison::key_t OP_EVENT       = "event"_key;
+
+inline constexpr bison::key_t HOOK_CONSTRUCT = "__construct"_key;
+inline constexpr bison::key_t HOOK_DESTRUCT  = "__destruct"_key;
+inline constexpr bison::key_t HOOK_CLEAR     = "__clear"_key;
+inline constexpr bison::key_t HOOK_SETTER    = "__setter"_key;
+inline constexpr bison::key_t HOOK_GETTER    = "__getter"_key;
+
+inline constexpr bison::key_t ERR_INVALID_REQUEST    = "INVALID_REQUEST"_key;
+inline constexpr bison::key_t ERR_UNSUPPORTED_VERSION = "UNSUPPORTED_VERSION"_key;
+inline constexpr bison::key_t ERR_UNKNOWN_OPERATION   = "UNKNOWN_OPERATION"_key;
+inline constexpr bison::key_t ERR_CLASS_NOT_FOUND     = "CLASS_NOT_FOUND"_key;
+inline constexpr bison::key_t ERR_OBJECT_NOT_FOUND    = "OBJECT_NOT_FOUND"_key;
+inline constexpr bison::key_t ERR_ACCESS_DENIED       = "ACCESS_DENIED"_key;
+inline constexpr bison::key_t ERR_VALIDATION_ERROR    = "VALIDATION_ERROR"_key;
+inline constexpr bison::key_t ERR_INTERNAL_ERROR      = "INTERNAL_ERROR"_key;
+inline constexpr bison::key_t ERR_TIMEOUT             = "TIMEOUT"_key;
+inline constexpr bison::key_t ERR_TRANSPORT_ERROR     = "TRANSPORT_ERROR"_key;
+
+} // namespace bdg::bison::rmi::shared::constants
+```
+
+Rules:
+
+- These constants are normative for the wire protocol.
+- Client and server must not duplicate string literals ad hoc in dispatch code.
+- Reserved hook names and protocol operation names should always be compared by hashed key.
+
+### 6.2.2 Envelope Template Schema
+
+The protocol envelope should be implemented as a registered Bison class with a
+fixed field layout so `serializeWithTemplate` and `deserializeWithTemplate`
+can be used deterministically on both peers.
+
+Recommended shared envelope class:
+
+```cpp
+namespace bdg::bison::rmi::shared::constants {
+
+inline constexpr bison::key_t CLASS_ENVELOPE = "__envelope"_key;
+
+inline constexpr bison::key_t FIELD_VERSION    = "__version"_key;
+inline constexpr bison::key_t FIELD_KIND       = "__kind"_key;
+inline constexpr bison::key_t FIELD_OP         = "__op"_key;
+inline constexpr bison::key_t FIELD_REQUEST_ID = "__requestId"_key;
+inline constexpr bison::key_t FIELD_OBJECT_ID  = "__objectId"_key;
+inline constexpr bison::key_t FIELD_ONEWAY     = "__oneway"_key;
+inline constexpr bison::key_t FIELD_PAYLOAD    = "__payload"_key;
+inline constexpr bison::key_t FIELD_ERROR      = "__error"_key;
+
+} // namespace bdg::bison::rmi::shared::constants
+```
+
+Recommended envelope prototype:
+
+```cpp
+auto envelope = bison::dynamic_ptr{
+  bdg::bison::rmi::shared::constants::CLASS_ENVELOPE,
+  {
+    {bdg::bison::rmi::shared::constants::FIELD_VERSION, int32_t{1}},
+    {bdg::bison::rmi::shared::constants::FIELD_KIND, bison::key_t{0}},
+    {bdg::bison::rmi::shared::constants::FIELD_OP, bison::key_t{0}},
+    {bdg::bison::rmi::shared::constants::FIELD_REQUEST_ID, std::string{}},
+    {bdg::bison::rmi::shared::constants::FIELD_OBJECT_ID, std::string{}},
+    {bdg::bison::rmi::shared::constants::FIELD_ONEWAY, false},
+    {bdg::bison::rmi::shared::constants::FIELD_PAYLOAD, std::string{}},
+    {bdg::bison::rmi::shared::constants::FIELD_ERROR, std::string{}}
+  }
+};
+```
+
+Field meaning:
+
+- `__version`: protocol version number.
+- `__kind`: hashed message kind token.
+- `__op`: hashed operation token.
+- `__requestId`: opaque request correlation identifier serialized as a string.
+- `__objectId`: opaque remote object identifier serialized as a string when applicable.
+- `__oneway`: indicates whether a response is expected.
+- `__payload`: serialized bytes of the regular self-describing payload, carried as a binary/string blob.
+- `__error`: serialized bytes of the regular self-describing error object, carried as a binary/string blob when applicable.
+
+Schema rules:
+
+- The envelope class must be registered identically on client and server before any protocol messages are exchanged.
+- Because Bison template serialization relies on stable field order and field types, envelope field types must not vary across operations.
+- Optional logical fields are still physically present in the template and use neutral defaults when not applicable.
+- `__requestId`, `__objectId`, `__payload`, and `__error` are encoded as opaque string/buffer fields inside the template envelope to avoid mixing template serialization with nested variable-shape template content.
+
+Encoding sequence:
+
+1. Build regular self-describing payload object for the operation.
+2. Serialize payload to bytes.
+3. Populate envelope fields, storing payload bytes in `FIELD_PAYLOAD`.
+4. Serialize envelope with `serializeWithTemplate`.
+
+Decoding sequence:
+
+1. Deserialize envelope with `deserializeWithTemplate`.
+2. Validate fixed envelope fields.
+3. Deserialize `FIELD_PAYLOAD` bytes with regular deserialization when payload is present.
+4. Deserialize `FIELD_ERROR` bytes similarly when error is present.
+
 ### 6.3 Error Model
 
-Error response schema (`error` field):
+Error response schema (`__error` field after decoding):
 
-- `code` (hash/key): hashed canonical error token
-- `message` (string)
-- `details` (dynamic, optional)
+- `__code` (hash/key): hashed canonical error token
+- `__message` (string)
+- `__details` (dynamic, optional)
 
 Initial canonical codes:
 
@@ -176,11 +304,11 @@ Initial canonical codes:
 Error token rule:
 
 - The canonical names above are specification names.
-- Wire encoding uses their hashed form in `error.code`.
+- Wire encoding uses their hashed form in `__error.__code`.
 
 ### 6.4 Oneway Semantics
 
-If `oneway == true`, server executes request but does not send response frame. Client completes the returned future immediately with an empty dynamic result (or dedicated `void` marker payload).
+If `oneway == true`, server executes request but does not send response frame. Client resolves the returned future immediately with an empty dynamic result.
 
 ### 6.5 Serialization Policy and Validation
 
@@ -194,7 +322,7 @@ The wire protocol uses a hybrid strategy:
 Validation flow:
 
 1. Decode envelope with template deserialization.
-2. Validate required envelope fields (`version`, `kind`, `op`, `requestId`
+2. Validate required envelope fields (`__version`, `__kind`, `__op`, `__requestId`
    when applicable).
 3. Decode payload with regular deserialization.
 4. Validate operation-specific payload semantics in handler layer.
@@ -222,7 +350,7 @@ public:
     explicit client(TTransport&& transport);
 
     void connect(bison::dynamic&& params);
-    bison::dynamic describe(const std::string& name = "");
+    bison::dynamic describe(bison::key_t klass = 0U);
 
     remote::dynamic instantiate(
       bison::key_t klass,
@@ -239,8 +367,8 @@ public:
 Behavior:
 
 - `connect` initializes transport and starts a worker thread.
-- `describe("")` returns all server-registered classes.
-- `describe(name)` returns schema/fields for specific class.
+- `describe(0U)` returns all server-registered classes.
+- `describe(klass)` returns full metadata for the specific class, including fields, methods, and events.
 - `instantiate` receives a hashed class id, creates server object in current session context, and returns proxy.
 - `destroy` consumes a remote object proxy and releases the corresponding server object in current session context.
 - `disconnect` gracefully tears down worker thread and connection.
@@ -273,7 +401,7 @@ public:
     );
 
     void onEvent(
-        const std::string& name,
+      bison::key_t name,
         std::function<void(bison::dynamic&& params)> handler
     );
 
@@ -295,7 +423,7 @@ Behavior details:
   - if input `fields` is empty, returns full object snapshot.
   - if `fields` is a projection shape, fills only requested members (GraphQL-like projection).
 - `call`: executes remote callable behavior and returns future.
-- `onEvent`: registers per-object callback; callback executes on client worker thread.
+- `onEvent`: registers a handler for a hashed event id; callback is dispatched through the client executor pool.
 - Unique proxy ownership prevents two live local proxies from independently destroying the same remote object.
 
 ### 7.3 Server
@@ -330,7 +458,7 @@ Each client connection owns a unique `context` object.
 
 - `sessionId`
 - `objects: unordered_map<uint64_t, bison::dynamic>` (or owning wrapper)
-- `nextObjectId`
+- random object id generator / collision-resistant id source
 - `subscriptions` (event handlers metadata if needed server-side)
 - request bookkeeping / cancellation flags
 
@@ -357,7 +485,7 @@ Flow:
 3. Frame sent over transport.
 4. Worker receives response/event and dispatches:
    - response -> resolve/reject promise.
-   - event -> invoke registered handler on worker thread.
+  - event -> submit registered handler to the client executor pool.
 
 ### 9.2 Server Side
 
@@ -373,37 +501,48 @@ Flow:
 - Client sends optional params for auth/session metadata.
 - Server validates protocol version and returns server capabilities.
 - `payload` in this operation is regular self-describing dynamic data.
+- Authentication remains transport-specific in v1; the RMI protocol does not define built-in auth semantics beyond allowing transport-provided connection context and params.
 
 ### 10.2 describe
 
-- Request payload: `{ "name": "" | "ClassName" }`
+- Request payload: `{ "__klass": 0 | <key/hash> }`
 - Response payload:
   - all classes: list/map of class descriptors.
-  - single class: field schema, inheritance, callable signature metadata.
+  - single class: full metadata including field schema, inheritance, methods, and events.
 - Request and response payloads use regular self-describing serialization.
+- A zero class id in `__klass` requests the full class list; a non-zero hashed class id requests metadata for that specific class.
 
 ### 10.3 instantiate
 
-- Request payload: `{ "klass": <key/hash>, "params": {...} }`
+- Request payload: `{ "__klass": <key/hash>, "__params": {...} }`
 - Server creates object using registered Bison class factory and binds to session context.
-- Response payload: `{ "objectId": <id>, "klass": <key/hash> }`
+- If the instantiated object registers a `__construct` method, the server invokes it immediately after object creation, passing the instantiate `params` as call arguments.
+- Response payload: `{ "__objectId": <opaque-random-id>, "__klass": <key/hash> }`
 - Params and response payload use regular self-describing serialization.
-- Class id field `klass` MUST be transmitted as hashed key/token, not full class string.
+- Class id field `__klass` MUST be transmitted as hashed key/token, not full class string.
+- If `__construct` fails, object creation is considered failed and the object is not retained in the session context.
+- Object ids MUST be opaque random identifiers rather than incremental counters to reduce guessing attacks across the protocol boundary.
 
 ### 10.4 clear
 
 - Clears explicitly assigned fields from remote object.
+- If the object defines `__clear`, the server invokes it as part of the clear operation.
+- `__clear` allows custom reset behavior, cleanup of derived state, and pre/post-clear logic defined by the object.
 - Operation payload (if present) uses regular self-describing serialization.
 
 ### 10.5 set
 
 - Applies partial field updates without resetting unspecified fields.
+- If the object defines `__setter`, the incoming set payload is first passed to `__setter` and the returned payload is used as the effective field patch.
+- `__setter` allows validation, normalization, derived-field updates, and custom write-side transformation before fields are applied.
 - Field patch payload uses regular self-describing serialization.
 
 ### 10.6 get
 
 - Empty projection returns full object snapshot.
 - Non-empty projection returns only selected sub-tree fields.
+- After the server computes the get result, if the object defines `__getter`, the result payload is passed through `__getter` before being sent back to the client.
+- `__getter` allows filtering, projection adjustment, computed fields, and read-side transformation.
 - Projection request and snapshot response payloads use regular
   self-describing serialization.
 
@@ -416,9 +555,29 @@ Flow:
 ### 10.8 destroy
 
 - Client passes `remote::dynamic&&`; implementation extracts the proxy object id and sends destroy request for that id.
+- Before releasing the remote object, if the object defines `__destruct`, the server invokes it.
 - Server removes object id from context and releases associated resources.
 - Operation payload (if present) uses regular self-describing serialization.
 - After `destroy`, the consumed proxy is no longer valid, and no second live owning proxy should exist for that object.
+- If `__destruct` fails, the server should still complete object cleanup on a best-effort basis and report the failure according to destroy error policy.
+
+### 10.10 Object Hook Methods
+
+The server recognizes a small set of reserved object methods that customize remote object lifecycle and field access behavior:
+
+- `__construct`: invoked on instantiate, with instantiate params.
+- `__destruct`: invoked on destroy, before final object release.
+- `__clear`: invoked during clear.
+- `__setter`: invoked before applying a set payload.
+- `__getter`: invoked after computing a get result and before returning it.
+
+Hook rules:
+
+- These are ordinary Bison methods registered on the object, but their names are reserved by the RMI framework.
+- They should be referenced internally using hashed method keys.
+- Hooks are optional; if absent, default framework behavior is used.
+- Hook execution occurs on the server-side client worker thread for that session.
+- Hook failures are surfaced as operation failures unless the framework explicitly specifies best-effort cleanup behavior, as in destroy.
 
 ### 10.9 disconnect
 
@@ -432,9 +591,9 @@ Events are server-initiated frames with `kind = "event"`.
 
 Event payload:
 
-- `objectId`
-- `name` (event name)
-- `params` (dynamic)
+- `__objectId`
+- `__name` (event id as hash/key)
+- `__params` (dynamic)
 
 Event transport rule:
 
@@ -444,8 +603,8 @@ Event transport rule:
 
 Client dispatch rules:
 
-- match `(objectId, name)` handler if registered.
-- execute handler on client worker thread.
+- match `(__objectId, __name)` handler if registered.
+- submit handler to the client executor pool.
 - handler exceptions are caught and logged; they must not crash worker loop.
 
 ## 12. Reliability and Timeouts
@@ -456,13 +615,15 @@ Recommended defaults:
 - transport read timeout optional; reconnect policy transport-specific.
 - on disconnection, all pending promises fail with `TRANSPORT_ERROR`.
 - if a client disconnects without explicit `destroy`, server-side session cleanup releases all remaining uniquely-owned remote objects in that session.
+- oneway calls complete their returned futures immediately on the client without waiting for server acknowledgment.
 
 ## 13. Security and Privacy Baseline
 
 - Session-scoped object visibility is mandatory.
 - Server validates all object ids against session context.
+- Remote object ids are opaque random values and must not be predictable from previous allocations.
 - Input payload validation is required before invoking class methods.
-- Transport-level security (TLS, local pipe ACL, etc.) is delegated to transport implementations.
+- Transport-level security and authentication (TLS, local pipe ACL, transport credentials, etc.) are delegated to transport implementations.
 
 ## 14. Extensibility
 
@@ -522,12 +683,9 @@ Concurrency tests:
 - many in-flight requests and ordered response matching
 - concurrent sessions with object id overlap safety
 
-## 17. Open Clarifications
+## 17. Resolved Decisions
 
-The following points need your confirmation before implementation starts:
-
-1. Should `describe(class)` return only fields, or fields + methods + events metadata?
-2. For `call(oneway=true)`, should the client future resolve immediately with empty payload, or return a special lightweight completed future type?
-3. Should event callbacks support optional dispatch to a user-provided executor/thread pool, or stay fixed to the client worker thread for v1?
-4. Do we need built-in authentication in v1 `connect` flow, or keep auth fully transport-specific?
-5. Should object ids be simple session-local incremental `uint64_t`, or opaque random ids?
+- `call(oneway=true)` resolves its returned future immediately with an empty dynamic result.
+- Event callbacks are dispatched through a client executor pool.
+- Authentication remains transport-specific in v1.
+- Remote object ids are opaque random values, not incremental counters.
