@@ -10,7 +10,7 @@
 #pragma once
 
 #include "src/rmi/client/client.hpp"
-#include "src/rmi/client/remote_dynamic.hpp"
+#include "src/rmi/client/proxy_dynamic.hpp"
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/shared/constants.hpp"

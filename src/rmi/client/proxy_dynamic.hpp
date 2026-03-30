@@ -1,6 +1,6 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file remote_dynamic.hpp
+ * @file proxy_dynamic.hpp
  * @brief Remote object proxy API used by the RMI client.
  */
 #pragma once
