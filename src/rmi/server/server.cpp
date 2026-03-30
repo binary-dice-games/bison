@@ -11,6 +11,24 @@ namespace bdg::bison::rmi {
 
 using namespace shared::constants;
 
+namespace {
+
+bison::key_t read_key_token(const bison::dynamic& obj, bison::key_t field_name) {
+  const auto* f = obj.findField(field_name);
+  if (f == nullptr) {
+    throw std::runtime_error("Missing key token field");
+  }
+  if (f->is<bison::key_t>()) {
+    return f->as<bison::key_t>();
+  }
+  if (f->is<bison::hash_t>()) {
+    return bison::key_t{f->as<bison::hash_t>()};
+  }
+  throw std::runtime_error("Invalid key token type");
+}
+
+} // namespace
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 server::~server() {
@@ -67,14 +85,33 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
   while (!conn->is_closed()) {
     std::vector<char> frame;
     if (!conn->receive(frame, std::chrono::milliseconds{50})) continue;
+
+    std::shared_ptr<bison::dynamic> env;
     try {
-      auto env = shared::decode_envelope(frame);
-      handle_request(ctx, *env, *conn);
+      env = shared::decode_envelope(frame);
     } catch (const std::exception& e) {
       try {
         auto err_bytes = shared::encode_error(ERR_INVALID_REQUEST, e.what());
         conn->send(shared::encode_envelope(KIND_RESPONSE, OP_CONNECT,
                                            {}, {}, false, {}, err_bytes));
+      } catch (...) {}
+      continue;
+    }
+
+    try {
+      handle_request(ctx, *env, *conn);
+    } catch (const std::exception& e) {
+      try {
+        bison::key_t op = OP_CONNECT;
+        const auto* op_field = env->findField(FIELD_OP);
+        if (op_field != nullptr) {
+          if (op_field->is<bison::key_t>()) {
+            op = op_field->as<bison::key_t>();
+          } else if (op_field->is<bison::hash_t>()) {
+            op = bison::key_t{op_field->as<bison::hash_t>()};
+          }
+        }
+        send_error(*conn, *env, op, ERR_INVALID_REQUEST, e.what());
       } catch (...) {}
     }
   }
@@ -115,7 +152,7 @@ void server::handle_request(context& ctx, const bison::dynamic& env,
     return;
   }
 
-  bison::key_t op = env.as<bison::key_t>(FIELD_OP);
+  bison::key_t op = read_key_token(env, FIELD_OP);
 
   if      (op == OP_CONNECT)     handle_connect(ctx, env, conn);
   else if (op == OP_DESCRIBE)    handle_describe(ctx, env, conn);
@@ -197,7 +234,7 @@ void server::handle_instantiate(context& ctx, const bison::dynamic& env,
       bison::dynamic construct_params;
       auto& pf = (*payload)[FIELD_PARAMS];
       if (pf.is<std::shared_ptr<bison::dynamic>>()) {
-        auto ptr = static_cast<std::shared_ptr<bison::dynamic>>(pf);
+        auto ptr = pf.as<std::shared_ptr<bison::dynamic>>();
         if (ptr) construct_params = std::move(*ptr);
       }
       obj->call(HOOK_CONSTRUCT, construct_params);
@@ -227,7 +264,15 @@ void server::handle_clear(context& ctx, const bison::dynamic& env,
   }
 
   bison::key_t klass_key = it->second->as<bison::key_t>(bison::dynamic::CLASS);
-  *it->second = bison::dynamic::instantiate(klass_key);
+  {
+    std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
+    auto class_it = bison::dynamic::getClasses().find(klass_key);
+    if (class_it != bison::dynamic::getClasses().end() && class_it->second) {
+      *it->second = class_it->second->clone();
+    } else {
+      *it->second = bison::dynamic::instantiate(klass_key);
+    }
+  }
 
   if (it->second->findMethod(HOOK_CLEAR) != nullptr) {
     try { it->second->call(HOOK_CLEAR, bison::dynamic{}); } catch (...) {}
@@ -316,7 +361,7 @@ void server::handle_call(context& ctx, const bison::dynamic& env,
   std::string pb     = env.as<std::string>(FIELD_PAYLOAD);
   auto        params = shared::decode_payload(pb);
 
-  bison::key_t method_name = params->as<bison::key_t>(FIELD_NAME);
+  bison::key_t method_name = read_key_token(*params, FIELD_NAME);
   bool         oneway      = env.as<bool>(FIELD_ONEWAY);
 
   try {

@@ -260,7 +260,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   // At least one entry in the result array.
   bool found = false;
   for (size_t i = 0; i < result.size(); ++i) {
-    auto ptr = static_cast<std::shared_ptr<dynamic>>(result[i]);
+    auto ptr = result[i].as<std::shared_ptr<dynamic>>();
     if (ptr) {
       bison_key_t k = (*ptr)[FIELD_KLASS];
       if (static_cast<hash_t>(k) == static_cast<hash_t>("TestWidget"_key))

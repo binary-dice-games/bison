@@ -175,7 +175,7 @@ void client::process_frame(const bison::dynamic& env) {
     bison::dynamic params;
     auto& params_field = (*payload)[FIELD_PARAMS];
     if (params_field.is<std::shared_ptr<bison::dynamic>>()) {
-      auto ptr = static_cast<std::shared_ptr<bison::dynamic>>(params_field);
+      auto ptr = params_field.as<std::shared_ptr<bison::dynamic>>();
       if (ptr) params = std::move(*ptr);
     }
 
