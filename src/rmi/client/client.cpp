@@ -24,7 +24,7 @@ client::~client() {
 
 /** @copydoc bdg::bison::rmi::client::connect */
 void client::connect(bison::dynamic params) {
-  shared::envelope::register_envelope();
+  shared::envelope::register_schema();
   transport_->open(std::move(params));
   running_.store(true);
   worker_ = std::thread(&client::worker_loop, this);

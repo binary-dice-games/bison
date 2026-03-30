@@ -57,7 +57,7 @@ server::~server() {
 
 /** @copydoc bdg::bison::rmi::server::listen */
 void server::listen(bison::dynamic params) {
-  shared::envelope::register_envelope();
+  shared::envelope::register_schema();
   running_.store(true);
   transport_->start(std::move(params));
   accept_thread_ = std::thread(&server::accept_loop, this);

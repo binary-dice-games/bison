@@ -170,7 +170,7 @@ constexpr T byte_swap(T value) {
 using hash_t = uint32_t;
 
 /** @brief Canonical byte buffer type for serialized binary payloads. */
-using buffer = std::vector<char>;
+using buffer = std::vector<uint8_t>;
 
 /**
  * @brief FNV-1a compile-time string hash.
@@ -297,6 +297,7 @@ using method =
  * | 8 | `std::vector<bool>` |
  * | 9 | `std::vector<int32_t>` |
  * | 10 | `std::vector<float>` |
+ * | 11 | `std::vector<uint8_t>` |
  */
 using field_base = std::variant<
     std::monostate,
@@ -309,7 +310,8 @@ using field_base = std::variant<
     std::string,
     std::vector<bool>,
     std::vector<int32_t>,
-    std::vector<float>>;
+    std::vector<float>,
+    std::vector<uint8_t>>;
 
 /**
  * @brief Map type used for the global class registry.
@@ -341,7 +343,7 @@ class userdata {
 };
 
 /**
- * @brief In-memory serializer that writes directly to a `std::vector<char>`.
+ * @brief In-memory serializer that writes directly to a byte buffer.
  *
  * `buffer_serializer` provides the same interface as `stream_serializer` but
  * avoids the virtual-dispatch overhead of `std::ostream`.  It writes bytes
@@ -355,7 +357,7 @@ class userdata {
  * @code{.cpp}
  * buffer_serializer out;
  * out.write(int32_t{42}).write(std::string{"hello"});
- * std::vector<char> bytes = out.release();
+ * buffer bytes = out.release();
  * @endcode
  */
 class buffer_serializer {
@@ -369,12 +371,12 @@ class buffer_serializer {
   buffer_serializer(buffer_serializer&&) = default;
 
   /** @brief Return a read-only view of the accumulated bytes. */
-  const std::vector<char>& buffer() const {
+  const bdg::bison::buffer& buffer() const {
     return buf_;
   }
 
   /** @brief Move the accumulated bytes out of the serializer. */
-  std::vector<char> release() {
+  bdg::bison::buffer release() {
     return std::move(buf_);
   }
 
@@ -388,7 +390,7 @@ class buffer_serializer {
   template <typename T>
   buffer_serializer& write(T data) {
     data = byte_swap(data);
-    const char* p = reinterpret_cast<const char*>(&data);
+    const uint8_t* p = reinterpret_cast<const uint8_t*>(&data);
     buf_.insert(buf_.end(), p, p + sizeof(T));
     return *this;
   }
@@ -407,28 +409,28 @@ class buffer_serializer {
   template <typename T>
   buffer_serializer& write(const std::vector<T>& data) {
     size_t count = byte_swap(data.size());
-    const char* cp = reinterpret_cast<const char*>(&count);
+    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
     buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
     if constexpr (std::is_same_v<T, bool>) {
       // std::vector<bool> has no contiguous storage; iterate element by
       // element.
       for (bool elem : data) {
         unsigned char val = elem ? 1u : 0u;
-        buf_.push_back(static_cast<char>(val));
+        buf_.push_back(static_cast<uint8_t>(val));
       }
     } else if constexpr (sizeof(T) == 1) {
       // Single-byte elements need no swapping; copy in bulk.
-      const char* p = reinterpret_cast<const char*>(data.data());
+      const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
       buf_.insert(buf_.end(), p, p + data.size());
     } else if (endian::native == endian::big) {
       // Big-endian: no byte-swap needed; copy in bulk.
-      const char* p = reinterpret_cast<const char*>(data.data());
+      const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
       buf_.insert(buf_.end(), p, p + data.size() * sizeof(T));
     } else {
       // Little-endian: swap each element individually.
       for (const auto& elem : data) {
         T value = byte_swap(elem);
-        const char* p = reinterpret_cast<const char*>(&value);
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(&value);
         buf_.insert(buf_.end(), p, p + sizeof(T));
       }
     }
@@ -445,18 +447,18 @@ class buffer_serializer {
   template <typename T>
   buffer_serializer& write(std::span<const T> data) {
     size_t count = byte_swap(data.size());
-    const char* cp = reinterpret_cast<const char*>(&count);
+    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
     buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
     if constexpr (sizeof(T) == 1) {
-      const char* p = reinterpret_cast<const char*>(data.data());
+      const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
       buf_.insert(buf_.end(), p, p + data.size());
     } else if (endian::native == endian::big) {
-      const char* p = reinterpret_cast<const char*>(data.data());
+      const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
       buf_.insert(buf_.end(), p, p + data.size() * sizeof(T));
     } else {
       for (const auto& elem : data) {
         T value = byte_swap(elem);
-        const char* p = reinterpret_cast<const char*>(&value);
+        const uint8_t* p = reinterpret_cast<const uint8_t*>(&value);
         buf_.insert(buf_.end(), p, p + sizeof(T));
       }
     }
@@ -471,7 +473,7 @@ class buffer_serializer {
    */
   buffer_serializer& write(const std::string& data) {
     size_t count = byte_swap(data.size());
-    const char* cp = reinterpret_cast<const char*>(&count);
+    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
     buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
     buf_.insert(buf_.end(), data.begin(), data.end());
     return *this;
@@ -485,7 +487,7 @@ class buffer_serializer {
    */
   buffer_serializer& write(std::string_view data) {
     size_t count = byte_swap(data.size());
-    const char* cp = reinterpret_cast<const char*>(&count);
+    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
     buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
     buf_.insert(buf_.end(), data.begin(), data.end());
     return *this;
@@ -499,12 +501,13 @@ class buffer_serializer {
    * @return Reference to `*this` for method chaining.
    */
   buffer_serializer& write(const char* data, std::streamsize count) {
-    buf_.insert(buf_.end(), data, data + count);
+    auto begin = reinterpret_cast<const uint8_t*>(data);
+    buf_.insert(buf_.end(), begin, begin + count);
     return *this;
   }
 
  private:
-  std::vector<char> buf_;
+  bdg::bison::buffer buf_;
 };
 
 /**
@@ -512,12 +515,12 @@ class buffer_serializer {
  *
  * `buffer_deserializer` provides the same interface as `stream_deserializer`
  * but reads from a caller-supplied `const char*` / length pair (or
- * `std::vector<char>`) instead of an `std::istream`, avoiding virtual-dispatch
+ * `buffer`) instead of an `std::istream`, avoiding virtual-dispatch
  * overhead and eliminating unnecessary heap allocations.
  *
  * ### Example
  * @code{.cpp}
- * std::vector<char> bytes = serialize_something();
+ * buffer bytes = serialize_something();
  * buffer_deserializer in(bytes);
  * int32_t v = in.read<int32_t>();
  * @endcode
@@ -531,10 +534,15 @@ class buffer_deserializer {
    * @param size  Number of bytes available.
    */
   buffer_deserializer(const char* data, size_t size)
+      : begin_(reinterpret_cast<const uint8_t*>(data)),
+        end_(begin_ + size),
+        pos_(begin_) {}
+
+  buffer_deserializer(const uint8_t* data, size_t size)
       : begin_(data), end_(data + size), pos_(data) {}
 
-  /** @brief Construct from a `std::vector<char>`. */
-  explicit buffer_deserializer(const std::vector<char>& buf)
+  /** @brief Construct from a `buffer`. */
+  explicit buffer_deserializer(const bdg::bison::buffer& buf)
       : buffer_deserializer(buf.data(), buf.size()) {}
 
   /** @brief Construct from a `std::string`. */
@@ -645,7 +653,7 @@ class buffer_deserializer {
     if (pos_ + count > end_) {
       throw std::runtime_error("buffer_deserializer: buffer underflow");
     }
-    data.assign(pos_, count);
+    data.assign(reinterpret_cast<const char*>(pos_), count);
     pos_ += count;
     return *this;
   }
@@ -681,9 +689,9 @@ class buffer_deserializer {
   }
 
  private:
-  const char* begin_;
-  const char* end_;
-  const char* pos_;
+  const uint8_t* begin_;
+  const uint8_t* end_;
+  const uint8_t* pos_;
 };
 
 /**
@@ -743,7 +751,9 @@ class stream_serializer {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
   }
 
   /**
@@ -761,7 +771,9 @@ class stream_serializer {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
   }
 
   /**
@@ -777,7 +789,9 @@ class stream_serializer {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
   }
 
   /**
@@ -793,7 +807,9 @@ class stream_serializer {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return write(
+        reinterpret_cast<const char*>(bytes.data()),
+        static_cast<std::streamsize>(bytes.size()));
   }
 
   /**
@@ -895,7 +911,7 @@ class stream_deserializer {
     std::memcpy(chunk.data(), &count_be, sizeof(size_t));
     if (payload_size > 0) {
       in_.read(
-          chunk.data() + sizeof(size_t),
+          reinterpret_cast<char*>(chunk.data() + sizeof(size_t)),
           static_cast<std::streamsize>(payload_size));
     }
 
@@ -930,7 +946,7 @@ class stream_deserializer {
     std::memcpy(chunk.data(), &count_be, sizeof(size_t));
     if (payload_size > 0) {
       in_.read(
-          chunk.data() + sizeof(size_t),
+          reinterpret_cast<char*>(chunk.data() + sizeof(size_t)),
           static_cast<std::streamsize>(payload_size));
     }
 
@@ -1995,14 +2011,16 @@ inline void field::serialize(stream_serializer& out) const {
   buffer_serializer buffered;
   serialize(buffered);
   const auto& bytes = buffered.buffer();
-  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  out.write(
+      reinterpret_cast<const char*>(bytes.data()),
+      static_cast<std::streamsize>(bytes.size()));
 }
 
 inline field field::deserialize(stream_deserializer& in) {
   // Type tags match the variant index order in field_base:
   //  0=monostate  1=hash_t  2=key_t  3=bool  4=int32_t  5=float
   //  6=shared_ptr<dynamic>  7=string  8=vector<bool>
-  //  9=vector<int32_t>  10=vector<float>
+  //  9=vector<int32_t>  10=vector<float>  11=vector<uint8_t>
   const auto type = in.read<unsigned char>();
   switch (type) {
     case 0:
@@ -2042,6 +2060,11 @@ inline field field::deserialize(stream_deserializer& in) {
       in.read(v);
       return field{std::move(v)};
     }
+    case 11: {
+      std::vector<uint8_t> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
     default:
       throw std::runtime_error("Not implemented");
   }
@@ -2051,14 +2074,18 @@ inline void dynamic::serialize(stream_serializer& out) const {
   buffer_serializer buffered;
   serialize(buffered);
   const auto& bytes = buffered.buffer();
-  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  out.write(
+      reinterpret_cast<const char*>(bytes.data()),
+      static_cast<std::streamsize>(bytes.size()));
 }
 
 inline void dynamic::serializeWithTemplate(stream_serializer& out) const {
   buffer_serializer buffered;
   serializeWithTemplate(buffered);
   const auto& bytes = buffered.buffer();
-  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  out.write(
+      reinterpret_cast<const char*>(bytes.data()),
+      static_cast<std::streamsize>(bytes.size()));
 }
 
 inline std::shared_ptr<dynamic> dynamic::deserialize(stream_deserializer& in) {
@@ -2147,6 +2174,11 @@ inline field field::deserialize(buffer_deserializer& in) {
     }
     case 10: {
       std::vector<float> v;
+      in.read(v);
+      return field{std::move(v)};
+    }
+    case 11: {
+      std::vector<uint8_t> v;
       in.read(v);
       return field{std::move(v)};
     }

@@ -9,9 +9,6 @@
 
 namespace bdg::bison::rmi::shared {
 
-// ── envelope constructors
-// ─────────────────────────────────────────────────────
-
 envelope::envelope(
     bison::key_t kind_arg,
     bison::key_t op_arg,
@@ -45,9 +42,6 @@ envelope::envelope(
       payload(pl.encode()),
       error(err.encode()) {}
 
-// ── encode
-// ────────────────────────────────────────────────────────────────────
-
 bison::buffer envelope::encode() const {
   using namespace constants;
   bison::dynamic env{CLASS_ENVELOPE};
@@ -57,23 +51,17 @@ bison::buffer envelope::encode() const {
   env[FIELD_REQUEST_ID] = request_id;
   env[FIELD_OBJECT_ID] = object_id;
   env[FIELD_ONEWAY] = oneway;
-  env[FIELD_PAYLOAD] = std::string{payload.begin(), payload.end()};
-  env[FIELD_ERROR] = std::string{error.begin(), error.end()};
+  env[FIELD_PAYLOAD] = payload;
+  env[FIELD_ERROR] = error;
   bison::buffer_serializer out;
   env.serializeWithTemplate(out);
   return out.release();
 }
 
-// ── decode
-// ────────────────────────────────────────────────────────────────────
-
 envelope envelope::decode(const bison::buffer& bytes) {
   using namespace constants;
   bison::buffer_deserializer in(bytes);
   auto out = bison::dynamic::deserializeWithTemplate(in);
-
-  std::string payload_blob = out->as<std::string>(FIELD_PAYLOAD);
-  std::string error_blob = out->as<std::string>(FIELD_ERROR);
 
   ::bdg::bison::rmi::shared::envelope decoded;
   decoded.version = out->as<int32_t>(FIELD_VERSION);
@@ -82,15 +70,12 @@ envelope envelope::decode(const bison::buffer& bytes) {
   decoded.request_id = out->as<bison::key_t>(FIELD_REQUEST_ID);
   decoded.object_id = out->as<bison::key_t>(FIELD_OBJECT_ID);
   decoded.oneway = out->as<bool>(FIELD_ONEWAY);
-  decoded.payload = bison::buffer(payload_blob.begin(), payload_blob.end());
-  decoded.error = bison::buffer(error_blob.begin(), error_blob.end());
+  decoded.payload = out->as<bison::buffer>(FIELD_PAYLOAD);
+  decoded.error = out->as<bison::buffer>(FIELD_ERROR);
   return decoded;
 }
 
-// ── register_envelope
-// ─────────────────────────────────────────────────────────
-
-void envelope::register_envelope() {
+void envelope::register_schema() {
   using namespace constants;
   {
     std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
@@ -106,8 +91,8 @@ void envelope::register_envelope() {
           {FIELD_REQUEST_ID, bison::field{bison::key_t{0u}}},
           {FIELD_OBJECT_ID, bison::field{bison::key_t{0u}}},
           {FIELD_ONEWAY, bison::field{false}},
-          {FIELD_PAYLOAD, bison::field{std::string{}}},
-          {FIELD_ERROR, bison::field{std::string{}}},
+          {FIELD_PAYLOAD, bison::field{bison::buffer{}}},
+          {FIELD_ERROR, bison::field{bison::buffer{}}},
       }};
   bison::dynamic::addClass(0U, proto);
 }

@@ -75,7 +75,7 @@ struct envelope {
   static envelope decode(const bison::buffer& bytes);
 
   /** @brief Register the envelope schema in the global class registry. */
-  static void register_envelope();
+  static void register_schema();
 };
 
 } // namespace bdg::bison::rmi::shared

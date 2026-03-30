@@ -77,7 +77,7 @@ class RmiEnvelopeTests : public ::testing::Test {
  protected:
   void SetUp() override {
     clearClassRegistry();
-    envelope::register_envelope();
+    envelope::register_schema();
   }
 };
 
@@ -181,10 +181,10 @@ TEST(MemoryTransport, SendReceivePair) {
 
   auto& server_conn = *maybe;
 
-  const std::vector<char> frame{'H', 'i'};
+  const buffer frame{'H', 'i'};
   client_t.send(frame);
 
-  std::vector<char> received;
+  buffer received;
   bool ok = server_conn.receive(received, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
   EXPECT_EQ(received, frame);
@@ -199,10 +199,10 @@ TEST(MemoryTransport, ServerToClientSend) {
   ASSERT_TRUE(maybe.has_value());
 
   auto& server_conn = *maybe;
-  const std::vector<char> reply{'O', 'K'};
+  const buffer reply{'O', 'K'};
   server_conn.send(reply);
 
-  std::vector<char> got;
+  buffer got;
   bool ok = client_t.receive(got, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
   EXPECT_EQ(got, reply);
@@ -650,7 +650,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Simplified approach: manually exercise the memory transport round-trip
   // by sending an event frame directly through the transport.
-  envelope::register_envelope();
+  envelope::register_schema();
 
   memory_server_transport mt2;
   mt2.start(dynamic{});
