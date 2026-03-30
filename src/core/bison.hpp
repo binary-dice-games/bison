@@ -1852,6 +1852,29 @@ class dynamic {
   }
 
   /**
+   * @brief Iterate over all fields of this object.
+   *
+   * Calls @p fn once for each (key, field) pair stored directly on this
+   * instance.  Named fields (hashed keys ≥ 0x80000000) appear in ascending
+   * hash-value order; array-like numeric fields (keys < 0x80000000) appear
+   * first in ascending index order.
+   *
+   * Fields that are only inherited from a registered prototype and have
+   * not yet been accessed (and thus not yet copied into this instance's own
+   * map) are **not** visited.  Call `operator[](key_t)` on those fields first
+   * if you need them to appear.
+   *
+   * @tparam F  Callable with signature `void(key_t, const field&)`.
+   * @param  fn  Callable invoked for every stored (key, value) pair.
+   */
+  template <typename F>
+  void forEach(F&& fn) const {
+    for (const auto& kv : fields_) {
+      fn(kv.first, kv.second);
+    }
+  }
+
+  /**
    * @brief Return the library-wide shared mutex that protects the class
    *        registry.
    *
