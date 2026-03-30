@@ -322,6 +322,273 @@ using collection =
     std::unordered_map<key_t, std::shared_ptr<dynamic>, key_t, key_t>;
 
 /**
+ * @brief RAII pointer proxy returned by `synchronized` lock operations.
+ *
+ * Holds the underlying lock for its entire lifetime. Provides pointer-like
+ * access to the guarded datum. The proxy is move-only; it cannot be copied.
+ *
+ * When `isNull()` returns `true` the lock has been released early via
+ * `unlock()` and dereferencing the proxy is undefined behaviour.
+ *
+ * @tparam T        Type of the guarded datum (may be `const`-qualified for
+ *                  read-only proxies).
+ * @tparam LockType Concrete lock type, e.g. `std::unique_lock<Mutex>` or
+ *                  `std::shared_lock<Mutex>`.
+ */
+template <typename T, typename LockType>
+class locked_ptr {
+ public:
+  /** @brief Construct a null (unlocked) proxy. */
+  locked_ptr() = default;
+
+  /** @brief Construct by taking ownership of both the data pointer and the
+   *         pre-acquired lock. */
+  locked_ptr(T* data, LockType lock) : data_(data), lock_(std::move(lock)) {}
+
+  locked_ptr(const locked_ptr&) = delete;
+  locked_ptr& operator=(const locked_ptr&) = delete;
+  locked_ptr(locked_ptr&&) = default;
+  locked_ptr& operator=(locked_ptr&&) = default;
+
+  /** @brief Access the guarded object. Undefined behaviour when null. */
+  T* operator->() const {
+    return data_;
+  }
+
+  /** @brief Dereference the guarded object. Undefined behaviour when null. */
+  T& operator*() const {
+    return *data_;
+  }
+
+  /**
+   * @brief Release the lock early and transition the proxy to the null state.
+   *
+   * After `unlock()` returns, `isNull()` is `true` and any dereference is
+   * undefined behaviour.
+   */
+  void unlock() {
+    lock_.unlock();
+    data_ = nullptr;
+  }
+
+  /** @brief Return `true` when the proxy is in the null (unlocked) state. */
+  bool isNull() const {
+    return data_ == nullptr;
+  }
+
+  /** @brief Contextual boolean — `false` when null. */
+  explicit operator bool() const {
+    return data_ != nullptr;
+  }
+
+ private:
+  T* data_ = nullptr;
+  LockType lock_;
+};
+
+namespace detail {
+
+/** @brief Concept satisfied by mutex types that support shared (read) locking,
+ *         such as `std::shared_mutex`. */
+template <typename Mutex>
+concept shared_mutex_c = requires(Mutex& m) {
+  m.lock_shared();
+  m.unlock_shared();
+};
+
+} // namespace detail
+
+/**
+ * @brief Associates a datum with a mutex so that the lock must be explicitly
+ *        acquired before the datum can be accessed.
+ *
+ * Inspired by `folly::Synchronized`. Instead of storing the mutex and the
+ * data separately (where it is easy to forget to take the lock), `synchronized`
+ * bundles them together and only exposes the data through a lock-holding
+ * `locked_ptr` proxy.
+ *
+ * When `Mutex` supports shared locking (e.g. the default `std::shared_mutex`),
+ * both `wlock()` (exclusive write) and `rlock()` (shared read) are available.
+ * When only an exclusive mutex is used (e.g. `std::mutex`), only `wlock()` /
+ * `lock()` are available.
+ *
+ * ### Example
+ * @code{.cpp}
+ * synchronized<std::vector<int>> vec;
+ *
+ * // Exclusive write
+ * vec.wlock()->push_back(42);
+ *
+ * // Shared read — only const access is possible
+ * int n = vec.rlock()->at(0);
+ *
+ * // Lambda-based critical section
+ * vec.withWLock([](auto& v) { v.clear(); });
+ * @endcode
+ *
+ * @tparam T     Type of the guarded datum.
+ * @tparam Mutex Mutex type; defaults to `std::shared_mutex`.
+ */
+template <typename T, typename Mutex = std::shared_mutex>
+class synchronized {
+ public:
+  /** @brief Default-initialise the datum and the mutex. */
+  synchronized() = default;
+
+  /** @brief Construct from an initial value (moved into the guarded storage).
+   */
+  explicit synchronized(T data) : data_(std::move(data)) {}
+
+  /** @brief Copy constructor — acquires a shared lock on the source when
+   *         possible, otherwise an exclusive lock. */
+  synchronized(const synchronized& other) {
+    if constexpr (detail::shared_mutex_c<Mutex>) {
+      std::shared_lock lk(other.mutex_);
+      data_ = other.data_;
+    } else {
+      std::unique_lock lk(other.mutex_);
+      data_ = other.data_;
+    }
+  }
+
+  /** @brief Copy assignment — copies the source datum under the appropriate
+   *         source lock, then writes to the destination under an exclusive
+   *         lock. The two mutexes are never held simultaneously. */
+  synchronized& operator=(const synchronized& other) {
+    if (this != &other) {
+      T tmp;
+      if constexpr (detail::shared_mutex_c<Mutex>) {
+        std::shared_lock lk(other.mutex_);
+        tmp = other.data_;
+      } else {
+        std::unique_lock lk(other.mutex_);
+        tmp = other.data_;
+      }
+      std::unique_lock lk(mutex_);
+      data_ = std::move(tmp);
+    }
+    return *this;
+  }
+
+  /** @brief Assign a new value directly under an exclusive lock. */
+  synchronized& operator=(T val) {
+    std::unique_lock lk(mutex_);
+    data_ = std::move(val);
+    return *this;
+  }
+
+  synchronized(synchronized&&) = delete;
+  synchronized& operator=(synchronized&&) = delete;
+
+  /**
+   * @brief Acquire an exclusive write lock and return a mutable `locked_ptr`.
+   *
+   * The lock is held until the returned proxy is destroyed. Open a nested
+   * scope to make the critical section clearly delimited.
+   */
+  auto wlock() {
+    return locked_ptr<T, std::unique_lock<Mutex>>{
+        &data_, std::unique_lock<Mutex>(mutex_)};
+  }
+
+  /**
+   * @brief Alias for `wlock()` — provided for compatibility with
+   *        exclusive-only mutex types such as `std::mutex`.
+   */
+  auto lock() {
+    return wlock();
+  }
+
+  /**
+   * @brief Execute @p fn while holding an exclusive write lock.
+   *
+   * The callable receives a mutable reference to the guarded datum.
+   *
+   * @tparam Fn  `fn(T&)` — may return a value, which is forwarded to the
+   *             caller.
+   */
+  template <typename Fn>
+  auto withWLock(Fn&& fn) {
+    auto lp = wlock();
+    return std::forward<Fn>(fn)(*lp);
+  }
+
+  /**
+   * @brief Alias for `withWLock()`.
+   */
+  template <typename Fn>
+  auto withLock(Fn&& fn) {
+    return withWLock(std::forward<Fn>(fn));
+  }
+
+  /**
+   * @brief Acquire a shared read lock and return an immutable `locked_ptr`.
+   *
+   * The returned proxy only grants `const` access to the guarded datum,
+   * preventing modification while only a shared lock is held.
+   *
+   * This overload is only available when `Mutex` supports shared locking
+   * (i.e. satisfies `detail::shared_mutex_c`).
+   */
+  auto rlock() const
+    requires detail::shared_mutex_c<Mutex>
+  {
+    return locked_ptr<const T, std::shared_lock<Mutex>>{
+        &data_, std::shared_lock<Mutex>(mutex_)};
+  }
+
+  /**
+   * @brief Execute @p fn while holding a shared read lock.
+   *
+   * The callable receives a `const` reference to the guarded datum. Only
+   * available when `Mutex` supports shared locking.
+   *
+   * @tparam Fn  `fn(const T&)` — may return a value, which is forwarded to
+   *             the caller.
+   */
+  template <typename Fn>
+  auto withRLock(Fn&& fn) const
+    requires detail::shared_mutex_c<Mutex>
+  {
+    auto lp = rlock();
+    return std::forward<Fn>(fn)(*lp);
+  }
+
+  /**
+   * @brief Return a copy of the guarded datum taken under the least-intrusive
+   *        lock available (shared when possible, exclusive otherwise).
+   */
+  T copy() const {
+    if constexpr (detail::shared_mutex_c<Mutex>) {
+      auto lp = rlock();
+      return *lp;
+    } else {
+      std::unique_lock<Mutex> lk(mutex_);
+      return data_;
+    }
+  }
+
+  /**
+   * @brief Write a copy of the datum into @p out under the least-intrusive
+   *        lock available.
+   * @param out Target to copy into.
+   */
+  void copy(T* out) const {
+    if constexpr (detail::shared_mutex_c<Mutex>) {
+      auto lp = rlock();
+      *out = *lp;
+    } else {
+      std::unique_lock<Mutex> lk(mutex_);
+      *out = data_;
+    }
+  }
+
+ private:
+  mutable Mutex mutex_;
+  T data_;
+};
+
+/**
  * @brief Base class for arbitrary user-defined data that can be attached to a
  *        `dynamic` object without being serialized.
  *
@@ -2222,283 +2489,6 @@ inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
 
   return dyn;
 }
-
-// ── synchronized ────────────────────────────────────────────────────────────
-
-/**
- * @brief RAII pointer proxy returned by `synchronized` lock operations.
- *
- * Holds the underlying lock for its entire lifetime. Provides pointer-like
- * access to the guarded datum. The proxy is move-only; it cannot be copied.
- *
- * When `isNull()` returns `true` the lock has been released early via
- * `unlock()` and dereferencing the proxy is undefined behaviour.
- *
- * @tparam T        Type of the guarded datum (may be `const`-qualified for
- *                  read-only proxies).
- * @tparam LockType Concrete lock type, e.g. `std::unique_lock<Mutex>` or
- *                  `std::shared_lock<Mutex>`.
- */
-template <typename T, typename LockType>
-class locked_ptr {
- public:
-  /** @brief Construct a null (unlocked) proxy. */
-  locked_ptr() = default;
-
-  /** @brief Construct by taking ownership of both the data pointer and the
-   *         pre-acquired lock. */
-  locked_ptr(T* data, LockType lock) : data_(data), lock_(std::move(lock)) {}
-
-  locked_ptr(const locked_ptr&) = delete;
-  locked_ptr& operator=(const locked_ptr&) = delete;
-  locked_ptr(locked_ptr&&) = default;
-  locked_ptr& operator=(locked_ptr&&) = default;
-
-  /** @brief Access the guarded object. Undefined behaviour when null. */
-  T* operator->() const {
-    return data_;
-  }
-
-  /** @brief Dereference the guarded object. Undefined behaviour when null. */
-  T& operator*() const {
-    return *data_;
-  }
-
-  /**
-   * @brief Release the lock early and transition the proxy to the null state.
-   *
-   * After `unlock()` returns, `isNull()` is `true` and any dereference is
-   * undefined behaviour.
-   */
-  void unlock() {
-    lock_.unlock();
-    data_ = nullptr;
-  }
-
-  /** @brief Return `true` when the proxy is in the null (unlocked) state. */
-  bool isNull() const {
-    return data_ == nullptr;
-  }
-
-  /** @brief Contextual boolean — `false` when null. */
-  explicit operator bool() const {
-    return data_ != nullptr;
-  }
-
- private:
-  T* data_ = nullptr;
-  LockType lock_;
-};
-
-namespace detail {
-
-/** @brief Concept satisfied by mutex types that support shared (read) locking,
- *         such as `std::shared_mutex`. */
-template <typename Mutex>
-concept shared_mutex_c = requires(Mutex& m) {
-  m.lock_shared();
-  m.unlock_shared();
-};
-
-} // namespace detail
-
-/**
- * @brief Associates a datum with a mutex so that the lock must be explicitly
- *        acquired before the datum can be accessed.
- *
- * Inspired by `folly::Synchronized`. Instead of storing the mutex and the
- * data separately (where it is easy to forget to take the lock), `synchronized`
- * bundles them together and only exposes the data through a lock-holding
- * `locked_ptr` proxy.
- *
- * When `Mutex` supports shared locking (e.g. the default `std::shared_mutex`),
- * both `wlock()` (exclusive write) and `rlock()` (shared read) are available.
- * When only an exclusive mutex is used (e.g. `std::mutex`), only `wlock()` /
- * `lock()` are available.
- *
- * ### Example
- * @code{.cpp}
- * synchronized<std::vector<int>> vec;
- *
- * // Exclusive write
- * vec.wlock()->push_back(42);
- *
- * // Shared read — only const access is possible
- * int n = vec.rlock()->at(0);
- *
- * // Lambda-based critical section
- * vec.withWLock([](auto& v) { v.clear(); });
- * @endcode
- *
- * @tparam T     Type of the guarded datum.
- * @tparam Mutex Mutex type; defaults to `std::shared_mutex`.
- */
-template <typename T, typename Mutex = std::shared_mutex>
-class synchronized {
- public:
-  /** @brief Default-initialise the datum and the mutex. */
-  synchronized() = default;
-
-  /** @brief Construct from an initial value (moved into the guarded storage).
-   */
-  explicit synchronized(T data) : data_(std::move(data)) {}
-
-  /** @brief Copy constructor — acquires a shared lock on the source when
-   *         possible, otherwise an exclusive lock. */
-  synchronized(const synchronized& other) {
-    if constexpr (detail::shared_mutex_c<Mutex>) {
-      std::shared_lock lk(other.mutex_);
-      data_ = other.data_;
-    } else {
-      std::unique_lock lk(other.mutex_);
-      data_ = other.data_;
-    }
-  }
-
-  /** @brief Copy assignment — copies the source datum under the appropriate
-   *         source lock, then writes to the destination under an exclusive
-   *         lock. The two mutexes are never held simultaneously. */
-  synchronized& operator=(const synchronized& other) {
-    if (this != &other) {
-      T tmp;
-      if constexpr (detail::shared_mutex_c<Mutex>) {
-        std::shared_lock lk(other.mutex_);
-        tmp = other.data_;
-      } else {
-        std::unique_lock lk(other.mutex_);
-        tmp = other.data_;
-      }
-      std::unique_lock lk(mutex_);
-      data_ = std::move(tmp);
-    }
-    return *this;
-  }
-
-  /** @brief Assign a new value directly under an exclusive lock. */
-  synchronized& operator=(T val) {
-    std::unique_lock lk(mutex_);
-    data_ = std::move(val);
-    return *this;
-  }
-
-  synchronized(synchronized&&) = delete;
-  synchronized& operator=(synchronized&&) = delete;
-
-  // ── Exclusive write lock ─────────────────────────────────────────────────
-
-  /**
-   * @brief Acquire an exclusive write lock and return a mutable `locked_ptr`.
-   *
-   * The lock is held until the returned proxy is destroyed. Open a nested
-   * scope to make the critical section clearly delimited.
-   */
-  auto wlock() {
-    return locked_ptr<T, std::unique_lock<Mutex>>{
-        &data_, std::unique_lock<Mutex>(mutex_)};
-  }
-
-  /**
-   * @brief Alias for `wlock()` — provided for compatibility with
-   *        exclusive-only mutex types such as `std::mutex`.
-   */
-  auto lock() {
-    return wlock();
-  }
-
-  /**
-   * @brief Execute @p fn while holding an exclusive write lock.
-   *
-   * The callable receives a mutable reference to the guarded datum.
-   *
-   * @tparam Fn  `fn(T&)` — may return a value, which is forwarded to the
-   *             caller.
-   */
-  template <typename Fn>
-  auto withWLock(Fn&& fn) {
-    auto lp = wlock();
-    return std::forward<Fn>(fn)(*lp);
-  }
-
-  /**
-   * @brief Alias for `withWLock()`.
-   */
-  template <typename Fn>
-  auto withLock(Fn&& fn) {
-    return withWLock(std::forward<Fn>(fn));
-  }
-
-  // ── Shared read lock (only when Mutex supports shared locking) ────────────
-
-  /**
-   * @brief Acquire a shared read lock and return an immutable `locked_ptr`.
-   *
-   * The returned proxy only grants `const` access to the guarded datum,
-   * preventing modification while only a shared lock is held.
-   *
-   * This overload is only available when `Mutex` supports shared locking
-   * (i.e. satisfies `detail::shared_mutex_c`).
-   */
-  auto rlock() const
-    requires detail::shared_mutex_c<Mutex>
-  {
-    return locked_ptr<const T, std::shared_lock<Mutex>>{
-        &data_, std::shared_lock<Mutex>(mutex_)};
-  }
-
-  /**
-   * @brief Execute @p fn while holding a shared read lock.
-   *
-   * The callable receives a `const` reference to the guarded datum. Only
-   * available when `Mutex` supports shared locking.
-   *
-   * @tparam Fn  `fn(const T&)` — may return a value, which is forwarded to
-   *             the caller.
-   */
-  template <typename Fn>
-  auto withRLock(Fn&& fn) const
-    requires detail::shared_mutex_c<Mutex>
-  {
-    auto lp = rlock();
-    return std::forward<Fn>(fn)(*lp);
-  }
-
-  // ── Copying ───────────────────────────────────────────────────────────────
-
-  /**
-   * @brief Return a copy of the guarded datum taken under the least-intrusive
-   *        lock available (shared when possible, exclusive otherwise).
-   */
-  T copy() const {
-    if constexpr (detail::shared_mutex_c<Mutex>) {
-      auto lp = rlock();
-      return *lp;
-    } else {
-      std::unique_lock<Mutex> lk(mutex_);
-      return data_;
-    }
-  }
-
-  /**
-   * @brief Write a copy of the datum into @p out under the least-intrusive
-   *        lock available.
-   * @param out Target to copy into.
-   */
-  void copy(T* out) const {
-    if constexpr (detail::shared_mutex_c<Mutex>) {
-      auto lp = rlock();
-      *out = *lp;
-    } else {
-      std::unique_lock<Mutex> lk(mutex_);
-      *out = data_;
-    }
-  }
-
- private:
-  mutable Mutex mutex_;
-  T data_;
-};
-
-// ── end synchronized ─────────────────────────────────────────────────────────
 
 /**
  * @namespace bdg::bison::extensions
