@@ -25,12 +25,12 @@ namespace bdg::bison::rmi::transport {
  * one server endpoint.
  */
 struct memory_channel {
-  std::mutex              mtx;
+  std::mutex mtx;
   std::condition_variable cv_c2s;
   std::condition_variable cv_s2c;
   std::queue<std::vector<char>> c2s_queue;
   std::queue<std::vector<char>> s2c_queue;
-  std::atomic<bool>       closed{false};
+  std::atomic<bool> closed{false};
 };
 
 /**
@@ -41,7 +41,8 @@ class memory_client_transport {
   /** @brief Construct from a shared channel state object. */
   explicit memory_client_transport(std::shared_ptr<memory_channel> ch);
 
-  /** @brief Open the endpoint. Parameters are accepted for API compatibility. */
+  /** @brief Open the endpoint. Parameters are accepted for API compatibility.
+   */
   void open(bison::dynamic params);
 
   /** @brief Send one encoded frame to the server side. */
@@ -53,11 +54,13 @@ class memory_client_transport {
    * @param timeout Maximum wait time before returning `false`.
    * @return `true` when a frame was received; otherwise `false`.
    */
-  bool receive(std::vector<char>& frame,
-               std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+  bool receive(
+      std::vector<char>& frame,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
 
   /** @brief Close the endpoint and wake blocked waiters. */
   void shutdown();
+
  private:
   std::shared_ptr<memory_channel> ch_;
 };
@@ -79,14 +82,16 @@ class memory_server_connection {
    * @param timeout Maximum wait time before returning `false`.
    * @return `true` when a frame was received; otherwise `false`.
    */
-  bool receive(std::vector<char>& frame,
-               std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+  bool receive(
+      std::vector<char>& frame,
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
 
   /** @brief Mark the connection as closed and notify waiters. */
   void close();
 
   /** @brief Return whether this connection has been closed. */
   bool is_closed() const;
+
  private:
   std::shared_ptr<memory_channel> ch_;
 };
@@ -118,10 +123,10 @@ class memory_server_transport {
   void stop();
 
  private:
-  std::mutex                              mtx_;
-  std::condition_variable                 cv_;
+  std::mutex mtx_;
+  std::condition_variable cv_;
   std::queue<std::shared_ptr<memory_channel>> pending_;
-  std::atomic<bool>                       stopped_{false};
+  std::atomic<bool> stopped_{false};
 };
 
 } // namespace bdg::bison::rmi::transport
