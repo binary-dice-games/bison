@@ -21,8 +21,7 @@ using bison_key_t = bdg::bison::key_t;
 // state leaking from one class-registration test into another.
 // ─────────────────────────────────────────────────────────────────────────────
 static void clearClassRegistry() {
-  std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
-  dynamic::getClasses().clear();
+  dynamic::getRegistry().wlock()->clear();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -48,14 +47,14 @@ TEST(HashTests, DifferentStringsProduceDifferentHashes) {
 
 TEST(HashTests, KeyLiteralMatchesRuntimeHash) {
   hash_t compile_time = "velocity"_key;
-  hash_t runtime      = hash("velocity");
+  hash_t runtime = hash("velocity");
   EXPECT_EQ(compile_time, runtime);
 }
 
 TEST(HashTests, KeyTConstructors) {
   bison_key_t from_literal = "name"_key;
-  bison_key_t from_cstr    = bison_key_t{"name"};
-  bison_key_t from_string  = bison_key_t{std::string{"name"}};
+  bison_key_t from_cstr = bison_key_t{"name"};
+  bison_key_t from_string = bison_key_t{std::string{"name"}};
   EXPECT_EQ(from_literal.id, from_cstr.id);
   EXPECT_EQ(from_literal.id, from_string.id);
 }
@@ -72,7 +71,7 @@ TEST(HashTests, KeyTImplicitConversionToHashT) {
 
 TEST(ByteSwapTests, Roundtrip) {
   int32_t original = 0x01020304;
-  int32_t swapped  = byte_swap(byte_swap(original));
+  int32_t swapped = byte_swap(byte_swap(original));
   EXPECT_EQ(original, swapped);
 }
 
@@ -97,21 +96,30 @@ TEST(StreamSerializerTests, Int32RoundTrip) {
 
 TEST(StreamSerializerTests, FloatRoundTrip) {
   std::stringstream ss;
-  { stream_serializer s{ss}; s.write(float{2.71828f}); }
+  {
+    stream_serializer s{ss};
+    s.write(float{2.71828f});
+  }
   stream_deserializer d{ss};
   EXPECT_FLOAT_EQ(d.read<float>(), 2.71828f);
 }
 
 TEST(StreamSerializerTests, BoolRoundTrip) {
   std::stringstream ss;
-  { stream_serializer s{ss}; s.write(true); }
+  {
+    stream_serializer s{ss};
+    s.write(true);
+  }
   stream_deserializer d{ss};
   EXPECT_TRUE(d.read<bool>());
 }
 
 TEST(StreamSerializerTests, StringRoundTrip) {
   std::stringstream ss;
-  { stream_serializer s{ss}; s.write(std::string{"hello bison"}); }
+  {
+    stream_serializer s{ss};
+    s.write(std::string{"hello bison"});
+  }
 
   std::string result;
   stream_deserializer d{ss};
@@ -121,7 +129,10 @@ TEST(StreamSerializerTests, StringRoundTrip) {
 
 TEST(StreamSerializerTests, EmptyStringRoundTrip) {
   std::stringstream ss;
-  { stream_serializer s{ss}; s.write(std::string{""}); }
+  {
+    stream_serializer s{ss};
+    s.write(std::string{""});
+  }
   std::string result{"non-empty"};
   stream_deserializer d{ss};
   d.read(result);
@@ -131,7 +142,10 @@ TEST(StreamSerializerTests, EmptyStringRoundTrip) {
 TEST(StreamSerializerTests, VectorInt32RoundTrip) {
   std::stringstream ss;
   std::vector<int32_t> v{1, 2, 3, 4, 5};
-  { stream_serializer s{ss}; s.write(v); }
+  {
+    stream_serializer s{ss};
+    s.write(v);
+  }
 
   std::vector<int32_t> out;
   stream_deserializer d{ss};
@@ -142,42 +156,57 @@ TEST(StreamSerializerTests, VectorInt32RoundTrip) {
 TEST(StreamSerializerTests, VectorFloatRoundTrip) {
   std::stringstream ss;
   std::vector<float> v{1.1f, 2.2f, 3.3f};
-  { stream_serializer s{ss}; s.write(v); }
+  {
+    stream_serializer s{ss};
+    s.write(v);
+  }
 
   std::vector<float> out;
   stream_deserializer d{ss};
   d.read(out);
   ASSERT_EQ(out.size(), v.size());
-  for (size_t i = 0; i < v.size(); ++i) EXPECT_FLOAT_EQ(out[i], v[i]);
+  for (size_t i = 0; i < v.size(); ++i)
+    EXPECT_FLOAT_EQ(out[i], v[i]);
 }
 
 TEST(StreamSerializerTests, SpanInt32RoundTripToVector) {
   std::stringstream ss;
   std::array<int32_t, 4> values{11, 22, 33, 44};
-  { stream_serializer s{ss}; s.write(std::span<const int32_t>(values)); }
+  {
+    stream_serializer s{ss};
+    s.write(std::span<const int32_t>(values));
+  }
 
   std::vector<int32_t> out;
   stream_deserializer d{ss};
   d.read(out);
   ASSERT_EQ(out.size(), values.size());
-  for (size_t i = 0; i < values.size(); ++i) EXPECT_EQ(out[i], values[i]);
+  for (size_t i = 0; i < values.size(); ++i)
+    EXPECT_EQ(out[i], values[i]);
 }
 
 TEST(StreamSerializerTests, SpanFloatRoundTripIntoFixedBuffer) {
   std::stringstream ss;
   std::array<float, 3> values{1.25f, 2.5f, 5.0f};
-  { stream_serializer s{ss}; s.write(std::span<const float>(values)); }
+  {
+    stream_serializer s{ss};
+    s.write(std::span<const float>(values));
+  }
 
   std::array<float, 3> out{};
   stream_deserializer d{ss};
   d.read(std::span<float>(out));
-  for (size_t i = 0; i < values.size(); ++i) EXPECT_FLOAT_EQ(out[i], values[i]);
+  for (size_t i = 0; i < values.size(); ++i)
+    EXPECT_FLOAT_EQ(out[i], values[i]);
 }
 
 TEST(StreamSerializerTests, SpanReadSizeMismatchThrows) {
   std::stringstream ss;
   std::array<int32_t, 3> values{1, 2, 3};
-  { stream_serializer s{ss}; s.write(std::span<const int32_t>(values)); }
+  {
+    stream_serializer s{ss};
+    s.write(std::span<const int32_t>(values));
+  }
 
   std::array<int32_t, 2> too_small{};
   stream_deserializer d{ss};
@@ -188,7 +217,10 @@ TEST(StreamSerializerTests, StringViewWriteRoundTrip) {
   std::stringstream ss;
   std::string backing = "hello view";
   std::string_view view{backing};
-  { stream_serializer s{ss}; s.write(view); }
+  {
+    stream_serializer s{ss};
+    s.write(view);
+  }
 
   std::string out;
   stream_deserializer d{ss};
@@ -198,7 +230,10 @@ TEST(StreamSerializerTests, StringViewWriteRoundTrip) {
 
 TEST(StreamSerializerTests, StringViewReadAliasesStorage) {
   std::stringstream ss;
-  { stream_serializer s{ss}; s.write(std::string{"alias me"}); }
+  {
+    stream_serializer s{ss};
+    s.write(std::string{"alias me"});
+  }
 
   std::string storage;
   std::string_view view;
@@ -283,7 +318,8 @@ TEST(BufferSerializerTests, VectorFloatRoundTrip) {
   std::vector<float> result;
   in.read(result);
   ASSERT_EQ(result.size(), v.size());
-  for (size_t i = 0; i < v.size(); ++i) EXPECT_FLOAT_EQ(result[i], v[i]);
+  for (size_t i = 0; i < v.size(); ++i)
+    EXPECT_FLOAT_EQ(result[i], v[i]);
 }
 
 TEST(BufferSerializerTests, MultipleValuesInOrder) {
@@ -303,7 +339,7 @@ TEST(BufferSerializerTests, UnderflowThrows) {
   auto buf = out.release();
 
   buffer_deserializer in(buf);
-  in.read<int32_t>();  // consume the one value
+  in.read<int32_t>(); // consume the one value
   EXPECT_THROW(in.read<int32_t>(), std::runtime_error);
 }
 
@@ -325,7 +361,9 @@ TEST(BufferSerializerTests, BufferEquivalentToStream) {
   auto buf_bytes = buf_out.release();
 
   ASSERT_EQ(stream_bytes.size(), buf_bytes.size());
-  EXPECT_EQ(0, std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
+  EXPECT_EQ(
+      0,
+      std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
 }
 
 TEST(BufferSerializerTests, DynamicObjectRoundTrip) {
@@ -427,7 +465,7 @@ TEST(FieldTests, ConstructVectorBool) {
 }
 
 TEST(FieldTests, AssignMonostateFieldAcceptsAnyType) {
-  field f;  // monostate
+  field f; // monostate
   f = int32_t{7};
   EXPECT_EQ(f.as<int32_t>(), 7);
 }
@@ -463,7 +501,12 @@ TEST(FieldTests, ImplicitConversionToCorrectType) {
 
 TEST(FieldTests, ImplicitConversionWrongTypeThrows) {
   field f{int32_t{1}};
-  EXPECT_THROW({ float v = static_cast<float>(f); (void)v; }, std::runtime_error);
+  EXPECT_THROW(
+      {
+        float v = static_cast<float>(f);
+        (void)v;
+      },
+      std::runtime_error);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -491,7 +534,7 @@ TEST(FieldTests, AttributeNotFoundReturnsNullptr) {
 
 TEST(FieldTests, AttributesSurviveCloneViaField) {
   field f{true, attr<Required>()};
-  field g = f;  // copy
+  field g = f; // copy
   EXPECT_NE(g.findAttribute<Required>(), nullptr);
 }
 
@@ -500,7 +543,10 @@ TEST(FieldTests, AttributesSurviveCloneViaField) {
 // ─────────────────────────────────────────────────────────────────────────────
 static field field_roundtrip(const field& f) {
   std::stringstream ss;
-  { stream_serializer out{ss}; f.serialize(out); }
+  {
+    stream_serializer out{ss};
+    f.serialize(out);
+  }
   stream_deserializer in{ss};
   return field::deserialize(in);
 }
@@ -543,7 +589,8 @@ TEST(FieldSerializationTests, VectorFloat) {
   field g = field_roundtrip(field{v});
   const auto& out = g.as<std::vector<float>>();
   ASSERT_EQ(out.size(), v.size());
-  for (size_t i = 0; i < v.size(); ++i) EXPECT_FLOAT_EQ(out[i], v[i]);
+  for (size_t i = 0; i < v.size(); ++i)
+    EXPECT_FLOAT_EQ(out[i], v[i]);
 }
 
 TEST(FieldSerializationTests, VectorBool) {
@@ -607,7 +654,7 @@ TEST(DynamicTests, SizeReflectsNumericFields) {
   EXPECT_EQ(obj.size(), 0u);
   obj[0] = int32_t{0};
   EXPECT_EQ(obj.size(), 1u);
-  obj[2] = int32_t{2};   // sparse: index 1 is missing but size is 3
+  obj[2] = int32_t{2}; // sparse: index 1 is missing but size is 3
   EXPECT_EQ(obj.size(), 3u);
 }
 
@@ -632,13 +679,13 @@ TEST(DynamicTests, EraseNumericIndex) {
   dynamic obj;
   obj[0] = int32_t{42};
   EXPECT_TRUE(obj.erase(0));
-  EXPECT_FALSE(obj.erase(0));  // already gone
+  EXPECT_FALSE(obj.erase(0)); // already gone
 }
 
 TEST(DynamicTests, EmptyAfterDefaultConstruct) {
   // Just CLASS field inserted by constructor.
   dynamic obj;
-  obj["x"_key];  // access (creates empty field)
+  obj["x"_key]; // access (creates empty field)
   EXPECT_FALSE(obj.empty());
 }
 
@@ -653,7 +700,7 @@ TEST(DynamicTests, CloneIsIndependent) {
 TEST(DynamicTests, AddFieldReturnsFalseOnDuplicate) {
   dynamic obj;
   EXPECT_TRUE(obj.addField("x"_key, field{int32_t{1}}));
-  EXPECT_FALSE(obj.addField("x"_key, field{int32_t{2}}));  // already exists
+  EXPECT_FALSE(obj.addField("x"_key, field{int32_t{2}})); // already exists
   EXPECT_EQ(obj["x"_key].as<int32_t>(), 1);
 }
 
@@ -680,7 +727,10 @@ TEST(DynamicTests, NestedDynamic) {
 
 static std::shared_ptr<dynamic> dynamic_roundtrip(const dynamic& d) {
   std::stringstream ss;
-  { stream_serializer out{ss}; d.serialize(out); }
+  {
+    stream_serializer out{ss};
+    d.serialize(out);
+  }
   stream_deserializer in{ss};
   return dynamic::deserialize(in);
 }
@@ -706,13 +756,14 @@ TEST(DynamicSerializationTests, FloatField) {
 
 TEST(DynamicSerializationTests, VectorFields) {
   dynamic src;
-  src["ints"_key]  = std::vector<int32_t>{1, 2, 3};
+  src["ints"_key] = std::vector<int32_t>{1, 2, 3};
   src["floats"_key] = std::vector<float>{1.f, 2.f};
-  src["bools"_key]  = std::vector<bool>{true, false};
+  src["bools"_key] = std::vector<bool>{true, false};
 
   auto dst = dynamic_roundtrip(src);
-  EXPECT_EQ((*dst)["ints"_key].as<std::vector<int32_t>>(),
-            (std::vector<int32_t>{1, 2, 3}));
+  EXPECT_EQ(
+      (*dst)["ints"_key].as<std::vector<int32_t>>(),
+      (std::vector<int32_t>{1, 2, 3}));
 }
 
 TEST(DynamicSerializationTests, IndexedElements) {
@@ -741,7 +792,7 @@ TEST(DynamicSerializationTests, NestedDynamic) {
 
 TEST(DynamicSerializationTests, NullNestedPointer) {
   dynamic src;
-  src["ptr"_key] = std::shared_ptr<dynamic>{};  // null
+  src["ptr"_key] = std::shared_ptr<dynamic>{}; // null
   auto dst = dynamic_roundtrip(src);
   auto ptr = (*dst)["ptr"_key].as<std::shared_ptr<dynamic>>();
   EXPECT_EQ(ptr, nullptr);
@@ -753,11 +804,12 @@ TEST(DynamicSerializationTests, NullNestedPointer) {
 
 TEST(DynamicMethodTests, AddAndCallMethod) {
   dynamic obj;
-  obj.addMethod("greet"_key, [](dynamic& self, const dynamic& params) -> dynamic {
-    dynamic result;
-    result["msg"_key] = std::string{"hello"};
-    return result;
-  });
+  obj.addMethod(
+      "greet"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+        dynamic result;
+        result["msg"_key] = std::string{"hello"};
+        return result;
+      });
   dynamic result = obj.call("greet"_key, dynamic{});
   EXPECT_EQ(result["msg"_key].as<std::string>(), "hello");
 }
@@ -809,8 +861,12 @@ TEST(DynamicMethodTests, AddMethodReturnsFalseOnDuplicate) {
 
 class InheritanceTest : public ::testing::Test {
  protected:
-  void SetUp() override { clearClassRegistry(); }
-  void TearDown() override { clearClassRegistry(); }
+  void SetUp() override {
+    clearClassRegistry();
+  }
+  void TearDown() override {
+    clearClassRegistry();
+  }
 };
 
 TEST_F(InheritanceTest, AddClassSucceeds) {
@@ -856,11 +912,12 @@ TEST_F(InheritanceTest, FieldInheritedFromParent) {
 
 TEST_F(InheritanceTest, MethodInheritedFromParent) {
   auto base = dynamic_ptr{"Animal2"_key};
-  base->addMethod("speak"_key, [](dynamic& self, const dynamic& params) -> dynamic {
-    dynamic r;
-    r["sound"_key] = std::string{"..."};
-    return r;
-  });
+  base->addMethod(
+      "speak"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+        dynamic r;
+        r["sound"_key] = std::string{"..."};
+        return r;
+      });
   dynamic::addClass(0U, base);
 
   auto child = dynamic_ptr{"Dog"_key};
@@ -918,8 +975,12 @@ TEST_F(InheritanceTest, InstantiateCreatesCorrectClass) {
 
 class TemplateSerTest : public ::testing::Test {
  protected:
-  void SetUp() override { clearClassRegistry(); }
-  void TearDown() override { clearClassRegistry(); }
+  void SetUp() override {
+    clearClassRegistry();
+  }
+  void TearDown() override {
+    clearClassRegistry();
+  }
 };
 
 TEST_F(TemplateSerTest, RoundtripWithSingleClass) {
@@ -934,7 +995,10 @@ TEST_F(TemplateSerTest, RoundtripWithSingleClass) {
   pt["y"_key] = int32_t{7};
 
   std::stringstream ss;
-  { stream_serializer out{ss}; pt.serializeWithTemplate(out); }
+  {
+    stream_serializer out{ss};
+    pt.serializeWithTemplate(out);
+  }
 
   stream_deserializer in{ss};
   auto restored = dynamic::deserializeWithTemplate(in);

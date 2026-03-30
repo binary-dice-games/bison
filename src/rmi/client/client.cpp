@@ -112,19 +112,16 @@ std::future<bison::dynamic> client::send_request(
 
   std::promise<bison::dynamic> promise;
   auto future = promise.get_future();
-  {
-    std::lock_guard<std::mutex> lk(pending_mutex_);
-    pending_[request_id.id] = std::move(promise);
-  }
+  pending_.wlock()->operator[](request_id.id) = std::move(promise);
   try {
     std::lock_guard<std::mutex> lk(send_mutex_);
     transport_->send(std::move(frame));
   } catch (...) {
-    std::lock_guard<std::mutex> lk(pending_mutex_);
-    auto it = pending_.find(request_id.id);
-    if (it != pending_.end()) {
+    auto lp = pending_.wlock();
+    auto it = lp->find(request_id.id);
+    if (it != lp->end()) {
       it->second.set_exception(std::current_exception());
-      pending_.erase(it);
+      lp->erase(it);
     }
     throw;
   }
@@ -136,14 +133,13 @@ void client::register_event_handler(
     bison::key_t object_id,
     bison::key_t name,
     std::function<void(bison::dynamic)> handler) {
-  std::lock_guard<std::mutex> lk(event_mutex_);
-  event_handlers_[object_id.id][name.id] = std::move(handler);
+  event_handlers_.wlock()->operator[](object_id.id)[name.id] =
+      std::move(handler);
 }
 
 /** @copydoc bdg::bison::rmi::client::unregister_object_events */
 void client::unregister_object_events(bison::key_t object_id) {
-  std::lock_guard<std::mutex> lk(event_mutex_);
-  event_handlers_.erase(object_id.id);
+  event_handlers_.wlock()->erase(object_id.id);
 }
 
 /**
@@ -175,12 +171,12 @@ void client::process_frame(const shared::envelope& env) {
 
     std::promise<bison::dynamic> promise;
     {
-      std::lock_guard<std::mutex> lk(pending_mutex_);
-      auto it = pending_.find(request_id.id);
-      if (it == pending_.end())
+      auto lp = pending_.wlock();
+      auto it = lp->find(request_id.id);
+      if (it == lp->end())
         return;
       promise = std::move(it->second);
-      pending_.erase(it);
+      lp->erase(it);
     }
 
     if (!env.error.empty()) {
@@ -208,9 +204,9 @@ void client::process_frame(const shared::envelope& env) {
 
     std::function<void(bison::dynamic)> handler;
     {
-      std::lock_guard<std::mutex> lk(event_mutex_);
-      auto oit = event_handlers_.find(object_id.id);
-      if (oit != event_handlers_.end()) {
+      auto lp = event_handlers_.rlock();
+      auto oit = lp->find(object_id.id);
+      if (oit != lp->end()) {
         auto eit = oit->second.find(event_name.id);
         if (eit != oit->second.end())
           handler = eit->second;
@@ -233,8 +229,8 @@ void client::process_frame(const shared::envelope& env) {
 void client::fail_all_pending(bison::key_t code, const std::string& message) {
   std::unordered_map<bison::hash_t, std::promise<bison::dynamic>> local;
   {
-    std::lock_guard<std::mutex> lk(pending_mutex_);
-    local = std::move(pending_);
+    auto lp = pending_.wlock();
+    local = std::move(*lp);
   }
   for (auto& [id, promise] : local) {
     promise.set_exception(

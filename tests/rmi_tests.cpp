@@ -24,8 +24,7 @@ using bison_key_t = bdg::bison::key_t;
 // ─────────────────────────────────────────────────────────────────────────────
 
 static void clearClassRegistry() {
-  std::unique_lock<std::shared_mutex> lk(dynamic::getMutex());
-  dynamic::getClasses().clear();
+  dynamic::getRegistry().wlock()->clear();
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

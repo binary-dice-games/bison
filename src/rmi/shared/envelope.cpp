@@ -85,8 +85,8 @@ envelope envelope::decode(const bison::buffer& bytes) {
 void envelope::register_schemas() {
   using namespace constants;
   {
-    std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
-    if (bison::dynamic::getClasses().count(CLASS_ENVELOPE))
+    auto lp = bison::dynamic::getRegistry().rlock();
+    if (lp->count(CLASS_ENVELOPE))
       return;
   }
   auto proto = bison::dynamic_ptr{

@@ -1382,11 +1382,11 @@ class field : public field_base {
  * into the instance's own map for fast subsequent access.
  *
  * ## Thread safety
- * The **global class registry** (`getClasses()`) is protected by `getMutex()`
- * (a `std::shared_mutex`).  Multiple threads may **read** the registry
- * concurrently using a `std::shared_lock`; write operations (`addClass`)
- * acquire an exclusive `std::unique_lock`.  `findField`, `findMethod`, and
- * `findClass` hold only a shared (read) lock while consulting the registry.
+ * The **global class registry** is protected internally by `getRegistry()`
+ * (a `synchronized<collection>`).  Multiple threads may **read** the registry
+ * concurrently via `rlock()`; write operations (`addClass`) acquire an
+ * exclusive lock via `wlock()`.  `findField`, `findMethod`, and `findClass`
+ * hold only a shared read lock while consulting the registry.
  * The **per-instance** field and method maps are **not** thread-safe; callers
  * must synchronise concurrent access to the same `dynamic` instance themselves.
  *
@@ -1783,23 +1783,22 @@ class dynamic {
    * @endcode
    */
   static bool addClass(const key_t parent, std::shared_ptr<dynamic> klass) {
-    std::unique_lock<std::shared_mutex> lk(getMutex());
     auto name = klass->as<key_t>(CLASS);
     (*klass)[PARENT] = parent;
 
+    auto lp = getRegistry().wlock();
     auto ancestor = parent;
-    auto& classes = getClasses();
-    auto it = classes.find(parent);
-    while (it != classes.end() && ancestor != name) {
+    auto it = lp->find(parent);
+    while (it != lp->end() && ancestor != name) {
       ancestor = it->second->as<key_t>(PARENT);
-      it = classes.find(ancestor);
+      it = lp->find(ancestor);
     }
 
     if (ancestor == name) {
       return false;
     }
 
-    return classes.try_emplace(name, std::move(klass)).second;
+    return lp->try_emplace(name, std::move(klass)).second;
   }
 
   /**
@@ -1817,18 +1816,17 @@ class dynamic {
   field* findField(key_t name) const {
     auto it = fields_.find(name);
     if (it == fields_.end()) {
-      std::shared_lock<std::shared_mutex> lk(getMutex());
-      auto& classes = getClasses();
+      auto lp = getRegistry().rlock();
       // Begin the search at the instance's own registered class prototype, then
       // walk up the PARENT chain stored on each prototype.
-      auto itClass = classes.find(as<key_t>(CLASS));
-      while (itClass != classes.end() && it == fields_.end()) {
+      auto itClass = lp->find(as<key_t>(CLASS));
+      while (itClass != lp->end() && it == fields_.end()) {
         auto& klass = itClass->second;
         auto itField = klass->fields_.find(name);
         if (itField != klass->fields_.end()) {
           it = fields_.insert(std::make_pair(name, itField->second)).first;
         } else {
-          itClass = classes.find(klass->as<key_t>(PARENT));
+          itClass = lp->find(klass->as<key_t>(PARENT));
         }
       }
     }
@@ -1849,18 +1847,17 @@ class dynamic {
   method* findMethod(key_t name) const {
     auto it = methods_.find(name);
     if (it == methods_.end()) {
-      std::shared_lock<std::shared_mutex> lk(getMutex());
-      auto& classes = getClasses();
+      auto lp = getRegistry().rlock();
       // Begin the search at the instance's own registered class prototype, then
       // walk up the PARENT chain stored on each prototype.
-      auto itClass = classes.find(as<key_t>(CLASS));
-      while (itClass != classes.end() && it == methods_.end()) {
+      auto itClass = lp->find(as<key_t>(CLASS));
+      while (itClass != lp->end() && it == methods_.end()) {
         auto& klass = itClass->second;
         auto itMethod = klass->methods_.find(name);
         if (itMethod != klass->methods_.end()) {
           it = methods_.insert(std::make_pair(name, itMethod->second)).first;
         } else {
-          itClass = classes.find(klass->as<key_t>(PARENT));
+          itClass = lp->find(klass->as<key_t>(PARENT));
         }
       }
     }
@@ -1879,16 +1876,15 @@ class dynamic {
    * @return Non-owning pointer to the matching prototype, or `nullptr`.
    */
   dynamic* findClass(key_t name) const {
-    std::shared_lock<std::shared_mutex> lk(getMutex());
-    auto& classes = getClasses();
+    auto lp = getRegistry().rlock();
     auto klass = as<key_t>(CLASS);
-    auto it = classes.find(klass);
-    while (it != classes.end() && klass != name) {
+    auto it = lp->find(klass);
+    while (it != lp->end() && klass != name) {
       klass = it->second->as<key_t>(PARENT);
-      it = classes.find(klass);
+      it = lp->find(klass);
     }
 
-    return it != classes.end() ? it->second.get() : nullptr;
+    return it != lp->end() ? it->second.get() : nullptr;
   }
 
   /**
@@ -1915,32 +1911,16 @@ class dynamic {
   }
 
   /**
-   * @brief Return the library-wide shared mutex that protects the class
-   *        registry.
+   * @brief Return the global class registry, protected by a `synchronized`
+   *        wrapper.
    *
-   * External code may acquire this lock when performing multi-step operations
-   * on the class registry that must be atomic.  Use
-   * `std::shared_lock<std::shared_mutex>` for read-only access and
-   * `std::unique_lock<std::shared_mutex>` for mutations.
+   * Use `rlock()` for read-only access and `wlock()` for mutations.
    *
-   * @return Reference to the static `std::shared_mutex`.
+   * @return Reference to the static `synchronized<collection>`.
    */
-  static inline std::shared_mutex& getMutex() {
-    static std::shared_mutex mutex;
-    return mutex;
-  }
-
-  /**
-   * @brief Return the global class registry.
-   *
-   * Maps class name (`key_t`) to the registered prototype
-   * (`shared_ptr<dynamic>`). Access must be protected by `getMutex()`.
-   *
-   * @return Reference to the static `collection`.
-   */
-  static inline collection& getClasses() {
-    static collection classes;
-    return classes;
+  static inline synchronized<collection>& getRegistry() {
+    static synchronized<collection> registry;
+    return registry;
   }
 
  private:
@@ -2103,15 +2083,15 @@ inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
     stream_deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   auto klass = in.read<key_t>();
-  auto& classes = getClasses();
-  auto it = classes.find(klass);
+  auto lp = getRegistry().rlock();
+  auto it = lp->find(klass);
 
-  while (it != classes.end()) {
+  while (it != lp->end()) {
     for (const auto& kv : it->second->fields_) {
       dyn->fields_[kv.first] = field::deserialize(in);
     }
     klass = it->second->as<key_t>(PARENT);
-    it = classes.find(klass);
+    it = lp->find(klass);
   }
 
   return dyn;
@@ -2196,12 +2176,12 @@ inline void dynamic::serialize(buffer_serializer& out) const {
 }
 
 inline void dynamic::serializeWithTemplate(buffer_serializer& out) const {
-  auto& classes = getClasses();
+  auto lp = getRegistry().rlock();
   auto klass = as<key_t>(CLASS);
-  auto it = classes.find(klass);
+  auto it = lp->find(klass);
 
   out.write(klass);
-  while (it != classes.end()) {
+  while (it != lp->end()) {
     for (const auto& kv : it->second->fields_) {
       auto instance_it = fields_.find(kv.first);
       if (instance_it != fields_.end()) {
@@ -2211,7 +2191,7 @@ inline void dynamic::serializeWithTemplate(buffer_serializer& out) const {
       }
     }
     klass = it->second->as<key_t>(PARENT);
-    it = classes.find(klass);
+    it = lp->find(klass);
   }
 }
 
@@ -2229,19 +2209,296 @@ inline std::shared_ptr<dynamic> dynamic::deserializeWithTemplate(
     buffer_deserializer& in) {
   auto dyn = std::shared_ptr<dynamic>(new dynamic{});
   auto klass = in.read<key_t>();
-  auto& classes = getClasses();
-  auto it = classes.find(klass);
+  auto lp = getRegistry().rlock();
+  auto it = lp->find(klass);
 
-  while (it != classes.end()) {
+  while (it != lp->end()) {
     for (const auto& kv : it->second->fields_) {
       dyn->fields_[kv.first] = field::deserialize(in);
     }
     klass = it->second->as<key_t>(PARENT);
-    it = classes.find(klass);
+    it = lp->find(klass);
   }
 
   return dyn;
 }
+
+// ── synchronized ────────────────────────────────────────────────────────────
+
+/**
+ * @brief RAII pointer proxy returned by `synchronized` lock operations.
+ *
+ * Holds the underlying lock for its entire lifetime. Provides pointer-like
+ * access to the guarded datum. The proxy is move-only; it cannot be copied.
+ *
+ * When `isNull()` returns `true` the lock has been released early via
+ * `unlock()` and dereferencing the proxy is undefined behaviour.
+ *
+ * @tparam T        Type of the guarded datum (may be `const`-qualified for
+ *                  read-only proxies).
+ * @tparam LockType Concrete lock type, e.g. `std::unique_lock<Mutex>` or
+ *                  `std::shared_lock<Mutex>`.
+ */
+template <typename T, typename LockType>
+class locked_ptr {
+ public:
+  /** @brief Construct a null (unlocked) proxy. */
+  locked_ptr() = default;
+
+  /** @brief Construct by taking ownership of both the data pointer and the
+   *         pre-acquired lock. */
+  locked_ptr(T* data, LockType lock) : data_(data), lock_(std::move(lock)) {}
+
+  locked_ptr(const locked_ptr&) = delete;
+  locked_ptr& operator=(const locked_ptr&) = delete;
+  locked_ptr(locked_ptr&&) = default;
+  locked_ptr& operator=(locked_ptr&&) = default;
+
+  /** @brief Access the guarded object. Undefined behaviour when null. */
+  T* operator->() const {
+    return data_;
+  }
+
+  /** @brief Dereference the guarded object. Undefined behaviour when null. */
+  T& operator*() const {
+    return *data_;
+  }
+
+  /**
+   * @brief Release the lock early and transition the proxy to the null state.
+   *
+   * After `unlock()` returns, `isNull()` is `true` and any dereference is
+   * undefined behaviour.
+   */
+  void unlock() {
+    lock_.unlock();
+    data_ = nullptr;
+  }
+
+  /** @brief Return `true` when the proxy is in the null (unlocked) state. */
+  bool isNull() const {
+    return data_ == nullptr;
+  }
+
+  /** @brief Contextual boolean — `false` when null. */
+  explicit operator bool() const {
+    return data_ != nullptr;
+  }
+
+ private:
+  T* data_ = nullptr;
+  LockType lock_;
+};
+
+namespace detail {
+
+/** @brief Concept satisfied by mutex types that support shared (read) locking,
+ *         such as `std::shared_mutex`. */
+template <typename Mutex>
+concept shared_mutex_c = requires(Mutex& m) {
+  m.lock_shared();
+  m.unlock_shared();
+};
+
+} // namespace detail
+
+/**
+ * @brief Associates a datum with a mutex so that the lock must be explicitly
+ *        acquired before the datum can be accessed.
+ *
+ * Inspired by `folly::Synchronized`. Instead of storing the mutex and the
+ * data separately (where it is easy to forget to take the lock), `synchronized`
+ * bundles them together and only exposes the data through a lock-holding
+ * `locked_ptr` proxy.
+ *
+ * When `Mutex` supports shared locking (e.g. the default `std::shared_mutex`),
+ * both `wlock()` (exclusive write) and `rlock()` (shared read) are available.
+ * When only an exclusive mutex is used (e.g. `std::mutex`), only `wlock()` /
+ * `lock()` are available.
+ *
+ * ### Example
+ * @code{.cpp}
+ * synchronized<std::vector<int>> vec;
+ *
+ * // Exclusive write
+ * vec.wlock()->push_back(42);
+ *
+ * // Shared read — only const access is possible
+ * int n = vec.rlock()->at(0);
+ *
+ * // Lambda-based critical section
+ * vec.withWLock([](auto& v) { v.clear(); });
+ * @endcode
+ *
+ * @tparam T     Type of the guarded datum.
+ * @tparam Mutex Mutex type; defaults to `std::shared_mutex`.
+ */
+template <typename T, typename Mutex = std::shared_mutex>
+class synchronized {
+ public:
+  /** @brief Default-initialise the datum and the mutex. */
+  synchronized() = default;
+
+  /** @brief Construct from an initial value (moved into the guarded storage).
+   */
+  explicit synchronized(T data) : data_(std::move(data)) {}
+
+  /** @brief Copy constructor — acquires a shared lock on the source when
+   *         possible, otherwise an exclusive lock. */
+  synchronized(const synchronized& other) {
+    if constexpr (detail::shared_mutex_c<Mutex>) {
+      std::shared_lock lk(other.mutex_);
+      data_ = other.data_;
+    } else {
+      std::unique_lock lk(other.mutex_);
+      data_ = other.data_;
+    }
+  }
+
+  /** @brief Copy assignment — copies the source datum under the appropriate
+   *         source lock, then writes to the destination under an exclusive
+   *         lock. The two mutexes are never held simultaneously. */
+  synchronized& operator=(const synchronized& other) {
+    if (this != &other) {
+      T tmp;
+      if constexpr (detail::shared_mutex_c<Mutex>) {
+        std::shared_lock lk(other.mutex_);
+        tmp = other.data_;
+      } else {
+        std::unique_lock lk(other.mutex_);
+        tmp = other.data_;
+      }
+      std::unique_lock lk(mutex_);
+      data_ = std::move(tmp);
+    }
+    return *this;
+  }
+
+  /** @brief Assign a new value directly under an exclusive lock. */
+  synchronized& operator=(T val) {
+    std::unique_lock lk(mutex_);
+    data_ = std::move(val);
+    return *this;
+  }
+
+  synchronized(synchronized&&) = delete;
+  synchronized& operator=(synchronized&&) = delete;
+
+  // ── Exclusive write lock ─────────────────────────────────────────────────
+
+  /**
+   * @brief Acquire an exclusive write lock and return a mutable `locked_ptr`.
+   *
+   * The lock is held until the returned proxy is destroyed. Open a nested
+   * scope to make the critical section clearly delimited.
+   */
+  auto wlock() {
+    return locked_ptr<T, std::unique_lock<Mutex>>{
+        &data_, std::unique_lock<Mutex>(mutex_)};
+  }
+
+  /**
+   * @brief Alias for `wlock()` — provided for compatibility with
+   *        exclusive-only mutex types such as `std::mutex`.
+   */
+  auto lock() {
+    return wlock();
+  }
+
+  /**
+   * @brief Execute @p fn while holding an exclusive write lock.
+   *
+   * The callable receives a mutable reference to the guarded datum.
+   *
+   * @tparam Fn  `fn(T&)` — may return a value, which is forwarded to the
+   *             caller.
+   */
+  template <typename Fn>
+  auto withWLock(Fn&& fn) {
+    auto lp = wlock();
+    return std::forward<Fn>(fn)(*lp);
+  }
+
+  /**
+   * @brief Alias for `withWLock()`.
+   */
+  template <typename Fn>
+  auto withLock(Fn&& fn) {
+    return withWLock(std::forward<Fn>(fn));
+  }
+
+  // ── Shared read lock (only when Mutex supports shared locking) ────────────
+
+  /**
+   * @brief Acquire a shared read lock and return an immutable `locked_ptr`.
+   *
+   * The returned proxy only grants `const` access to the guarded datum,
+   * preventing modification while only a shared lock is held.
+   *
+   * This overload is only available when `Mutex` supports shared locking
+   * (i.e. satisfies `detail::shared_mutex_c`).
+   */
+  auto rlock() const
+    requires detail::shared_mutex_c<Mutex>
+  {
+    return locked_ptr<const T, std::shared_lock<Mutex>>{
+        &data_, std::shared_lock<Mutex>(mutex_)};
+  }
+
+  /**
+   * @brief Execute @p fn while holding a shared read lock.
+   *
+   * The callable receives a `const` reference to the guarded datum. Only
+   * available when `Mutex` supports shared locking.
+   *
+   * @tparam Fn  `fn(const T&)` — may return a value, which is forwarded to
+   *             the caller.
+   */
+  template <typename Fn>
+  auto withRLock(Fn&& fn) const
+    requires detail::shared_mutex_c<Mutex>
+  {
+    auto lp = rlock();
+    return std::forward<Fn>(fn)(*lp);
+  }
+
+  // ── Copying ───────────────────────────────────────────────────────────────
+
+  /**
+   * @brief Return a copy of the guarded datum taken under the least-intrusive
+   *        lock available (shared when possible, exclusive otherwise).
+   */
+  T copy() const {
+    if constexpr (detail::shared_mutex_c<Mutex>) {
+      auto lp = rlock();
+      return *lp;
+    } else {
+      std::unique_lock<Mutex> lk(mutex_);
+      return data_;
+    }
+  }
+
+  /**
+   * @brief Write a copy of the datum into @p out under the least-intrusive
+   *        lock available.
+   * @param out Target to copy into.
+   */
+  void copy(T* out) const {
+    if constexpr (detail::shared_mutex_c<Mutex>) {
+      auto lp = rlock();
+      *out = *lp;
+    } else {
+      std::unique_lock<Mutex> lk(mutex_);
+      *out = data_;
+    }
+  }
+
+ private:
+  mutable Mutex mutex_;
+  T data_;
+};
+
+// ── end synchronized ─────────────────────────────────────────────────────────
 
 /**
  * @namespace bdg::bison::extensions

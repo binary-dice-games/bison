@@ -76,11 +76,11 @@ void server::stop() {
  * @brief Join and clear all per-connection worker threads.
  */
 void server::join_workers() {
-  std::lock_guard<std::mutex> lk(workers_mutex_);
-  for (auto& t : workers_)
+  auto lp = workers_.wlock();
+  for (auto& t : *lp)
     if (t.joinable())
       t.join();
-  workers_.clear();
+  lp->clear();
 }
 
 // ── Accept loop
@@ -94,8 +94,7 @@ void server::accept_loop() {
     auto conn = transport_->accept(std::chrono::milliseconds{100});
     if (!conn)
       continue;
-    std::lock_guard<std::mutex> lk(workers_mutex_);
-    workers_.emplace_back(
+    workers_.wlock()->emplace_back(
         std::thread(&server::client_worker, this, std::move(conn)));
   }
 }
@@ -293,29 +292,31 @@ void server::handle_describe(
   bison::key_t requested = p.value.as<bison::key_t>(FIELD_KLASS);
   bison::dynamic resp;
 
-  std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
-  auto& classes = bison::dynamic::getClasses();
+  {
+    auto lp = bison::dynamic::getRegistry().rlock();
+    auto& classes = *lp;
 
-  if (static_cast<bison::hash_t>(requested) == 0u) {
-    size_t idx = 0;
-    for (const auto& [klass, proto] : classes) {
-      if (klass == CLASS_ENVELOPE)
-        continue;
-      bison::dynamic desc;
-      desc[FIELD_KLASS] = klass;
-      resp[idx++] = std::make_shared<bison::dynamic>(std::move(desc));
+    if (static_cast<bison::hash_t>(requested) == 0u) {
+      size_t idx = 0;
+      for (const auto& [klass, proto] : classes) {
+        if (klass == CLASS_ENVELOPE)
+          continue;
+        bison::dynamic desc;
+        desc[FIELD_KLASS] = klass;
+        resp[idx++] = std::make_shared<bison::dynamic>(std::move(desc));
+      }
+    } else {
+      auto it = classes.find(requested);
+      if (it == classes.end()) {
+        lp.unlock();
+        send_error(
+            conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
+        return;
+      }
+      resp[FIELD_KLASS] = requested;
+      it->second->forEach(
+          [&resp](bison::key_t k, const bison::field& v) { resp[k] = v; });
     }
-  } else {
-    auto it = classes.find(requested);
-    if (it == classes.end()) {
-      lk.unlock();
-      send_error(
-          conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
-      return;
-    }
-    resp[FIELD_KLASS] = requested;
-    it->second->forEach(
-        [&resp](bison::key_t k, const bison::field& v) { resp[k] = v; });
   }
 
   send_response(conn, env, OP_DESCRIBE, shared::payload{std::move(resp)});
@@ -331,8 +332,8 @@ void server::handle_instantiate(
   bison::key_t klass = p.value.as<bison::key_t>(FIELD_KLASS);
 
   {
-    std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
-    if (!bison::dynamic::getClasses().count(klass)) {
+    auto lp = bison::dynamic::getRegistry().rlock();
+    if (!lp->count(klass)) {
       send_error(
           conn,
           env,
@@ -390,9 +391,9 @@ void server::handle_clear(
 
   bison::key_t klass_key = it->second->as<bison::key_t>(bison::dynamic::CLASS);
   {
-    std::shared_lock<std::shared_mutex> lk(bison::dynamic::getMutex());
-    auto class_it = bison::dynamic::getClasses().find(klass_key);
-    if (class_it != bison::dynamic::getClasses().end() && class_it->second) {
+    auto lp = bison::dynamic::getRegistry().rlock();
+    auto class_it = lp->find(klass_key);
+    if (class_it != lp->end() && class_it->second) {
       *it->second = class_it->second->clone();
     } else {
       *it->second = bison::dynamic::instantiate(klass_key);

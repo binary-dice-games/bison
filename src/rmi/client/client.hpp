@@ -155,13 +155,13 @@ class client {
   std::thread worker_;
   std::atomic<bool> running_{false};
 
-  std::mutex pending_mutex_;
-  std::unordered_map<bison::hash_t, std::promise<bison::dynamic>> pending_;
+  bison::synchronized<
+      std::unordered_map<bison::hash_t, std::promise<bison::dynamic>>>
+      pending_;
 
-  std::mutex event_mutex_;
-  std::unordered_map<
+  bison::synchronized<std::unordered_map<
       bison::hash_t,
-      std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>
+      std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
       event_handlers_;
 
   std::mutex send_mutex_;

@@ -12,7 +12,6 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -212,8 +211,7 @@ class server {
   std::thread accept_thread_;
   std::atomic<bool> running_{false};
 
-  std::mutex workers_mutex_;
-  std::vector<std::thread> workers_;
+  bison::synchronized<std::vector<std::thread>> workers_;
 };
 
 } // namespace bdg::bison::rmi
