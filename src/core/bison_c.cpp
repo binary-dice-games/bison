@@ -25,8 +25,6 @@
  * `bison_handle`; callers must follow the documented ownership rules.
  */
 
-// Define the macro so BISON_API emits dllexport / visibility("default").
-#define BISON_BUILDING_DLL
 #include "bison_c.h"
 #include "bison.hpp"
 
@@ -57,10 +55,22 @@ static inline bdg::bison::dynamic* dyn(bison_handle h) {
 
 // ─── Lifecycle ─────────────────────────────────────────────────────────────
 
-BISON_API bison_handle bison_create(uint32_t klass_name) {
+BISON_API bison_handle bison_create(bison_hash klass_name) {
   try {
     auto* sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(
         bdg::bison::key_t{klass_name}));
+    return as_handle(sp);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+BISON_API bison_handle bison_instantiate(bison_hash klass_name) {
+  try {
+    bdg::bison::dynamic obj = bdg::bison::dynamic::instantiate(
+        bdg::bison::key_t{klass_name});
+    auto* sp = new sp_dyn(
+        std::make_shared<bdg::bison::dynamic>(std::move(obj)));
     return as_handle(sp);
   } catch (...) {
     return nullptr;
@@ -107,7 +117,7 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
 
 // ─── Class registry ─────────────────────────────────────────────────────────
 
-BISON_API bison_error bison_add_class(uint32_t parent_name, bison_handle klass) {
+BISON_API bison_error bison_add_class(bison_hash parent_name, bison_handle klass) {
   if (!klass) return BISON_ERR_NULL;
   try {
     // addClass takes a shared_ptr; copy the one inside the handle.
@@ -120,7 +130,7 @@ BISON_API bison_error bison_add_class(uint32_t parent_name, bison_handle klass) 
   }
 }
 
-BISON_API bison_handle bison_find_class(bison_handle h, uint32_t name) {
+BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name) {
   if (!h) return nullptr;
   try {
     bdg::bison::dynamic* found = dyn(h)->findClass(bdg::bison::key_t{name});
@@ -144,48 +154,48 @@ BISON_API bison_handle bison_find_class(bison_handle h, uint32_t name) {
 
 // ─── Setters ────────────────────────────────────────────────────────────────
 
-BISON_API bison_error bison_set_int(bison_handle h, const char* name, int32_t value) {
-  if (!h || !name) return BISON_ERR_NULL;
+BISON_API bison_error bison_set_int(bison_handle h, bison_hash name, int32_t value) {
+  if (!h) return BISON_ERR_NULL;
   try {
-    (*dyn(h))[std::string(name)] = value;
+    (*dyn(h))[bdg::bison::key_t{name}] = value;
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_set_float(bison_handle h, const char* name, float value) {
-  if (!h || !name) return BISON_ERR_NULL;
+BISON_API bison_error bison_set_float(bison_handle h, bison_hash name, float value) {
+  if (!h) return BISON_ERR_NULL;
   try {
-    (*dyn(h))[std::string(name)] = value;
+    (*dyn(h))[bdg::bison::key_t{name}] = value;
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_set_bool(bison_handle h, const char* name, int value) {
-  if (!h || !name) return BISON_ERR_NULL;
+BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value) {
+  if (!h) return BISON_ERR_NULL;
   try {
-    (*dyn(h))[std::string(name)] = bool(value != 0);
+    (*dyn(h))[bdg::bison::key_t{name}] = bool(value != 0);
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_set_string(bison_handle h, const char* name, const char* value) {
-  if (!h || !name || !value) return BISON_ERR_NULL;
+BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const char* value) {
+  if (!h || !value) return BISON_ERR_NULL;
   try {
-    (*dyn(h))[std::string(name)] = std::string(value);
+    (*dyn(h))[bdg::bison::key_t{name}] = std::string(value);
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_set_object(bison_handle h, const char* name, bison_handle value) {
-  if (!h || !name) return BISON_ERR_NULL;
+BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
+  if (!h) return BISON_ERR_NULL;
   try {
     // value == nullptr means set a null dynamic ref.
     sp_dyn child = value ? *as_sp(value) : sp_dyn{};
-    (*dyn(h))[std::string(name)] = child;
+    (*dyn(h))[bdg::bison::key_t{name}] = child;
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
@@ -220,39 +230,39 @@ BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const ch
 
 // ─── Getters ────────────────────────────────────────────────────────────────
 
-BISON_API bison_error bison_get_int(bison_handle h, const char* name, int32_t* out) {
-  if (!h || !name || !out) return BISON_ERR_NULL;
+BISON_API bison_error bison_get_int(bison_handle h, bison_hash name, int32_t* out) {
+  if (!h || !out) return BISON_ERR_NULL;
   try {
-    *out = (*dyn(h))[std::string(name)].as<int32_t>();
+    *out = (*dyn(h))[bdg::bison::key_t{name}].as<int32_t>();
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_get_float(bison_handle h, const char* name, float* out) {
-  if (!h || !name || !out) return BISON_ERR_NULL;
+BISON_API bison_error bison_get_float(bison_handle h, bison_hash name, float* out) {
+  if (!h || !out) return BISON_ERR_NULL;
   try {
-    *out = (*dyn(h))[std::string(name)].as<float>();
+    *out = (*dyn(h))[bdg::bison::key_t{name}].as<float>();
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_get_bool(bison_handle h, const char* name, int* out) {
-  if (!h || !name || !out) return BISON_ERR_NULL;
+BISON_API bison_error bison_get_bool(bison_handle h, bison_hash name, int* out) {
+  if (!h || !out) return BISON_ERR_NULL;
   try {
-    *out = bool((*dyn(h))[std::string(name)]) ? 1 : 0;
+    *out = (*dyn(h))[bdg::bison::key_t{name}].as<bool>() ? 1 : 0;
     return BISON_OK;
   } catch (const std::runtime_error&) { return BISON_ERR_TYPE; }
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_get_string(bison_handle h, const char* name,
+BISON_API bison_error bison_get_string(bison_handle h, bison_hash name,
                                        char* buf, size_t buf_len,
                                        size_t* len_out) {
-  if (!h || !name) return BISON_ERR_NULL;
+  if (!h) return BISON_ERR_NULL;
   try {
-    const std::string& s = (*dyn(h))[std::string(name)].as<std::string>();
+    const std::string& s = (*dyn(h))[bdg::bison::key_t{name}].as<std::string>();
     if (len_out) *len_out = s.size();
     if (buf && buf_len > 0) {
       size_t copy_len = s.size() < buf_len - 1 ? s.size() : buf_len - 1;
@@ -264,11 +274,11 @@ BISON_API bison_error bison_get_string(bison_handle h, const char* name,
     catch (...) { return BISON_ERR_EXCEPTION; }
 }
 
-BISON_API bison_error bison_get_object(bison_handle h, const char* name,
+BISON_API bison_error bison_get_object(bison_handle h, bison_hash name,
                                        bison_handle* out) {
-  if (!h || !name || !out) return BISON_ERR_NULL;
+  if (!h || !out) return BISON_ERR_NULL;
   try {
-    auto sp = (*dyn(h))[std::string(name)].as<std::shared_ptr<bdg::bison::dynamic>>();
+    auto sp = (*dyn(h))[bdg::bison::key_t{name}].as<std::shared_ptr<bdg::bison::dynamic>>();
     if (!sp) {
       *out = nullptr;
       return BISON_OK;
@@ -325,9 +335,9 @@ BISON_API size_t bison_size(bison_handle h) {
 
 // ─── Methods ────────────────────────────────────────────────────────────────
 
-BISON_API bison_error bison_add_method(bison_handle h, const char* name,
+BISON_API bison_error bison_add_method(bison_handle h, bison_hash name,
                                        bison_method_fn fn, void* user) {
-  if (!h || !name || !fn) return BISON_ERR_NULL;
+  if (!h || !fn) return BISON_ERR_NULL;
   try {
     bdg::bison::method wrapped = [fn, user](bdg::bison::dynamic& self,
                                              const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
@@ -354,19 +364,19 @@ BISON_API bison_error bison_add_method(bison_handle h, const char* name,
       return result;
     };
 
-    bool ok = dyn(h)->addMethod(bdg::bison::key_t{std::string(name)}, wrapped);
+    bool ok = dyn(h)->addMethod(bdg::bison::key_t{name}, wrapped);
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
   }
 }
 
-BISON_API bison_error bison_call(bison_handle h, const char* name,
+BISON_API bison_error bison_call(bison_handle h, bison_hash name,
                                  bison_handle params, bison_handle* result) {
-  if (!h || !name || !params || !result) return BISON_ERR_NULL;
+  if (!h || !params || !result) return BISON_ERR_NULL;
   try {
     bdg::bison::dynamic ret = dyn(h)->call(
-        bdg::bison::key_t{std::string(name)},
+        bdg::bison::key_t{name},
         *dyn(params));
     *result = as_handle(new sp_dyn(
         std::make_shared<bdg::bison::dynamic>(std::move(ret))));
@@ -384,7 +394,7 @@ BISON_API bison_error bison_call(bison_handle h, const char* name,
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 
-BISON_API uint32_t bison_key(const char* name) {
+BISON_API bison_hash bison_key(const char* name) {
   if (!name) return 0;
   return bdg::bison::hash(name);
 }

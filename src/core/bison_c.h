@@ -45,9 +45,9 @@
  * #include "bison_c.h"
  *
  * bison_handle h = bison_create(0);
- * bison_set_int(h, "score", 42);
+ * bison_set_int(h, bison_key("score"), 42);
  * int32_t v = 0;
- * bison_get_int(h, "score", &v);   // v == 42
+ * bison_get_int(h, bison_key("score"), &v);   // v == 42
  * bison_release(h);
  * @endcode
  */
@@ -86,6 +86,14 @@ extern "C" {
  * error state.
  */
 typedef struct bison_handle_* bison_handle;
+
+/**
+ * @brief Hash type used for pre-hashed names in the C API.
+ *
+ * Values are produced by `bison_key()` and consumed by APIs that accept
+ * hashed class identifiers and field names.
+ */
+typedef uint32_t bison_hash;
 
 /* ─── Error codes ────────────────────────────────────────────────────────── */
 
@@ -139,7 +147,18 @@ typedef void (*bison_method_fn)(bison_handle self,
  * bison_release(h);
  * @endcode
  */
-BISON_API bison_handle bison_create(uint32_t klass_name);
+BISON_API bison_handle bison_create(bison_hash klass_name);
+
+/**
+ * @brief Create a new dynamic object by class key using C++ `dynamic::instantiate`.
+ *
+ * This is equivalent to `bison_create(klass_name)` but mirrors the C++ API
+ * naming and behavior explicitly.
+ *
+ * @param klass_name  Hashed class name (use `bison_key()` to compute).
+ * @return New handle (ref-count 1) or `NULL` on allocation failure.
+ */
+BISON_API bison_handle bison_instantiate(bison_hash klass_name);
 
 /**
  * @brief Increment the reference count of @p h and return a new handle.
@@ -175,7 +194,7 @@ BISON_API void bison_release(bison_handle h);
  * @code{.c}
  * bison_handle h = bison_from_json("{\"x\": 1}");
  * int32_t x = 0;
- * bison_get_int(h, "x", &x);  // x == 1
+ * bison_get_int(h, bison_key("x"), &x);  // x == 1
  * bison_release(h);
  * @endcode
  */
@@ -211,7 +230,7 @@ BISON_API bison_handle bison_from_yaml(const char* yaml);
  *         same name is already registered, or `BISON_ERR_NULL` if @p klass is
  *         `NULL`.
  */
-BISON_API bison_error bison_add_class(uint32_t parent_name, bison_handle klass);
+BISON_API bison_error bison_add_class(bison_hash parent_name, bison_handle klass);
 
 /**
  * @brief Search the class hierarchy of @p h for a registered class.
@@ -224,60 +243,60 @@ BISON_API bison_error bison_add_class(uint32_t parent_name, bison_handle klass);
  * @return A **non-owning** handle for the found prototype, or `NULL` if not
  *         found.  Do **not** call `bison_release` on the returned handle.
  */
-BISON_API bison_handle bison_find_class(bison_handle h, uint32_t name);
+BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar setters
  * ═════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Set an `int32_t` field by name.
+ * @brief Set an `int32_t` field by hash key.
  * @param h     Target object handle.
- * @param name  Field name (null-terminated string; hashed internally).
+ * @param name  Field name hash (use `bison_key()`).
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_int(bison_handle h, const char* name, int32_t value);
+BISON_API bison_error bison_set_int(bison_handle h, bison_hash name, int32_t value);
 
 /**
- * @brief Set a `float` field by name.
+ * @brief Set a `float` field by hash key.
  * @param h     Target object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_float(bison_handle h, const char* name, float value);
+BISON_API bison_error bison_set_float(bison_handle h, bison_hash name, float value);
 
 /**
- * @brief Set a `bool` field by name.
+ * @brief Set a `bool` field by hash key.
  * @param h     Target object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param value New value (non-zero = true).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_bool(bison_handle h, const char* name, int value);
+BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value);
 
 /**
- * @brief Set a `std::string` field by name.
+ * @brief Set a `std::string` field by hash key.
  * @param h     Target object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param value Null-terminated string value (copied internally).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_string(bison_handle h, const char* name, const char* value);
+BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const char* value);
 
 /**
- * @brief Set a nested `dynamic` object field by name.
+ * @brief Set a nested `dynamic` object field by hash key.
  *
  * The library **increments** the ref-count of @p value so both the caller and
  * the owning object share the same underlying instance.
  *
  * @param h     Target object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param value Handle to set as the field value (may be `NULL` for a null ref).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_object(bison_handle h, const char* name, bison_handle value);
+BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value);
 
 /**
  * @brief Set an `int32_t` field by numeric (array) index.
@@ -311,34 +330,34 @@ BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const ch
  * ═════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Read an `int32_t` field by name.
+ * @brief Read an `int32_t` field by hash key.
  * @param h     Source object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_int(bison_handle h, const char* name, int32_t* out);
+BISON_API bison_error bison_get_int(bison_handle h, bison_hash name, int32_t* out);
 
 /**
- * @brief Read a `float` field by name.
+ * @brief Read a `float` field by hash key.
  * @param h     Source object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_float(bison_handle h, const char* name, float* out);
+BISON_API bison_error bison_get_float(bison_handle h, bison_hash name, float* out);
 
 /**
- * @brief Read a `bool` field by name.
+ * @brief Read a `bool` field by hash key.
  * @param h     Source object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param[out] out  Receives 1 (true) or 0 (false) on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_bool(bison_handle h, const char* name, int* out);
+BISON_API bison_error bison_get_bool(bison_handle h, bison_hash name, int* out);
 
 /**
- * @brief Read a string field by name.
+ * @brief Read a string field by hash key.
  *
  * If @p buf is non-null the string is copied into @p buf (null-terminated)
  * up to @p buf_len bytes.  If @p buf is `NULL` only the required length is
@@ -346,28 +365,28 @@ BISON_API bison_error bison_get_bool(bison_handle h, const char* name, int* out)
  * need the length.
  *
  * @param h        Source object handle.
- * @param name     Field name.
+ * @param name     Field name hash (use `bison_key()`).
  * @param buf      Output buffer (may be `NULL` to query length).
  * @param buf_len  Size of @p buf in bytes (including space for the null terminator).
  * @param[out] len_out  Set to the string length (excluding null terminator).
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_string(bison_handle h, const char* name,
+BISON_API bison_error bison_get_string(bison_handle h, bison_hash name,
                                        char* buf, size_t buf_len,
                                        size_t* len_out);
 
 /**
- * @brief Read a nested object field by name.
+ * @brief Read a nested object field by hash key.
  *
  * Returns a **new** handle (ref-count 1) that must be released by the caller.
  *
  * @param h     Source object handle.
- * @param name  Field name.
+ * @param name  Field name hash (use `bison_key()`).
  * @param[out] out  Set to the child handle on success (may be `NULL` for null
  *                  dynamic refs).
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_object(bison_handle h, const char* name,
+BISON_API bison_error bison_get_object(bison_handle h, bison_hash name,
                                        bison_handle* out);
 
 /**
@@ -424,25 +443,25 @@ BISON_API size_t bison_size(bison_handle h);
  * method is reachable.
  *
  * @param h     Target object handle.
- * @param name  Method name (null-terminated, hashed internally).
+ * @param name  Method name hash (use `bison_key()`).
  * @param fn    Function pointer implementing the method.
  * @param user  Arbitrary user context (may be `NULL`).
  * @return `BISON_OK`, `BISON_ERR_DUPLICATE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_add_method(bison_handle h, const char* name,
+BISON_API bison_error bison_add_method(bison_handle h, bison_hash name,
                                        bison_method_fn fn, void* user);
 
 /**
  * @brief Invoke a named method on @p h.
  *
  * @param h       Target object handle (becomes `self` inside the callback).
- * @param name    Method name.
+ * @param name    Method name hash (use `bison_key()`).
  * @param params  Handle containing call arguments (may be an empty object).
  * @param[out] result  Set to a **new** handle (ref-count 1) holding the return
  *                     value.  Caller must release it.
  * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_call(bison_handle h, const char* name,
+BISON_API bison_error bison_call(bison_handle h, bison_hash name,
                                  bison_handle params, bison_handle* result);
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -454,12 +473,12 @@ BISON_API bison_error bison_call(bison_handle h, const char* name,
  *
  * This is the same hash function used internally by the C++ `"name"_key`
  * literal and `bdg::bison::hash()`.  Use it to prepare keys for functions that
- * accept pre-hashed `uint32_t` names (e.g. `bison_create`, `bison_add_class`).
+ * accept pre-hashed `bison_hash` names (e.g. `bison_create`, `bison_add_class`).
  *
  * @param name  Null-terminated string.
  * @return 32-bit FNV-1a hash with the high bit set.
  */
-BISON_API uint32_t bison_key(const char* name);
+BISON_API bison_hash bison_key(const char* name);
 
 #ifdef __cplusplus
 } /* extern "C" */

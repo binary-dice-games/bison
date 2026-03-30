@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "src/bison.hpp"
+#include "src/core/bison.hpp"
 
 using namespace bdg::bison;
 
@@ -20,9 +20,10 @@ using namespace bdg::bison;
 // Helper: print a separator line for readability
 // ─────────────────────────────────────────────────────────────────────────────
 static void section(const char* title) {
-  std::cout << "\n══════════════════════════════════════════\n";
-  std::cout << "  " << title << "\n";
-  std::cout << "══════════════════════════════════════════\n";
+  static int index = 0;
+  std::cout << "\n==========================================\n";
+  std::cout << "  " << ++index << ". " << title << "\n";
+  std::cout << "==========================================\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -33,7 +34,7 @@ static void section(const char* title) {
 // is zero runtime string-comparison overhead.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_hashing() {
-  section("1. Hashing and keys");
+  section("Hashing and keys");
 
   // Compile-time hash via the _key literal
   constexpr hash_t k1 = "velocity"_key;
@@ -61,7 +62,7 @@ static void example_hashing() {
 // set to a type, only that same type can be assigned again (or it throws).
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_field() {
-  section("2. field – the variant value type");
+  section("field - the variant value type");
 
   // ── Construction ──────────────────────────────────────────────────────────
   field f_empty;                          // monostate (empty)
@@ -120,7 +121,7 @@ static void example_field() {
 // methods, an optional class tag, and optional userdata.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_dynamic_basics() {
-  section("3. dynamic – the runtime object");
+  section("dynamic - the runtime object");
 
   // ── Named fields ──────────────────────────────────────────────────────────
   dynamic obj{"Person"_key};
@@ -178,7 +179,7 @@ static void example_dynamic_basics() {
 // object without any external schema.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_serialization() {
-  section("4. Binary serialization – standard mode");
+  section("Binary serialization - standard mode");
 
   dynamic src{"Config"_key};
   src["width"_key]  = int32_t{1920};
@@ -191,12 +192,12 @@ static void example_serialization() {
 
   // Serialize to an in-memory stream.
   std::stringstream ss;
-  { serializer out{ss}; src.serialize(out); }
+  { stream_serializer out{ss}; src.serialize(out); }
 
   std::cout << "Serialized size: " << ss.str().size() << " bytes\n";
 
   // Deserialize back.
-  deserializer in{ss};
+  stream_deserializer in{ss};
   auto dst = dynamic::deserialize(in);
   std::cout << "width  : " << (*dst)["width"_key].as<int32_t>()     << "\n";
   std::cout << "title  : " << (*dst)["title"_key].as<std::string>() << "\n";
@@ -211,8 +212,8 @@ static void example_serialization() {
   outer["meta"_key] = dynamic_ptr{0U, {{"version"_key, int32_t{3}}}};
 
   std::stringstream ss2;
-  { serializer out2{ss2}; outer.serialize(out2); }
-  deserializer in2{ss2};
+  { stream_serializer out2{ss2}; outer.serialize(out2); }
+  stream_deserializer in2{ss2};
   auto restored = dynamic::deserialize(in2);
   auto meta = (*restored)["meta"_key].as<std::shared_ptr<dynamic>>();
   std::cout << "nested version: " << (*meta)["version"_key].as<int32_t>() << "\n";
@@ -226,7 +227,7 @@ static void example_serialization() {
 // with addClass).  This produces smaller payloads for known message types.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_template_serialization() {
-  section("5. Template serialization – compact mode");
+  section("Template serialization - compact mode");
 
   // Clear any leftover classes from previous examples.
   {
@@ -250,12 +251,12 @@ static void example_template_serialization() {
   v["z"_key] = float{3.0f};
 
   std::stringstream ss;
-  { serializer out{ss}; v.serializeWithTemplate(out); }
+  { stream_serializer out{ss}; v.serializeWithTemplate(out); }
 
   std::cout << "Template-serialized size: " << ss.str().size() << " bytes\n";
   // (Compare with self-describing mode which would also write field-name keys.)
 
-  deserializer in{ss};
+  stream_deserializer in{ss};
   auto restored = dynamic::deserializeWithTemplate(in);
   std::cout << "x=" << (*restored)["x"_key].as<float>()
             << " y=" << (*restored)["y"_key].as<float>()
@@ -274,7 +275,7 @@ static void example_template_serialization() {
 // and returns a dynamic result.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_methods() {
-  section("6. Methods – attaching behaviour to objects");
+  section("Methods - attaching behaviour to objects");
 
   dynamic calc{"Calculator"_key};
 
@@ -330,7 +331,7 @@ static void example_methods() {
 // the prototype data into each instance upfront.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_inheritance() {
-  section("7. Class hierarchy and inheritance");
+  section("Class hierarchy and inheritance");
 
   // Clear any leftover classes from previous examples.
   {
@@ -395,7 +396,7 @@ static void example_inheritance() {
 // runtime application use.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_userdata() {
-  section("8. Userdata – attaching non-serialized context");
+  section("Userdata - attaching non-serialized context");
 
   class RenderState : public userdata {
    public:
@@ -417,8 +418,8 @@ static void example_userdata() {
 
   // Serialize and deserialize – userdata is not included.
   std::stringstream ss;
-  { serializer out{ss}; mesh.serialize(out); }
-  deserializer in{ss};
+  { stream_serializer out{ss}; mesh.serialize(out); }
+  stream_deserializer in{ss};
   auto restored = dynamic::deserialize(in);
 
   std::cout << "vertex_count preserved: "
@@ -436,7 +437,7 @@ static void example_userdata() {
 // with numeric indices, null→null shared_ptr<dynamic>).
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_json() {
-  section("9. JSON import");
+  section("JSON import");
 
   auto obj = extensions::from_json(R"({
     "name":    "Alice",
@@ -471,6 +472,40 @@ static void example_json() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Example 10: YAML import (extensions::from_yaml)
+//
+// Convert a YAML document into a dynamic object. Mappings become named fields,
+// sequences become numeric-indexed dynamic objects, and scalar values are
+// parsed into the most specific supported field type.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_yaml() {
+  section("YAML import");
+
+  auto obj = extensions::from_yaml(R"(
+server:
+  host: localhost
+  port: 8080
+debug: true
+threshold: 0.75
+tags:
+  - yaml
+  - bison
+  - example
+)");
+
+  auto server = (*obj)["server"].as<std::shared_ptr<dynamic>>();
+  std::cout << "host      : " << (*server)["host"].as<std::string>() << "\n";
+  std::cout << "port      : " << (*server)["port"].as<int32_t>() << "\n";
+  std::cout << "debug     : " << (*obj)["debug"].as<bool>() << "\n";
+  std::cout << "threshold : " << (*obj)["threshold"].as<float>() << "\n";
+
+  auto tags = (*obj)["tags"].as<std::shared_ptr<dynamic>>();
+  std::cout << "tags[0]   : " << (*tags)[0].as<std::string>() << "\n";
+  std::cout << "tags[2]   : " << (*tags)[2].as<std::string>() << "\n";
+  std::cout << "tag count : " << tags->size() << "\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
 int main() {
@@ -483,6 +518,7 @@ int main() {
   example_inheritance();
   example_userdata();
   example_json();
+  example_yaml();
 
   std::cout << "\nAll examples completed successfully.\n";
   return 0;

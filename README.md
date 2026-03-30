@@ -1,6 +1,6 @@
 # Bison
 
-**Bison** is a C++17 library for serializing and deserializing objects in a compact binary format. It is conceptually similar to JSON — objects are self-describing, carrying both field names and values — but the wire format is binary rather than text, making it more efficient in terms of size and parsing speed.
+**Bison** is a C++20 library for serializing and deserializing objects in a compact binary format. It is conceptually similar to JSON — objects are self-describing, carrying both field names and values — but the wire format is binary rather than text, making it more efficient in terms of size and parsing speed.
 
 Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL file to describe the schema. The format is self-contained: every serialized object embeds its own field names and types. Objects can also hold callable methods, making them usable as live runtime entities rather than passive data bags.
 
@@ -19,7 +19,7 @@ Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL 
 
 | Requirement | Version |
 |---|---|
-| C++ standard | C++17 or later |
+| C++ standard | C++20 or later |
 | CMake | 3.10 or later |
 | [nlohmann/json](https://github.com/nlohmann/json) | bundled as git submodule |
 | [libyaml](https://github.com/yaml/libyaml) | bundled as git submodule |
@@ -34,15 +34,17 @@ cd bison
 
 # Configure and build
 cmake -B build
-cmake --build build
+cmake --build build --config Debug
 
 # Build with tests enabled
 cmake -B build -DPACKAGE_TESTS=ON
-cmake --build build
+cmake --build build --config Debug
 ctest --test-dir build -C Debug
 ```
 
-The library compiles as a static library (`libbison.a`). To use it in your own CMake project:
+The project builds the C++ library target `bison` and the shared C API target `bison_c`. The Python binding loads `bison_c`, so make sure that target is built before running Python examples or tests.
+
+To use the C++ library in your own CMake project:
 
 ```cmake
 add_subdirectory(bison)
@@ -53,6 +55,138 @@ Then include the single header:
 
 ```cpp
 #include <bison.hpp>
+```
+
+## C++ Example
+
+The repository includes a small C++ example target named `bison_examples` in `examples/main.cpp`.
+
+### Build the example
+
+From the repository root:
+
+```bash
+cmake -B build
+cmake --build build --config Debug --target bison_examples
+```
+
+### Run the example
+
+With the Visual Studio generator on Windows, the executable is emitted at `build/examples/Debug/bison_examples.exe`. You can run it directly:
+
+```powershell
+.\build\examples\Debug\bison_examples.exe
+```
+
+If you want to stay within CMake commands, use `cmake -E chdir` to launch it:
+
+```bash
+cmake -E chdir build/examples/Debug bison_examples.exe
+```
+
+The example output intentionally uses ASCII-only separators so it renders correctly in default Windows PowerShell and other terminals without additional encoding configuration.
+
+## Performance Benchmark
+
+The repository also includes a benchmark target named `bison_performance` in `examples/performance.cpp`. It compares the cost of implementing the same record-like object using a plain C++ class, `bison::dynamic`, and `nlohmann::json`.
+
+The benchmark uses repeated samples with optional warm-up passes. Each result is reported as `min/median`, and the ratio columns are calculated from the median times. The `Serialize` and `Deserialize` rows reuse prebuilt objects and payloads so they isolate serialization cost instead of folding object construction into the same measurement.
+
+The benchmark currently measures these operations over a configurable number of iterations:
+
+- create / destroy
+- field set / get
+- method-style calls
+- serialize
+- deserialize
+
+### Build the benchmark
+
+Use `Release` for meaningful timing numbers:
+
+```bash
+cmake -B build
+cmake --build build --config Release --target bison_performance
+```
+
+### Run the benchmark
+
+From the repository root on Windows:
+
+```powershell
+.\build\examples\Release\bison_performance.exe 100000
+```
+
+The positional numeric argument is the iteration count per sample. If you omit it, the executable uses a built-in default.
+
+You can also control the benchmark with flags:
+
+```powershell
+.\build\examples\Release\bison_performance.exe --iterations=100000 --samples=7 --warmup=2 --format=markdown
+```
+
+Supported output formats are `table`, `csv`, and `markdown`.
+
+### Benchmark architecture
+
+The benchmark harness is intentionally structured to keep timing comparisons fair and repeatable:
+
+- **Three equivalent implementations**: each operation is implemented using a plain C++ record, `bison::dynamic`, and `nlohmann::json`.
+- **Sample-based timing**: each row is measured across warm-up passes and multiple timed samples; reported values are `min/median` milliseconds.
+- **Median-based ratios**: `dyn x` and `json x` are computed from median times, which reduces sensitivity to outliers.
+- **State reset per sample**: mutating benchmarks (set/get and method-style call) rebuild their working state for each measured sample.
+- **Prebuilt serialization fixtures**: serialize/deserialize rows reuse precomputed objects and payload buffers so those rows isolate serialization work.
+- **Optimization guard**: benchmark paths feed values into a volatile sink to prevent dead-code elimination.
+
+Together, this keeps the benchmark focused on representation overhead rather than setup noise.
+
+## Python Binding
+
+The `bindings/python/` package is a thin `ctypes` wrapper over the native `bison_c` shared library. It does not build the native code itself, so build the project first.
+
+### Build the native library
+
+From the repository root:
+
+```bash
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug --target bison_c
+```
+
+On Windows, the binding looks for `build/Release/bison_c.dll` first and then `build/Debug/bison_c.dll`. If your DLL is somewhere else, point the binding at it explicitly:
+
+```powershell
+$env:BISON_LIB = (Resolve-Path .\build\Debug\bison_c.dll)
+```
+
+On Linux or macOS, set `BISON_LIB` to the full path of `libbison_c.so` or `libbison_c.dylib` if it is not found automatically.
+
+### Run the Python examples
+
+From the repository root:
+
+```bash
+python bindings/python/examples.py
+```
+
+The examples script imports `python.bison` directly from this repository, so no package installation step is required.
+
+### Run the Python tests
+
+The test file supports both `pytest` and the standard library `unittest` runner:
+
+```bash
+python -m pytest bindings/python/test_bison.py -v
+```
+
+```bash
+python -m unittest bindings.python.test_bison
+```
+
+If `pytest` is not installed, install it with:
+
+```bash
+python -m pip install pytest
 ```
 
 ## Quick Start
@@ -79,10 +213,10 @@ int main() {
 
     // --- Serialize to a binary stream ---
     std::stringstream ss;
-    obj.serialize(serializer(ss));
+    obj.serialize(stream_serializer(ss));
 
     // --- Deserialize back ---
-    auto restored = dynamic::deserialize(deserializer(ss));
+    auto restored = dynamic::deserialize(stream_deserializer(ss));
     int32_t score = (*restored)["score"_key].as<int32_t>();  // 100
 }
 ```
@@ -113,7 +247,7 @@ int main() {
 
 ```cpp
 dynamic_ptr obj{"MyClass"_key, {{"x"_key, 1.0f}, {"y"_key, 2.0f}}};
-obj->serialize(serializer(ss));
+obj->serialize(stream_serializer(ss));
 ```
 
 ### Keys — compile-time string hashing
@@ -133,8 +267,8 @@ key_t k2{"position"};      // hashes the string in the constructor
 **Standard** — includes field names (keys) in the output; fully self-describing:
 
 ```cpp
-obj.serialize(serializer(out));
-auto copy = dynamic::deserialize(deserializer(in));
+obj.serialize(stream_serializer(out));
+auto copy = dynamic::deserialize(stream_deserializer(in));
 ```
 
 **Template-based** — uses a pre-registered class definition as the schema; only field values are written, reducing output size:
@@ -143,8 +277,8 @@ auto copy = dynamic::deserialize(deserializer(in));
 // Class must be registered before use
 dynamic::addClass(0U, dynamic_ptr{"Point"_key, {{"x"_key, 0.0f}, {"y"_key, 0.0f}}});
 
-point.serializeWithTemplate(serializer(out));
-auto copy = dynamic::deserializeWithTemplate(deserializer(in));
+point.serializeWithTemplate(stream_serializer(out));
+auto copy = dynamic::deserializeWithTemplate(stream_deserializer(in));
 ```
 
 ### Method registration and invocation
@@ -256,13 +390,177 @@ auto ctx = std::dynamic_pointer_cast<MyContext>(obj.getUserdata());
 
 ## API Reference
 
-Full Doxygen-style documentation is embedded in `src/bison.hpp`. Generate HTML docs with:
+Full Doxygen-style documentation is embedded in `src/core/bison.hpp`. Generate HTML docs with:
 
 ```bash
 doxygen Doxyfile
 ```
 
 A `Doxyfile` can be generated with `doxygen -g` and configured to point `INPUT` at `src/`.
+
+## Java Binding
+
+The `bindings/java/` directory contains a JNA (Java Native Access) binding that mirrors the Python `ctypes` approach.  It wraps `libbison_c` and exposes a `Dynamic` class with the same feature set.
+
+### Requirements
+
+| Requirement | Version |
+|---|---|
+| Java | 17 or later |
+| Maven | 3.6 or later |
+| JNA | 5.14 (fetched automatically by Maven) |
+| JUnit 5 | 5.10 (test scope, fetched automatically) |
+
+### Build the native library
+
+```bash
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug --target bison_c
+```
+
+### Run the Java examples
+
+From the `bindings/java/` directory:
+
+```bash
+cd bindings/java
+mvn compile exec:java "-Dexec.mainClass=com.bdg.bison.examples.BisonExamples"
+```
+
+If the shared library is not found automatically, set `BISON_LIB` first:
+
+```bash
+export BISON_LIB=$(pwd)/../../build/libbison_c.so   # Linux
+# macOS: export BISON_LIB=$(pwd)/../../build/libbison_c.dylib
+# Windows: set BISON_LIB=..\..\build\Debug\bison_c.dll
+```
+
+### Run the Java tests
+
+```bash
+cd bindings/java
+mvn test
+```
+
+### Quick-start Java snippet
+
+```java
+try (Dynamic obj = new Dynamic()) {
+    obj.setInt("hp",      100);
+    obj.setFloat("speed", 9.5f);
+    obj.setBool("alive",  true);
+    obj.setString("name", "hero");
+
+    System.out.println(obj.getInt("hp"));     // 100
+    System.out.println(obj.getFloat("speed")); // 9.5
+}
+
+// JSON import
+try (Dynamic root = Dynamic.fromJson("{\"x\": 1, \"y\": 2}")) {
+    System.out.println(root.getInt("x")); // 1
+}
+```
+
+## C# Binding
+
+The `bindings/csharp/` directory contains a P/Invoke binding for .NET 6+.  It wraps `libbison_c` and exposes a `Dynamic` class that implements `IDisposable`.
+
+### Requirements
+
+| Requirement | Version |
+|---|---|
+| .NET SDK | 6.0 or later |
+| xUnit | 2.7 (test project, fetched automatically by NuGet) |
+
+### Build the native library
+
+```bash
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug --target bison_c
+```
+
+### Run the C# examples
+
+From the `bindings/csharp/` directory:
+
+```bash
+cd bindings/csharp
+dotnet run -- examples
+```
+
+Set `BISON_LIB` if the shared library is not found automatically (same approach as the Java binding).
+
+### Run the C# tests
+
+```bash
+cd bindings/csharp/tests
+dotnet test
+```
+
+### Quick-start C# snippet
+
+```csharp
+using Bdg.Bison;
+
+using var obj = new Dynamic();
+obj.SetInt("hp",     100);
+obj.SetFloat("speed", 9.5f);
+obj.SetBool("alive", true);
+obj.SetString("name", "hero");
+
+Console.WriteLine(obj.GetInt("hp"));      // 100
+Console.WriteLine(obj.GetFloat("speed")); // 9.5
+
+// JSON import
+using var root = Dynamic.FromJson("{\"x\": 1, \"y\": 2}");
+Console.WriteLine(root.GetInt("x")); // 1
+```
+
+## Performance Optimizations
+
+The library has been optimised for serialization and deserialization throughput.  The changes described below are in `src/core/bison.hpp`.
+
+### 1. Compiler-intrinsic `byte_swap`
+
+The byte-swapping function that converts scalars to network (big-endian) byte order now uses `__builtin_bswap16/32/64` on GCC and Clang, and `_byteswap_ushort/ulong/uint64` on MSVC.  The compiler lowers these intrinsics to a single `bswap` (x86) or `rev` (ARM) instruction, which is faster than the loop-based fallback retained for other compilers.
+
+### 2. Buffer-based serializer / deserializer
+
+Two new classes — `buffer_serializer` and `buffer_deserializer` — write and read directly from a `std::vector<char>` (or `const char*` / length pair) without going through an `std::ostream` / `std::istream`.  Every `write()` / `read()` call on the stream classes dispatches virtually; the buffer variants eliminate that overhead entirely.
+
+```cpp
+// --- Serialize ---
+buffer_serializer out;
+obj.serialize(out);
+std::vector<char> bytes = out.release();
+
+// --- Deserialize ---
+buffer_deserializer in(bytes);
+auto copy = dynamic::deserialize(in);
+```
+
+`dynamic`, `field`, `stream_serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
+
+### 3. `fields_` retained as `std::map` (ordering is required)
+
+`fields_` is used both as a named-field dictionary (keys with the high bit set) and as an array (small numeric keys 0, 1, 2, …).  `std::map` guarantees that entries are visited in ascending key order, which is essential in two ways:
+
+- **Array semantics** — numeric indices must be iterated in order 0, 1, 2, … for `size()` and field iteration to be correct.
+- **Template serialization** — `serializeWithTemplate` writes field *values* in the order they appear in the class prototype's map; `deserializeWithTemplate` must read them back in exactly the same order.  With `std::unordered_map` the iteration order is non-deterministic across process restarts, so template-mode round-trips would silently swap field values.
+
+`fields_` therefore stays as `std::map<key_t, field>`.  The `size()` and `clear()` methods use `lower_bound(0x80000000u)` to efficiently separate the numeric portion of the map from the named portion in O(log n) time.
+
+### Running the benchmark
+
+Build in `Release` for meaningful timings:
+
+```bash
+cmake -B build
+cmake --build build --config Release --target bison_performance
+./build/examples/bison_performance --iterations=100000 --format=table
+```
+
+The output now includes `Serialize (buf)` and `Deserialize (buf)` rows alongside the original stream-based rows, making it easy to see the speedup from the buffer path.
 
 ## License
 

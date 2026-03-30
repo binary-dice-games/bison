@@ -2,8 +2,24 @@
 bison.py — Python ctypes binding for the Bison dynamic-object library.
 
 This module wraps the ``libbison_c`` shared library (``bison_c.h`` / ``bison_c.cpp``)
-using ``ctypes``.  It provides a Pythonic, object-oriented API on top of the
+using ``ctypes``. It provides a Pythonic, object-oriented API on top of the
 opaque C handle, hiding all reference-counting details.
+
+Repository usage
+----------------
+Build the native shared library before importing this module::
+
+    cmake -B build -DPACKAGE_TESTS=ON
+    cmake --build build --config Debug --target bison_c
+
+From the repository root, run the examples and tests with::
+
+    python bindings/python/examples.py
+    python -m pytest bindings/python/test_bison.py -v
+
+If the shared library is not in the default ``build/`` location, set the
+``BISON_LIB`` environment variable to the full path of ``bison_c.dll``,
+``libbison_c.so``, or ``libbison_c.dylib`` before importing this module.
 
 Quick start
 -----------
@@ -69,9 +85,9 @@ def _find_library() -> str:
     if env_path:
         return env_path
 
-    # Typical layout: <repo>/python/bison.py → <repo>/build/libbison_c.so
+    # Typical layout: <repo>/bindings/python/bison.py -> <repo>/build/libbison_c.so
     here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(here)
+    repo_root = os.path.dirname(os.path.dirname(here))
     candidates = [
         os.path.join(repo_root, "build", "libbison_c.so"),    # Linux
         os.path.join(repo_root, "build", "libbison_c.dylib"), # macOS
@@ -146,6 +162,9 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_create.restype  = _Handle
     lib.bison_create.argtypes = [ctypes.c_uint32]
 
+    lib.bison_instantiate.restype  = _Handle
+    lib.bison_instantiate.argtypes = [ctypes.c_uint32]
+
     lib.bison_add_ref.restype  = _Handle
     lib.bison_add_ref.argtypes = [_Handle]
 
@@ -170,12 +189,12 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     for fn_name in ("bison_set_int", "bison_set_float", "bison_set_bool"):
         fn = getattr(lib, fn_name)
         fn.restype  = _Error
-        fn.argtypes = [_Handle, ctypes.c_char_p, ctypes.c_int32]
-    lib.bison_set_float.argtypes = [_Handle, ctypes.c_char_p, ctypes.c_float]
+        fn.argtypes = [_Handle, ctypes.c_uint32, ctypes.c_int32]
+    lib.bison_set_float.argtypes = [_Handle, ctypes.c_uint32, ctypes.c_float]
     lib.bison_set_string.restype  = _Error
-    lib.bison_set_string.argtypes = [_Handle, ctypes.c_char_p, ctypes.c_char_p]
+    lib.bison_set_string.argtypes = [_Handle, ctypes.c_uint32, ctypes.c_char_p]
     lib.bison_set_object.restype  = _Error
-    lib.bison_set_object.argtypes = [_Handle, ctypes.c_char_p, _Handle]
+    lib.bison_set_object.argtypes = [_Handle, ctypes.c_uint32, _Handle]
 
     # Setters (indexed)
     lib.bison_set_int_at.restype   = _Error
@@ -187,18 +206,18 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
 
     # Getters (named)
     lib.bison_get_int.restype   = _Error
-    lib.bison_get_int.argtypes  = [_Handle, ctypes.c_char_p, ctypes.POINTER(ctypes.c_int32)]
+    lib.bison_get_int.argtypes  = [_Handle, ctypes.c_uint32, ctypes.POINTER(ctypes.c_int32)]
     lib.bison_get_float.restype  = _Error
-    lib.bison_get_float.argtypes = [_Handle, ctypes.c_char_p, ctypes.POINTER(ctypes.c_float)]
+    lib.bison_get_float.argtypes = [_Handle, ctypes.c_uint32, ctypes.POINTER(ctypes.c_float)]
     lib.bison_get_bool.restype   = _Error
-    lib.bison_get_bool.argtypes  = [_Handle, ctypes.c_char_p, ctypes.POINTER(ctypes.c_int)]
+    lib.bison_get_bool.argtypes  = [_Handle, ctypes.c_uint32, ctypes.POINTER(ctypes.c_int)]
     lib.bison_get_string.restype  = _Error
     lib.bison_get_string.argtypes = [
-        _Handle, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t,
+        _Handle, ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t,
         ctypes.POINTER(ctypes.c_size_t),
     ]
     lib.bison_get_object.restype  = _Error
-    lib.bison_get_object.argtypes = [_Handle, ctypes.c_char_p, ctypes.POINTER(_Handle)]
+    lib.bison_get_object.argtypes = [_Handle, ctypes.c_uint32, ctypes.POINTER(_Handle)]
 
     # Getters (indexed)
     lib.bison_get_int_at.restype   = _Error
@@ -216,10 +235,10 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
 
     # Methods
     lib.bison_add_method.restype  = _Error
-    lib.bison_add_method.argtypes = [_Handle, ctypes.c_char_p, _MethodFnType, ctypes.c_void_p]
+    lib.bison_add_method.argtypes = [_Handle, ctypes.c_uint32, _MethodFnType, ctypes.c_void_p]
 
     lib.bison_call.restype  = _Error
-    lib.bison_call.argtypes = [_Handle, ctypes.c_char_p, _Handle, ctypes.POINTER(_Handle)]
+    lib.bison_call.argtypes = [_Handle, ctypes.c_uint32, _Handle, ctypes.POINTER(_Handle)]
 
     # Utility
     lib.bison_key.restype  = ctypes.c_uint32
@@ -378,19 +397,19 @@ class Dynamic:
             else:
                 raise TypeError(f"Unsupported value type for indexed field: {type(value)}")
         else:
-            key_b = str(name).encode()
+            key_h = key(str(name))
             if isinstance(value, bool):
-                _check(lib.bison_set_bool(h, key_b, int(value)), f"set_bool[{name}]")
+                _check(lib.bison_set_bool(h, key_h, int(value)), f"set_bool[{name}]")
             elif isinstance(value, int):
-                _check(lib.bison_set_int(h, key_b, value), f"set_int[{name}]")
+                _check(lib.bison_set_int(h, key_h, value), f"set_int[{name}]")
             elif isinstance(value, float):
-                _check(lib.bison_set_float(h, key_b, ctypes.c_float(value)), f"set_float[{name}]")
+                _check(lib.bison_set_float(h, key_h, ctypes.c_float(value)), f"set_float[{name}]")
             elif isinstance(value, str):
-                _check(lib.bison_set_string(h, key_b, value.encode()), f"set_string[{name}]")
+                _check(lib.bison_set_string(h, key_h, value.encode()), f"set_string[{name}]")
             elif isinstance(value, Dynamic):
-                _check(lib.bison_set_object(h, key_b, value._handle), f"set_object[{name}]")
+                _check(lib.bison_set_object(h, key_h, value._handle), f"set_object[{name}]")
             elif value is None:
-                _check(lib.bison_set_object(h, key_b, None), f"set_object_null[{name}]")
+                _check(lib.bison_set_object(h, key_h, None), f"set_object_null[{name}]")
             else:
                 raise TypeError(f"Unsupported value type: {type(value)}")
 
@@ -409,33 +428,33 @@ class Dynamic:
         if isinstance(name, int):
             return self._get_at(name)
 
-        key_b = str(name).encode()
+        key_h = key(str(name))
 
         # Try int32 first, then float, then bool, then string, then object.
         v_int = ctypes.c_int32(0)
-        rc = lib.bison_get_int(h, key_b, ctypes.byref(v_int))
+        rc = lib.bison_get_int(h, key_h, ctypes.byref(v_int))
         if rc == BISON_OK:
             return int(v_int.value)
 
         v_float = ctypes.c_float(0.0)
-        rc = lib.bison_get_float(h, key_b, ctypes.byref(v_float))
+        rc = lib.bison_get_float(h, key_h, ctypes.byref(v_float))
         if rc == BISON_OK:
             return float(v_float.value)
 
         v_bool = ctypes.c_int(0)
-        rc = lib.bison_get_bool(h, key_b, ctypes.byref(v_bool))
+        rc = lib.bison_get_bool(h, key_h, ctypes.byref(v_bool))
         if rc == BISON_OK:
             return bool(v_bool.value)
 
         len_out = ctypes.c_size_t(0)
-        rc = lib.bison_get_string(h, key_b, None, 0, ctypes.byref(len_out))
+        rc = lib.bison_get_string(h, key_h, None, 0, ctypes.byref(len_out))
         if rc == BISON_OK:
             buf = ctypes.create_string_buffer(len_out.value + 1)
-            lib.bison_get_string(h, key_b, buf, len_out.value + 1, None)
+            lib.bison_get_string(h, key_h, buf, len_out.value + 1, None)
             return buf.value.decode()
 
         child_h = _Handle(0)
-        rc = lib.bison_get_object(h, key_b, ctypes.byref(child_h))
+        rc = lib.bison_get_object(h, key_h, ctypes.byref(child_h))
         if rc == BISON_OK:
             return Dynamic(_handle=child_h.value)
 
@@ -520,7 +539,7 @@ class Dynamic:
         # Keep Python reference alive.
         self._callbacks.append(c_fn)
 
-        rc = lib.bison_add_method(self._handle, name.encode(), c_fn, None)
+        rc = lib.bison_add_method(self._handle, key(name), c_fn, None)
         _check(rc, f"add_method({name!r})")
 
     def call(self, name: str, params: "Dynamic") -> "Dynamic":
@@ -545,7 +564,7 @@ class Dynamic:
         """
         result_h = _Handle(0)
         rc = self._lib.bison_call(
-            self._handle, name.encode(), params._handle, ctypes.byref(result_h)
+            self._handle, key(name), params._handle, ctypes.byref(result_h)
         )
         _check(rc, f"call({name!r})")
         return Dynamic(_handle=result_h.value)

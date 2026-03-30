@@ -1,9 +1,11 @@
 """
 examples.py — Python usage examples for the Bison library ctypes binding.
 
-Run with::
+Build ``bison_c`` first, then run this script from the repository root::
 
-    python3 examples.py
+    cmake -B build -DPACKAGE_TESTS=ON
+    cmake --build build --config Debug --target bison_c
+    python bindings/python/examples.py
 
 Each example is a self-contained function; the ``main()`` function at the
 bottom runs all of them in sequence.
@@ -12,7 +14,7 @@ bottom runs all of them in sequence.
 import os
 import sys
 
-# Make sure the python/ directory is importable regardless of where the script
+# Make sure the bindings/python directory is importable regardless of where the script
 # is invoked from.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

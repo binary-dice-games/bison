@@ -1,13 +1,15 @@
 """
 test_bison.py — pytest / unittest tests for the Python bison ctypes binding.
 
-Run with::
+Build ``bison_c`` first, then run the tests from the repository root::
 
-    python3 -m pytest python/test_bison.py -v
+    cmake -B build -DPACKAGE_TESTS=ON
+    cmake --build build --config Debug --target bison_c
+    python -m pytest bindings/python/test_bison.py -v
 
 or::
 
-    python3 -m unittest python.test_bison
+    python -m unittest bindings.python.test_bison
 """
 
 import os
