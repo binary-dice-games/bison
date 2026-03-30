@@ -546,8 +546,8 @@ struct bison_rmi_client_ {
 };
 
 struct bison_rmi_proxy_ {
-  rmi::remote::dynamic proxy;
-  explicit bison_rmi_proxy_(rmi::remote::dynamic&& p) : proxy(std::move(p)) {}
+  rmi::proxy::dynamic proxy;
+  explicit bison_rmi_proxy_(rmi::proxy::dynamic&& p) : proxy(std::move(p)) {}
 };
 
 // ── Transport ─────────────────────────────────────────────────────────────

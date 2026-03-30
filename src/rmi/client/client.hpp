@@ -69,7 +69,7 @@ class client {
    * @param params Optional constructor parameters.
    * @return Move-only proxy that references the server-side object.
    */
-  remote::dynamic instantiate(
+  proxy::dynamic instantiate(
       bison::key_t klass,
       bison::dynamic params = bison::dynamic{});
 
@@ -77,7 +77,7 @@ class client {
    * @brief Destroy a remote object represented by @p proxy.
    * @param proxy Owning proxy to invalidate and destroy remotely.
    */
-  void destroy(remote::dynamic&& proxy);
+  void destroy(proxy::dynamic&& proxy);
 
   /** @brief Gracefully disconnect from the server and stop worker threads. */
   void disconnect();

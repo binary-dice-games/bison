@@ -16,7 +16,7 @@ namespace bdg::bison::rmi {
 // Forward declaration — defined in client.hpp.
 class client;
 
-namespace remote {
+namespace proxy {
 
 /**
  * @brief Move-only owning proxy for a server-side `bison::dynamic` object.
@@ -134,5 +134,5 @@ class dynamic {
   bool valid_{false};
 };
 
-} // namespace remote
+} // namespace proxy
 } // namespace bdg::bison::rmi

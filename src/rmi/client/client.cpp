@@ -43,7 +43,7 @@ bison::dynamic client::describe(bison::key_t klass) {
 }
 
 /** @copydoc bdg::bison::rmi::client::instantiate */
-remote::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
+proxy::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
   payload[FIELD_PARAMS] = std::make_shared<bison::dynamic>(std::move(params));
@@ -51,11 +51,11 @@ remote::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
   auto result =
       send_request(OP_INSTANTIATE, {}, std::move(payload), false).get();
   bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
-  return remote::dynamic{this, std::move(oid)};
+  return proxy::dynamic{this, std::move(oid)};
 }
 
 /** @copydoc bdg::bison::rmi::client::destroy */
-void client::destroy(remote::dynamic&& proxy) {
+void client::destroy(proxy::dynamic&& proxy) {
   bison::key_t oid = proxy.object_id();
   proxy.valid_ = false;
   proxy.client_ = nullptr;
@@ -238,7 +238,7 @@ void client::fail_all_pending(bison::key_t code, const std::string& message) {
   }
 }
 
-namespace remote {
+namespace proxy {
 
 /** @copydoc bdg::bison::rmi::remote::dynamic::clear */
 void dynamic::clear() {
@@ -275,5 +275,5 @@ void dynamic::onEvent(
   client_->register_event_handler(object_id_, name, std::move(handler));
 }
 
-} // namespace remote
+} // namespace proxy
 } // namespace bdg::bison::rmi
