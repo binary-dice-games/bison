@@ -17,6 +17,8 @@ using namespace bdg::bison::rmi::shared;
 using namespace bdg::bison::rmi::shared::constants;
 using namespace bdg::bison::rmi::transport;
 
+using bison_key_t = bdg::bison::key_t;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,17 +94,17 @@ TEST_F(RmiEnvelopeTests, RoundtripRequest) {
   auto env = decode_envelope(frame);
   ASSERT_NE(env, nullptr);
 
-  key_t kind = (*env)[FIELD_KIND];
-  key_t op   = (*env)[FIELD_OP];
+  bison_key_t kind = (*env)[FIELD_KIND];
+  bison_key_t op   = (*env)[FIELD_OP];
   EXPECT_EQ(static_cast<hash_t>(kind), static_cast<hash_t>(KIND_REQUEST));
   EXPECT_EQ(static_cast<hash_t>(op),   static_cast<hash_t>(OP_CALL));
 
-  std::string got_req_id = (*env)[FIELD_REQUEST_ID];
-  std::string got_obj_id = (*env)[FIELD_OBJECT_ID];
+  std::string got_req_id = (*env).as<std::string>(FIELD_REQUEST_ID);
+  std::string got_obj_id = (*env).as<std::string>(FIELD_OBJECT_ID);
   EXPECT_EQ(got_req_id, req_id);
   EXPECT_EQ(got_obj_id, obj_id);
 
-  std::string got_payload = (*env)[FIELD_PAYLOAD];
+  std::string got_payload = (*env).as<std::string>(FIELD_PAYLOAD);
   EXPECT_EQ(got_payload, payload);
 
   bool oneway = (*env)[FIELD_ONEWAY];
@@ -118,13 +120,13 @@ TEST_F(RmiEnvelopeTests, RoundtripWithError) {
   auto env   = decode_envelope(frame);
   ASSERT_NE(env, nullptr);
 
-  std::string got_error = (*env)[FIELD_ERROR];
+  std::string got_error = (*env).as<std::string>(FIELD_ERROR);
   EXPECT_FALSE(got_error.empty());
 
   auto err_obj = decode_payload(got_error);
   ASSERT_NE(err_obj, nullptr);
-  key_t        code    = (*err_obj)[FIELD_ERROR_CODE];
-  std::string  message = (*err_obj)[FIELD_ERROR_MESSAGE];
+  bison_key_t  code    = (*err_obj)[FIELD_ERROR_CODE];
+  std::string  message = (*err_obj).as<std::string>(FIELD_ERROR_MESSAGE);
   EXPECT_EQ(static_cast<hash_t>(code),
             static_cast<hash_t>(ERR_INTERNAL_ERROR));
   EXPECT_EQ(message, "boom");
@@ -152,7 +154,7 @@ TEST(RmiPayload, RoundtripDynamic) {
   auto restored = decode_payload(bytes);
   ASSERT_NE(restored, nullptr);
   int32_t     score = (*restored)["score"_key];
-  std::string name  = (*restored)["name"_key];
+  std::string name  = (*restored).as<std::string>("name"_key);
   EXPECT_EQ(score, 99);
   EXPECT_EQ(name, "Alice");
 }
@@ -260,7 +262,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   for (size_t i = 0; i < result.size(); ++i) {
     auto ptr = static_cast<std::shared_ptr<dynamic>>(result[i]);
     if (ptr) {
-      key_t k = (*ptr)[FIELD_KLASS];
+      bison_key_t k = (*ptr)[FIELD_KLASS];
       if (static_cast<hash_t>(k) == static_cast<hash_t>("TestWidget"_key))
         found = true;
     }
@@ -603,8 +605,8 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
                    [](dynamic& self, const dynamic& params) {
                      // Retrieve the emit_event callback stored in userdata.
                      // For this test we smuggle it via a shared_ptr<userdata>.
-                     struct emit_ud : bison::userdata {
-                       std::function<void(const std::string&, key_t, dynamic)> fn;
+                     struct emit_ud : bdg::bison::userdata {
+                       std::function<void(const std::string&, bison_key_t, dynamic)> fn;
                      };
                      auto ud = std::dynamic_pointer_cast<emit_ud>(
                          self.getUserdata());
@@ -648,7 +650,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Build an event frame manually.
   dynamic event_payload;
-  event_payload[FIELD_NAME]   = key_t{"onTick"_key};
+  event_payload[FIELD_NAME]   = bison_key_t{"onTick"_key};
   event_payload[FIELD_PARAMS] = std::make_shared<dynamic>(
       dynamic{0U, {{"value"_key, field{int32_t{77}}}}});
 
@@ -659,7 +661,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
   conn2->send(std::move(frame));
 
   // Connect a real client to this transport and receive the event.
-  server srv2{mt2};
+  
   // We don't need a real server for this transport-level test;
   // use the raw transport directly.
   //
@@ -676,15 +678,15 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
   auto env = decode_envelope(recv_frame);
   ASSERT_NE(env, nullptr);
 
-  key_t kind = (*env)[FIELD_KIND];
+  bison_key_t kind = (*env)[FIELD_KIND];
   EXPECT_EQ(static_cast<hash_t>(kind), static_cast<hash_t>(KIND_EVENT));
 
-  std::string got_oid = (*env)[FIELD_OBJECT_ID];
+  std::string got_oid = (*env).as<std::string>(FIELD_OBJECT_ID);
   EXPECT_EQ(got_oid, oid);
 
-  std::string payload_bytes = (*env)[FIELD_PAYLOAD];
+  std::string payload_bytes = (*env).as<std::string>(FIELD_PAYLOAD);
   auto payload = decode_payload(payload_bytes);
-  key_t name = (*payload)[FIELD_NAME];
+  bison_key_t name = (*payload)[FIELD_NAME];
   EXPECT_EQ(static_cast<hash_t>(name), static_cast<hash_t>("onTick"_key));
 
   mt2.stop();

@@ -46,6 +46,16 @@ target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml)
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 
+# ─── RMI framework sources ────────────────────────────────────────────────────
+target_sources(bison PRIVATE
+  src/rmi/shared/ids.cpp
+  src/rmi/shared/envelope.cpp
+  src/rmi/transport/memory_transport.cpp
+  src/rmi/client/client.cpp
+  src/rmi/server/server.cpp
+)
+target_include_directories(bison PRIVATE src/rmi)
+
 # ─── Shared library (pure-C ABI) ─────────────────────────────────────────────
 add_library(bison_c SHARED
   src/core/bison_c.h
