@@ -423,7 +423,7 @@ Behavior details:
   - if input `fields` is empty, returns full object snapshot.
   - if `fields` is a projection shape, fills only requested members (GraphQL-like projection).
 - `call`: executes remote callable behavior and returns future.
-- `onEvent`: registers a handler for a hashed event id; callback is dispatched through the client executor pool.
+- `onEvent`: registers a handler for a hashed event id; callback is dispatched on the client's single worker thread.
 - Unique proxy ownership prevents two live local proxies from independently destroying the same remote object.
 
 ### 7.3 Server
@@ -466,7 +466,7 @@ Isolation guarantees:
 
 - object ids are scoped to the session context.
 - client A cannot access objects created by client B.
-- on disconnect, all objects in that context are destroyed.
+- on disconnect, all objects in that context are destroyed, and `__destruct` is invoked for each remaining object if registered.
 - within one client session, the API is designed so one live remote object maps to one live owning proxy.
 
 ## 9. Threading and Concurrency Model
@@ -474,9 +474,10 @@ Isolation guarantees:
 ### 9.1 Client Side
 
 - Main/user thread invokes API methods.
-- Worker thread owns receive loop and event dispatch.
+- A single worker thread per client owns the receive loop and event dispatch.
 - Outbound requests are serialized through a thread-safe send path.
 - Pending request map: `requestId -> promise` protected by mutex.
+- Event callbacks are executed serially on that worker thread to preserve ordering.
 
 Flow:
 
@@ -485,7 +486,7 @@ Flow:
 3. Frame sent over transport.
 4. Worker receives response/event and dispatches:
    - response -> resolve/reject promise.
-  - event -> submit registered handler to the client executor pool.
+  - event -> invoke the registered handler on the same client worker thread.
 
 ### 9.2 Server Side
 
@@ -526,8 +527,9 @@ Flow:
 ### 10.4 clear
 
 - Clears explicitly assigned fields from remote object.
-- If the object defines `__clear`, the server invokes it as part of the clear operation.
-- `__clear` allows custom reset behavior, cleanup of derived state, and pre/post-clear logic defined by the object.
+- The framework first clears the explicitly assigned fields from the remote object.
+- If the object defines `__clear`, the server invokes it after the clear has been applied.
+- `__clear` allows post-clear setup, reinitialization of derived state, and any object-specific logic that must run after the object has been reset.
 - Operation payload (if present) uses regular self-describing serialization.
 
 ### 10.5 set
@@ -566,7 +568,7 @@ Flow:
 The server recognizes a small set of reserved object methods that customize remote object lifecycle and field access behavior:
 
 - `__construct`: invoked on instantiate, with instantiate params.
-- `__destruct`: invoked on destroy, before final object release.
+- `__destruct`: invoked on destroy and disconnect-triggered cleanup, before final object release.
 - `__clear`: invoked during clear.
 - `__setter`: invoked before applying a set payload.
 - `__getter`: invoked after computing a get result and before returning it.
@@ -582,7 +584,8 @@ Hook rules:
 ### 10.9 disconnect
 
 - Client requests graceful closure.
-- Server destroys context objects and closes connection.
+- Server invokes `__destruct` for each remaining live object that defines it, then destroys context objects and closes connection.
+- Disconnect-triggered cleanup is best-effort: failures in `__destruct` should be logged or surfaced according to disconnect error policy, but must not prevent release of remaining session objects.
 - Operation payload (if present) uses regular self-describing serialization.
 
 ## 11. Eventing Model
@@ -604,8 +607,9 @@ Event transport rule:
 Client dispatch rules:
 
 - match `(__objectId, __name)` handler if registered.
-- submit handler to the client executor pool.
+- execute handler on the client worker thread.
 - handler exceptions are caught and logged; they must not crash worker loop.
+- Event callback ordering is guaranteed per client because handlers run serially on a single worker thread.
 
 ## 12. Reliability and Timeouts
 
@@ -614,7 +618,7 @@ Recommended defaults:
 - request timeout configurable per client instance.
 - transport read timeout optional; reconnect policy transport-specific.
 - on disconnection, all pending promises fail with `TRANSPORT_ERROR`.
-- if a client disconnects without explicit `destroy`, server-side session cleanup releases all remaining uniquely-owned remote objects in that session.
+- if a client disconnects without explicit `destroy`, server-side session cleanup invokes `__destruct` for each remaining live object when registered, then releases all remaining uniquely-owned remote objects in that session.
 - oneway calls complete their returned futures immediately on the client without waiting for server acknowledgment.
 
 ## 13. Security and Privacy Baseline
@@ -686,6 +690,6 @@ Concurrency tests:
 ## 17. Resolved Decisions
 
 - `call(oneway=true)` resolves its returned future immediately with an empty dynamic result.
-- Event callbacks are dispatched through a client executor pool.
+- Each client uses a single worker thread for inbound event dispatch, guaranteeing callback ordering.
 - Authentication remains transport-specific in v1.
 - Remote object ids are opaque random values, not incremental counters.
