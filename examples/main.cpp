@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "src/bison.hpp"
+#include "src/core/bison.hpp"
 
 using namespace bdg::bison;
 
@@ -192,12 +192,12 @@ static void example_serialization() {
 
   // Serialize to an in-memory stream.
   std::stringstream ss;
-  { serializer out{ss}; src.serialize(out); }
+  { stream_serializer out{ss}; src.serialize(out); }
 
   std::cout << "Serialized size: " << ss.str().size() << " bytes\n";
 
   // Deserialize back.
-  deserializer in{ss};
+  stream_deserializer in{ss};
   auto dst = dynamic::deserialize(in);
   std::cout << "width  : " << (*dst)["width"_key].as<int32_t>()     << "\n";
   std::cout << "title  : " << (*dst)["title"_key].as<std::string>() << "\n";
@@ -212,8 +212,8 @@ static void example_serialization() {
   outer["meta"_key] = dynamic_ptr{0U, {{"version"_key, int32_t{3}}}};
 
   std::stringstream ss2;
-  { serializer out2{ss2}; outer.serialize(out2); }
-  deserializer in2{ss2};
+  { stream_serializer out2{ss2}; outer.serialize(out2); }
+  stream_deserializer in2{ss2};
   auto restored = dynamic::deserialize(in2);
   auto meta = (*restored)["meta"_key].as<std::shared_ptr<dynamic>>();
   std::cout << "nested version: " << (*meta)["version"_key].as<int32_t>() << "\n";
@@ -251,12 +251,12 @@ static void example_template_serialization() {
   v["z"_key] = float{3.0f};
 
   std::stringstream ss;
-  { serializer out{ss}; v.serializeWithTemplate(out); }
+  { stream_serializer out{ss}; v.serializeWithTemplate(out); }
 
   std::cout << "Template-serialized size: " << ss.str().size() << " bytes\n";
   // (Compare with self-describing mode which would also write field-name keys.)
 
-  deserializer in{ss};
+  stream_deserializer in{ss};
   auto restored = dynamic::deserializeWithTemplate(in);
   std::cout << "x=" << (*restored)["x"_key].as<float>()
             << " y=" << (*restored)["y"_key].as<float>()
@@ -418,8 +418,8 @@ static void example_userdata() {
 
   // Serialize and deserialize – userdata is not included.
   std::stringstream ss;
-  { serializer out{ss}; mesh.serialize(out); }
-  deserializer in{ss};
+  { stream_serializer out{ss}; mesh.serialize(out); }
+  stream_deserializer in{ss};
   auto restored = dynamic::deserialize(in);
 
   std::cout << "vertex_count preserved: "

@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 // Google Test suite for the pure-C Bison shared-library API.
 
-#include "src/bison_c.h"
+#include "src/core/bison_c.h"
 
 #include <gtest/gtest.h>
 #include <cstring>
@@ -226,7 +226,7 @@ TEST(ImportTests, FromYamlInvalidReturnsNull) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // We clear the class registry using the C++ API to avoid state leakage.
-#include "src/bison.hpp"
+#include "src/core/bison.hpp"
 static void clearClasses() {
   std::unique_lock<std::shared_mutex> lk(bdg::bison::dynamic::getMutex());
   bdg::bison::dynamic::getClasses().clear();

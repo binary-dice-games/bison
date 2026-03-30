@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 // Comprehensive unit tests for the Bison library using Google Test.
 
-#include "src/bison.hpp"
+#include "src/core/bison.hpp"
 
 #include <gtest/gtest.h>
 #include <array>
@@ -83,140 +83,277 @@ TEST(ByteSwapTests, FloatRoundtrip) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 3. serializer / deserializer (low-level stream round-trips)
+// 3. stream_serializer / stream_deserializer (low-level stream round-trips)
 // ═════════════════════════════════════════════════════════════════════════════
 
-TEST(SerializerTests, Int32RoundTrip) {
+TEST(StreamSerializerTests, Int32RoundTrip) {
   std::stringstream ss;
-  serializer out(ss);
+  stream_serializer out(ss);
   out.write(int32_t{12345});
 
-  deserializer in(ss);
+  stream_deserializer in(ss);
   EXPECT_EQ(in.read<int32_t>(), 12345);
 }
 
-TEST(SerializerTests, FloatRoundTrip) {
+TEST(StreamSerializerTests, FloatRoundTrip) {
   std::stringstream ss;
-  { serializer s{ss}; s.write(float{2.71828f}); }
-  deserializer d{ss};
+  { stream_serializer s{ss}; s.write(float{2.71828f}); }
+  stream_deserializer d{ss};
   EXPECT_FLOAT_EQ(d.read<float>(), 2.71828f);
 }
 
-TEST(SerializerTests, BoolRoundTrip) {
+TEST(StreamSerializerTests, BoolRoundTrip) {
   std::stringstream ss;
-  { serializer s{ss}; s.write(true); }
-  deserializer d{ss};
+  { stream_serializer s{ss}; s.write(true); }
+  stream_deserializer d{ss};
   EXPECT_TRUE(d.read<bool>());
 }
 
-TEST(SerializerTests, StringRoundTrip) {
+TEST(StreamSerializerTests, StringRoundTrip) {
   std::stringstream ss;
-  { serializer s{ss}; s.write(std::string{"hello bison"}); }
+  { stream_serializer s{ss}; s.write(std::string{"hello bison"}); }
 
   std::string result;
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(result);
   EXPECT_EQ(result, "hello bison");
 }
 
-TEST(SerializerTests, EmptyStringRoundTrip) {
+TEST(StreamSerializerTests, EmptyStringRoundTrip) {
   std::stringstream ss;
-  { serializer s{ss}; s.write(std::string{""}); }
+  { stream_serializer s{ss}; s.write(std::string{""}); }
   std::string result{"non-empty"};
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(result);
   EXPECT_EQ(result, "");
 }
 
-TEST(SerializerTests, VectorInt32RoundTrip) {
+TEST(StreamSerializerTests, VectorInt32RoundTrip) {
   std::stringstream ss;
   std::vector<int32_t> v{1, 2, 3, 4, 5};
-  { serializer s{ss}; s.write(v); }
+  { stream_serializer s{ss}; s.write(v); }
 
   std::vector<int32_t> out;
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(out);
   EXPECT_EQ(out, v);
 }
 
-TEST(SerializerTests, VectorFloatRoundTrip) {
+TEST(StreamSerializerTests, VectorFloatRoundTrip) {
   std::stringstream ss;
   std::vector<float> v{1.1f, 2.2f, 3.3f};
-  { serializer s{ss}; s.write(v); }
+  { stream_serializer s{ss}; s.write(v); }
 
   std::vector<float> out;
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(out);
   ASSERT_EQ(out.size(), v.size());
   for (size_t i = 0; i < v.size(); ++i) EXPECT_FLOAT_EQ(out[i], v[i]);
 }
 
-TEST(SerializerTests, SpanInt32RoundTripToVector) {
+TEST(StreamSerializerTests, SpanInt32RoundTripToVector) {
   std::stringstream ss;
   std::array<int32_t, 4> values{11, 22, 33, 44};
-  { serializer s{ss}; s.write(std::span<const int32_t>(values)); }
+  { stream_serializer s{ss}; s.write(std::span<const int32_t>(values)); }
 
   std::vector<int32_t> out;
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(out);
   ASSERT_EQ(out.size(), values.size());
   for (size_t i = 0; i < values.size(); ++i) EXPECT_EQ(out[i], values[i]);
 }
 
-TEST(SerializerTests, SpanFloatRoundTripIntoFixedBuffer) {
+TEST(StreamSerializerTests, SpanFloatRoundTripIntoFixedBuffer) {
   std::stringstream ss;
   std::array<float, 3> values{1.25f, 2.5f, 5.0f};
-  { serializer s{ss}; s.write(std::span<const float>(values)); }
+  { stream_serializer s{ss}; s.write(std::span<const float>(values)); }
 
   std::array<float, 3> out{};
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(std::span<float>(out));
   for (size_t i = 0; i < values.size(); ++i) EXPECT_FLOAT_EQ(out[i], values[i]);
 }
 
-TEST(SerializerTests, SpanReadSizeMismatchThrows) {
+TEST(StreamSerializerTests, SpanReadSizeMismatchThrows) {
   std::stringstream ss;
   std::array<int32_t, 3> values{1, 2, 3};
-  { serializer s{ss}; s.write(std::span<const int32_t>(values)); }
+  { stream_serializer s{ss}; s.write(std::span<const int32_t>(values)); }
 
   std::array<int32_t, 2> too_small{};
-  deserializer d{ss};
+  stream_deserializer d{ss};
   EXPECT_THROW(d.read(std::span<int32_t>(too_small)), std::runtime_error);
 }
 
-TEST(SerializerTests, StringViewWriteRoundTrip) {
+TEST(StreamSerializerTests, StringViewWriteRoundTrip) {
   std::stringstream ss;
   std::string backing = "hello view";
   std::string_view view{backing};
-  { serializer s{ss}; s.write(view); }
+  { stream_serializer s{ss}; s.write(view); }
 
   std::string out;
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(out);
   EXPECT_EQ(out, backing);
 }
 
-TEST(SerializerTests, StringViewReadAliasesStorage) {
+TEST(StreamSerializerTests, StringViewReadAliasesStorage) {
   std::stringstream ss;
-  { serializer s{ss}; s.write(std::string{"alias me"}); }
+  { stream_serializer s{ss}; s.write(std::string{"alias me"}); }
 
   std::string storage;
   std::string_view view;
-  deserializer d{ss};
+  stream_deserializer d{ss};
   d.read(view, storage);
   EXPECT_EQ(view, "alias me");
   EXPECT_EQ(view.data(), storage.data());
 }
 
-TEST(SerializerTests, MultipleValuesInOrder) {
+TEST(StreamSerializerTests, MultipleValuesInOrder) {
   std::stringstream ss;
-  serializer s{ss};
+  stream_serializer s{ss};
   s.write(int32_t{10}).write(int32_t{20}).write(int32_t{30});
 
-  deserializer d{ss};
+  stream_deserializer d{ss};
   EXPECT_EQ(d.read<int32_t>(), 10);
   EXPECT_EQ(d.read<int32_t>(), 20);
   EXPECT_EQ(d.read<int32_t>(), 30);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3b. buffer_serializer / buffer_deserializer (in-memory round-trips)
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(BufferSerializerTests, Int32RoundTrip) {
+  buffer_serializer out;
+  out.write(int32_t{12345});
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  EXPECT_EQ(in.read<int32_t>(), 12345);
+}
+
+TEST(BufferSerializerTests, FloatRoundTrip) {
+  buffer_serializer out;
+  out.write(float{2.71828f});
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  EXPECT_FLOAT_EQ(in.read<float>(), 2.71828f);
+}
+
+TEST(BufferSerializerTests, BoolRoundTrip) {
+  buffer_serializer out;
+  out.write(true);
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  EXPECT_TRUE(in.read<bool>());
+}
+
+TEST(BufferSerializerTests, StringRoundTrip) {
+  buffer_serializer out;
+  out.write(std::string{"hello buffer"});
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  std::string result;
+  in.read(result);
+  EXPECT_EQ(result, "hello buffer");
+}
+
+TEST(BufferSerializerTests, VectorInt32RoundTrip) {
+  std::vector<int32_t> v{10, 20, 30, 40, 50};
+  buffer_serializer out;
+  out.write(v);
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  std::vector<int32_t> result;
+  in.read(result);
+  EXPECT_EQ(result, v);
+}
+
+TEST(BufferSerializerTests, VectorFloatRoundTrip) {
+  std::vector<float> v{1.1f, 2.2f, 3.3f};
+  buffer_serializer out;
+  out.write(v);
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  std::vector<float> result;
+  in.read(result);
+  ASSERT_EQ(result.size(), v.size());
+  for (size_t i = 0; i < v.size(); ++i) EXPECT_FLOAT_EQ(result[i], v[i]);
+}
+
+TEST(BufferSerializerTests, MultipleValuesInOrder) {
+  buffer_serializer out;
+  out.write(int32_t{10}).write(int32_t{20}).write(int32_t{30});
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  EXPECT_EQ(in.read<int32_t>(), 10);
+  EXPECT_EQ(in.read<int32_t>(), 20);
+  EXPECT_EQ(in.read<int32_t>(), 30);
+}
+
+TEST(BufferSerializerTests, UnderflowThrows) {
+  buffer_serializer out;
+  out.write(int32_t{1});
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  in.read<int32_t>();  // consume the one value
+  EXPECT_THROW(in.read<int32_t>(), std::runtime_error);
+}
+
+TEST(BufferSerializerTests, BufferEquivalentToStream) {
+  // Verify that buffer_serializer produces the same bytes as stream_serializer.
+  std::stringstream ss;
+  {
+    stream_serializer s{ss};
+    s.write(int32_t{42});
+    s.write(float{3.14f});
+    s.write(std::string{"bison"});
+  }
+  std::string stream_bytes = ss.str();
+
+  buffer_serializer buf_out;
+  buf_out.write(int32_t{42});
+  buf_out.write(float{3.14f});
+  buf_out.write(std::string{"bison"});
+  auto buf_bytes = buf_out.release();
+
+  ASSERT_EQ(stream_bytes.size(), buf_bytes.size());
+  EXPECT_EQ(0, std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
+}
+
+TEST(BufferSerializerTests, DynamicObjectRoundTrip) {
+  dynamic obj{"BufTest"_key};
+  obj["x"_key] = int32_t{7};
+  obj["label"_key] = std::string{"hello"};
+
+  buffer_serializer out;
+  obj.serialize(out);
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  auto copy = dynamic::deserialize(in);
+
+  EXPECT_EQ((*copy)["x"_key].as<int32_t>(), 7);
+  EXPECT_EQ((*copy)["label"_key].as<std::string>(), "hello");
+}
+
+TEST(BufferSerializerTests, StringViewRoundTrip) {
+  std::string backing = "view data";
+  buffer_serializer out;
+  out.write(std::string_view{backing});
+  auto buf = out.release();
+
+  buffer_deserializer in(buf);
+  std::string result;
+  in.read(result);
+  EXPECT_EQ(result, backing);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -363,8 +500,8 @@ TEST(FieldTests, AttributesSurviveCloneViaField) {
 // ─────────────────────────────────────────────────────────────────────────────
 static field field_roundtrip(const field& f) {
   std::stringstream ss;
-  { serializer out{ss}; f.serialize(out); }
-  deserializer in{ss};
+  { stream_serializer out{ss}; f.serialize(out); }
+  stream_deserializer in{ss};
   return field::deserialize(in);
 }
 
@@ -543,8 +680,8 @@ TEST(DynamicTests, NestedDynamic) {
 
 static std::shared_ptr<dynamic> dynamic_roundtrip(const dynamic& d) {
   std::stringstream ss;
-  { serializer out{ss}; d.serialize(out); }
-  deserializer in{ss};
+  { stream_serializer out{ss}; d.serialize(out); }
+  stream_deserializer in{ss};
   return dynamic::deserialize(in);
 }
 
@@ -797,9 +934,9 @@ TEST_F(TemplateSerTest, RoundtripWithSingleClass) {
   pt["y"_key] = int32_t{7};
 
   std::stringstream ss;
-  { serializer out{ss}; pt.serializeWithTemplate(out); }
+  { stream_serializer out{ss}; pt.serializeWithTemplate(out); }
 
-  deserializer in{ss};
+  stream_deserializer in{ss};
   auto restored = dynamic::deserializeWithTemplate(in);
   EXPECT_EQ((*restored)["x"_key].as<int32_t>(), 3);
   EXPECT_EQ((*restored)["y"_key].as<int32_t>(), 7);
