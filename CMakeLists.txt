@@ -53,6 +53,15 @@ target_sources(bison PRIVATE
   src/rmi/client/client.cpp
   src/rmi/server/server.cpp
 )
+
+if(WIN32)
+  target_sources(bison PRIVATE
+    src/rmi/transport/platform/windows/socket_transport_windows.cpp
+    src/rmi/transport/platform/windows/pipe_transport_windows.cpp
+  )
+  target_link_libraries(bison PRIVATE Ws2_32)
+endif()
+
 target_include_directories(bison PRIVATE src/rmi)
 
 # ─── Shared library (pure-C ABI) ─────────────────────────────────────────────

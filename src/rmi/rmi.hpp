@@ -18,3 +18,5 @@
 #include "src/rmi/shared/ids.hpp"
 #include "src/rmi/shared/schemas.hpp"
 #include "src/rmi/transport/memory_transport.hpp"
+#include "src/rmi/transport/pipe_transport.hpp"
+#include "src/rmi/transport/socket_transport.hpp"
