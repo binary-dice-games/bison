@@ -398,3 +398,229 @@ BISON_API bison_hash bison_key(const char* name) {
   if (!name) return 0;
   return bdg::bison::hash(name);
 }
+
+// ─── RMI – Remote Method Invocation ─────────────────────────────────────────
+
+#include "src/rmi/rmi.hpp"
+
+// Convenience alias
+namespace rmi = bdg::bison::rmi;
+namespace rmi_t = bdg::bison::rmi::transport;
+
+// ── Internal handle structs ───────────────────────────────────────────────
+
+struct bison_rmi_transport_ {
+  rmi_t::memory_server_transport transport;
+};
+
+struct bison_rmi_server_ {
+  // The server holds a reference to the transport; the transport_ pointer
+  // is borrowed (owned by the bison_rmi_transport_ handle).
+  rmi_t::memory_server_transport* transport_ptr;
+  rmi::server*                    srv;
+
+  bison_rmi_server_(rmi_t::memory_server_transport* t)
+      : transport_ptr(t), srv(new rmi::server(*t)) {}
+
+  ~bison_rmi_server_() { delete srv; }
+};
+
+struct bison_rmi_client_ {
+  rmi::client* c;
+  explicit bison_rmi_client_(rmi::client* client) : c(client) {}
+  ~bison_rmi_client_() { delete c; }
+};
+
+struct bison_rmi_proxy_ {
+  rmi::remote::dynamic proxy;
+  explicit bison_rmi_proxy_(rmi::remote::dynamic&& p) : proxy(std::move(p)) {}
+};
+
+// ── Transport ─────────────────────────────────────────────────────────────
+
+BISON_API bison_rmi_transport bison_rmi_transport_create(void) {
+  try {
+    return new bison_rmi_transport_();
+  } catch (...) { return nullptr; }
+}
+
+BISON_API void bison_rmi_transport_destroy(bison_rmi_transport t) {
+  delete t;
+}
+
+// ── Server ────────────────────────────────────────────────────────────────
+
+BISON_API bison_rmi_server bison_rmi_server_create(bison_rmi_transport t) {
+  if (!t) return nullptr;
+  try {
+    return new bison_rmi_server_(&t->transport);
+  } catch (...) { return nullptr; }
+}
+
+BISON_API bison_error bison_rmi_server_listen(bison_rmi_server srv) {
+  if (!srv) return BISON_ERR_NULL;
+  try {
+    srv->srv->listen();
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API void bison_rmi_server_stop(bison_rmi_server srv) {
+  if (!srv) return;
+  try { srv->srv->stop(); } catch (...) {}
+}
+
+BISON_API void bison_rmi_server_destroy(bison_rmi_server srv) {
+  delete srv;
+}
+
+// ── Client ────────────────────────────────────────────────────────────────
+
+BISON_API bison_rmi_client bison_rmi_client_create(bison_rmi_transport t) {
+  if (!t) return nullptr;
+  try {
+    // connect() returns a memory_client_transport by value
+    auto client_transport = t->transport.connect();
+    auto* c = new rmi::client(std::move(client_transport));
+    return new bison_rmi_client_(c);
+  } catch (...) { return nullptr; }
+}
+
+BISON_API bison_error bison_rmi_client_connect(bison_rmi_client c) {
+  if (!c) return BISON_ERR_NULL;
+  try {
+    c->c->connect();
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_error bison_rmi_client_disconnect(bison_rmi_client c) {
+  if (!c) return BISON_ERR_NULL;
+  try {
+    c->c->disconnect();
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_handle bison_rmi_client_describe(bison_rmi_client c,
+                                                  bison_hash       klass) {
+  if (!c) return nullptr;
+  try {
+    bdg::bison::dynamic result = c->c->describe(bdg::bison::key_t{klass});
+    return as_handle(new sp_dyn(
+        std::make_shared<bdg::bison::dynamic>(std::move(result))));
+  } catch (...) { return nullptr; }
+}
+
+BISON_API bison_rmi_proxy bison_rmi_client_instantiate(bison_rmi_client c,
+                                                        bison_hash       klass,
+                                                        bison_handle     params) {
+  if (!c) return nullptr;
+  try {
+    bdg::bison::dynamic p;
+    if (params && dyn(params)) p = dyn(params)->clone();
+    auto proxy = c->c->instantiate(bdg::bison::key_t{klass}, std::move(p));
+    return new bison_rmi_proxy_(std::move(proxy));
+  } catch (...) { return nullptr; }
+}
+
+BISON_API bison_error bison_rmi_client_destroy_proxy(bison_rmi_client c,
+                                                       bison_rmi_proxy  proxy) {
+  if (!c || !proxy) return BISON_ERR_NULL;
+  try {
+    c->c->destroy(std::move(proxy->proxy));
+    delete proxy;
+    return BISON_OK;
+  } catch (...) {
+    delete proxy;
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API void bison_rmi_client_destroy(bison_rmi_client c) {
+  delete c;
+}
+
+// ── Remote proxy operations ───────────────────────────────────────────────
+
+BISON_API bison_error bison_rmi_proxy_clear(bison_rmi_proxy proxy) {
+  if (!proxy) return BISON_ERR_NULL;
+  try {
+    proxy->proxy.clear();
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_error bison_rmi_proxy_set(bison_rmi_proxy proxy,
+                                           bison_handle    fields) {
+  if (!proxy || !fields) return BISON_ERR_NULL;
+  try {
+    proxy->proxy.set(*dyn(fields));
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_error bison_rmi_proxy_get(bison_rmi_proxy proxy,
+                                           bison_handle*   fields_out) {
+  if (!proxy || !fields_out) return BISON_ERR_NULL;
+  try {
+    // If *fields_out is non-null, use it as a projection; otherwise full get.
+    bdg::bison::dynamic projection;
+    if (*fields_out && dyn(*fields_out)) projection = dyn(*fields_out)->clone();
+
+    proxy->proxy.get(projection);
+
+    // Release old handle and return new result.
+    if (*fields_out) {
+      bison_release(*fields_out);
+      *fields_out = nullptr;
+    }
+    *fields_out = as_handle(new sp_dyn(
+        std::make_shared<bdg::bison::dynamic>(std::move(projection))));
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_error bison_rmi_proxy_call(bison_rmi_proxy proxy,
+                                            bison_handle    params,
+                                            bison_handle*   result_out) {
+  if (!proxy || !params) return BISON_ERR_NULL;
+  try {
+    auto fut = proxy->proxy.call(*dyn(params));
+    auto result = fut.get();
+    if (result_out) {
+      *result_out = as_handle(new sp_dyn(
+          std::make_shared<bdg::bison::dynamic>(std::move(result))));
+    }
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_error bison_rmi_proxy_call_oneway(bison_rmi_proxy proxy,
+                                                   bison_handle    params) {
+  if (!proxy || !params) return BISON_ERR_NULL;
+  try {
+    proxy->proxy.call(*dyn(params), /*oneway=*/true);
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
+
+BISON_API bison_error bison_rmi_proxy_on_event(bison_rmi_proxy    proxy,
+                                                bison_hash         event_name,
+                                                bison_rmi_event_fn handler,
+                                                void*              user) {
+  if (!proxy || !handler) return BISON_ERR_NULL;
+  try {
+    proxy->proxy.onEvent(bdg::bison::key_t{event_name},
+        [handler, user](bdg::bison::dynamic params) {
+          // Wrap params in a temporary non-owning handle for the callback.
+          // The handle is stack-allocated and must NOT be released by the caller.
+          auto sp = std::make_shared<bdg::bison::dynamic>(std::move(params));
+          sp_dyn holder(sp);
+          bison_handle tmp_h = as_handle(&holder);
+          handler(tmp_h, user);
+          // holder goes out of scope here; the underlying dynamic is released.
+        });
+    return BISON_OK;
+  } catch (...) { return BISON_ERR_EXCEPTION; }
+}
