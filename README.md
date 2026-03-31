@@ -20,7 +20,7 @@ Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL 
 | Requirement | Version |
 |---|---|
 | C++ standard | C++20 or later |
-| CMake | 3.10 or later |
+| CMake | 3.11 or later |
 | [nlohmann/json](https://github.com/nlohmann/json) | bundled as git submodule |
 | [libyaml](https://github.com/yaml/libyaml) | bundled as git submodule |
 | [Google Test](https://github.com/google/googletest) | bundled as git submodule (tests only) |
@@ -43,6 +43,8 @@ ctest --test-dir build -C Debug
 ```
 
 The project builds the C++ library target `bison` and the shared C API target `bison_c`. The Python binding loads `bison_c`, so make sure that target is built before running Python examples or tests.
+
+The build fetches standalone Asio automatically during CMake configure so the socket transport can use a portable TCP implementation.
 
 To use the C++ library in your own CMake project:
 
@@ -85,6 +87,43 @@ cmake -E chdir build/examples/Debug bison_examples.exe
 ```
 
 The example output intentionally uses ASCII-only separators so it renders correctly in default Windows PowerShell and other terminals without additional encoding configuration.
+
+## RMI Socket Examples
+
+The repository includes two standalone RMI socket examples:
+
+- `rmi_server_example` in `examples/rmi_server_example.cpp`
+- `rmi_client_example` in `examples/rmi_client_example.cpp`
+
+They are designed to run as separate processes.
+
+### Build the RMI examples
+
+From the repository root:
+
+```bash
+cmake -B build
+cmake --build build --config Debug --target rmi_server_example rmi_client_example
+```
+
+### Run the RMI examples
+
+Start the server first:
+
+```powershell
+.\build\examples\Debug\rmi_server_example.exe
+```
+
+Then run the client in another terminal:
+
+```powershell
+.\build\examples\Debug\rmi_client_example.exe
+```
+
+Optional arguments:
+
+- server: `rmi_server_example.exe [host] [port]`
+- client: `rmi_client_example.exe [host] [port]`
 
 ## Performance Benchmark
 
@@ -277,8 +316,8 @@ auto copy = dynamic::deserialize(stream_deserializer(in));
 // Class must be registered before use
 dynamic::addClass(0U, dynamic_ptr{"Point"_key, {{"x"_key, 0.0f}, {"y"_key, 0.0f}}});
 
-point.serializeWithTemplate(stream_serializer(out));
-auto copy = dynamic::deserializeWithTemplate(stream_deserializer(in));
+point.serializeWithSchema(stream_serializer(out));
+auto copy = dynamic::deserializeWithSchema(stream_deserializer(in));
 ```
 
 ### Method registration and invocation
@@ -539,14 +578,14 @@ buffer_deserializer in(bytes);
 auto copy = dynamic::deserialize(in);
 ```
 
-`dynamic`, `field`, `stream_serializer`-style overloads, and `serializeWithTemplate` / `deserializeWithTemplate` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
+`dynamic`, `field`, `stream_serializer`-style overloads, and `serializeWithSchema` / `deserializeWithSchema` all have buffer variants.  The performance benchmark in `examples/performance.cpp` includes `Serialize (buf)` and `Deserialize (buf)` rows that compare the two approaches side-by-side.
 
 ### 3. `fields_` retained as `std::map` (ordering is required)
 
 `fields_` is used both as a named-field dictionary (keys with the high bit set) and as an array (small numeric keys 0, 1, 2, …).  `std::map` guarantees that entries are visited in ascending key order, which is essential in two ways:
 
 - **Array semantics** — numeric indices must be iterated in order 0, 1, 2, … for `size()` and field iteration to be correct.
-- **Template serialization** — `serializeWithTemplate` writes field *values* in the order they appear in the class prototype's map; `deserializeWithTemplate` must read them back in exactly the same order.  With `std::unordered_map` the iteration order is non-deterministic across process restarts, so template-mode round-trips would silently swap field values.
+- **Template serialization** — `serializeWithSchema` writes field *values* in the order they appear in the class prototype's map; `deserializeWithSchema` must read them back in exactly the same order.  With `std::unordered_map` the iteration order is non-deterministic across process restarts, so template-mode round-trips would silently swap field values.
 
 `fields_` therefore stays as `std::map<key_t, field>`.  The `size()` and `clear()` methods use `lower_bound(0x80000000u)` to efficiently separate the numeric portion of the map from the named portion in O(log n) time.
 

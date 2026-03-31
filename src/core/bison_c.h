@@ -37,7 +37,8 @@
  * platform:
  * - **Windows** (`_WIN32`)  : `__declspec(dllexport)` when building the DLL,
  *                             `__declspec(dllimport)` when consuming it.
- * - **GCC / Clang** with `-fvisibility=hidden` : `__attribute__((visibility("default")))`.
+ * - **GCC / Clang** with `-fvisibility=hidden` :
+ * `__attribute__((visibility("default")))`.
  * - **All others** : empty (no annotation needed).
  *
  * ### Minimal usage example (C)
@@ -55,8 +56,8 @@
 #ifndef BISON_C_H
 #define BISON_C_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,15 +66,15 @@ extern "C" {
 /* ─── Platform visibility macros ─────────────────────────────────────────── */
 
 #if defined(_WIN32) || defined(__CYGWIN__)
-#  ifdef BISON_BUILDING_DLL
-#    define BISON_API __declspec(dllexport)
-#  else
-#    define BISON_API __declspec(dllimport)
-#  endif
-#elif defined(__GNUC__) && __GNUC__ >= 4
-#  define BISON_API __attribute__((visibility("default")))
+#ifdef BISON_BUILDING_DLL
+#define BISON_API __declspec(dllexport)
 #else
-#  define BISON_API
+#define BISON_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) && __GNUC__ >= 4
+#define BISON_API __attribute__((visibility("default")))
+#else
+#define BISON_API
 #endif
 
 /* ─── Opaque handle ──────────────────────────────────────────────────────── */
@@ -103,13 +104,14 @@ typedef uint32_t bison_hash;
  * Zero (`BISON_OK`) always means success.  Negative values are errors.
  */
 typedef enum bison_error {
-  BISON_OK             =  0, /**< Success. */
-  BISON_ERR_NULL       = -1, /**< A required handle or pointer argument was NULL. */
-  BISON_ERR_TYPE       = -2, /**< The field holds a different type than requested. */
-  BISON_ERR_NOT_FOUND  = -3, /**< Method or field not found. */
-  BISON_ERR_DUPLICATE  = -4, /**< Attempted to add a duplicate class or method. */
-  BISON_ERR_EXCEPTION  = -5, /**< An unexpected C++ exception was caught. */
-  BISON_ERR_PARSE      = -6, /**< Input string failed to parse (JSON / YAML). */
+  BISON_OK = 0, /**< Success. */
+  BISON_ERR_NULL = -1, /**< A required handle or pointer argument was NULL. */
+  BISON_ERR_TYPE = -2, /**< The field holds a different type than requested. */
+  BISON_ERR_NOT_FOUND = -3, /**< Method or field not found. */
+  BISON_ERR_DUPLICATE =
+      -4, /**< Attempted to add a duplicate class or method. */
+  BISON_ERR_EXCEPTION = -5, /**< An unexpected C++ exception was caught. */
+  BISON_ERR_PARSE = -6, /**< Input string failed to parse (JSON / YAML). */
 } bison_error;
 
 /* ─── C method callback type ─────────────────────────────────────────────── */
@@ -125,10 +127,11 @@ typedef enum bison_error {
  *                release @p result (the library takes ownership).
  * @param user    User-defined context pointer passed to `bison_add_method`.
  */
-typedef void (*bison_method_fn)(bison_handle self,
-                                bison_handle params,
-                                bison_handle result,
-                                void*        user);
+typedef void (*bison_method_fn)(
+    bison_handle self,
+    bison_handle params,
+    bison_handle result,
+    void* user);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Lifecycle
@@ -150,7 +153,8 @@ typedef void (*bison_method_fn)(bison_handle self,
 BISON_API bison_handle bison_create(bison_hash klass_name);
 
 /**
- * @brief Create a new dynamic object by class key using C++ `dynamic::instantiate`.
+ * @brief Create a new dynamic object by class key using C++
+ * `dynamic::instantiate`.
  *
  * This is equivalent to `bison_create(klass_name)` but mirrors the C++ API
  * naming and behavior explicitly.
@@ -230,7 +234,8 @@ BISON_API bison_handle bison_from_yaml(const char* yaml);
  *         same name is already registered, or `BISON_ERR_NULL` if @p klass is
  *         `NULL`.
  */
-BISON_API bison_error bison_add_class(bison_hash parent_name, bison_handle klass);
+BISON_API bison_error
+bison_add_class(bison_hash parent_name, bison_handle klass);
 
 /**
  * @brief Search the class hierarchy of @p h for a registered class.
@@ -256,7 +261,8 @@ BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name);
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_int(bison_handle h, bison_hash name, int32_t value);
+BISON_API bison_error
+bison_set_int(bison_handle h, bison_hash name, int32_t value);
 
 /**
  * @brief Set a `float` field by hash key.
@@ -265,7 +271,8 @@ BISON_API bison_error bison_set_int(bison_handle h, bison_hash name, int32_t val
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_float(bison_handle h, bison_hash name, float value);
+BISON_API bison_error
+bison_set_float(bison_handle h, bison_hash name, float value);
 
 /**
  * @brief Set a `bool` field by hash key.
@@ -274,7 +281,8 @@ BISON_API bison_error bison_set_float(bison_handle h, bison_hash name, float val
  * @param value New value (non-zero = true).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value);
+BISON_API bison_error
+bison_set_bool(bison_handle h, bison_hash name, int value);
 
 /**
  * @brief Set a `std::string` field by hash key.
@@ -283,7 +291,8 @@ BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value)
  * @param value Null-terminated string value (copied internally).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const char* value);
+BISON_API bison_error
+bison_set_string(bison_handle h, bison_hash name, const char* value);
 
 /**
  * @brief Set a nested `dynamic` object field by hash key.
@@ -296,7 +305,8 @@ BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const ch
  * @param value Handle to set as the field value (may be `NULL` for a null ref).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value);
+BISON_API bison_error
+bison_set_object(bison_handle h, bison_hash name, bison_handle value);
 
 /**
  * @brief Set an `int32_t` field by numeric (array) index.
@@ -305,7 +315,8 @@ BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_ha
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_int_at(bison_handle h, size_t index, int32_t value);
+BISON_API bison_error
+bison_set_int_at(bison_handle h, size_t index, int32_t value);
 
 /**
  * @brief Set a `float` field by numeric index.
@@ -314,7 +325,8 @@ BISON_API bison_error bison_set_int_at(bison_handle h, size_t index, int32_t val
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_float_at(bison_handle h, size_t index, float value);
+BISON_API bison_error
+bison_set_float_at(bison_handle h, size_t index, float value);
 
 /**
  * @brief Set a string field by numeric index.
@@ -323,7 +335,8 @@ BISON_API bison_error bison_set_float_at(bison_handle h, size_t index, float val
  * @param value Null-terminated string (copied internally).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const char* value);
+BISON_API bison_error
+bison_set_string_at(bison_handle h, size_t index, const char* value);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar getters
@@ -336,7 +349,8 @@ BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const ch
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_int(bison_handle h, bison_hash name, int32_t* out);
+BISON_API bison_error
+bison_get_int(bison_handle h, bison_hash name, int32_t* out);
 
 /**
  * @brief Read a `float` field by hash key.
@@ -345,7 +359,8 @@ BISON_API bison_error bison_get_int(bison_handle h, bison_hash name, int32_t* ou
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_float(bison_handle h, bison_hash name, float* out);
+BISON_API bison_error
+bison_get_float(bison_handle h, bison_hash name, float* out);
 
 /**
  * @brief Read a `bool` field by hash key.
@@ -367,13 +382,17 @@ BISON_API bison_error bison_get_bool(bison_handle h, bison_hash name, int* out);
  * @param h        Source object handle.
  * @param name     Field name hash (use `bison_key()`).
  * @param buf      Output buffer (may be `NULL` to query length).
- * @param buf_len  Size of @p buf in bytes (including space for the null terminator).
+ * @param buf_len  Size of @p buf in bytes (including space for the null
+ * terminator).
  * @param[out] len_out  Set to the string length (excluding null terminator).
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_string(bison_handle h, bison_hash name,
-                                       char* buf, size_t buf_len,
-                                       size_t* len_out);
+BISON_API bison_error bison_get_string(
+    bison_handle h,
+    bison_hash name,
+    char* buf,
+    size_t buf_len,
+    size_t* len_out);
 
 /**
  * @brief Read a nested object field by hash key.
@@ -386,8 +405,8 @@ BISON_API bison_error bison_get_string(bison_handle h, bison_hash name,
  *                  dynamic refs).
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_object(bison_handle h, bison_hash name,
-                                       bison_handle* out);
+BISON_API bison_error
+bison_get_object(bison_handle h, bison_hash name, bison_handle* out);
 
 /**
  * @brief Read an `int32_t` field by numeric index.
@@ -396,7 +415,8 @@ BISON_API bison_error bison_get_object(bison_handle h, bison_hash name,
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_int_at(bison_handle h, size_t index, int32_t* out);
+BISON_API bison_error
+bison_get_int_at(bison_handle h, size_t index, int32_t* out);
 
 /**
  * @brief Read a `float` field by numeric index.
@@ -405,7 +425,8 @@ BISON_API bison_error bison_get_int_at(bison_handle h, size_t index, int32_t* ou
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_float_at(bison_handle h, size_t index, float* out);
+BISON_API bison_error
+bison_get_float_at(bison_handle h, size_t index, float* out);
 
 /**
  * @brief Read a string field by numeric index.
@@ -419,9 +440,12 @@ BISON_API bison_error bison_get_float_at(bison_handle h, size_t index, float* ou
  * @param[out] len_out  Set to the string length.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_string_at(bison_handle h, size_t index,
-                                          char* buf, size_t buf_len,
-                                          size_t* len_out);
+BISON_API bison_error bison_get_string_at(
+    bison_handle h,
+    size_t index,
+    char* buf,
+    size_t buf_len,
+    size_t* len_out);
 
 /**
  * @brief Return the number of array-like (numeric-key) elements.
@@ -437,10 +461,10 @@ BISON_API size_t bison_size(bison_handle h);
 /**
  * @brief Register a C callback as a named method on @p h.
  *
- * The callback @p fn is wrapped in a lambda and stored as a `bdg::bison::method`.
- * The @p user pointer is passed through to every invocation without any
- * lifetime management; callers must ensure it remains valid for as long as the
- * method is reachable.
+ * The callback @p fn is wrapped in a lambda and stored as a
+ * `bdg::bison::method`. The @p user pointer is passed through to every
+ * invocation without any lifetime management; callers must ensure it remains
+ * valid for as long as the method is reachable.
  *
  * @param h     Target object handle.
  * @param name  Method name hash (use `bison_key()`).
@@ -448,8 +472,11 @@ BISON_API size_t bison_size(bison_handle h);
  * @param user  Arbitrary user context (may be `NULL`).
  * @return `BISON_OK`, `BISON_ERR_DUPLICATE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_add_method(bison_handle h, bison_hash name,
-                                       bison_method_fn fn, void* user);
+BISON_API bison_error bison_add_method(
+    bison_handle h,
+    bison_hash name,
+    bison_method_fn fn,
+    void* user);
 
 /**
  * @brief Invoke a named method on @p h.
@@ -461,8 +488,11 @@ BISON_API bison_error bison_add_method(bison_handle h, bison_hash name,
  *                     value.  Caller must release it.
  * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_call(bison_handle h, bison_hash name,
-                                 bison_handle params, bison_handle* result);
+BISON_API bison_error bison_call(
+    bison_handle h,
+    bison_hash name,
+    bison_handle params,
+    bison_handle* result);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility
@@ -473,12 +503,292 @@ BISON_API bison_error bison_call(bison_handle h, bison_hash name,
  *
  * This is the same hash function used internally by the C++ `"name"_key`
  * literal and `bdg::bison::hash()`.  Use it to prepare keys for functions that
- * accept pre-hashed `bison_hash` names (e.g. `bison_create`, `bison_add_class`).
+ * accept pre-hashed `bison_hash` names (e.g. `bison_create`,
+ * `bison_add_class`).
  *
  * @param name  Null-terminated string.
  * @return 32-bit FNV-1a hash with the high bit set.
  */
 BISON_API bison_hash bison_key(const char* name);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * RMI – Remote Method Invocation (plain-C interface)
+ *
+ * The RMI C API exposes the in-memory transport, server, client, and remote
+ * object proxy as opaque handles.  The typical lifecycle is:
+ *
+ *   1. Create a transport:   bison_rmi_transport t =
+ * bison_rmi_transport_create();
+ *   2. Create a server:      bison_rmi_server  srv =
+ * bison_rmi_server_create(t);
+ *   3. Start the server:     bison_rmi_server_listen(srv);
+ *   4. Create clients:       bison_rmi_client  c   =
+ * bison_rmi_client_create(t);
+ *   5. Connect clients:      bison_rmi_client_connect(c);
+ *   6. Instantiate objects:  bison_rmi_proxy proxy =
+ * bison_rmi_client_instantiate(c, klass, NULL);
+ *   7. Use objects:          bison_rmi_proxy_call(proxy, params, &result);
+ *   8. Destroy proxy:        bison_rmi_client_destroy_proxy(c, proxy);
+ *   9. Disconnect client:    bison_rmi_client_disconnect(c);
+ *  10. Free client:          bison_rmi_client_destroy(c);
+ *  11. Stop server:          bison_rmi_server_stop(srv);
+ *  12. Free server:          bison_rmi_server_destroy(srv);
+ *  13. Free transport:       bison_rmi_transport_destroy(t);
+ *
+ * Ownership: the transport must outlive both the server and all clients.
+ * Servers and clients must be stopped/disconnected before being freed.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/** @brief Opaque handle for an in-memory RMI transport. */
+typedef struct bison_rmi_transport_* bison_rmi_transport;
+
+/** @brief Opaque handle for an RMI server. */
+typedef struct bison_rmi_server_* bison_rmi_server;
+
+/** @brief Opaque handle for an RMI client. */
+typedef struct bison_rmi_client_* bison_rmi_client;
+
+/** @brief Opaque handle for a remote object proxy. */
+typedef struct bison_rmi_proxy_* bison_rmi_proxy;
+
+/**
+ * @brief Callback invoked when a server-initiated event is received.
+ *
+ * @param params  A read-only bison_handle containing the event parameters.
+ *                The handle is valid only for the duration of the callback;
+ *                callers must NOT release it.
+ * @param user    User-defined context pointer passed to
+ * bison_rmi_proxy_on_event.
+ */
+typedef void (*bison_rmi_event_fn)(bison_handle params, void* user);
+
+/* ── Transport ──────────────────────────────────────────────────────────────
+ */
+
+/**
+ * @brief Create a new in-memory server transport.
+ *
+ * The transport must remain alive for the lifetime of any server or client
+ * that was created from it.
+ *
+ * @return New transport handle, or NULL on allocation failure.
+ */
+BISON_API bison_rmi_transport bison_rmi_transport_create(void);
+
+/**
+ * @brief Free an in-memory transport.
+ *
+ * The transport must not be used after this call.  All servers and clients
+ * derived from it must already have been stopped/disconnected and destroyed.
+ *
+ * @param t  Transport handle to free.  NULL is silently ignored.
+ */
+BISON_API void bison_rmi_transport_destroy(bison_rmi_transport t);
+
+/* ── Server ─────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * @brief Create an RMI server backed by the given in-memory transport.
+ *
+ * The server does not start listening until bison_rmi_server_listen() is
+ * called.  The @p t handle must remain valid until after
+ * bison_rmi_server_stop() and bison_rmi_server_destroy() have been called.
+ *
+ * @param t  Transport handle (borrowed; must outlive the server).
+ * @return   New server handle, or NULL on failure.
+ */
+BISON_API bison_rmi_server bison_rmi_server_create(bison_rmi_transport t);
+
+/**
+ * @brief Start the server's accept loop and begin accepting clients.
+ *
+ * @param srv  Server handle.
+ * @return BISON_OK on success, BISON_ERR_NULL if srv is NULL, or
+ *         BISON_ERR_EXCEPTION if an internal error occurred.
+ */
+BISON_API bison_error bison_rmi_server_listen(bison_rmi_server srv);
+
+/**
+ * @brief Stop the server, close all connections, and join worker threads.
+ *
+ * @param srv  Server handle.
+ */
+BISON_API void bison_rmi_server_stop(bison_rmi_server srv);
+
+/**
+ * @brief Free the server object.
+ *
+ * The server must have been stopped before calling this function.
+ *
+ * @param srv  Server handle to free.  NULL is silently ignored.
+ */
+BISON_API void bison_rmi_server_destroy(bison_rmi_server srv);
+
+/* ── Client ─────────────────────────────────────────────────────────────────
+ */
+
+/**
+ * @brief Create a new RMI client connected to the given in-memory transport.
+ *
+ * This internally calls transport.connect() to obtain the client-side channel.
+ * The client is not yet connected to the server; call
+ * bison_rmi_client_connect().
+ *
+ * @param t  Transport handle (borrowed; must outlive the client).
+ * @return   New client handle, or NULL on failure.
+ */
+BISON_API bison_rmi_client bison_rmi_client_create(bison_rmi_transport t);
+
+/**
+ * @brief Connect the client to the server and start the worker thread.
+ *
+ * Must be called before any other client operations.
+ *
+ * @param c  Client handle.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error bison_rmi_client_connect(bison_rmi_client c);
+
+/**
+ * @brief Gracefully disconnect the client and join the worker thread.
+ *
+ * @param c  Client handle.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error bison_rmi_client_disconnect(bison_rmi_client c);
+
+/**
+ * @brief Query the server for registered class metadata.
+ *
+ * @param c      Client handle.
+ * @param klass  Hashed class name to query, or 0 to list all classes.
+ * @return A new bison_handle (caller must release) containing the descriptor,
+ *         or NULL on failure.
+ */
+BISON_API bison_handle
+bison_rmi_client_describe(bison_rmi_client c, bison_hash klass);
+
+/**
+ * @brief Instantiate a remote object of the given class on the server.
+ *
+ * @param c       Client handle.
+ * @param klass   Hashed class name (must be registered on the server).
+ * @param params  Optional construction parameters (may be NULL).
+ * @return A new proxy handle, or NULL on failure.
+ */
+BISON_API bison_rmi_proxy bison_rmi_client_instantiate(
+    bison_rmi_client c,
+    bison_hash klass,
+    bison_handle params);
+
+/**
+ * @brief Destroy a remote object and release its owning proxy.
+ *
+ * The proxy handle is invalidated by this call and must not be used again.
+ *
+ * @param c      Client handle.
+ * @param proxy  Proxy handle to destroy.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error
+bison_rmi_client_destroy_proxy(bison_rmi_client c, bison_rmi_proxy proxy);
+
+/**
+ * @brief Free the client object.
+ *
+ * The client should be disconnected before calling this function.
+ *
+ * @param c  Client handle to free.  NULL is silently ignored.
+ */
+BISON_API void bison_rmi_client_destroy(bison_rmi_client c);
+
+/* ── Remote proxy operations ────────────────────────────────────────────────
+ */
+
+/**
+ * @brief Clear all explicitly set fields on the remote object.
+ *
+ * @param proxy  Proxy handle.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error bison_rmi_proxy_clear(bison_rmi_proxy proxy);
+
+/**
+ * @brief Apply a partial field update to the remote object.
+ *
+ * Fields present in @p fields are applied; fields not present are unchanged.
+ *
+ * @param proxy   Proxy handle.
+ * @param fields  bison_handle containing the fields to set.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error
+bison_rmi_proxy_set(bison_rmi_proxy proxy, bison_handle fields);
+
+/**
+ * @brief Retrieve fields from the remote object.
+ *
+ * If @p fields_out points to NULL or an empty dynamic, a full snapshot is
+ * returned.  If @p fields_out points to a projection shape, only those fields
+ * are filled (GraphQL-style).
+ *
+ * @param proxy      Proxy handle.
+ * @param fields_out On entry: pointer to a bison_handle containing the
+ *                   projection (or NULL / empty for full snapshot).
+ *                   On success: updated to point to a new bison_handle
+ *                   owning the result (caller must release).
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error
+bison_rmi_proxy_get(bison_rmi_proxy proxy, bison_handle* fields_out);
+
+/**
+ * @brief Invoke a method on the remote object (blocking).
+ *
+ * @param proxy        Proxy handle.
+ * @param method_name  Hashed method name token.
+ * @param params       bison_handle containing call arguments.
+ * @param result_out   Receives a new bison_handle with the call result (caller
+ *                    must release).  May be NULL if the result is not needed.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error bison_rmi_proxy_call(
+    bison_rmi_proxy proxy,
+    bison_hash method_name,
+    bison_handle params,
+    bison_handle* result_out);
+
+/**
+ * @brief Invoke a method on the remote object without waiting for a response.
+ *
+ * @param proxy   Proxy handle.
+ * @param method_name  Hashed method name token.
+ * @param params      bison_handle containing call arguments.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error bison_rmi_proxy_call_oneway(
+    bison_rmi_proxy proxy,
+    bison_hash method_name,
+    bison_handle params);
+
+/**
+ * @brief Register an event handler for a named server-initiated event.
+ *
+ * The handler is invoked on the client's worker thread when an event with
+ * the given name is received for this proxy's remote object.
+ *
+ * @param proxy        Proxy handle.
+ * @param event_name   Hashed event name token.
+ * @param handler      Callback function (must not be NULL).
+ * @param user         Opaque user pointer passed to the callback.
+ * @return BISON_OK on success or a negative error code on failure.
+ */
+BISON_API bison_error bison_rmi_proxy_on_event(
+    bison_rmi_proxy proxy,
+    bison_hash event_name,
+    bison_rmi_event_fn handler,
+    void* user);
 
 #ifdef __cplusplus
 } /* extern "C" */

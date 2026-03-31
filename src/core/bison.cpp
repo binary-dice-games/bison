@@ -1,6 +1,7 @@
 // MIT License © 2025 Binary Dice Games
-// Permission is hereby granted, free of charge, to use, copy, modify, and distribute this file.
-// See the LICENSE file or https://opensource.org/licenses/MIT for details.
+// Permission is hereby granted, free of charge, to use, copy, modify, and
+// distribute this file. See the LICENSE file or
+// https://opensource.org/licenses/MIT for details.
 
 #include <bison.hpp>
 #include <nlohmann/json.hpp>
@@ -12,12 +13,13 @@ using json = nlohmann::json;
 
 namespace bdg::bison {
 
-// ─── JSON helpers ─────────────────────────────────────────────────────────────
+// ─── JSON helpers
+// ─────────────────────────────────────────────────────────────
 
-std::shared_ptr<dynamic> from_json_array(json::array_t data);
-std::shared_ptr<dynamic> from_json_object(json::object_t data);
+dynamic_ptr from_json_array(json::array_t data);
+dynamic_ptr from_json_object(json::object_t data);
 
-std::shared_ptr<dynamic> from_json_array(json::array_t data) {
+dynamic_ptr from_json_array(json::array_t data) {
   size_t idx = 0;
   auto dyn = dynamic_ptr{};
   for (auto it = data.begin(); it != data.end(); ++it) {
@@ -52,7 +54,7 @@ std::shared_ptr<dynamic> from_json_array(json::array_t data) {
   return dyn;
 }
 
-std::shared_ptr<dynamic> from_json_object(json::object_t data) {
+dynamic_ptr from_json_object(json::object_t data) {
   auto dyn = dynamic_ptr{};
   for (auto it = data.begin(); it != data.end(); ++it) {
     switch (it->second.type()) {
@@ -86,7 +88,8 @@ std::shared_ptr<dynamic> from_json_object(json::object_t data) {
   return dyn;
 }
 
-// ─── YAML helpers ─────────────────────────────────────────────────────────────
+// ─── YAML helpers
+// ─────────────────────────────────────────────────────────────
 
 /**
  * @brief Parse a YAML scalar string into the most specific field type.
@@ -131,8 +134,8 @@ static field yaml_scalar_to_field(const char* value, bool plain) {
 }
 
 // Forward declarations for mutual recursion.
-static std::shared_ptr<dynamic> yaml_parse_mapping(yaml_parser_t* parser);
-static std::shared_ptr<dynamic> yaml_parse_sequence(yaml_parser_t* parser);
+static dynamic_ptr yaml_parse_mapping(yaml_parser_t* parser);
+static dynamic_ptr yaml_parse_sequence(yaml_parser_t* parser);
 static field yaml_parse_value(yaml_parser_t* parser, const yaml_event_t* ev);
 
 /**
@@ -157,7 +160,7 @@ static field yaml_parse_value(yaml_parser_t* parser, const yaml_event_t* ev) {
   }
 }
 
-static std::shared_ptr<dynamic> yaml_parse_mapping(yaml_parser_t* parser) {
+static dynamic_ptr yaml_parse_mapping(yaml_parser_t* parser) {
   auto dyn = dynamic_ptr{};
   yaml_event_t ev;
   while (true) {
@@ -187,7 +190,7 @@ static std::shared_ptr<dynamic> yaml_parse_mapping(yaml_parser_t* parser) {
   return dyn;
 }
 
-static std::shared_ptr<dynamic> yaml_parse_sequence(yaml_parser_t* parser) {
+static dynamic_ptr yaml_parse_sequence(yaml_parser_t* parser) {
   auto dyn = dynamic_ptr{};
   size_t idx = 0;
   yaml_event_t ev;
@@ -206,16 +209,17 @@ static std::shared_ptr<dynamic> yaml_parse_sequence(yaml_parser_t* parser) {
   return dyn;
 }
 
-// ─── Public extension functions ───────────────────────────────────────────────
+// ─── Public extension functions
+// ───────────────────────────────────────────────
 
 namespace extensions {
 
-std::shared_ptr<dynamic> from_json(std::string text) {
+dynamic_ptr from_json(std::string text) {
   json data = json::parse(text);
   return from_json_object(data);
 }
 
-std::shared_ptr<dynamic> from_yaml(std::string text) {
+dynamic_ptr from_yaml(std::string text) {
   yaml_parser_t parser;
   if (!yaml_parser_initialize(&parser)) {
     throw std::runtime_error("Failed to initialize YAML parser");
@@ -226,7 +230,7 @@ std::shared_ptr<dynamic> from_yaml(std::string text) {
       reinterpret_cast<const unsigned char*>(text.c_str()),
       text.size());
 
-  std::shared_ptr<dynamic> result;
+  dynamic_ptr result;
   yaml_event_t ev;
   bool done = false;
 
@@ -256,7 +260,8 @@ std::shared_ptr<dynamic> from_yaml(std::string text) {
   }
 
   yaml_parser_delete(&parser);
-  if (!result) result = dynamic_ptr{};
+  if (!result)
+    result = dynamic_ptr{};
   return result;
 }
 

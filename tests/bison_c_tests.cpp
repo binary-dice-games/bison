@@ -4,8 +4,8 @@
 #include "src/core/bison_c.h"
 
 #include <gtest/gtest.h>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -15,11 +15,17 @@
 struct ScopedHandle {
   bison_handle h;
   explicit ScopedHandle(bison_handle h) : h(h) {}
-  ~ScopedHandle() { bison_release(h); }
-  operator bison_handle() const { return h; }
+  ~ScopedHandle() {
+    bison_release(h);
+  }
+  operator bison_handle() const {
+    return h;
+  }
 };
 
-static bison_hash H(const char* name) { return bison_key(name); }
+static bison_hash H(const char* name) {
+  return bison_key(name);
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Lifecycle: create / add_ref / release
@@ -40,7 +46,7 @@ TEST(LifecycleTests, AddRefReturnsDistinctHandle) {
   ASSERT_NE(h1.h, nullptr);
   ScopedHandle h2{bison_add_ref(h1)};
   EXPECT_NE(h2.h, nullptr);
-  EXPECT_NE(h1.h, h2.h);  // different heap-allocated shared_ptr wrappers
+  EXPECT_NE(h1.h, h2.h); // different heap-allocated shared_ptr wrappers
 }
 
 TEST(LifecycleTests, AddRefSharesObject) {
@@ -55,7 +61,7 @@ TEST(LifecycleTests, AddRefSharesObject) {
 }
 
 TEST(LifecycleTests, ReleaseNullIsSafe) {
-  bison_release(nullptr);  // must not crash
+  bison_release(nullptr); // must not crash
 }
 
 TEST(LifecycleTests, AddRefOnNullReturnsNull) {
@@ -228,14 +234,17 @@ TEST(ImportTests, FromYamlInvalidReturnsNull) {
 // We clear the class registry using the C++ API to avoid state leakage.
 #include "src/core/bison.hpp"
 static void clearClasses() {
-  std::unique_lock<std::shared_mutex> lk(bdg::bison::dynamic::getMutex());
-  bdg::bison::dynamic::getClasses().clear();
+  bdg::bison::dynamic::getRegistry().wlock()->clear();
 }
 
 class ClassRegistryTests : public ::testing::Test {
  protected:
-  void SetUp()    override { clearClasses(); }
-  void TearDown() override { clearClasses(); }
+  void SetUp() override {
+    clearClasses();
+  }
+  void TearDown() override {
+    clearClasses();
+  }
 };
 
 TEST_F(ClassRegistryTests, AddClassSucceeds) {
@@ -290,8 +299,11 @@ TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
 // 6. Methods
 // ═════════════════════════════════════════════════════════════════════════════
 
-static void double_counter_fn(bison_handle self, bison_handle /*params*/,
-                               bison_handle result, void* /*user*/) {
+static void double_counter_fn(
+    bison_handle self,
+    bison_handle /*params*/,
+    bison_handle result,
+    void* /*user*/) {
   int32_t n = 0;
   bison_get_int(self, H("n"), &n);
   bison_set_int(self, H("n"), n * 2);
@@ -301,7 +313,8 @@ static void double_counter_fn(bison_handle self, bison_handle /*params*/,
 TEST(MethodTests, AddAndCallMethod) {
   ScopedHandle h{bison_create(0)};
   bison_set_int(h, H("n"), 5);
-  EXPECT_EQ(bison_add_method(h, H("double"), double_counter_fn, nullptr), BISON_OK);
+  EXPECT_EQ(
+      bison_add_method(h, H("double"), double_counter_fn, nullptr), BISON_OK);
 
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
@@ -317,13 +330,16 @@ TEST(MethodTests, CallMissingMethodReturnsNotFound) {
   ScopedHandle h{bison_create(0)};
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
-  EXPECT_EQ(bison_call(h, H("nonexistent"), params, &result), BISON_ERR_NOT_FOUND);
+  EXPECT_EQ(
+      bison_call(h, H("nonexistent"), params, &result), BISON_ERR_NOT_FOUND);
 }
 
 TEST(MethodTests, AddDuplicateMethodFails) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(bison_add_method(h, H("fn"), double_counter_fn, nullptr), BISON_OK);
-  EXPECT_EQ(bison_add_method(h, H("fn"), double_counter_fn, nullptr), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(
+      bison_add_method(h, H("fn"), double_counter_fn, nullptr),
+      BISON_ERR_DUPLICATE);
 }
 
 TEST(MethodTests, NullHandleReturnsNullError) {

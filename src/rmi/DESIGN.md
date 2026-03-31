@@ -116,8 +116,8 @@ Token compaction rule:
 
 Envelope encoding rule:
 
-- Envelope MUST be serialized/deserialized with `serializeWithTemplate` and
-  `deserializeWithTemplate`.
+- Envelope MUST be serialized/deserialized with `serializeWithSchema` and
+  `deserializeWithSchema`.
 - The envelope class schema is fixed and registered on both client and server.
 - Unknown or missing required envelope fields are treated as protocol
   validation errors.
@@ -208,7 +208,7 @@ Rules:
 ### 6.2.2 Envelope Template Schema
 
 The protocol envelope should be implemented as a registered Bison class with a
-fixed field layout so `serializeWithTemplate` and `deserializeWithTemplate`
+fixed field layout so `serializeWithSchema` and `deserializeWithSchema`
 can be used deterministically on both peers.
 
 Recommended shared envelope class:
@@ -271,11 +271,11 @@ Encoding sequence:
 1. Build regular self-describing payload object for the operation.
 2. Serialize payload to bytes.
 3. Populate envelope fields, storing payload bytes in `FIELD_PAYLOAD`.
-4. Serialize envelope with `serializeWithTemplate`.
+4. Serialize envelope with `serializeWithSchema`.
 
 Decoding sequence:
 
-1. Deserialize envelope with `deserializeWithTemplate`.
+1. Deserialize envelope with `deserializeWithSchema`.
 2. Validate fixed envelope fields.
 3. Deserialize `FIELD_PAYLOAD` bytes with regular deserialization when payload is present.
 4. Deserialize `FIELD_ERROR` bytes similarly when error is present.
