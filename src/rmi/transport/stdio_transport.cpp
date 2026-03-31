@@ -269,21 +269,6 @@ std::optional<uint32_t> parse_u32(const std::string& value) {
   return static_cast<uint32_t>(*n);
 }
 
-std::optional<int32_t> parse_i32(const std::string& value) {
-  try {
-    size_t pos = 0;
-    const auto parsed = std::stoll(value, &pos, 10);
-    if (pos != value.size())
-      return std::nullopt;
-    if (parsed < std::numeric_limits<int32_t>::min() ||
-        parsed > std::numeric_limits<int32_t>::max())
-      return std::nullopt;
-    return static_cast<int32_t>(parsed);
-  } catch (...) {
-    return std::nullopt;
-  }
-}
-
 framing_mode parse_mode_param(const std::string& value, framing_mode fallback) {
   const auto mode = trim_copy(value);
   if (mode == "auto")
@@ -343,6 +328,12 @@ void push_inbound(shared_state& state, bison::buffer frame) {
 void close_and_notify(shared_state& state) {
   state.closed.store(true);
   state.read_cv.notify_all();
+}
+
+void reset_receive_state(shared_state& state) {
+  std::lock_guard<std::mutex> lk(state.read_mtx);
+  state.inbox = std::queue<bison::buffer>{};
+  state.pending.clear();
 }
 
 void handle_data_frame(
@@ -487,10 +478,10 @@ void mirror_plaintext_fragment(
 
   // Output only the unread plaintext delta so we can preserve full line state
   // for protocol detection without duplicating bytes or dropping newlines.
-  std::cout.write(
+  std::cerr.write(
       line_buf.data() + static_cast<std::ptrdiff_t>(mirrored_bytes),
       static_cast<std::streamsize>(line_buf.size() - mirrored_bytes));
-  std::cout.flush();
+  std::cerr.flush();
   mirrored_bytes = line_buf.size();
 }
 
@@ -735,6 +726,7 @@ struct stdio_client_transport::impl {
   std::shared_ptr<shared_state> state;
   std::thread reader;
   bool opened = false;
+  bool reader_detached = false;
 };
 
 struct stdio_server_connection::impl {
@@ -754,6 +746,7 @@ struct stdio_server_transport::impl {
   std::thread reader;
   std::atomic<bool> running{false};
   std::atomic<bool> accepted{false};
+  bool reader_detached = false;
 #if defined(__linux__)
   bool tty_mode_active = false;
   termios saved_tty_mode{};
@@ -827,11 +820,16 @@ void stdio_client_transport::open(bison::dynamic&& params) {
   if (!impl_ || !impl_->state) {
     throw std::runtime_error("stdio_client_transport::open invalid state");
   }
+  if (impl_->reader_detached) {
+    throw std::runtime_error(
+        "stdio_client_transport::open cannot reopen after detached shutdown");
+  }
 
   impl_->state->stop_requested.store(false);
   impl_->state->closed.store(false);
   impl_->state->hello_seen.store(false);
   impl_->state->negotiated_mode = framing_mode::auto_detect;
+  reset_receive_state(*impl_->state);
   apply_common_params(*impl_->state, params);
 
   if (!impl_->reader.joinable()) {
@@ -894,7 +892,10 @@ void stdio_client_transport::shutdown() {
   impl_->state->read_cv.notify_all();
 
   if (impl_->reader.joinable()) {
+    // The reader may be blocked on a stream read; detaching avoids shutdown
+    // deadlock, so this transport instance is considered single-start.
     impl_->reader.detach();
+    impl_->reader_detached = true;
   }
 
   impl_->opened = false;
@@ -979,6 +980,10 @@ void stdio_server_transport::start(bison::dynamic params) {
   if (!impl_ || !impl_->state) {
     throw std::runtime_error("stdio_server_transport::start invalid state");
   }
+  if (impl_->reader_detached) {
+    throw std::runtime_error(
+        "stdio_server_transport::start cannot restart after detached stop");
+  }
 
   stop();
 
@@ -986,6 +991,7 @@ void stdio_server_transport::start(bison::dynamic params) {
   impl_->state->closed.store(false);
   impl_->state->hello_seen.store(false);
   impl_->state->negotiated_mode = framing_mode::auto_detect;
+  reset_receive_state(*impl_->state);
   apply_common_params(*impl_->state, params);
 
 #if defined(__linux__)
@@ -1034,10 +1040,14 @@ void stdio_server_transport::stop() {
   impl_->state->read_cv.notify_all();
 
   if (impl_->reader.joinable()) {
+    // The reader may be blocked on a stream read; detaching avoids stop
+    // deadlock, so this transport instance is considered single-start.
     impl_->reader.detach();
+    impl_->reader_detached = true;
   }
 
   impl_->running.store(false);
+  impl_->accepted.store(false);
 
 #if defined(__linux__)
   restore_server_tty_mode(impl_->tty_mode_active, impl_->saved_tty_mode);
