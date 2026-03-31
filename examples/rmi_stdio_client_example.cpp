@@ -25,6 +25,7 @@
 #include <thread>
 #include <vector>
 
+#include <poll.h>
 #include <pty.h>
 #include <sys/wait.h>
 #include <termios.h>
@@ -186,6 +187,27 @@ child_process launch_pty_mode(int argc, char** argv, int arg_index) {
   proc.input_thread = std::thread([stop_input, stdin_fd, write_fd] {
     char buf[1024];
     while (!stop_input->load()) {
+      pollfd pfd{};
+      pfd.fd = stdin_fd;
+      pfd.events = POLLIN;
+
+      const int poll_result = ::poll(&pfd, 1, 100);
+      if (poll_result == 0) {
+        continue;
+      }
+      if (poll_result < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        break;
+      }
+      if ((pfd.revents & (POLLERR | POLLNVAL)) != 0) {
+        break;
+      }
+      if ((pfd.revents & (POLLIN | POLLHUP)) == 0) {
+        continue;
+      }
+
       const auto n = ::read(stdin_fd, buf, sizeof(buf));
       if (n > 0) {
         if (!write_all_fd(write_fd, buf, static_cast<size_t>(n))) {
