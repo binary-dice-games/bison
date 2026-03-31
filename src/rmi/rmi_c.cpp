@@ -281,13 +281,13 @@ static inline rmi_error wait_future_bool(
 static inline std::future<dynamic> make_describe_future(
     client* c,
     uint32_t klass) {
-  return c->describe(key_t{klass});
+  return c->describe(bdg::bison::key_t{klass});
 }
 
 static inline std::future<proxy::dynamic>
 make_instantiate_future(client* c, uint32_t klass, bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
-  return c->instantiate(key_t{klass}, std::move(dyn_params));
+  return c->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
 }
 
 static inline std::future<bool> make_proxy_clear_future(proxy::dynamic* px) {
@@ -313,7 +313,7 @@ static inline std::future<dynamic> make_proxy_call_future(
     uint32_t method,
     bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
-  return px->call(key_t{method}, std::move(dyn_params));
+  return px->call(bdg::bison::key_t{method}, std::move(dyn_params));
 }
 
 // ─── Async futures ────────────────────────────────────────────────────────

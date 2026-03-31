@@ -1,0 +1,5 @@
+if(EXISTS "/mnt/d/github/bison/build-linux/tests/bison_c_test[1]_tests.cmake")
+  include("/mnt/d/github/bison/build-linux/tests/bison_c_test[1]_tests.cmake")
+else()
+  add_test(bison_c_test_NOT_BUILT bison_c_test_NOT_BUILT)
+endif()

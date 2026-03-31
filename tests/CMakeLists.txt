@@ -31,11 +31,13 @@ target_link_libraries(bison_c_test bison_core_c bison gtest gmock gtest_main)
 if(MSVC)
     target_compile_options(bison_c_test PRIVATE /FS)
 endif()
-add_custom_command(TARGET bison_c_test POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:bison_core_c>
-            $<TARGET_FILE_DIR:bison_c_test>
-)
+if(WIN32)
+    add_custom_command(TARGET bison_c_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:bison_core_c>
+                $<TARGET_FILE_DIR:bison_c_test>
+    )
+endif()
 gtest_discover_tests(bison_c_test
     WORKING_DIRECTORY ${PROJECT_DIR}
     PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
@@ -49,14 +51,16 @@ target_link_libraries(rmi_c_test bison_rmi_c bison_core_c bison gtest gmock gtes
 if(MSVC)
     target_compile_options(rmi_c_test PRIVATE /FS)
 endif()
-add_custom_command(TARGET rmi_c_test POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:bison_rmi_c>
-            $<TARGET_FILE_DIR:rmi_c_test>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:bison_core_c>
-            $<TARGET_FILE_DIR:rmi_c_test>
-)
+if(WIN32)
+    add_custom_command(TARGET rmi_c_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:bison_rmi_c>
+                $<TARGET_FILE_DIR:rmi_c_test>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:bison_core_c>
+                $<TARGET_FILE_DIR:rmi_c_test>
+    )
+endif()
 gtest_discover_tests(rmi_c_test
     WORKING_DIRECTORY ${PROJECT_DIR}
     PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"

@@ -66,7 +66,7 @@ int main() {
   server srv{transport};
 
   dynamic params;
-  params["mode"_key] = std::string{"auto"};
+  params["mode"_key] = std::string{"dcs"};
 
   srv.listen(std::move(params));
 

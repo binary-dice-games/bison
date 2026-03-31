@@ -1,0 +1,5 @@
+if(EXISTS "/mnt/d/github/bison/build-linux/tests/rmi_c_test[1]_tests.cmake")
+  include("/mnt/d/github/bison/build-linux/tests/rmi_c_test[1]_tests.cmake")
+else()
+  add_test(rmi_c_test_NOT_BUILT rmi_c_test_NOT_BUILT)
+endif()

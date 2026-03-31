@@ -5,6 +5,7 @@
  */
 #include "src/rmi/transport/stdio_transport.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cerrno>
@@ -24,6 +25,7 @@
 #include <vector>
 
 #if defined(__linux__)
+#include <termios.h>
 #include <unistd.h>
 #endif
 
@@ -457,10 +459,39 @@ void process_line(shared_state& state, const std::string& line) {
         framing_mode::line);
     return;
   }
+}
 
-  if (state.mirror_plaintext_to_stderr) {
-    std::cerr << trimmed << '\n';
+bool could_be_line_frame_prefix(const std::string& text) {
+  const std::string prefix{kLinePrefix};
+  if (text.size() > prefix.size()) {
+    return false;
   }
+  return std::equal(text.begin(), text.end(), prefix.begin());
+}
+
+void mirror_plaintext_fragment(
+    shared_state& state,
+    const std::string& line_buf,
+    size_t& mirrored_bytes) {
+  if (!state.mirror_plaintext_to_stderr || line_buf.empty()) {
+    return;
+  }
+
+  if (could_be_line_frame_prefix(line_buf)) {
+    return;
+  }
+
+  if (mirrored_bytes >= line_buf.size()) {
+    return;
+  }
+
+  // Output only the unread plaintext delta so we can preserve full line state
+  // for protocol detection without duplicating bytes or dropping newlines.
+  std::cout.write(
+      line_buf.data() + static_cast<std::ptrdiff_t>(mirrored_bytes),
+      static_cast<std::streamsize>(line_buf.size() - mirrored_bytes));
+  std::cout.flush();
+  mirrored_bytes = line_buf.size();
 }
 
 void reader_loop(std::shared_ptr<shared_state> state) {
@@ -481,10 +512,12 @@ void reader_loop(std::shared_ptr<shared_state> state) {
   bool dcs_saw_esc = false;
   std::string line_buf;
   std::string dcs_buf;
+  size_t mirrored_bytes = 0;
 
   while (!state->stop_requested.load()) {
     const int ci = read_next_byte(*state);
     if (ci == EOF) {
+      mirror_plaintext_fragment(*state, line_buf, mirrored_bytes);
       close_and_notify(*state);
       return;
     }
@@ -530,11 +563,17 @@ void reader_loop(std::shared_ptr<shared_state> state) {
 
     line_buf.push_back(c);
     if (c == '\n') {
+      mirror_plaintext_fragment(*state, line_buf, mirrored_bytes);
       process_line(*state, line_buf);
       line_buf.clear();
+      mirrored_bytes = 0;
+      continue;
     }
+
+    mirror_plaintext_fragment(*state, line_buf, mirrored_bytes);
   }
 
+  mirror_plaintext_fragment(*state, line_buf, mirrored_bytes);
   close_and_notify(*state);
 }
 
@@ -715,7 +754,52 @@ struct stdio_server_transport::impl {
   std::thread reader;
   std::atomic<bool> running{false};
   std::atomic<bool> accepted{false};
+#if defined(__linux__)
+  bool tty_mode_active = false;
+  termios saved_tty_mode{};
+#endif
 };
+
+#if defined(__linux__)
+bool enable_server_tty_raw_mode(
+    const shared_state& state,
+    bool& tty_mode_active,
+    termios& saved_tty_mode) {
+  if (state.in != &std::cin || !::isatty(STDIN_FILENO)) {
+    return false;
+  }
+
+  termios tty{};
+  if (::tcgetattr(STDIN_FILENO, &tty) != 0) {
+    return false;
+  }
+
+  saved_tty_mode = tty;
+
+  tty.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO));
+  tty.c_iflag &= static_cast<tcflag_t>(~(IXON | ICRNL));
+  tty.c_cc[VMIN] = 1;
+  tty.c_cc[VTIME] = 0;
+
+  if (::tcsetattr(STDIN_FILENO, TCSANOW, &tty) != 0) {
+    return false;
+  }
+
+  tty_mode_active = true;
+  return true;
+}
+
+void restore_server_tty_mode(
+    bool& tty_mode_active,
+    const termios& saved_tty_mode) {
+  if (!tty_mode_active) {
+    return;
+  }
+
+  (void)::tcsetattr(STDIN_FILENO, TCSANOW, &saved_tty_mode);
+  tty_mode_active = false;
+}
+#endif
 
 stdio_client_transport::stdio_client_transport()
     : impl_(std::make_unique<impl>(std::cin, std::cout)) {}
@@ -904,6 +988,11 @@ void stdio_server_transport::start(bison::dynamic params) {
   impl_->state->negotiated_mode = framing_mode::auto_detect;
   apply_common_params(*impl_->state, params);
 
+#if defined(__linux__)
+  (void)enable_server_tty_raw_mode(
+      *impl_->state, impl_->tty_mode_active, impl_->saved_tty_mode);
+#endif
+
   impl_->reader = std::thread(reader_loop, impl_->state);
   impl_->running.store(true);
   impl_->accepted.store(false);
@@ -949,6 +1038,10 @@ void stdio_server_transport::stop() {
   }
 
   impl_->running.store(false);
+
+#if defined(__linux__)
+  restore_server_tty_mode(impl_->tty_mode_active, impl_->saved_tty_mode);
+#endif
 }
 
 bool stdio_server_transport::wait_until_closed(

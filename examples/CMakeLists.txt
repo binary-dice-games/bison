@@ -48,3 +48,7 @@ target_link_libraries(rmi_server_example PRIVATE bison)
 target_link_libraries(rmi_client_example PRIVATE bison)
 target_link_libraries(rmi_stdio_server_example PRIVATE bison)
 target_link_libraries(rmi_stdio_client_example PRIVATE bison)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+	target_link_libraries(rmi_stdio_client_example PRIVATE util)
+endif()

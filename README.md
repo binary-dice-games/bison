@@ -125,29 +125,62 @@ Individual test executables can be run directly or filtered with `--gtest_filter
 ./build-linux/tests/rmi_test --gtest_filter="*RMI*"
 ```
 
-### 6 — Run the stdio PTY examples on WSL
+### 6 — Run the stdio transport examples
 
-After building the stdio targets:
+Build the stdio targets:
 
 ```bash
 cmake --build build-linux --target rmi_stdio_server_example rmi_stdio_client_example
 ```
 
-Open two WSL terminals (or use `tmux` / `screen`).
-
-**Terminal 1** — launch the client and have it spawn a shell via PTY:
+Interactive terminal workflow with PTY indirection:
 
 ```bash
-./build-linux/examples/rmi_stdio_client_example bash
+./build-linux/examples/rmi_stdio_client_example --pty bash
 ```
 
-**Terminal 2** — inside the shell opened by the client, start the server:
+You can replace `bash` with another terminal command, for example:
+
+```bash
+./build-linux/examples/rmi_stdio_client_example --pty ssh user@host
+./build-linux/examples/rmi_stdio_client_example --pty adb shell
+```
+
+The client mirrors the spawned terminal output locally. Once that shell opens, start the server inside it:
 
 ```bash
 ./build-linux/examples/rmi_stdio_server_example
 ```
 
-The client detects the server `HELLO` frame, performs the sample RMI calls, and then sends a disconnect. Both processes exit cleanly.
+Once the server starts, it switches the terminal into a byte-oriented no-echo mode for the duration of the RMI session, so the channel does not require extra Enter presses and framed control messages are not echoed back into the terminal.
+
+Direct subprocess pipe workflow:
+
+```bash
+./build-linux/examples/rmi_stdio_client_example --pipe ./build-linux/examples/rmi_stdio_server_example
+```
+
+Pipe mode is useful when the launcher can execute the server directly and forward stdin/stdout without an intermediate interactive shell, for example:
+
+```bash
+./build-linux/examples/rmi_stdio_client_example --pipe ssh user@host /path/to/rmi_stdio_server_example
+```
+
+Expected client/server output:
+
+```
+[Client] subprocess started. Waiting for HELLO...
+[Server] stdio transport listening.
+[Server] Waiting for remote disconnect/end...
+[Client] HELLO received. RMI channel connected.
+[Client] instantiated Calculator, id=...
+[Client] add(10, 3) = 13
+[Client] divide(21, 7) = 3
+[Client] done.
+[Server] stopped.
+```
+
+In PTY mode the client waits for `HELLO` while you use the spawned shell. In pipe mode both processes exit automatically after the RMI session completes.
 
 The build fetches standalone Asio automatically during CMake configure so the socket transport can use a portable TCP implementation.
 
@@ -237,7 +270,7 @@ The repository also includes a PTY-based stdio transport workflow:
 - `rmi_stdio_server_example` in `examples/rmi_stdio_server_example.cpp`
 - `rmi_stdio_client_example` in `examples/rmi_stdio_client_example.cpp`
 
-This flow is intentionally interactive and requires a Linux terminal environment (native Linux or WSL). Native Windows console support is not part of this workflow. See **[Building and Testing on Linux / WSL](#building-and-testing-on-linux--wsl)** for the full build and run instructions.
+This flow is intended for Linux terminal environments (native Linux or WSL). Use `--pty` when you need an interactive shell hop such as `bash`, `ssh`, or `adb shell`. Use `--pipe` when the launched command can execute the server directly over redirected stdin/stdout. See **[Building and Testing on Linux / WSL](#building-and-testing-on-linux--wsl)** for the full build and run instructions.
 
 ## Performance Benchmark
 
