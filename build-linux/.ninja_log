@@ -135,3 +135,7 @@
 9308	13936	1774961794320085600	libbison.a	e2ffde1fcb024144
 13938	15987	1774961796355109300	examples/rmi_stdio_server_example	3e97d5c7d2d4d4a
 13939	16189	1774961796556121300	examples/rmi_stdio_client_example	2352dba8a07ed387
+1491	4878	1774962033433792900	examples/CMakeFiles/rmi_stdio_client_example.dir/rmi_stdio_client_example.cpp.o	fc7fb33196b9cc42
+4886	6989	1774962035559591900	examples/rmi_stdio_client_example	2352dba8a07ed387
+1492	4704	1774962184067588900	examples/CMakeFiles/rmi_stdio_client_example.dir/rmi_stdio_client_example.cpp.o	fc7fb33196b9cc42
+4710	6630	1774962185994512200	examples/rmi_stdio_client_example	2352dba8a07ed387

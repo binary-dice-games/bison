@@ -27,6 +27,7 @@
 
 #include <pty.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <unistd.h>
 
 namespace {
@@ -42,10 +43,48 @@ struct child_process {
   int write_fd = -1;
   int stdin_fd = -1;
   launch_mode mode = launch_mode::pty;
+  bool stdin_raw_mode_active = false;
+  termios saved_stdin_mode{};
   std::shared_ptr<std::atomic<bool>> stop_input =
       std::make_shared<std::atomic<bool>>(false);
   std::thread input_thread;
 };
+
+bool enable_client_stdin_raw_mode(child_process& proc) {
+  if (!::isatty(STDIN_FILENO)) {
+    return false;
+  }
+
+  termios tty{};
+  if (::tcgetattr(STDIN_FILENO, &tty) != 0) {
+    return false;
+  }
+
+  proc.saved_stdin_mode = tty;
+
+  // Disable local echo and canonical line buffering, but keep normal output
+  // post-processing so '\r' and '\n' continue to format correctly.
+  tty.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO));
+  tty.c_iflag &= static_cast<tcflag_t>(~(IXON | ICRNL));
+  tty.c_cc[VMIN] = 1;
+  tty.c_cc[VTIME] = 0;
+
+  if (::tcsetattr(STDIN_FILENO, TCSANOW, &tty) != 0) {
+    return false;
+  }
+
+  proc.stdin_raw_mode_active = true;
+  return true;
+}
+
+void restore_client_stdin_mode(child_process& proc) {
+  if (!proc.stdin_raw_mode_active) {
+    return;
+  }
+
+  (void)::tcsetattr(STDIN_FILENO, TCSANOW, &proc.saved_stdin_mode);
+  proc.stdin_raw_mode_active = false;
+}
 
 bool write_all_fd(int fd, const char* data, size_t size) {
   size_t sent = 0;
@@ -136,6 +175,7 @@ child_process launch_pty_mode(int argc, char** argv, int arg_index) {
   proc.pid = child;
   proc.read_fd = master_fd;
   proc.write_fd = master_fd;
+  (void)enable_client_stdin_raw_mode(proc);
   proc.stdin_fd = ::dup(STDIN_FILENO);
   proc.mode = launch_mode::pty;
   auto stop_input = proc.stop_input;
@@ -179,6 +219,7 @@ void cleanup_child_process(child_process& proc) {
   if (proc.input_thread.joinable()) {
     proc.input_thread.join();
   }
+  restore_client_stdin_mode(proc);
   if (proc.write_fd == proc.read_fd) {
     close_if_open(proc.write_fd);
     proc.read_fd = -1;

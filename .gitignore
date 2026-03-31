@@ -1,6 +1,7 @@
 .vs/
 out/
 build/
+build-linux/
 __pycache__/
 *.pyc
 *.pyo
