@@ -44,6 +44,111 @@ ctest --test-dir build -C Debug
 
 The project builds the C++ library target `bison` and the shared C API target `bison_c`. The Python binding loads `bison_c`, so make sure that target is built before running Python examples or tests.
 
+## Building and Testing on Linux / WSL
+
+The stdio PTY transport, the Linux-specific examples, and all unit tests can be built and run natively under Windows Subsystem for Linux (WSL). The steps below assume Windows 10 version 2004 or Windows 11.
+
+### 1 — Install WSL
+
+Open PowerShell as Administrator and run:
+
+```powershell
+wsl --install
+```
+
+This installs the WSL feature and the default Ubuntu distribution. Restart your machine when prompted.
+
+If WSL is already installed but you need to check which distributions are available run:
+
+```powershell
+wsl --list --verbose
+```
+
+To install a specific distribution (Ubuntu 22.04 recommended):
+
+```powershell
+wsl --install -d Ubuntu-22.04
+```
+
+### 2 — Install build tools inside WSL
+
+Open a WSL terminal (search "Ubuntu" in the Start menu, or run `wsl` in PowerShell) and install the required packages:
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y build-essential cmake ninja-build git
+```
+
+`build-essential` provides GCC and `make`. `ninja-build` is optional but recommended for faster incremental builds. `cmake` must be version 3.11 or later — verify with `cmake --version`.
+
+### 3 — Access the repository from WSL
+
+The Windows filesystem is automatically mounted under `/mnt/c/`, `/mnt/d/`, and so on. If the repository is cloned at `D:\github\bison`, it is available at:
+
+```bash
+cd /mnt/d/github/bison
+```
+
+Alternatively, clone directly inside the WSL home directory for better I/O performance:
+
+```bash
+cd ~
+git clone --recurse-submodules https://github.com/carloslopezmdez/bison.git
+cd bison
+```
+
+### 4 — Configure and build
+
+Use a separate build directory (e.g. `build-linux`) to avoid conflicting with the Windows `build/` folder:
+
+```bash
+cmake -B build-linux -G Ninja -DPACKAGE_TESTS=ON
+cmake --build build-linux
+```
+
+To build only specific targets:
+
+```bash
+cmake --build build-linux --target bison_test rmi_test bison_c_test rmi_c_test
+```
+
+### 5 — Run the tests
+
+```bash
+ctest --test-dir build-linux --output-on-failure
+```
+
+Individual test executables can be run directly or filtered with `--gtest_filter`:
+
+```bash
+./build-linux/tests/bison_test
+./build-linux/tests/rmi_test --gtest_filter="*RMI*"
+```
+
+### 6 — Run the stdio PTY examples on WSL
+
+After building the stdio targets:
+
+```bash
+cmake --build build-linux --target rmi_stdio_server_example rmi_stdio_client_example
+```
+
+Open two WSL terminals (or use `tmux` / `screen`).
+
+**Terminal 1** — launch the client and have it spawn a shell via PTY:
+
+```bash
+./build-linux/examples/rmi_stdio_client_example bash
+```
+
+**Terminal 2** — inside the shell opened by the client, start the server:
+
+```bash
+./build-linux/examples/rmi_stdio_server_example
+```
+
+The client detects the server `HELLO` frame, performs the sample RMI calls, and then sends a disconnect. Both processes exit cleanly.
+
 The build fetches standalone Asio automatically during CMake configure so the socket transport can use a portable TCP implementation.
 
 To use the C++ library in your own CMake project:
@@ -132,43 +237,7 @@ The repository also includes a PTY-based stdio transport workflow:
 - `rmi_stdio_server_example` in `examples/rmi_stdio_server_example.cpp`
 - `rmi_stdio_client_example` in `examples/rmi_stdio_client_example.cpp`
 
-This flow is intentionally interactive and requires a Linux terminal
-environment (native Linux or WSL). Native Windows console support is not part
-of this workflow.
-
-### Build the PTY stdio examples
-
-From the repository root in Linux/WSL:
-
-```bash
-cmake -B build
-cmake --build build --target rmi_stdio_server_example rmi_stdio_client_example
-```
-
-### Run the PTY stdio workflow
-
-Start the client and let it spawn an interactive shell in a PTY:
-
-```bash
-./build/examples/rmi_stdio_client_example bash
-```
-
-You can replace `bash` with another command, for example `ssh user@host`.
-
-Inside that spawned shell, launch the server:
-
-```bash
-./build/examples/rmi_stdio_server_example
-```
-
-Behavior:
-
-- The client waits for the server `HELLO` message.
-- Once `HELLO` is received, the client runs the sample RMI calls.
-- The client sends disconnect/end and the server exits.
-
-If the client reports a handshake timeout, confirm that the server executable
-was started inside the shell launched by `rmi_stdio_client_example`.
+This flow is intentionally interactive and requires a Linux terminal environment (native Linux or WSL). Native Windows console support is not part of this workflow. See **[Building and Testing on Linux / WSL](#building-and-testing-on-linux--wsl)** for the full build and run instructions.
 
 ## Performance Benchmark
 
