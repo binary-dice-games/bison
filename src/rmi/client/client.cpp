@@ -37,22 +37,26 @@ void client::connect(bison::dynamic params) {
 }
 
 /** @copydoc bdg::bison::rmi::client::describe */
-bison::dynamic client::describe(bison::key_t klass) {
+std::future<bison::dynamic> client::describe(bison::key_t klass) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
-  return send_request(OP_DESCRIBE, {}, std::move(payload), false).get();
+  return send_request(OP_DESCRIBE, {}, std::move(payload), false);
 }
 
 /** @copydoc bdg::bison::rmi::client::instantiate */
-proxy::dynamic client::instantiate(bison::key_t klass, bison::dynamic params) {
+std::future<proxy::dynamic> client::instantiate(
+    bison::key_t klass,
+    bison::dynamic params) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
   payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
 
-  auto result =
-      send_request(OP_INSTANTIATE, {}, std::move(payload), false).get();
-  bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
-  return proxy::dynamic{this, std::move(oid)};
+  auto f = send_request(OP_INSTANTIATE, {}, std::move(payload), false);
+  return std::async(std::launch::async, [this, f = std::move(f)]() mutable {
+    auto result = f.get();
+    bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
+    return proxy::dynamic{this, std::move(oid)};
+  });
 }
 
 /** @copydoc bdg::bison::rmi::client::destroy */

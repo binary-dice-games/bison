@@ -372,7 +372,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   auto c = make_client();
   c.connect();
 
-  dynamic result = c.describe();
+  dynamic result = c.describe().get();
   // At least one entry in the result array.
   bool found = false;
   for (size_t i = 0; i < result.size(); ++i) {
@@ -394,7 +394,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
 TEST_F(RmiE2E, InstantiateUnregisteredClassFails) {
   auto c = make_client();
   c.connect();
-  EXPECT_THROW(c.instantiate("NoSuchClass"_key), std::runtime_error);
+  EXPECT_THROW(c.instantiate("NoSuchClass"_key).get(), std::runtime_error);
   c.disconnect();
 }
 
@@ -405,7 +405,7 @@ TEST_F(RmiE2E, InstantiateAndDestroyRegisteredClass) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Counter"_key);
+  auto proxy = c.instantiate("Counter"_key).get();
   EXPECT_TRUE(proxy.valid());
   EXPECT_NE(static_cast<hash_t>(proxy.object_id()), 0u);
 
@@ -421,7 +421,7 @@ TEST_F(RmiE2E, SetAndGetField) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Box"_key);
+  auto proxy = c.instantiate("Box"_key).get();
 
   // Set fields.
   dynamic fields;
@@ -453,7 +453,7 @@ TEST_F(RmiE2E, GetProjection) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Rect"_key);
+  auto proxy = c.instantiate("Rect"_key).get();
 
   dynamic set_fields;
   set_fields["left"_key] = int32_t{10};
@@ -489,7 +489,7 @@ TEST_F(RmiE2E, ClearResetsFields) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Slot"_key);
+  auto proxy = c.instantiate("Slot"_key).get();
 
   dynamic f;
   f["value"_key] = int32_t{99};
@@ -532,7 +532,7 @@ TEST_F(RmiE2E, CallMethod) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Calc"_key);
+  auto proxy = c.instantiate("Calc"_key).get();
 
   dynamic params;
   params["a"_key] = int32_t{10};
@@ -557,7 +557,7 @@ TEST_F(RmiE2E, OnewayCallResolvesImmediately) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Sink"_key);
+  auto proxy = c.instantiate("Sink"_key).get();
 
   dynamic params;
   auto fut = proxy.call("noop"_key, std::move(params), true /* oneway */);
@@ -594,7 +594,7 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Hooked"_key);
+  auto proxy = c.instantiate("Hooked"_key).get();
   EXPECT_EQ(construct_count.load(), 1);
 
   c.destroy(std::move(proxy));
@@ -623,7 +623,7 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Clamped"_key);
+  auto proxy = c.instantiate("Clamped"_key).get();
 
   dynamic f;
   f["v"_key] = int32_t{200}; // over the clamp limit
@@ -655,7 +655,7 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Doubled"_key);
+  auto proxy = c.instantiate("Doubled"_key).get();
 
   dynamic set_f;
   set_f["n"_key] = int32_t{5};
@@ -683,8 +683,8 @@ TEST_F(RmiE2E, TwoClientsAreIsolated) {
   c1.connect();
   c2.connect();
 
-  auto p1 = c1.instantiate("Isolated"_key);
-  auto p2 = c2.instantiate("Isolated"_key);
+  auto p1 = c1.instantiate("Isolated"_key).get();
+  auto p2 = c2.instantiate("Isolated"_key).get();
 
   // Set different values in each client's object.
   dynamic f1;
@@ -827,7 +827,7 @@ TEST_F(RmiE2E, OnEventHandlerInvokedOnClientThread) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("EvtSource"_key);
+  auto proxy = c.instantiate("EvtSource"_key).get();
   const bison_key_t oid = proxy.object_id();
 
   // Register an event handler.
@@ -880,8 +880,8 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
   auto c = make_client();
   c.connect();
 
-  auto p1 = c.instantiate("Ephemeral"_key);
-  auto p2 = c.instantiate("Ephemeral"_key);
+  auto p1 = c.instantiate("Ephemeral"_key).get();
+  auto p2 = c.instantiate("Ephemeral"_key).get();
 
   // Disconnect without explicitly destroying.
   c.disconnect();
@@ -906,7 +906,7 @@ TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Echo"_key);
+  auto proxy = c.instantiate("Echo"_key).get();
   constexpr int N = 10;
 
   // Launch N concurrent calls each carrying a unique id.

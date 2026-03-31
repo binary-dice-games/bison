@@ -641,7 +641,8 @@ bison_rmi_client_describe(bison_rmi_client c, bison_hash klass) {
   if (!c)
     return nullptr;
   try {
-    bdg::bison::dynamic result = c->c->describe(bdg::bison::key_t{klass});
+    auto fut = c->c->describe(bdg::bison::key_t{klass});
+    bdg::bison::dynamic result = fut.get();
     return as_handle(
         new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(result))));
   } catch (...) {
@@ -659,7 +660,9 @@ BISON_API bison_rmi_proxy bison_rmi_client_instantiate(
     bdg::bison::dynamic p;
     if (params && dyn(params))
       p = dyn(params)->clone();
-    auto proxy = c->c->instantiate(bdg::bison::key_t{klass}, std::move(p));
+
+    auto fut = c->c->instantiate(bdg::bison::key_t{klass}, std::move(p));
+    auto proxy = fut.get();
     return new bison_rmi_proxy_(std::move(proxy));
   } catch (...) {
     return nullptr;

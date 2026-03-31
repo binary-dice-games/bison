@@ -59,17 +59,18 @@ class client {
   /**
    * @brief Request class metadata from the server.
    * @param klass Optional class key. Pass `0` to request full metadata.
-   * @return Description payload returned by the server.
+   * @return Future resolved with the description payload from the server.
    */
-  bison::dynamic describe(bison::key_t klass = 0U);
+  std::future<bison::dynamic> describe(bison::key_t klass = 0U);
 
   /**
    * @brief Create a remote object instance on the server.
    * @param klass Class key to instantiate.
    * @param params Optional constructor parameters.
-   * @return Move-only proxy that references the server-side object.
+   * @return Future resolved with a move-only proxy referencing the server-side
+   * object.
    */
-  proxy::dynamic instantiate(
+  std::future<proxy::dynamic> instantiate(
       bison::key_t klass,
       bison::dynamic params = bison::dynamic{});
 

@@ -153,7 +153,7 @@ RMI_API rmi_error rmi_client_describe(
   if (!c)
     return RMI_ERR_NULL;
   try {
-    dynamic desc = c->describe(key_t{klass});
+    dynamic desc = c->describe(key_t{klass}).get();
     *out_desc = dynamic_to_bison_handle(std::move(desc));
     return RMI_OK;
   } catch (const std::runtime_error&) {
@@ -175,7 +175,8 @@ RMI_API rmi_error rmi_client_instantiate(
     return RMI_ERR_NULL;
   try {
     dynamic dyn_params = bison_handle_to_dynamic(params);
-    proxy::dynamic proxy = c->instantiate(key_t{klass}, std::move(dyn_params));
+    proxy::dynamic proxy =
+        c->instantiate(key_t{klass}, std::move(dyn_params)).get();
     auto* pp =
         new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy)));
     *out_proxy = as_proxy_handle(pp);

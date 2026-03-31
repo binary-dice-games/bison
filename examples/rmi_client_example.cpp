@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
     client c{std::move(transport)};
     c.connect();
 
-    auto calc = c.instantiate("Calculator"_key);
+    auto calc = c.instantiate("Calculator"_key).get();
     std::cout << "[Client] connected, object id=" << calc.object_id() << '\n';
 
     {

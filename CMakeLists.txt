@@ -24,7 +24,7 @@ add_library(asio_headers INTERFACE)
 target_include_directories(
   asio_headers
   INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/extern/asio/asio/include
+    ${CMAKE_CURRENT_LIST_DIR}/extern/asio/include
 )
 target_compile_definitions(
   asio_headers
