@@ -125,6 +125,51 @@ Optional arguments:
 - server: `rmi_server_example.exe [host] [port]`
 - client: `rmi_client_example.exe [host] [port]`
 
+## RMI Stdio PTY Example (Linux / WSL)
+
+The repository also includes a PTY-based stdio transport workflow:
+
+- `rmi_stdio_server_example` in `examples/rmi_stdio_server_example.cpp`
+- `rmi_stdio_client_example` in `examples/rmi_stdio_client_example.cpp`
+
+This flow is intentionally interactive and requires a Linux terminal
+environment (native Linux or WSL). Native Windows console support is not part
+of this workflow.
+
+### Build the PTY stdio examples
+
+From the repository root in Linux/WSL:
+
+```bash
+cmake -B build
+cmake --build build --target rmi_stdio_server_example rmi_stdio_client_example
+```
+
+### Run the PTY stdio workflow
+
+Start the client and let it spawn an interactive shell in a PTY:
+
+```bash
+./build/examples/rmi_stdio_client_example bash
+```
+
+You can replace `bash` with another command, for example `ssh user@host`.
+
+Inside that spawned shell, launch the server:
+
+```bash
+./build/examples/rmi_stdio_server_example
+```
+
+Behavior:
+
+- The client waits for the server `HELLO` message.
+- Once `HELLO` is received, the client runs the sample RMI calls.
+- The client sends disconnect/end and the server exits.
+
+If the client reports a handshake timeout, confirm that the server executable
+was started inside the shell launched by `rmi_stdio_client_example`.
+
 ## Performance Benchmark
 
 The repository also includes a benchmark target named `bison_performance` in `examples/performance.cpp`. It compares the cost of implementing the same record-like object using a plain C++ class, `bison::dynamic`, and `nlohmann::json`.
