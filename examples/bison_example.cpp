@@ -1,5 +1,5 @@
 // MIT License © 2025 Binary Dice Games
-// examples/main.cpp
+// examples/bison_example.cpp
 //
 // Detailed, runnable examples demonstrating every major feature of the Bison
 // library.  Each example is a self-contained function.  Run the executable to
@@ -438,8 +438,7 @@ static void example_userdata() {
   std::cout << "vertex_count preserved: "
             << restored["vertex_count"_key].as<int32_t>() << "\n";
   std::cout << "userdata after deserialize (should be null): "
-            << (restored.getUserdata() == nullptr ? "null" : "present")
-            << "\n";
+            << (restored.getUserdata() == nullptr ? "null" : "present") << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

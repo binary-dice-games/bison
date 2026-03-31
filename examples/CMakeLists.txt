@@ -1,5 +1,5 @@
 set(BISON_EXAMPLES_PRIVATE_SOURCES
-	main.cpp
+	bison_example.cpp
 )
 
 set(BISON_PERFORMANCE_PRIVATE_SOURCES
