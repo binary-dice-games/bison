@@ -1,5 +1,0 @@
-if(EXISTS "/mnt/d/github/bison/build-linux/tests/bison_test[1]_tests.cmake")
-  include("/mnt/d/github/bison/build-linux/tests/bison_test[1]_tests.cmake")
-else()
-  add_test(bison_test_NOT_BUILT bison_test_NOT_BUILT)
-endif()
