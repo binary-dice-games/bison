@@ -171,38 +171,48 @@ class server {
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void handle_connect(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void handle_describe(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void handle_instantiate(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void handle_clear(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void
   handle_set(context& ctx, const shared::envelope& env, connection_iface& conn);
+
   static void
   handle_get(context& ctx, const shared::envelope& env, connection_iface& conn);
+
   static void handle_call(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void handle_destroy(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void handle_disconnect(
       context& ctx,
       const shared::envelope& env,
       connection_iface& conn);
+
   static void cleanup_context(context& ctx);
 
   // ── Members ───────────────────────────────────────────────────────────────

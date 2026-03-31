@@ -14,6 +14,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(BISON_PUBLIC_HEADERS
   "${CMAKE_CURRENT_LIST_DIR}/src/core/bison.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_common.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_sync.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_serialization.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_object.hpp"
 )
 
 set(BISON_PRIVATE_SOURCES
