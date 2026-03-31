@@ -28,14 +28,25 @@ static void clearClassRegistry() {
   dynamic::getRegistry().wlock()->clear();
 }
 
+static socket_server_transport make_socket_server_transport() {
+  static std::atomic<uint16_t> next_port{28000};
+
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    const auto port = next_port.fetch_add(1);
+    socket_server_transport transport{"127.0.0.1", port};
+    try {
+      transport.start(dynamic{});
+      return transport;
+    } catch (const std::runtime_error&) {
+    }
+  }
+
+  throw std::runtime_error("unable to allocate socket test port");
+}
+
 #ifdef _WIN32
 static void destroyMovedFromSocketClientTransport() {
   socket_client_transport transport{"127.0.0.1", 65535};
-  auto moved = std::move(transport);
-}
-
-static void destroyMovedFromPipeClientTransport() {
-  pipe_client_transport transport{"\\.\\pipe\\bison_rmi_test"};
   auto moved = std::move(transport);
 }
 #endif
@@ -90,10 +101,6 @@ TEST(RmiIds, ConsecutiveIdsAreNotSequentialValues) {
 #ifdef _WIN32
 TEST(RmiTransportMove, MovedFromSocketClientTransportDestructionIsSafe) {
   EXPECT_NO_THROW(destroyMovedFromSocketClientTransport());
-}
-
-TEST(RmiTransportMove, MovedFromPipeClientTransportDestructionIsSafe) {
-  EXPECT_NO_THROW(destroyMovedFromPipeClientTransport());
 }
 #endif
 
@@ -221,8 +228,59 @@ TEST(RmiDynamicCodec, RoundtripEmptyDynamic) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 5. Memory transport
+// 5. Transport implementations
 // ═════════════════════════════════════════════════════════════════════════════
+
+TEST(SocketTransport, SendReceivePair) {
+  auto server_transport = make_socket_server_transport();
+  auto client_t = server_transport.connect();
+  client_t.open(dynamic{});
+
+  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(maybe.has_value());
+
+  auto& server_conn = *maybe;
+  const buffer frame{'H', 'i'};
+  client_t.send(frame);
+
+  buffer received;
+  const bool ok = server_conn.receive(received, std::chrono::milliseconds{500});
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(received, frame);
+
+  client_t.shutdown();
+  server_conn.close();
+  server_transport.stop();
+}
+
+TEST(SocketTransport, ServerToClientSend) {
+  auto server_transport = make_socket_server_transport();
+  auto client_t = server_transport.connect();
+  client_t.open(dynamic{});
+
+  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(maybe.has_value());
+
+  auto& server_conn = *maybe;
+  const buffer reply{'O', 'K'};
+  server_conn.send(reply);
+
+  buffer got;
+  const bool ok = client_t.receive(got, std::chrono::milliseconds{500});
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(got, reply);
+
+  client_t.shutdown();
+  server_conn.close();
+  server_transport.stop();
+}
+
+TEST(SocketTransport, AcceptTimeoutReturnsNullopt) {
+  auto server_transport = make_socket_server_transport();
+  auto result = server_transport.accept(std::chrono::milliseconds{50});
+  EXPECT_FALSE(result.has_value());
+  server_transport.stop();
+}
 
 TEST(MemoryTransport, SendReceivePair) {
   memory_server_transport server_transport;

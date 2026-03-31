@@ -20,7 +20,7 @@ Unlike Protocol Buffers (protobuf), Bison objects do not require a separate IDL 
 | Requirement | Version |
 |---|---|
 | C++ standard | C++20 or later |
-| CMake | 3.10 or later |
+| CMake | 3.11 or later |
 | [nlohmann/json](https://github.com/nlohmann/json) | bundled as git submodule |
 | [libyaml](https://github.com/yaml/libyaml) | bundled as git submodule |
 | [Google Test](https://github.com/google/googletest) | bundled as git submodule (tests only) |
@@ -43,6 +43,8 @@ ctest --test-dir build -C Debug
 ```
 
 The project builds the C++ library target `bison` and the shared C API target `bison_c`. The Python binding loads `bison_c`, so make sure that target is built before running Python examples or tests.
+
+The build fetches standalone Asio automatically during CMake configure so the socket transport can use a portable TCP implementation.
 
 To use the C++ library in your own CMake project:
 

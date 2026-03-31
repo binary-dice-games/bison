@@ -1,6 +1,6 @@
 # https://cliutils.gitlab.io/modern-cmake/
 
-cmake_minimum_required(VERSION 3.10...3.27)
+cmake_minimum_required(VERSION 3.11...3.27)
 
 project(
   Bison
@@ -19,6 +19,30 @@ set(BISON_PUBLIC_HEADERS
 set(BISON_PRIVATE_SOURCES
   src/core/bison.cpp
 )
+
+add_library(asio_headers INTERFACE)
+target_include_directories(
+  asio_headers
+  INTERFACE
+    ${CMAKE_CURRENT_LIST_DIR}/extern/asio/asio/include
+)
+target_compile_definitions(
+  asio_headers
+  INTERFACE
+    ASIO_STANDALONE
+    ASIO_DISABLE_CO_AWAIT
+    ASIO_DISABLE_STD_COROUTINE
+)
+
+if(WIN32)
+  target_compile_definitions(
+    asio_headers
+    INTERFACE
+      _WIN32_WINNT=0x0601
+      WIN32_LEAN_AND_MEAN
+      NOMINMAX
+  )
+endif()
 
 include_directories(. include)
 
@@ -43,22 +67,23 @@ target_include_directories(bison
 )
 
 target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml)
+target_link_libraries(bison PRIVATE asio_headers)
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
+if(MSVC)
+  target_compile_options(bison PRIVATE /FS)
+endif()
 
 # ─── RMI framework sources ────────────────────────────────────────────────────
 target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
+  src/rmi/transport/socket_transport.cpp
   src/rmi/client/client.cpp
   src/rmi/server/server.cpp
 )
 
 if(WIN32)
-  target_sources(bison PRIVATE
-    src/rmi/transport/platform/windows/socket_transport_windows.cpp
-    src/rmi/transport/platform/windows/pipe_transport_windows.cpp
-  )
   target_link_libraries(bison PRIVATE Ws2_32)
 endif()
 
@@ -78,6 +103,9 @@ target_include_directories(bison_c
         ${CMAKE_CURRENT_LIST_DIR}
 )
 target_link_libraries(bison_c PRIVATE bison nlohmann_json::nlohmann_json yaml)
+if(MSVC)
+  target_compile_options(bison_c PRIVATE /FS)
+endif()
 
 if(PACKAGE_TESTS)
     enable_testing()

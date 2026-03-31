@@ -9,6 +9,9 @@ macro(package_add_test TESTNAME)
     add_executable(${TESTNAME} ${ARGN})
     target_link_libraries(${TESTNAME} bison gtest gmock gtest_main)
     target_include_directories(${TESTNAME} PRIVATE ${PROJECT_SOURCE_DIR})
+    if(MSVC)
+        target_compile_options(${TESTNAME} PRIVATE /FS)
+    endif()
     gtest_discover_tests(${TESTNAME}
         WORKING_DIRECTORY ${PROJECT_DIR}
         PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
@@ -25,6 +28,9 @@ package_add_test(rmi_test rmi_tests.cpp)
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})
 target_link_libraries(bison_c_test bison_c bison gtest gmock gtest_main)
+if(MSVC)
+    target_compile_options(bison_c_test PRIVATE /FS)
+endif()
 add_custom_command(TARGET bison_c_test POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:bison_c>
