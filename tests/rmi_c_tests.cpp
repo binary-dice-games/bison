@@ -85,6 +85,18 @@ static rmi_server_handle make_test_server() {
   return rmi_server_tcp_create("127.0.0.1", next_port.fetch_add(1));
 }
 
+static void noop_proxy_event_handler(bison_handle, void*) {}
+
+static int noop_pty_client_on_session(rmi_client_handle, void*) {
+  return 0;
+}
+
+static void noop_pty_client_on_error(const char*, void*) {}
+
+static void noop_pty_server_register_classes(void*) {}
+
+static void noop_pty_server_on_error(const char*, void*) {}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Client lifecycle
 // ═════════════════════════════════════════════════════════════════════════════
@@ -272,6 +284,65 @@ TEST(ErrorHandlingTests, CallAsyncNullClientReturnsError) {
 
 TEST(ErrorHandlingTests, ProxyReleaseNullIsSafe) {
   rmi_proxy_release(nullptr); // must not crash
+}
+
+TEST(ErrorHandlingTests, ProxyOnEventNullProxyReturnsError) {
+  rmi_error err =
+      rmi_proxy_on_event(nullptr, H("evt"), noop_proxy_event_handler, nullptr);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, ProxyOnEventNullHandlerReturnsError) {
+  rmi_error err = rmi_proxy_on_event(nullptr, H("evt"), nullptr, nullptr);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, PtyClientRunNullCallbacksReturnsError) {
+  rmi_error err = rmi_pty_client_run(0, nullptr, nullptr);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, PtyClientRunMissingSessionCallbackReturnsError) {
+  rmi_pty_client_callbacks callbacks{};
+  callbacks.on_error = noop_pty_client_on_error;
+  callbacks.user = nullptr;
+
+  rmi_error err = rmi_pty_client_run(0, nullptr, &callbacks);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, PtyClientRunNullArgvWithArgcReturnsError) {
+  rmi_pty_client_callbacks callbacks{};
+  callbacks.on_session = noop_pty_client_on_session;
+  callbacks.on_error = noop_pty_client_on_error;
+  callbacks.user = nullptr;
+
+  rmi_error err = rmi_pty_client_run(1, nullptr, &callbacks);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, PtyServerRunNullCallbacksReturnsError) {
+  rmi_error err = rmi_pty_server_run(0, nullptr, nullptr);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, PtyServerRunMissingRegisterCallbackReturnsError) {
+  rmi_pty_server_callbacks callbacks{};
+  callbacks.on_error = noop_pty_server_on_error;
+  callbacks.user = nullptr;
+
+  rmi_error err = rmi_pty_server_run(0, nullptr, &callbacks);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, PtyServerRunNullArgvWithArgcReturnsError) {
+  rmi_pty_server_callbacks callbacks{};
+  callbacks.register_classes = noop_pty_server_register_classes;
+  callbacks.on_error = noop_pty_server_on_error;
+  callbacks.user = nullptr;
+
+  rmi_error err = rmi_pty_server_run(1, nullptr, &callbacks);
+  EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
