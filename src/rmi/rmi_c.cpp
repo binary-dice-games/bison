@@ -81,11 +81,34 @@ static inline proxy::dynamic* proxy_deref(rmi_proxy_handle h) {
   return as_proxy_ptr(h)->get();
 }
 
-// Convert C++ shared_ptr<dynamic> to bison_handle
-static inline bison_handle dynamic_to_bison_handle(
-    const std::shared_ptr<dynamic>& sp) {
-  auto* handle_ptr = new std::shared_ptr<dynamic>(sp);
-  return reinterpret_cast<bison_handle>(handle_ptr);
+// For bison value: wrapper around heap-allocated std::shared_ptr<dynamic>
+using bison_dynamic_ptr = std::shared_ptr<dynamic>;
+
+/** Cast to bison_dynamic_ptr* */
+static inline bison_dynamic_ptr* as_dynamic_ptr(bison_handle h) {
+  return reinterpret_cast<bison_dynamic_ptr*>(h);
+}
+
+/** Cast from bison_dynamic_ptr* */
+static inline bison_handle as_bison_handle(bison_dynamic_ptr* p) {
+  return reinterpret_cast<bison_handle>(p);
+}
+
+/** Wrap a dynamic value into a new heap-owned bison_handle */
+static inline bison_handle dynamic_to_bison_handle(dynamic val) {
+  auto* p = new bison_dynamic_ptr(std::make_shared<dynamic>(std::move(val)));
+  return as_bison_handle(p);
+}
+
+/** Extract a dynamic value from a bison_handle; returns empty dynamic if null
+ */
+static inline dynamic bison_handle_to_dynamic(bison_handle h) {
+  if (!h)
+    return dynamic{};
+  bison_dynamic_ptr* p = as_dynamic_ptr(h);
+  if (!*p)
+    return dynamic{};
+  return dynamic(**p);
 }
 
 // ─── Client ────────────────────────────────────────────────────────────────
@@ -103,20 +126,15 @@ rmi_client_tcp_create(const char* host, uint16_t port) {
   }
 }
 
-RMI_API rmi_error
-rmi_client_connect(rmi_client_handle client, bison_handle params) {
-  client* c = client_deref(client);
+RMI_API rmi_error rmi_client_connect(rmi_client_handle h, bison_handle params) {
+  client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
   try {
-    dynamic dyn_params;
-    if (params) {
-      // Copy the bison_handle's dynamic object
-      auto* sp = reinterpret_cast<std::shared_ptr<dynamic>*>(params);
-      if (*sp)
-        dyn_params = **sp;
-    }
-    c->connect(std::move(dyn_params));
+    // For now, ignore the params argument and use default config.
+    // Params could be extended in the future if needed.
+    (void)params;
+    c->connect(dynamic{});
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;
@@ -126,17 +144,17 @@ rmi_client_connect(rmi_client_handle client, bison_handle params) {
 }
 
 RMI_API rmi_error rmi_client_describe(
-    rmi_client_handle client,
+    rmi_client_handle h,
     uint32_t klass,
     bison_handle* out_desc) {
   if (!out_desc)
     return RMI_ERR_NULL;
-  client* c = client_deref(client);
+  client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
   try {
     dynamic desc = c->describe(key_t{klass});
-    *out_desc = dynamic_to_bison_handle(std::make_shared<dynamic>(desc));
+    *out_desc = dynamic_to_bison_handle(std::move(desc));
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_INVALID_STATE;
@@ -146,22 +164,17 @@ RMI_API rmi_error rmi_client_describe(
 }
 
 RMI_API rmi_error rmi_client_instantiate(
-    rmi_client_handle client,
+    rmi_client_handle h,
     uint32_t klass,
     bison_handle params,
     rmi_proxy_handle* out_proxy) {
   if (!out_proxy)
     return RMI_ERR_NULL;
-  client* c = client_deref(client);
+  client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
   try {
-    dynamic dyn_params;
-    if (params) {
-      auto* sp = reinterpret_cast<std::shared_ptr<dynamic>*>(params);
-      if (*sp)
-        dyn_params = **sp;
-    }
+    dynamic dyn_params = bison_handle_to_dynamic(params);
     proxy::dynamic proxy = c->instantiate(key_t{klass}, std::move(dyn_params));
     auto* pp =
         new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy)));
@@ -174,8 +187,8 @@ RMI_API rmi_error rmi_client_instantiate(
   }
 }
 
-RMI_API rmi_error rmi_client_disconnect(rmi_client_handle client) {
-  client* c = client_deref(client);
+RMI_API rmi_error rmi_client_disconnect(rmi_client_handle h) {
+  client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
   try {
@@ -186,17 +199,17 @@ RMI_API rmi_error rmi_client_disconnect(rmi_client_handle client) {
   }
 }
 
-RMI_API void rmi_client_release(rmi_client_handle client) {
-  if (!client)
+RMI_API void rmi_client_release(rmi_client_handle h) {
+  if (!h)
     return;
   try {
-    client* c = client_deref(client);
+    client* c = client_deref(h);
     if (c)
       c->disconnect();
   } catch (...) {
     // Suppress exceptions during cleanup
   }
-  delete as_client_ptr(client);
+  delete as_client_ptr(h);
 }
 
 // ─── Proxy ────────────────────────────────────────────────────────────────
@@ -208,29 +221,23 @@ RMI_API void rmi_proxy_release(rmi_proxy_handle proxy) {
 }
 
 RMI_API rmi_error rmi_proxy_call(
-    rmi_client_handle client,
+    rmi_client_handle h,
     rmi_proxy_handle proxy,
     uint32_t method,
     bison_handle params,
     bison_handle* out_result,
     int64_t timeout_ms) {
-  client* c = client_deref(client);
+  client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
+  (void)params; // params not yet supported via C API
 
   try {
-    dynamic dyn_params;
-    if (params) {
-      auto* sp = reinterpret_cast<std::shared_ptr<dynamic>*>(params);
-      if (*sp)
-        dyn_params = **sp;
-    }
-
-    // Perform the call
-    std::future<dynamic> fut = px->call(key_t{method}, std::move(dyn_params));
+    // Perform the call with empty params
+    std::future<dynamic> fut = px->call(key_t{method}, dynamic{});
 
     // Wait for result with timeout
     std::chrono::milliseconds wait_time{timeout_ms < 0 ? 5000 : timeout_ms};
@@ -242,12 +249,10 @@ RMI_API rmi_error rmi_proxy_call(
     dynamic result = fut.get();
 
     if (out_result) {
-      *out_result = dynamic_to_bison_handle(std::make_shared<dynamic>(result));
+      *out_result = dynamic_to_bison_handle(std::move(result));
     }
     return RMI_OK;
   } catch (const std::runtime_error& e) {
-    // Check if it's a remote exception (look for common exception message
-    // patterns)
     std::string msg = e.what();
     if (msg.find("remote") != std::string::npos ||
         msg.find("server") != std::string::npos)
@@ -273,19 +278,13 @@ rmi_server_tcp_create(const char* host, uint16_t port) {
   }
 }
 
-RMI_API rmi_error
-rmi_server_listen(rmi_server_handle server, bison_handle params) {
-  server* s = server_deref(server);
+RMI_API rmi_error rmi_server_listen(rmi_server_handle h, bison_handle params) {
+  server* s = server_deref(h);
   if (!s)
     return RMI_ERR_NULL;
+  (void)params; // params not yet supported via C API
   try {
-    dynamic dyn_params;
-    if (params) {
-      auto* sp = reinterpret_cast<std::shared_ptr<dynamic>*>(params);
-      if (*sp)
-        dyn_params = **sp;
-    }
-    s->listen(std::move(dyn_params));
+    s->listen(dynamic{});
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;
@@ -294,8 +293,8 @@ rmi_server_listen(rmi_server_handle server, bison_handle params) {
   }
 }
 
-RMI_API void rmi_server_stop(rmi_server_handle server) {
-  server* s = server_deref(server);
+RMI_API void rmi_server_stop(rmi_server_handle h) {
+  server* s = server_deref(h);
   if (!s)
     return;
   try {
@@ -305,15 +304,15 @@ RMI_API void rmi_server_stop(rmi_server_handle server) {
   }
 }
 
-RMI_API void rmi_server_release(rmi_server_handle server) {
-  if (!server)
+RMI_API void rmi_server_release(rmi_server_handle h) {
+  if (!h)
     return;
   try {
-    server* s = server_deref(server);
+    server* s = server_deref(h);
     if (s)
       s->stop();
   } catch (...) {
     // Suppress exceptions during cleanup
   }
-  delete as_server_ptr(server);
+  delete as_server_ptr(h);
 }

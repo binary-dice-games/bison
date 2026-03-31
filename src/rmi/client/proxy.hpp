@@ -1,6 +1,6 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file proxy_dynamic.hpp
+ * @file proxy.hpp
  * @brief Remote object proxy API used by the RMI client.
  */
 #pragma once
@@ -21,7 +21,7 @@ namespace proxy {
 /**
  * @brief Move-only owning proxy for a server-side `bison::dynamic` object.
  *
- * A `remote::dynamic` is created exclusively by `client::instantiate` and
+ * A `proxy::dynamic` is created exclusively by `client::instantiate` and
  * released by `client::destroy`.  It forwards every operation to the server
  * over the active transport connection.
  *

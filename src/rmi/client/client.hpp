@@ -6,7 +6,7 @@
 #pragma once
 
 #include "src/core/bison.hpp"
-#include "src/rmi/client/proxy_dynamic.hpp"
+#include "src/rmi/client/proxy.hpp"
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/shared/ids.hpp"

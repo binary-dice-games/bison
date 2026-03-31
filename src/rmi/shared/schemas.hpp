@@ -15,32 +15,35 @@ using schema_map = std::
     unordered_map<bison::key_t, bison::dynamic, bison::key_t, bison::key_t>;
 
 inline const schema_map& get_schemas() {
+  using namespace constants;
+  using namespace bdg::bison;
+
   static const schema_map schemas = {
       {
-          constants::CLASS_ERROR,
-          bison::dynamic{
-              constants::CLASS_ERROR,
+          CLASS_ERROR,
+          dynamic{
+              CLASS_ERROR,
               {
-                  {constants::FIELD_ERROR_CODE, bison::field{bison::key_t{0u}}},
-                  {constants::FIELD_ERROR_MESSAGE, bison::field{std::string{}}},
-                  {constants::FIELD_ERROR_DETAILS, bison::field{bison::dynamic_ptr{}}},
+                  {FIELD_ERROR_CODE, field{key_t{0u}}},
+                  {FIELD_ERROR_MESSAGE, field{std::string{}}},
+                  {FIELD_ERROR_DETAILS, field{dynamic_ptr{}}},
               },
           },
       },
       {
-          constants::CLASS_ENVELOPE,
-          bison::dynamic{
-              constants::CLASS_ENVELOPE,
+          CLASS_ENVELOPE,
+          dynamic{
+              CLASS_ENVELOPE,
               {
-                  {constants::FIELD_VERSION, bison::field{int32_t{1}}},
-                  {constants::FIELD_KIND, bison::field{bison::key_t{0u}}},
-                  {constants::FIELD_OP, bison::field{bison::key_t{0u}}},
-                  {constants::FIELD_REQUEST_ID, bison::field{bison::key_t{0u}}},
-                  {constants::FIELD_OBJECT_ID, bison::field{bison::key_t{0u}}},
-                  {constants::FIELD_PAYLOAD, bison::field{bison::buffer{}}},
-                  {constants::FIELD_ERROR, bison::field{bison::buffer{}}},
-                  {constants::FIELD_WITH_SCHEMA, bison::field{false}},
-                  {constants::FIELD_ONEWAY, bison::field{false}},
+                  {FIELD_VERSION, field{int32_t{1}}},
+                  {FIELD_KIND, field{key_t{0u}}},
+                  {FIELD_OP, field{key_t{0u}}},
+                  {FIELD_REQUEST_ID, field{key_t{0u}}},
+                  {FIELD_OBJECT_ID, field{key_t{0u}}},
+                  {FIELD_PAYLOAD, field{buffer{}}},
+                  {FIELD_ERROR, field{buffer{}}},
+                  {FIELD_WITH_SCHEMA, field{false}},
+                  {FIELD_ONEWAY, field{false}},
               },
           },
       },
@@ -50,8 +53,10 @@ inline const schema_map& get_schemas() {
 }
 
 inline void register_all_schemas() {
+  using namespace bdg::bison;
+
   for (const auto& [schema_id, schema] : get_schemas()) {
-    bison::dynamic::addClass(0U, bison::dynamic_ptr{schema.clone()});
+    dynamic::addClass(0U, dynamic_ptr{schema.clone()});
   }
 }
 
