@@ -722,7 +722,7 @@ bison_rmi_proxy_get(bison_rmi_proxy proxy, bison_handle* fields_out) {
     if (*fields_out && dyn(*fields_out))
       projection = dyn(*fields_out)->clone();
 
-    proxy->proxy.get(projection);
+    proxy->proxy.get(std::move(projection));
 
     // Release old handle and return new result.
     if (*fields_out) {

@@ -252,47 +252,4 @@ void client::fail_all_pending(bison::key_t code, const std::string& message) {
   }
 }
 
-namespace proxy {
-
-/** @copydoc bdg::bison::rmi::remote::dynamic::clear */
-void dynamic::clear() {
-  auto f = client_->send_request(
-      shared::constants::OP_CLEAR, object_id_, bison::dynamic{}, false);
-  f.get();
-}
-
-/** @copydoc bdg::bison::rmi::remote::dynamic::set */
-void dynamic::set(bison::dynamic fields) {
-  auto f = client_->send_request(
-      shared::constants::OP_SET, object_id_, std::move(fields), false);
-  f.get();
-}
-
-/** @copydoc bdg::bison::rmi::remote::dynamic::get */
-void dynamic::get(bison::dynamic& fields) {
-  bison::dynamic projection = fields;
-  auto f = client_->send_request(
-      shared::constants::OP_GET, object_id_, std::move(projection), false);
-  fields = f.get();
-}
-
-/** @copydoc bdg::bison::rmi::remote::dynamic::call */
-std::future<bison::dynamic>
-dynamic::call(bison::key_t name, bison::dynamic&& params, bool oneway) {
-  bison::dynamic payload;
-  payload[shared::constants::FIELD_NAME] = name;
-  payload[shared::constants::FIELD_PARAMS] =
-      bison::dynamic_ptr{std::move(params)};
-  return client_->send_request(
-      shared::constants::OP_CALL, object_id_, std::move(payload), oneway);
-}
-
-/** @copydoc bdg::bison::rmi::remote::dynamic::onEvent */
-void dynamic::onEvent(
-    bison::key_t name,
-    std::function<void(bison::dynamic)> handler) {
-  client_->register_event_handler(object_id_, name, std::move(handler));
-}
-
-} // namespace proxy
 } // namespace bdg::bison::rmi

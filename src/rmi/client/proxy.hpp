@@ -63,24 +63,35 @@ class dynamic {
 
   /**
    * @brief Clear explicitly set fields on the remote object, reverting it to
-   *        prototype / inherited defaults.  Blocking.
+   *        prototype / inherited defaults.
+   * @return Future resolved with true on success, or with an exception on
+   * failure.
    */
-  void clear();
+  std::future<bool> clear();
 
   /**
    * @brief Apply a partial field update to the remote object without resetting
-   *        unspecified fields.  Blocking.
+   *        unspecified fields.
+   * @return Future resolved with true on success, or with an exception on
+   * failure.
    */
-  void set(bison::dynamic fields);
+  std::future<bool> set(bison::dynamic fields);
 
   /**
-   * @brief Retrieve fields from the remote object.
-   *
-   * If @p fields is empty on entry the call returns a full object snapshot.
-   * If @p fields carries a projection shape, only the requested members are
-   * filled (GraphQL-style).  Blocking.
+   * @brief Retrieve a full snapshot of all fields from the remote object.
+   * @return Future resolved with the complete field snapshot.
    */
-  void get(bison::dynamic& fields);
+  std::future<bison::dynamic> get();
+
+  /**
+   * @brief Retrieve a projected subset of fields from the remote object.
+   *
+   * Only the members present in @p projection are filled in the response
+   * (GraphQL-style). @p projection is consumed by move.
+   * @param projection Projection shape describing the desired fields.
+   * @return Future resolved with the projected field snapshot.
+   */
+  std::future<bison::dynamic> get(bison::dynamic&& projection);
 
   /**
    * @brief Invoke a callable behavior on the remote object.

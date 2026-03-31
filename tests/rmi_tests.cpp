@@ -427,11 +427,11 @@ TEST_F(RmiE2E, SetAndGetField) {
   dynamic fields;
   fields["x"_key] = int32_t{42};
   fields["y"_key] = int32_t{7};
-  EXPECT_NO_THROW(proxy.set(std::move(fields)));
+  EXPECT_NO_THROW(proxy.set(std::move(fields)).get());
 
   // Full get.
   dynamic result;
-  EXPECT_NO_THROW(proxy.get(result));
+  EXPECT_NO_THROW(result = proxy.get().get());
   int32_t x = result["x"_key];
   int32_t y = result["y"_key];
   EXPECT_EQ(x, 42);
@@ -460,13 +460,13 @@ TEST_F(RmiE2E, GetProjection) {
   set_fields["top"_key] = int32_t{20};
   set_fields["right"_key] = int32_t{30};
   set_fields["bottom"_key] = int32_t{40};
-  proxy.set(std::move(set_fields));
+  proxy.set(std::move(set_fields)).get();
 
   // Projection: only request "left" and "right".
   dynamic projection;
   projection["left"_key] = int32_t{0};
   projection["right"_key] = int32_t{0};
-  proxy.get(projection);
+  projection = proxy.get(std::move(projection)).get();
 
   int32_t left = projection["left"_key];
   int32_t right = projection["right"_key];
@@ -493,19 +493,17 @@ TEST_F(RmiE2E, ClearResetsFields) {
 
   dynamic f;
   f["value"_key] = int32_t{99};
-  proxy.set(std::move(f));
+  proxy.set(std::move(f)).get();
 
   // Confirm the value was set.
-  dynamic check;
-  proxy.get(check);
+  dynamic check = proxy.get().get();
   EXPECT_EQ(static_cast<int32_t>(check["value"_key]), 99);
 
   // Clear it.
-  EXPECT_NO_THROW(proxy.clear());
+  EXPECT_NO_THROW(proxy.clear().get());
 
   // After clear the object is re-instantiated to prototype defaults (0).
-  dynamic after;
-  proxy.get(after);
+  dynamic after = proxy.get().get();
   int32_t v = after["value"_key];
   EXPECT_EQ(v, 0);
 
@@ -627,10 +625,9 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
 
   dynamic f;
   f["v"_key] = int32_t{200}; // over the clamp limit
-  proxy.set(std::move(f));
+  proxy.set(std::move(f)).get();
 
-  dynamic result;
-  proxy.get(result);
+  dynamic result = proxy.get().get();
   int32_t v = result["v"_key];
   EXPECT_EQ(v, 100); // clamped
 
@@ -659,10 +656,9 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
 
   dynamic set_f;
   set_f["n"_key] = int32_t{5};
-  proxy.set(std::move(set_f));
+  proxy.set(std::move(set_f)).get();
 
-  dynamic result;
-  proxy.get(result);
+  dynamic result = proxy.get().get();
   int32_t n = result["n"_key];
   EXPECT_EQ(n, 10); // getter doubled it
 
@@ -689,17 +685,15 @@ TEST_F(RmiE2E, TwoClientsAreIsolated) {
   // Set different values in each client's object.
   dynamic f1;
   f1["v"_key] = int32_t{111};
-  p1.set(std::move(f1));
+  p1.set(std::move(f1)).get();
 
   dynamic f2;
   f2["v"_key] = int32_t{222};
-  p2.set(std::move(f2));
+  p2.set(std::move(f2)).get();
 
   // Each client reads back its own value.
-  dynamic r1;
-  p1.get(r1);
-  dynamic r2;
-  p2.get(r2);
+  dynamic r1 = p1.get().get();
+  dynamic r2 = p2.get().get();
   EXPECT_EQ(static_cast<int32_t>(r1["v"_key]), 111);
   EXPECT_EQ(static_cast<int32_t>(r2["v"_key]), 222);
 
