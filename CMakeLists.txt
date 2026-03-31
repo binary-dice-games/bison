@@ -85,7 +85,9 @@ target_sources(bison PRIVATE
   src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stdio_transport.cpp
   src/rmi/client/client.cpp
+  src/rmi/client/pty_client_app.cpp
   src/rmi/client/proxy.cpp
+  src/rmi/server/pty_server_app.cpp
   src/rmi/server/server.cpp
 )
 

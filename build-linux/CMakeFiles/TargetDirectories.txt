@@ -113,6 +113,8 @@
 /mnt/d/github/bison/build-linux/examples/CMakeFiles/rmi_client_example.dir
 /mnt/d/github/bison/build-linux/examples/CMakeFiles/rmi_stdio_server_example.dir
 /mnt/d/github/bison/build-linux/examples/CMakeFiles/rmi_stdio_client_example.dir
+/mnt/d/github/bison/build-linux/examples/CMakeFiles/pty_server_example.dir
+/mnt/d/github/bison/build-linux/examples/CMakeFiles/pty_client_example.dir
 /mnt/d/github/bison/build-linux/examples/CMakeFiles/test.dir
 /mnt/d/github/bison/build-linux/examples/CMakeFiles/edit_cache.dir
 /mnt/d/github/bison/build-linux/examples/CMakeFiles/rebuild_cache.dir

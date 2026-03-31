@@ -100,6 +100,14 @@ build CMakeFiles/bison.dir/src/rmi/client/client.cpp.o: CXX_COMPILER__bison_unsc
   OBJECT_DIR = CMakeFiles/bison.dir
   OBJECT_FILE_DIR = CMakeFiles/bison.dir/src/rmi/client
 
+build CMakeFiles/bison.dir/src/rmi/client/pty_client_app.cpp.o: CXX_COMPILER__bison_unscanned_ /mnt/d/github/bison/src/rmi/client/pty_client_app.cpp || cmake_object_order_depends_target_bison
+  DEFINES = -DASIO_DISABLE_CO_AWAIT -DASIO_DISABLE_STD_COROUTINE -DASIO_STANDALONE -DYAML_DECLARE_STATIC
+  DEP_FILE = CMakeFiles/bison.dir/src/rmi/client/pty_client_app.cpp.o.d
+  FLAGS = -std=gnu++20 -fPIC
+  INCLUDES = -I/mnt/d/github/bison/. -I/mnt/d/github/bison/include -I/mnt/d/github/bison/src/core -I/mnt/d/github/bison/src/rmi -I/mnt/d/github/bison/extern/json/include -I/mnt/d/github/bison/extern/yaml/include -I/mnt/d/github/bison/build-linux/extern/yaml/include -I/mnt/d/github/bison/extern/asio/include
+  OBJECT_DIR = CMakeFiles/bison.dir
+  OBJECT_FILE_DIR = CMakeFiles/bison.dir/src/rmi/client
+
 build CMakeFiles/bison.dir/src/rmi/client/proxy.cpp.o: CXX_COMPILER__bison_unscanned_ /mnt/d/github/bison/src/rmi/client/proxy.cpp || cmake_object_order_depends_target_bison
   DEFINES = -DASIO_DISABLE_CO_AWAIT -DASIO_DISABLE_STD_COROUTINE -DASIO_STANDALONE -DYAML_DECLARE_STATIC
   DEP_FILE = CMakeFiles/bison.dir/src/rmi/client/proxy.cpp.o.d
@@ -107,6 +115,14 @@ build CMakeFiles/bison.dir/src/rmi/client/proxy.cpp.o: CXX_COMPILER__bison_unsca
   INCLUDES = -I/mnt/d/github/bison/. -I/mnt/d/github/bison/include -I/mnt/d/github/bison/src/core -I/mnt/d/github/bison/src/rmi -I/mnt/d/github/bison/extern/json/include -I/mnt/d/github/bison/extern/yaml/include -I/mnt/d/github/bison/build-linux/extern/yaml/include -I/mnt/d/github/bison/extern/asio/include
   OBJECT_DIR = CMakeFiles/bison.dir
   OBJECT_FILE_DIR = CMakeFiles/bison.dir/src/rmi/client
+
+build CMakeFiles/bison.dir/src/rmi/server/pty_server_app.cpp.o: CXX_COMPILER__bison_unscanned_ /mnt/d/github/bison/src/rmi/server/pty_server_app.cpp || cmake_object_order_depends_target_bison
+  DEFINES = -DASIO_DISABLE_CO_AWAIT -DASIO_DISABLE_STD_COROUTINE -DASIO_STANDALONE -DYAML_DECLARE_STATIC
+  DEP_FILE = CMakeFiles/bison.dir/src/rmi/server/pty_server_app.cpp.o.d
+  FLAGS = -std=gnu++20 -fPIC
+  INCLUDES = -I/mnt/d/github/bison/. -I/mnt/d/github/bison/include -I/mnt/d/github/bison/src/core -I/mnt/d/github/bison/src/rmi -I/mnt/d/github/bison/extern/json/include -I/mnt/d/github/bison/extern/yaml/include -I/mnt/d/github/bison/build-linux/extern/yaml/include -I/mnt/d/github/bison/extern/asio/include
+  OBJECT_DIR = CMakeFiles/bison.dir
+  OBJECT_FILE_DIR = CMakeFiles/bison.dir/src/rmi/server
 
 build CMakeFiles/bison.dir/src/rmi/server/server.cpp.o: CXX_COMPILER__bison_unscanned_ /mnt/d/github/bison/src/rmi/server/server.cpp || cmake_object_order_depends_target_bison
   DEFINES = -DASIO_DISABLE_CO_AWAIT -DASIO_DISABLE_STD_COROUTINE -DASIO_STANDALONE -DYAML_DECLARE_STATIC
@@ -124,7 +140,7 @@ build CMakeFiles/bison.dir/src/rmi/server/server.cpp.o: CXX_COMPILER__bison_unsc
 #############################################
 # Link the static library libbison.a
 
-build libbison.a: CXX_STATIC_LIBRARY_LINKER__bison_ CMakeFiles/bison.dir/src/core/bison.cpp.o CMakeFiles/bison.dir/src/rmi/shared/ids.cpp.o CMakeFiles/bison.dir/src/rmi/shared/envelope.cpp.o CMakeFiles/bison.dir/src/rmi/transport/memory_transport.cpp.o CMakeFiles/bison.dir/src/rmi/transport/socket_transport.cpp.o CMakeFiles/bison.dir/src/rmi/transport/stdio_transport.cpp.o CMakeFiles/bison.dir/src/rmi/client/client.cpp.o CMakeFiles/bison.dir/src/rmi/client/proxy.cpp.o CMakeFiles/bison.dir/src/rmi/server/server.cpp.o || extern/yaml/libyaml.a
+build libbison.a: CXX_STATIC_LIBRARY_LINKER__bison_ CMakeFiles/bison.dir/src/core/bison.cpp.o CMakeFiles/bison.dir/src/rmi/shared/ids.cpp.o CMakeFiles/bison.dir/src/rmi/shared/envelope.cpp.o CMakeFiles/bison.dir/src/rmi/transport/memory_transport.cpp.o CMakeFiles/bison.dir/src/rmi/transport/socket_transport.cpp.o CMakeFiles/bison.dir/src/rmi/transport/stdio_transport.cpp.o CMakeFiles/bison.dir/src/rmi/client/client.cpp.o CMakeFiles/bison.dir/src/rmi/client/pty_client_app.cpp.o CMakeFiles/bison.dir/src/rmi/client/proxy.cpp.o CMakeFiles/bison.dir/src/rmi/server/pty_server_app.cpp.o CMakeFiles/bison.dir/src/rmi/server/server.cpp.o || extern/yaml/libyaml.a
   OBJECT_DIR = CMakeFiles/bison.dir
   POST_BUILD = :
   PRE_LINK = :
@@ -2214,6 +2230,70 @@ build examples/rmi_stdio_client_example: CXX_EXECUTABLE_LINKER__rmi_stdio_client
   TARGET_FILE = examples/rmi_stdio_client_example
   TARGET_PDB = rmi_stdio_client_example.dbg
 
+# =============================================================================
+# Object build statements for EXECUTABLE target pty_server_example
+
+
+#############################################
+# Order-only phony target for pty_server_example
+
+build cmake_object_order_depends_target_pty_server_example: phony || cmake_object_order_depends_target_bison cmake_object_order_depends_target_yaml
+
+build examples/CMakeFiles/pty_server_example.dir/pty_server_example.cpp.o: CXX_COMPILER__pty_server_example_unscanned_ /mnt/d/github/bison/examples/pty_server_example.cpp || cmake_object_order_depends_target_pty_server_example
+  DEP_FILE = examples/CMakeFiles/pty_server_example.dir/pty_server_example.cpp.o.d
+  FLAGS = -std=gnu++20
+  INCLUDES = -I/mnt/d/github/bison/. -I/mnt/d/github/bison/include -I/mnt/d/github/bison
+  OBJECT_DIR = examples/CMakeFiles/pty_server_example.dir
+  OBJECT_FILE_DIR = examples/CMakeFiles/pty_server_example.dir
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target pty_server_example
+
+
+#############################################
+# Link the executable examples/pty_server_example
+
+build examples/pty_server_example: CXX_EXECUTABLE_LINKER__pty_server_example_ examples/CMakeFiles/pty_server_example.dir/pty_server_example.cpp.o | libbison.a extern/yaml/libyaml.a || extern/yaml/libyaml.a libbison.a
+  LINK_LIBRARIES = libbison.a  extern/yaml/libyaml.a
+  OBJECT_DIR = examples/CMakeFiles/pty_server_example.dir
+  POST_BUILD = :
+  PRE_LINK = :
+  TARGET_FILE = examples/pty_server_example
+  TARGET_PDB = pty_server_example.dbg
+
+# =============================================================================
+# Object build statements for EXECUTABLE target pty_client_example
+
+
+#############################################
+# Order-only phony target for pty_client_example
+
+build cmake_object_order_depends_target_pty_client_example: phony || cmake_object_order_depends_target_bison cmake_object_order_depends_target_yaml
+
+build examples/CMakeFiles/pty_client_example.dir/pty_client_example.cpp.o: CXX_COMPILER__pty_client_example_unscanned_ /mnt/d/github/bison/examples/pty_client_example.cpp || cmake_object_order_depends_target_pty_client_example
+  DEP_FILE = examples/CMakeFiles/pty_client_example.dir/pty_client_example.cpp.o.d
+  FLAGS = -std=gnu++20
+  INCLUDES = -I/mnt/d/github/bison/. -I/mnt/d/github/bison/include -I/mnt/d/github/bison
+  OBJECT_DIR = examples/CMakeFiles/pty_client_example.dir
+  OBJECT_FILE_DIR = examples/CMakeFiles/pty_client_example.dir
+
+
+# =============================================================================
+# Link build statements for EXECUTABLE target pty_client_example
+
+
+#############################################
+# Link the executable examples/pty_client_example
+
+build examples/pty_client_example: CXX_EXECUTABLE_LINKER__pty_client_example_ examples/CMakeFiles/pty_client_example.dir/pty_client_example.cpp.o | libbison.a extern/yaml/libyaml.a || extern/yaml/libyaml.a libbison.a
+  LINK_LIBRARIES = libbison.a  -lutil  extern/yaml/libyaml.a
+  OBJECT_DIR = examples/CMakeFiles/pty_client_example.dir
+  POST_BUILD = :
+  PRE_LINK = :
+  TARGET_FILE = examples/pty_client_example
+  TARGET_PDB = pty_client_example.dbg
+
 
 #############################################
 # Utility command for test
@@ -2390,6 +2470,10 @@ build libgtest_main.a: phony lib/libgtest_main.a
 
 build libyaml.a: phony extern/yaml/libyaml.a
 
+build pty_client_example: phony examples/pty_client_example
+
+build pty_server_example: phony examples/pty_server_example
+
 build rmi_c_test: phony tests/rmi_c_test
 
 build rmi_client_example: phony examples/rmi_client_example
@@ -2437,7 +2521,7 @@ build all: phony libbison.a libbison_core_c.so libbison_rmi_c.so extern/json/all
 #############################################
 # Folder: /mnt/d/github/bison/build-linux/examples
 
-build examples/all: phony examples/bison_examples examples/bison_performance examples/rmi_server_example examples/rmi_client_example examples/rmi_stdio_server_example examples/rmi_stdio_client_example
+build examples/all: phony examples/bison_examples examples/bison_performance examples/rmi_server_example examples/rmi_client_example examples/rmi_stdio_server_example examples/rmi_stdio_client_example examples/pty_server_example examples/pty_client_example
 
 # =============================================================================
 

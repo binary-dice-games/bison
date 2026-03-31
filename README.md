@@ -182,6 +182,51 @@ Expected client/server output:
 
 In PTY mode the client waits for `HELLO` while you use the spawned shell. In pipe mode both processes exit automatically after the RMI session completes.
 
+### Library API for PTY applications
+
+The PTY flow is also available as reusable library scaffolding (not only as examples):
+
+- `bdg::bison::rmi::apps::pty_client_application`
+- `bdg::bison::rmi::apps::pty_server_application`
+
+Both classes expose `run(argc, argv)` as the main entry point.
+
+Client usage pattern:
+
+```cpp
+class MyClientApp : public bdg::bison::rmi::apps::pty_client_application {
+ protected:
+    int on_session(bdg::bison::rmi::client& c, const run_context& ctx) override {
+        // Optional custom logic after HELLO/connect.
+        // Return 0 on success.
+        return 0;
+    }
+};
+
+int main(int argc, char** argv) {
+    MyClientApp app;
+    return app.run(argc, argv);
+}
+```
+
+Server usage pattern:
+
+```cpp
+class MyServerApp : public bdg::bison::rmi::apps::pty_server_application {
+ protected:
+    void register_classes() override {
+        // Register server-side classes/methods.
+    }
+};
+
+int main(int argc, char** argv) {
+    MyServerApp app;
+    return app.run(argc, argv);
+}
+```
+
+Both base classes provide virtual hooks for application-flow events so users can customize behavior without duplicating PTY process, terminal, and transport wiring.
+
 The build fetches standalone Asio automatically during CMake configure so the socket transport can use a portable TCP implementation.
 
 To use the C++ library in your own CMake project:
