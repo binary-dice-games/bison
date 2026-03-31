@@ -42,6 +42,7 @@
 
 #include "src/core/bison_c.h"
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -91,6 +92,14 @@ typedef struct rmi_server_handle_* rmi_server_handle;
  */
 typedef struct rmi_proxy_handle_* rmi_proxy_handle;
 
+/**
+ * @brief Opaque handle to an asynchronous RMI operation.
+ *
+ * The handle wraps an internal future and is consumed by one of the
+ * `rmi_future_get_*()` functions, or discarded with `rmi_future_release()`.
+ */
+typedef struct rmi_future_handle_* rmi_future_handle;
+
 /* ─── Error codes ──────────────────────────────────────────────────────── */
 
 /**
@@ -108,6 +117,54 @@ typedef enum rmi_error {
   RMI_ERR_TRANSPORT = -5, /**< Transport error (network, connection, etc.). */
   RMI_ERR_EXCEPTION = -6, /**< An unexpected C++ exception was caught. */
 } rmi_error;
+
+/* ─── Async future helpers ─────────────────────────────────────────────── */
+
+/**
+ * @brief Wait for an asynchronous operation to become ready.
+ *
+ * This does not consume the future handle.
+ *
+ * @param future     Valid async future handle.
+ * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
+ * @return `RMI_OK` if the future is ready, or a negative error code.
+ */
+RMI_API rmi_error rmi_future_wait(rmi_future_handle future, int64_t timeout_ms);
+
+/**
+ * @brief Consume an async future that resolves to a dynamic result.
+ *
+ * On return, `*future` is set to `NULL` so the handle cannot be consumed
+ * twice accidentally.
+ *
+ * @param future     Address of a valid async future handle.
+ * @param out_value  Output bison handle; caller must release it with
+ *                   `bison_release()`.
+ * @return `RMI_OK` on success, or a negative error code.
+ */
+RMI_API rmi_error
+rmi_future_get_dynamic(rmi_future_handle* future, bison_handle* out_value);
+
+/**
+ * @brief Consume an async future that resolves to a proxy result.
+ *
+ * On return, `*future` is set to `NULL` so the handle cannot be consumed
+ * twice accidentally.
+ *
+ * @param future      Address of a valid async future handle.
+ * @param out_proxy   Output proxy handle; caller must release it with
+ *                    `rmi_proxy_release()`.
+ * @return `RMI_OK` on success, or a negative error code.
+ */
+RMI_API rmi_error
+rmi_future_get_proxy(rmi_future_handle* future, rmi_proxy_handle* out_proxy);
+
+/**
+ * @brief Release an async future without consuming its result.
+ *
+ * @param future  Future handle to release. A `NULL` handle is ignored.
+ */
+RMI_API void rmi_future_release(rmi_future_handle future);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Client
@@ -160,6 +217,20 @@ RMI_API rmi_error rmi_client_describe(
     bison_handle* out_desc);
 
 /**
+ * @brief Request class metadata from the server asynchronously.
+ *
+ * @param client      Valid connected client handle.
+ * @param klass       Class key to query, or `0` for all metadata.
+ * @param out_future  Output async future consumed with
+ *                    `rmi_future_get_dynamic()`.
+ * @return `RMI_OK` on successful submission, or a negative error code.
+ */
+RMI_API rmi_error rmi_client_describe_async(
+    rmi_client_handle client,
+    uint32_t klass,
+    rmi_future_handle* out_future);
+
+/**
  * @brief Instantiate a remote object on the server.
  *
  * @param client    Valid connected client handle.
@@ -174,6 +245,22 @@ RMI_API rmi_error rmi_client_instantiate(
     uint32_t klass,
     bison_handle params,
     rmi_proxy_handle* out_proxy);
+
+/**
+ * @brief Instantiate a remote object asynchronously.
+ *
+ * @param client      Valid connected client handle.
+ * @param klass       Class key to instantiate.
+ * @param params      Constructor parameters (`bison_handle` or `NULL`).
+ * @param out_future  Output async future consumed with
+ *                    `rmi_future_get_proxy()`.
+ * @return `RMI_OK` on successful submission, or a negative error code.
+ */
+RMI_API rmi_error rmi_client_instantiate_async(
+    rmi_client_handle client,
+    uint32_t klass,
+    bison_handle params,
+    rmi_future_handle* out_future);
 
 /**
  * @brief Disconnect from the server and stop worker threads.
@@ -207,6 +294,102 @@ RMI_API void rmi_client_release(rmi_client_handle client);
 RMI_API void rmi_proxy_release(rmi_proxy_handle proxy);
 
 /**
+ * @brief Clear explicitly set fields on a remote object.
+ *
+ * @param client     Valid connected client handle.
+ * @param proxy      Valid proxy handle.
+ * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
+ * @return `RMI_OK` on success, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_clear(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    int64_t timeout_ms);
+
+/**
+ * @brief Clear explicitly set fields on a remote object asynchronously.
+ *
+ * @param client      Valid connected client handle.
+ * @param proxy       Valid proxy handle.
+ * @param out_future  Output async future waited on with
+ *                    `rmi_future_wait()` and released with
+ *                    `rmi_future_release()`.
+ * @return `RMI_OK` on successful submission, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_clear_async(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    rmi_future_handle* out_future);
+
+/**
+ * @brief Apply a partial field update to a remote object.
+ *
+ * @param client     Valid connected client handle.
+ * @param proxy      Valid proxy handle.
+ * @param fields     Field patch object as a `bison_handle`, or `NULL`.
+ * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
+ * @return `RMI_OK` on success, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_set(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    bison_handle fields,
+    int64_t timeout_ms);
+
+/**
+ * @brief Apply a partial field update to a remote object asynchronously.
+ *
+ * @param client      Valid connected client handle.
+ * @param proxy       Valid proxy handle.
+ * @param fields      Field patch object as a `bison_handle`, or `NULL`.
+ * @param out_future  Output async future waited on with
+ *                    `rmi_future_wait()` and released with
+ *                    `rmi_future_release()`.
+ * @return `RMI_OK` on successful submission, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_set_async(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    bison_handle fields,
+    rmi_future_handle* out_future);
+
+/**
+ * @brief Retrieve fields from a remote object.
+ *
+ * @param client      Valid connected client handle.
+ * @param proxy       Valid proxy handle.
+ * @param projection  Optional projection object as a `bison_handle`, or
+ *                    `NULL` for a full snapshot.
+ * @param out_result  Output handle for the retrieved object; caller must
+ *                    release it with `bison_release()`.
+ * @param timeout_ms  Timeout in milliseconds, or -1 for the default timeout.
+ * @return `RMI_OK` on success, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_get(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    bison_handle projection,
+    bison_handle* out_result,
+    int64_t timeout_ms);
+
+/**
+ * @brief Retrieve fields from a remote object asynchronously.
+ *
+ * @param client      Valid connected client handle.
+ * @param proxy       Valid proxy handle.
+ * @param projection  Optional projection object as a `bison_handle`, or
+ *                    `NULL` for a full snapshot.
+ * @param out_future  Output async future consumed with
+ *                    `rmi_future_get_dynamic()`.
+ * @return `RMI_OK` on successful submission, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_get_async(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    bison_handle projection,
+    rmi_future_handle* out_future);
+
+/**
  * @brief Call a method on a remote object.
  *
  * @param client    Valid connected client handle.
@@ -225,6 +408,24 @@ RMI_API rmi_error rmi_proxy_call(
     bison_handle params,
     bison_handle* out_result,
     int64_t timeout_ms);
+
+/**
+ * @brief Call a method on a remote object asynchronously.
+ *
+ * @param client      Valid connected client handle.
+ * @param proxy       Valid proxy handle.
+ * @param method      Method name hash.
+ * @param params      Method arguments as a `bison_handle`, or `NULL`.
+ * @param out_future  Output async future consumed with
+ *                    `rmi_future_get_dynamic()`.
+ * @return `RMI_OK` on successful submission, or a negative error code.
+ */
+RMI_API rmi_error rmi_proxy_call_async(
+    rmi_client_handle client,
+    rmi_proxy_handle proxy,
+    uint32_t method,
+    bison_handle params,
+    rmi_future_handle* out_future);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Server

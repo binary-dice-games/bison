@@ -60,6 +60,17 @@ struct ScopedProxyHandle {
   }
 };
 
+struct ScopedFutureHandle {
+  rmi_future_handle h;
+  explicit ScopedFutureHandle(rmi_future_handle h) : h(h) {}
+  ~ScopedFutureHandle() {
+    rmi_future_release(h);
+  }
+  operator rmi_future_handle() const {
+    return h;
+  }
+};
+
 static bison_hash H(const char* name) {
   return bison_key(name);
 }
@@ -167,6 +178,98 @@ TEST(ErrorHandlingTests, CallNullClientReturnsError) {
   EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
+TEST(ErrorHandlingTests, ClearNullClientReturnsError) {
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err = rmi_proxy_clear(nullptr, proxy, 1000);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, SetNullClientReturnsError) {
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err = rmi_proxy_set(nullptr, proxy, nullptr, 1000);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, GetNullClientReturnsError) {
+  ScopedProxyHandle proxy{nullptr};
+  bison_handle result = nullptr;
+  rmi_error err = rmi_proxy_get(nullptr, proxy, nullptr, &result, 1000);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, GetNullOutputReturnsError) {
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err = rmi_proxy_get(nullptr, proxy, nullptr, nullptr, 1000);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, FutureWaitNullReturnsError) {
+  rmi_error err = rmi_future_wait(nullptr, 1000);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, FutureGetDynamicNullReturnsError) {
+  rmi_future_handle fut = nullptr;
+  bison_handle value = nullptr;
+  rmi_error err = rmi_future_get_dynamic(&fut, &value);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, FutureGetProxyNullReturnsError) {
+  rmi_future_handle fut = nullptr;
+  rmi_proxy_handle value = nullptr;
+  rmi_error err = rmi_future_get_proxy(&fut, &value);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+}
+
+TEST(ErrorHandlingTests, DescribeAsyncNullClientReturnsError) {
+  rmi_future_handle fut = nullptr;
+  rmi_error err = rmi_client_describe_async(nullptr, 0, &fut);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+  EXPECT_EQ(fut, nullptr);
+}
+
+TEST(ErrorHandlingTests, InstantiateAsyncNullClientReturnsError) {
+  rmi_future_handle fut = nullptr;
+  rmi_error err =
+      rmi_client_instantiate_async(nullptr, H("TestClass"), nullptr, &fut);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+  EXPECT_EQ(fut, nullptr);
+}
+
+TEST(ErrorHandlingTests, ClearAsyncNullClientReturnsError) {
+  rmi_future_handle fut = nullptr;
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err = rmi_proxy_clear_async(nullptr, proxy, &fut);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+  EXPECT_EQ(fut, nullptr);
+}
+
+TEST(ErrorHandlingTests, SetAsyncNullClientReturnsError) {
+  rmi_future_handle fut = nullptr;
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err = rmi_proxy_set_async(nullptr, proxy, nullptr, &fut);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+  EXPECT_EQ(fut, nullptr);
+}
+
+TEST(ErrorHandlingTests, GetAsyncNullClientReturnsError) {
+  rmi_future_handle fut = nullptr;
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err = rmi_proxy_get_async(nullptr, proxy, nullptr, &fut);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+  EXPECT_EQ(fut, nullptr);
+}
+
+TEST(ErrorHandlingTests, CallAsyncNullClientReturnsError) {
+  rmi_future_handle fut = nullptr;
+  ScopedProxyHandle proxy{nullptr};
+  rmi_error err =
+      rmi_proxy_call_async(nullptr, proxy, H("method"), nullptr, &fut);
+  EXPECT_EQ(err, RMI_ERR_NULL);
+  EXPECT_EQ(fut, nullptr);
+}
+
 TEST(ErrorHandlingTests, ProxyReleaseNullIsSafe) {
   rmi_proxy_release(nullptr); // must not crash
 }
@@ -216,6 +319,31 @@ TEST(TimeoutTests, ProxyCallWithTimeoutMs) {
     // With null client/proxy, should fail with RMI_ERR_NULL, not timeout.
     rmi_error err =
         rmi_proxy_call(nullptr, nullptr, H("m"), nullptr, &dummy_result, tv);
+    EXPECT_EQ(err, RMI_ERR_NULL);
+  }
+}
+
+TEST(TimeoutTests, ProxyClearWithTimeoutMs) {
+  int64_t timeout_vals[] = {-1, 0, 1000, 5000};
+  for (int64_t tv : timeout_vals) {
+    rmi_error err = rmi_proxy_clear(nullptr, nullptr, tv);
+    EXPECT_EQ(err, RMI_ERR_NULL);
+  }
+}
+
+TEST(TimeoutTests, ProxySetWithTimeoutMs) {
+  int64_t timeout_vals[] = {-1, 0, 1000, 5000};
+  for (int64_t tv : timeout_vals) {
+    rmi_error err = rmi_proxy_set(nullptr, nullptr, nullptr, tv);
+    EXPECT_EQ(err, RMI_ERR_NULL);
+  }
+}
+
+TEST(TimeoutTests, ProxyGetWithTimeoutMs) {
+  bison_handle dummy_result = nullptr;
+  int64_t timeout_vals[] = {-1, 0, 1000, 5000};
+  for (int64_t tv : timeout_vals) {
+    rmi_error err = rmi_proxy_get(nullptr, nullptr, nullptr, &dummy_result, tv);
     EXPECT_EQ(err, RMI_ERR_NULL);
   }
 }
