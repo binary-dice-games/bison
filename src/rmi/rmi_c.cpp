@@ -21,12 +21,39 @@ using namespace bdg::bison::rmi::transport;
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
 
-// For client: wrapper that supports owning and non-owning handles.
+/**
+ * @brief Unified client handle state supporting both transport-backed clients
+ *        and standalone in-process sessions.
+ *
+ * Exactly one of `client_owner`, `standalone_owner`, or `borrowed_client` is
+ * active at a time:
+ * - `client_owner` — owns a transport-backed `client` created by
+ *   `rmi_client_tcp_create`.
+ * - `standalone_owner` — owns a `standalone` instance created by
+ *   `rmi_standalone_create`.
+ * - `borrowed_client` — non-owning pointer to a `client` supplied by a
+ *   callback context (PTY client app).
+ */
 struct client_state {
-  std::unique_ptr<client> owner;
-  client* borrowed = nullptr;
-  bool owns = true;
+  std::unique_ptr<client> client_owner;
+  std::unique_ptr<standalone> standalone_owner;
+  client* borrowed_client = nullptr;
+  bool owns_client = true;
   bool released = false;
+
+  /** @brief True when this state wraps a standalone session. */
+  bool is_standalone() const {
+    return standalone_owner != nullptr;
+  }
+
+  /** @brief True when this handle is valid and not yet released. */
+  bool is_valid() const {
+    if (released)
+      return false;
+    if (is_standalone())
+      return standalone_owner != nullptr;
+    return (owns_client ? client_owner.get() : borrowed_client) != nullptr;
+  }
 };
 
 /** Cast to client_state* */
@@ -39,33 +66,77 @@ static inline rmi_client_handle as_client_handle(client_state* p) {
   return reinterpret_cast<rmi_client_handle>(p);
 }
 
-/** Create an owning client handle */
+/** Create an owning transport-backed client handle. */
 static inline rmi_client_handle make_owned_client_handle(
     std::unique_ptr<client>&& owned_client) {
   auto* state = new client_state{};
-  state->owner = std::move(owned_client);
-  state->owns = true;
+  state->client_owner = std::move(owned_client);
+  state->owns_client = true;
   state->released = false;
   return as_client_handle(state);
 }
 
-/** Create a non-owning callback-scoped client handle */
+/** Create a non-owning callback-scoped client handle. */
 static inline rmi_client_handle make_borrowed_client_handle(client& borrowed) {
   auto* state = new client_state{};
-  state->borrowed = &borrowed;
-  state->owns = false;
+  state->borrowed_client = &borrowed;
+  state->owns_client = false;
   state->released = false;
   return as_client_handle(state);
 }
 
-/** Dereference safely */
+/** Create an owning standalone handle. */
+static inline rmi_client_handle make_owned_standalone_handle(
+    std::unique_ptr<standalone>&& sa) {
+  auto* state = new client_state{};
+  state->standalone_owner = std::move(sa);
+  state->owns_client = true;
+  state->released = false;
+  return as_client_handle(state);
+}
+
+/**
+ * @brief Dereference a transport-backed client safely.
+ *
+ * Returns nullptr if @p h is null, released, or wraps a standalone session.
+ * Proxy operations that only need a validity check should use
+ * `client_handle_is_valid()` instead.
+ */
 static inline client* client_deref(rmi_client_handle h) {
   if (!h)
     return nullptr;
   client_state* state = as_client_state(h);
-  if (!state || state->released)
+  if (!state || state->released || state->is_standalone())
     return nullptr;
-  return state->owns ? state->owner.get() : state->borrowed;
+  return state->owns_client ? state->client_owner.get()
+                            : state->borrowed_client;
+}
+
+/**
+ * @brief Dereference a standalone session safely.
+ *
+ * Returns nullptr if @p h is null, released, or wraps a transport-backed
+ * client.
+ */
+static inline standalone* standalone_deref(rmi_client_handle h) {
+  if (!h)
+    return nullptr;
+  client_state* state = as_client_state(h);
+  if (!state || state->released || !state->is_standalone())
+    return nullptr;
+  return state->standalone_owner.get();
+}
+
+/**
+ * @brief Return true when @p h is a valid, unreleased client handle.
+ *
+ * Accepts both transport-backed and standalone handles.  Use this for proxy
+ * operations that need only a validity check rather than an actual `client*`.
+ */
+static inline bool client_handle_is_valid(rmi_client_handle h) {
+  if (!h)
+    return false;
+  return as_client_state(h)->is_valid();
 }
 
 // For server: wrapper around std::unique_ptr<server>
@@ -367,15 +438,20 @@ static inline rmi_error wait_future_bool(
 }
 
 static inline std::future<dynamic> make_describe_future(
-    client* c,
+    rmi_client_handle h,
     uint32_t klass) {
-  return c->describe(bdg::bison::key_t{klass});
+  if (auto* sa = standalone_deref(h))
+    return sa->describe(bdg::bison::key_t{klass});
+  return client_deref(h)->describe(bdg::bison::key_t{klass});
 }
 
 static inline std::future<proxy::dynamic>
-make_instantiate_future(client* c, uint32_t klass, bison_handle params) {
+make_instantiate_future(rmi_client_handle h, uint32_t klass, bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
-  return c->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
+  if (auto* sa = standalone_deref(h))
+    return sa->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
+  return client_deref(h)->instantiate(
+      bdg::bison::key_t{klass}, std::move(dyn_params));
 }
 
 static inline std::future<bool> make_proxy_clear_future(proxy::dynamic* px) {
@@ -448,7 +524,20 @@ rmi_client_tcp_create(const char* host, uint16_t port) {
   }
 }
 
+RMI_API rmi_client_handle rmi_standalone_create(void) {
+  try {
+    return make_owned_standalone_handle(std::make_unique<standalone>());
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 RMI_API rmi_error rmi_client_connect(rmi_client_handle h, bison_handle params) {
+  if (!client_handle_is_valid(h))
+    return RMI_ERR_NULL;
+  // Standalone sessions are always "connected"; skip transport setup.
+  if (standalone_deref(h))
+    return RMI_OK;
   client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
@@ -471,11 +560,10 @@ RMI_API rmi_error rmi_client_describe(
     bison_handle* out_desc) {
   if (!out_desc)
     return RMI_ERR_NULL;
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    dynamic desc = make_describe_future(c, klass).get();
+    dynamic desc = make_describe_future(h, klass).get();
     *out_desc = dynamic_to_bison_handle(std::move(desc));
     return RMI_OK;
   } catch (const std::runtime_error&) {
@@ -489,12 +577,11 @@ RMI_API rmi_error rmi_client_describe_async(
     rmi_client_handle h,
     uint32_t klass,
     rmi_future_handle* out_future) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
     return store_future_handle<dynamic_future_state>(
-        out_future, make_describe_future(c, klass));
+        out_future, make_describe_future(h, klass));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -509,13 +596,12 @@ RMI_API rmi_error rmi_client_instantiate(
     rmi_proxy_handle* out_proxy) {
   if (!out_proxy)
     return RMI_ERR_NULL;
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    proxy::dynamic proxy = make_instantiate_future(c, klass, params).get();
+    proxy::dynamic prx = make_instantiate_future(h, klass, params).get();
     auto* pp =
-        new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy)));
+        new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(prx)));
     *out_proxy = as_proxy_handle(pp);
     return RMI_OK;
   } catch (const std::runtime_error&) {
@@ -530,12 +616,11 @@ RMI_API rmi_error rmi_client_instantiate_async(
     uint32_t klass,
     bison_handle params,
     rmi_future_handle* out_future) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
     return store_future_handle<proxy_future_state>(
-        out_future, make_instantiate_future(c, klass, params));
+        out_future, make_instantiate_future(h, klass, params));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -544,6 +629,11 @@ RMI_API rmi_error rmi_client_instantiate_async(
 }
 
 RMI_API rmi_error rmi_client_disconnect(rmi_client_handle h) {
+  if (!client_handle_is_valid(h))
+    return RMI_ERR_NULL;
+  // Standalone sessions have no transport to disconnect.
+  if (standalone_deref(h))
+    return RMI_OK;
   client* c = client_deref(h);
   if (!c)
     return RMI_ERR_NULL;
@@ -563,15 +653,18 @@ RMI_API void rmi_client_release(rmi_client_handle h) {
     return;
 
   try {
-    client* c = client_deref(h);
-    if (c)
-      c->disconnect();
+    if (!state->is_standalone()) {
+      client* c = client_deref(h);
+      if (c)
+        c->disconnect();
+    }
+    // Standalone session is cleaned up by its destructor.
   } catch (...) {
     // Suppress exceptions during cleanup
   }
 
   state->released = true;
-  if (state->owns)
+  if (state->owns_client || state->is_standalone())
     delete state;
 }
 
@@ -611,8 +704,7 @@ RMI_API rmi_error rmi_proxy_clear(
     rmi_client_handle h,
     rmi_proxy_handle proxy,
     int64_t timeout_ms) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -632,8 +724,7 @@ RMI_API rmi_error rmi_proxy_clear_async(
     rmi_client_handle h,
     rmi_proxy_handle proxy,
     rmi_future_handle* out_future) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -654,8 +745,7 @@ RMI_API rmi_error rmi_proxy_set(
     rmi_proxy_handle proxy,
     bison_handle fields,
     int64_t timeout_ms) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -676,8 +766,7 @@ RMI_API rmi_error rmi_proxy_set_async(
     rmi_proxy_handle proxy,
     bison_handle fields,
     rmi_future_handle* out_future) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -701,8 +790,7 @@ RMI_API rmi_error rmi_proxy_get(
     int64_t timeout_ms) {
   if (!out_result)
     return RMI_ERR_NULL;
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -730,8 +818,7 @@ RMI_API rmi_error rmi_proxy_get_async(
     rmi_proxy_handle proxy,
     bison_handle projection,
     rmi_future_handle* out_future) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -754,8 +841,7 @@ RMI_API rmi_error rmi_proxy_call(
     bison_handle params,
     bison_handle* out_result,
     int64_t timeout_ms) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -786,8 +872,7 @@ RMI_API rmi_error rmi_proxy_call_async(
     uint32_t method,
     bison_handle params,
     rmi_future_handle* out_future) {
-  client* c = client_deref(h);
-  if (!c)
+  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)

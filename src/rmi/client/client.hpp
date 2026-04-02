@@ -31,11 +31,15 @@ namespace bdg::bison::rmi {
  * background worker thread, resolves pending futures by request ID, and routes
  * server events to user-registered handlers.
  *
+ * Inherits `proxy_backend` so that `proxy::dynamic` instances created by this
+ * client can dispatch their operations back through the same interface as
+ * in-process `standalone` sessions.
+ *
  * @tparam TTransport Transport type accepted by the constructor. It must
  *         provide `open`, `send`, `receive`, and `shutdown` methods with
  *         signatures compatible with the internal type-erased wrapper.
  */
-class client {
+class client : public proxy_backend {
  public:
   template <typename TTransport>
   explicit client(TTransport&& transport)
@@ -96,7 +100,7 @@ class client {
       bison::key_t op,
       bison::key_t object_id,
       bison::dynamic payload,
-      bool oneway);
+      bool oneway) override;
 
   /**
    * @brief Register a handler for server-sent events on an object.
@@ -107,7 +111,7 @@ class client {
   void register_event_handler(
       bison::key_t object_id,
       bison::key_t name,
-      std::function<void(bison::dynamic)> handler);
+      std::function<void(bison::dynamic)> handler) override;
 
   /**
    * @brief Remove all event handlers associated with an object ID.

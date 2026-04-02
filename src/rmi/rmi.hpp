@@ -5,7 +5,8 @@
  *
  * Include this header to access the full remote-method-invocation stack:
  * envelope constants/helpers, ID generation, in-memory transport,
- * client/server runtime, and remote object proxy types.
+ * client/server runtime, standalone in-process mode, and remote object
+ * proxy types.
  */
 #pragma once
 
@@ -19,6 +20,7 @@
 #include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/shared/ids.hpp"
 #include "src/rmi/shared/schemas.hpp"
+#include "src/rmi/standalone/standalone.hpp"
 #include "src/rmi/transport/memory_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/stdio_transport.hpp"

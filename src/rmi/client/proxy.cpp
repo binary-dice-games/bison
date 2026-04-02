@@ -13,7 +13,7 @@ namespace bdg::bison::rmi::proxy {
 
 /** @copydoc bdg::bison::rmi::proxy::dynamic::clear */
 std::future<bool> dynamic::clear() {
-  auto f = client_->send_request(
+  auto f = backend_->send_request(
       shared::constants::OP_CLEAR, object_id_, bison::dynamic{}, false);
   return std::async(std::launch::deferred, [f = std::move(f)]() mutable {
     f.get();
@@ -23,7 +23,7 @@ std::future<bool> dynamic::clear() {
 
 /** @copydoc bdg::bison::rmi::proxy::dynamic::set */
 std::future<bool> dynamic::set(bison::dynamic fields) {
-  auto f = client_->send_request(
+  auto f = backend_->send_request(
       shared::constants::OP_SET, object_id_, std::move(fields), false);
   return std::async(std::launch::deferred, [f = std::move(f)]() mutable {
     f.get();
@@ -33,13 +33,13 @@ std::future<bool> dynamic::set(bison::dynamic fields) {
 
 /** @copydoc bdg::bison::rmi::proxy::dynamic::get() */
 std::future<bison::dynamic> dynamic::get() {
-  return client_->send_request(
+  return backend_->send_request(
       shared::constants::OP_GET, object_id_, bison::dynamic{}, false);
 }
 
 /** @copydoc bdg::bison::rmi::proxy::dynamic::get(bison::dynamic&&) */
 std::future<bison::dynamic> dynamic::get(bison::dynamic&& projection) {
-  return client_->send_request(
+  return backend_->send_request(
       shared::constants::OP_GET, object_id_, std::move(projection), false);
 }
 
@@ -50,7 +50,7 @@ dynamic::call(bison::key_t name, bison::dynamic&& params, bool oneway) {
   payload[shared::constants::FIELD_NAME] = name;
   payload[shared::constants::FIELD_PARAMS] =
       bison::dynamic_ptr{std::move(params)};
-  return client_->send_request(
+  return backend_->send_request(
       shared::constants::OP_CALL, object_id_, std::move(payload), oneway);
 }
 
@@ -58,7 +58,7 @@ dynamic::call(bison::key_t name, bison::dynamic&& params, bool oneway) {
 void dynamic::onEvent(
     bison::key_t name,
     std::function<void(bison::dynamic)> handler) {
-  client_->register_event_handler(object_id_, name, std::move(handler));
+  backend_->register_event_handler(object_id_, name, std::move(handler));
 }
 
 } // namespace bdg::bison::rmi::proxy

@@ -927,3 +927,235 @@ TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   c.destroy(std::move(proxy));
   c.disconnect();
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 16. Standalone in-process RMI
+// ═════════════════════════════════════════════════════════════════════════════
+
+class StandaloneTests : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClassRegistry();
+  }
+};
+
+TEST_F(StandaloneTests, ConnectAndDisconnectAreNoOps) {
+  standalone sa;
+  EXPECT_NO_THROW(sa.connect());
+  EXPECT_NO_THROW(sa.disconnect());
+}
+
+TEST_F(StandaloneTests, DescribeAllClassesReturnsRegistered) {
+  auto proto = dynamic_ptr{
+      "Widget"_key,
+      {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  dynamic result = sa.describe().get();
+
+  bool found = false;
+  for (size_t i = 0; i < result.size(); ++i) {
+    auto ptr = result[i].as<dynamic_ptr>();
+    if (ptr) {
+      bison_key_t k = (*ptr)[FIELD_KLASS];
+      if (static_cast<hash_t>(k) == static_cast<hash_t>("Widget"_key))
+        found = true;
+    }
+  }
+  EXPECT_TRUE(found);
+}
+
+TEST_F(StandaloneTests, DescribeSpecificClassReturnsDescriptor) {
+  auto proto = dynamic_ptr{"Item"_key, {{"count"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  dynamic result = sa.describe("Item"_key).get();
+  bison_key_t k = result[FIELD_KLASS];
+  EXPECT_EQ(static_cast<hash_t>(k), static_cast<hash_t>("Item"_key));
+}
+
+TEST_F(StandaloneTests, DescribeUnknownClassThrows) {
+  standalone sa;
+  EXPECT_THROW(sa.describe("NoSuchClass"_key).get(), std::runtime_error);
+}
+
+TEST_F(StandaloneTests, InstantiateUnregisteredClassFails) {
+  standalone sa;
+  EXPECT_THROW(
+      sa.instantiate("NonExistent"_key).get(), std::runtime_error);
+}
+
+TEST_F(StandaloneTests, InstantiateAndDestroyRegisteredClass) {
+  auto proto = dynamic_ptr{"Counter"_key, {{"value"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto proxy = sa.instantiate("Counter"_key).get();
+  EXPECT_TRUE(proxy.valid());
+  EXPECT_NE(static_cast<hash_t>(proxy.object_id()), 0u);
+
+  EXPECT_NO_THROW(sa.destroy(std::move(proxy)));
+}
+
+TEST_F(StandaloneTests, SetAndGetField) {
+  auto proto =
+      dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto proxy = sa.instantiate("Box"_key).get();
+
+  dynamic fields;
+  fields["x"_key] = int32_t{42};
+  fields["y"_key] = int32_t{7};
+  EXPECT_NO_THROW(proxy.set(std::move(fields)).get());
+
+  dynamic snap = proxy.get().get();
+  EXPECT_EQ(int32_t(snap["x"_key]), 42);
+  EXPECT_EQ(int32_t(snap["y"_key]), 7);
+
+  sa.destroy(std::move(proxy));
+}
+
+TEST_F(StandaloneTests, GetProjection) {
+  auto proto = dynamic_ptr{
+      "Point"_key,
+      {{"a"_key, int32_t{0}}, {"b"_key, int32_t{0}}, {"c"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto proxy = sa.instantiate("Point"_key).get();
+
+  dynamic fields;
+  fields["a"_key] = int32_t{1};
+  fields["b"_key] = int32_t{2};
+  fields["c"_key] = int32_t{3};
+  proxy.set(std::move(fields)).get();
+
+  dynamic projection;
+  projection["a"_key] = int32_t{0};
+  auto snap = proxy.get(std::move(projection)).get();
+
+  EXPECT_EQ(int32_t(snap["a"_key]), 1);
+  // b and c should not appear in the projected result.
+  bool has_b = false;
+  snap.forEach([&has_b](bison_key_t k, const field&) {
+    if (static_cast<hash_t>(k) == static_cast<hash_t>("b"_key))
+      has_b = true;
+  });
+  EXPECT_FALSE(has_b);
+
+  sa.destroy(std::move(proxy));
+}
+
+TEST_F(StandaloneTests, ClearResetsFields) {
+  auto proto = dynamic_ptr{"Config"_key, {{"timeout"_key, int32_t{30}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto proxy = sa.instantiate("Config"_key).get();
+
+  dynamic fields;
+  fields["timeout"_key] = int32_t{999};
+  proxy.set(std::move(fields)).get();
+
+  dynamic snap = proxy.get().get();
+  EXPECT_EQ(int32_t(snap["timeout"_key]), 999);
+
+  EXPECT_NO_THROW(proxy.clear().get());
+
+  snap = proxy.get().get();
+  EXPECT_EQ(int32_t(snap["timeout"_key]), 30);
+
+  sa.destroy(std::move(proxy));
+}
+
+TEST_F(StandaloneTests, CallMethod) {
+  auto proto = dynamic_ptr{"Adder"_key, {}};
+  proto->addMethod("add"_key, [](dynamic& /*self*/, const dynamic& params) {
+    int32_t a = params["a"_key];
+    int32_t b = params["b"_key];
+    dynamic result;
+    result["sum"_key] = int32_t{a + b};
+    return result;
+  });
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto proxy = sa.instantiate("Adder"_key).get();
+
+  dynamic params;
+  params["a"_key] = int32_t{3};
+  params["b"_key] = int32_t{4};
+  dynamic result = proxy.call("add"_key, std::move(params)).get();
+  EXPECT_EQ(int32_t(result["sum"_key]), 7);
+
+  sa.destroy(std::move(proxy));
+}
+
+TEST_F(StandaloneTests, ConstructAndDestructHooksAreCalled) {
+  std::atomic<int> constructed{0};
+  std::atomic<int> destructed{0};
+
+  auto proto = dynamic_ptr{"Tracked"_key, {}};
+  proto->addMethod(
+      HOOK_CONSTRUCT,
+      [&constructed](dynamic& /*self*/, const dynamic&) {
+        ++constructed;
+        return dynamic{};
+      });
+  proto->addMethod(
+      HOOK_DESTRUCT,
+      [&destructed](dynamic& /*self*/, const dynamic&) {
+        ++destructed;
+        return dynamic{};
+      });
+  dynamic::addClass(0U, proto);
+
+  {
+    standalone sa;
+    auto proxy = sa.instantiate("Tracked"_key).get();
+    EXPECT_EQ(constructed.load(), 1);
+    EXPECT_EQ(destructed.load(), 0);
+
+    sa.destroy(std::move(proxy));
+    EXPECT_EQ(destructed.load(), 1);
+  }
+}
+
+TEST_F(StandaloneTests, DestroyInvalidatesProxy) {
+  auto proto = dynamic_ptr{"Node"_key, {{"v"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto proxy = sa.instantiate("Node"_key).get();
+  EXPECT_TRUE(proxy.valid());
+
+  sa.destroy(std::move(proxy));
+  EXPECT_FALSE(proxy.valid());
+}
+
+TEST_F(StandaloneTests, TwoProxiesAreIsolated) {
+  auto proto = dynamic_ptr{"Cell"_key, {{"value"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto p1 = sa.instantiate("Cell"_key).get();
+  auto p2 = sa.instantiate("Cell"_key).get();
+
+  dynamic f1;
+  f1["value"_key] = int32_t{10};
+  p1.set(std::move(f1)).get();
+
+  dynamic f2;
+  f2["value"_key] = int32_t{20};
+  p2.set(std::move(f2)).get();
+
+  EXPECT_EQ(int32_t(p1.get().get()["value"_key]), 10);
+  EXPECT_EQ(int32_t(p2.get().get()["value"_key]), 20);
+
+  sa.destroy(std::move(p1));
+  sa.destroy(std::move(p2));
+}

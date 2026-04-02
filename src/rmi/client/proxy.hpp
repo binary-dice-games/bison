@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file proxy.hpp
- * @brief Remote object proxy API used by the RMI client.
+ * @brief Remote object proxy API used by the RMI client and standalone.
  */
 #pragma once
 
@@ -13,17 +13,60 @@
 
 namespace bdg::bison::rmi {
 
-// Forward declaration — defined in client.hpp.
+// Forward declarations — defined in client.hpp and standalone.hpp respectively.
 class client;
+class standalone;
+
+/**
+ * @brief Abstract backend interface used by `proxy::dynamic` to dispatch
+ *        operations without being coupled to a specific transport type.
+ *
+ * Both `client` (transport-backed) and `standalone` (in-process) inherit
+ * from this interface so that `proxy::dynamic` can remain transport-agnostic.
+ * The two virtual methods cover the complete set of operations a proxy needs.
+ */
+struct proxy_backend {
+  /**
+   * @brief Send a protocol operation to the backend and return a future result.
+   *
+   * @param op        Operation token (e.g. `OP_CALL`, `OP_GET`).
+   * @param object_id Target object identifier.
+   * @param payload   Operation payload (consumed by move).
+   * @param oneway    When true, no response is expected.
+   * @return Future resolved with the response payload.
+   */
+  virtual std::future<bison::dynamic> send_request(
+      bison::key_t op,
+      bison::key_t object_id,
+      bison::dynamic payload,
+      bool oneway) = 0;
+
+  /**
+   * @brief Register an event handler for server-initiated events.
+   *
+   * @param object_id  Object that emits the event.
+   * @param name       Event name token.
+   * @param handler    Callback invoked with the event payload.
+   */
+  virtual void register_event_handler(
+      bison::key_t object_id,
+      bison::key_t name,
+      std::function<void(bison::dynamic)> handler) = 0;
+
+  virtual ~proxy_backend() = default;
+};
 
 namespace proxy {
 
 /**
- * @brief Move-only owning proxy for a server-side `bison::dynamic` object.
+ * @brief Move-only owning proxy for a server-side or in-process
+ *        `bison::dynamic` object.
  *
- * A `proxy::dynamic` is created exclusively by `client::instantiate` and
- * released by `client::destroy`.  It forwards every operation to the server
- * over the active transport connection.
+ * A `proxy::dynamic` is created exclusively by `client::instantiate` or
+ * `standalone::instantiate` and released by the corresponding `destroy` call.
+ * It forwards every operation through the `proxy_backend` interface so that
+ * the same proxy type works transparently over a network transport or in
+ * a standalone in-process session.
  *
  * Ownership rules:
  * - Non-copyable; moveable.
@@ -32,26 +75,27 @@ namespace proxy {
  */
 class dynamic {
   friend class bdg::bison::rmi::client;
+  friend class bdg::bison::rmi::standalone;
 
  public:
   dynamic(const dynamic&) = delete;
   dynamic& operator=(const dynamic&) = delete;
 
   dynamic(dynamic&& other) noexcept
-      : client_(other.client_),
+      : backend_(other.backend_),
         object_id_(std::move(other.object_id_)),
         valid_(other.valid_) {
     other.valid_ = false;
-    other.client_ = nullptr;
+    other.backend_ = nullptr;
   }
 
   dynamic& operator=(dynamic&& other) noexcept {
     if (this != &other) {
-      client_ = other.client_;
+      backend_ = other.backend_;
       object_id_ = std::move(other.object_id_);
       valid_ = other.valid_;
       other.valid_ = false;
-      other.client_ = nullptr;
+      other.backend_ = nullptr;
     }
     return *this;
   }
@@ -108,9 +152,9 @@ class dynamic {
   /**
    * @brief Register a handler for a named server-initiated event.
    *
-   * Handlers are dispatched serially on the client worker thread, guaranteeing
-   * ordering.  Exceptions thrown by the handler are caught and silently
-   * discarded to keep the worker loop alive.
+   * Handlers are dispatched serially on the client worker thread or in-process,
+   * guaranteeing ordering.  Exceptions thrown by the handler are caught and
+   * silently discarded.
    *
    * @param name     Hashed event name token.
    * @param handler  Callable invoked with the event params dynamic.
@@ -138,11 +182,11 @@ class dynamic {
   }
 
  private:
-  // Only client can construct proxies.
-  dynamic(class bdg::bison::rmi::client* c, bison::key_t id)
-      : client_(c), object_id_(std::move(id)), valid_(true) {}
+  // Only client and standalone can construct proxies.
+  dynamic(proxy_backend* backend, bison::key_t id)
+      : backend_(backend), object_id_(std::move(id)), valid_(true) {}
 
-  class bdg::bison::rmi::client* client_{nullptr};
+  proxy_backend* backend_{nullptr};
   bison::key_t object_id_;
   bool valid_{false};
 };

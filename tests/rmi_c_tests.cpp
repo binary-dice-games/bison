@@ -11,6 +11,12 @@
 #include <cstring>
 #include <thread>
 
+// We clear the class registry using the C++ API to avoid state leakage.
+#include "src/core/bison.hpp"
+static void rmi_c_clear_registry() {
+  bdg::bison::dynamic::getRegistry().wlock()->clear();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -417,4 +423,154 @@ TEST(TimeoutTests, ProxyGetWithTimeoutMs) {
     rmi_error err = rmi_proxy_get(nullptr, nullptr, nullptr, &dummy_result, tv);
     EXPECT_EQ(err, RMI_ERR_NULL);
   }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 7. Standalone in-process client
+// ═════════════════════════════════════════════════════════════════════════════
+
+class StandaloneAbiTests : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // Clear the class registry before each test to avoid cross-test pollution.
+    rmi_c_clear_registry();
+  }
+
+  void TearDown() override {
+    rmi_c_clear_registry();
+  }
+
+  /** Register a simple "Counter" class with a single int32 field "value". */
+  bool register_counter_class() {
+    uint32_t key = bison_key("StandaloneCounter");
+    bison_handle proto = bison_create(key);
+    if (!proto)
+      return false;
+    bison_set_int(proto, bison_key("value"), 0);
+    bool ok = bison_add_class(0, proto) == BISON_OK;
+    bison_release(proto);
+    return ok;
+  }
+};
+
+TEST_F(StandaloneAbiTests, CreateReturnsNonNull) {
+  ScopedClientHandle sa{rmi_standalone_create()};
+  EXPECT_NE(sa.h, nullptr);
+}
+
+TEST_F(StandaloneAbiTests, ConnectIsNoOpReturnsOk) {
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+  EXPECT_EQ(rmi_client_connect(sa, nullptr), RMI_OK);
+}
+
+TEST_F(StandaloneAbiTests, DisconnectIsNoOpReturnsOk) {
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+  EXPECT_EQ(rmi_client_disconnect(sa), RMI_OK);
+}
+
+TEST_F(StandaloneAbiTests, DescribeAllReturnsHandle) {
+  ASSERT_TRUE(register_counter_class());
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle desc = nullptr;
+  EXPECT_EQ(rmi_client_describe(sa, 0, &desc), RMI_OK);
+  EXPECT_NE(desc, nullptr);
+  bison_release(desc);
+}
+
+TEST_F(StandaloneAbiTests, InstantiateAndProxyGetField) {
+  ASSERT_TRUE(register_counter_class());
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  rmi_proxy_handle proxy = nullptr;
+  ASSERT_EQ(
+      rmi_client_instantiate(sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+      RMI_OK);
+  ASSERT_NE(proxy, nullptr);
+
+  bison_handle snap = nullptr;
+  ASSERT_EQ(rmi_proxy_get(sa, proxy, nullptr, &snap, -1), RMI_OK);
+  ASSERT_NE(snap, nullptr);
+
+  int32_t value = 0;
+  EXPECT_EQ(bison_get_int(snap, bison_key("value"), &value), BISON_OK);
+  EXPECT_EQ(value, 0);
+
+  bison_release(snap);
+  rmi_proxy_release(proxy);
+}
+
+TEST_F(StandaloneAbiTests, ProxySetAndGet) {
+  ASSERT_TRUE(register_counter_class());
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  rmi_proxy_handle proxy = nullptr;
+  ASSERT_EQ(
+      rmi_client_instantiate(sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+      RMI_OK);
+  ASSERT_NE(proxy, nullptr);
+
+  // Set value to 42.
+  ScopedBisonHandle fields{bison_create(0)};
+  ASSERT_NE(fields.h, nullptr);
+  ASSERT_EQ(bison_set_int(fields, bison_key("value"), 42), BISON_OK);
+  EXPECT_EQ(rmi_proxy_set(sa, proxy, fields, -1), RMI_OK);
+
+  // Read it back.
+  bison_handle snap = nullptr;
+  ASSERT_EQ(rmi_proxy_get(sa, proxy, nullptr, &snap, -1), RMI_OK);
+  ASSERT_NE(snap, nullptr);
+
+  int32_t value = 0;
+  EXPECT_EQ(bison_get_int(snap, bison_key("value"), &value), BISON_OK);
+  EXPECT_EQ(value, 42);
+
+  bison_release(snap);
+  rmi_proxy_release(proxy);
+}
+
+TEST_F(StandaloneAbiTests, ProxyClearResetsField) {
+  ASSERT_TRUE(register_counter_class());
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  rmi_proxy_handle proxy = nullptr;
+  ASSERT_EQ(
+      rmi_client_instantiate(sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+      RMI_OK);
+
+  ScopedBisonHandle fields{bison_create(0)};
+  bison_set_int(fields, bison_key("value"), 99);
+  EXPECT_EQ(rmi_proxy_set(sa, proxy, fields, -1), RMI_OK);
+
+  EXPECT_EQ(rmi_proxy_clear(sa, proxy, -1), RMI_OK);
+
+  bison_handle snap = nullptr;
+  ASSERT_EQ(rmi_proxy_get(sa, proxy, nullptr, &snap, -1), RMI_OK);
+  int32_t value = -1;
+  bison_get_int(snap, bison_key("value"), &value);
+  EXPECT_EQ(value, 0);
+
+  bison_release(snap);
+  rmi_proxy_release(proxy);
+}
+
+TEST_F(StandaloneAbiTests, InstantiateUnregisteredClassFails) {
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  rmi_proxy_handle proxy = nullptr;
+  rmi_error err =
+      rmi_client_instantiate(sa, bison_key("NoSuchClass"), nullptr, &proxy);
+  EXPECT_NE(err, RMI_OK);
+  EXPECT_EQ(proxy, nullptr);
 }

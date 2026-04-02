@@ -191,6 +191,32 @@ RMI_API rmi_client_handle
 rmi_client_tcp_create(const char* host, uint16_t port);
 
 /**
+ * @brief Create a standalone in-process client.
+ *
+ * A standalone client combines client and server logic within a single process
+ * and operates directly on in-memory object references without any
+ * serialization, deserialization, or transport overhead.
+ *
+ * The returned handle is opaque and can be used with all existing
+ * `rmi_client_*` and `rmi_proxy_*` ABI functions.  `rmi_client_connect()` and
+ * `rmi_client_disconnect()` are accepted but are no-ops for standalone handles.
+ *
+ * The caller must release the handle with `rmi_client_release()` when done.
+ *
+ * @return New standalone client handle, or `NULL` on allocation failure.
+ *
+ * @code{.c}
+ * rmi_client_handle sa = rmi_standalone_create();
+ * rmi_proxy_handle proxy;
+ * rmi_client_instantiate(sa, bison_key("MyClass"), NULL, &proxy);
+ * // ... use proxy ...
+ * rmi_proxy_release(proxy);
+ * rmi_client_release(sa);
+ * @endcode
+ */
+RMI_API rmi_client_handle rmi_standalone_create(void);
+
+/**
  * @brief Connect the client to the server.
  *
  * Opens the transport and starts the background worker thread for receiving

@@ -63,7 +63,7 @@ std::future<proxy::dynamic> client::instantiate(
 void client::destroy(proxy::dynamic&& proxy) {
   bison::key_t oid = proxy.object_id();
   proxy.valid_ = false;
-  proxy.client_ = nullptr;
+  proxy.backend_ = nullptr;
 
   bison::dynamic payload;
   send_request(OP_DESTROY, oid, std::move(payload), false).get();
