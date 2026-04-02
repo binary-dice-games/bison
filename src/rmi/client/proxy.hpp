@@ -28,8 +28,8 @@ class standalone;
  * @par Thread safety
  * Implementers are responsible for documenting their own thread-safety
  * guarantees.  `client` is thread-safe (guards its state with mutexes);
- * `standalone` is **not** thread-safe and must not be shared across threads
- * without external synchronization.
+ * `standalone` is also thread-safe for concurrent proxy operations
+ * (all requests are serialized through a background worker thread).
  */
 struct proxy_backend {
   /**

@@ -13,9 +13,14 @@
 #include "src/rmi/client/proxy.hpp"
 #include "src/rmi/server/context.hpp"
 
+#include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <future>
 #include <memory>
+#include <mutex>
+#include <queue>
+#include <thread>
 #include <unordered_map>
 
 namespace bdg::bison::rmi {
@@ -26,10 +31,10 @@ namespace bdg::bison::rmi {
  *
  * Unlike the transport-backed `client`/`server` pair, `standalone` operates
  * directly on live `bison::dynamic` object references held in an internal
- * server `context`.  There is no wire protocol, no background worker thread,
- * and no serialization; every operation executes synchronously on the calling
- * thread and the returned futures are already resolved before they are
- * returned to the caller.
+ * server `context`.  There is no wire protocol and no serialization; every
+ * operation is queued to a background worker thread and returns a pending
+ * future that resolves once the worker completes the work, mirroring the
+ * asynchronous semantics of the transport-backed `client`.
  *
  * The public interface intentionally mirrors `client` so that code written
  * against either class can share helper logic.  `standalone` inherits
@@ -52,8 +57,15 @@ namespace bdg::bison::rmi {
  *
  * ## Thread safety
  *
- * Individual `standalone` instances are **not** thread-safe.  Do not share
- * a single instance across threads without external synchronization.
+ * `standalone` is thread-safe for concurrent proxy operations.  All
+ * operations are serialized through a single background worker thread.
+ * The session context (`session_context()`) is wrapped in
+ * `bison::synchronized<context>` and may be read or written safely from
+ * external threads via `rlock()`/`wlock()`.
+ *
+ * @note Event handlers are invoked on the worker thread.  Do not block the
+ *       worker from within an event handler (e.g. do not call `.get()` on a
+ *       future returned by a proxy operation inside an event handler).
  */
 class standalone : public proxy_backend {
  public:
@@ -70,8 +82,8 @@ class standalone : public proxy_backend {
   /**
    * @brief No-op compatibility shim for code that calls `connect` generically.
    *
-   * There is no transport to open in standalone mode; this function always
-   * returns immediately without error.
+   * The worker thread starts in the constructor; this function always returns
+   * immediately without error.
    *
    * @param params Ignored.
    */
@@ -126,10 +138,11 @@ class standalone : public proxy_backend {
   void disconnect();
 
   /**
-   * @brief Dispatch a protocol operation directly on the stored objects.
+   * @brief Dispatch a protocol operation asynchronously on the worker thread.
    *
-   * This is the backend method used by `proxy::dynamic` to implement
-   * `clear`, `set`, `get`, and `call` without involving any transport layer.
+   * The operation is queued and the calling thread returns immediately with a
+   * pending future.  The worker thread executes the operation and resolves the
+   * future with the result (or an exception on failure).
    *
    * @param op        Operation token (`OP_CLEAR`, `OP_SET`, `OP_GET`,
    *                  `OP_CALL`, or `OP_DESTROY`).
@@ -137,7 +150,8 @@ class standalone : public proxy_backend {
    * @param payload   Operation-specific payload (consumed by move).
    * @param oneway    When true, an empty result is returned without executing
    *                  any return-value logic.  For `OP_CALL` only.
-   * @return Future already resolved with the operation result.
+   * @return Pending future resolved on the worker thread with the operation
+   *         result.
    */
   std::future<bison::dynamic> send_request(
       bison::key_t op,
@@ -148,8 +162,8 @@ class standalone : public proxy_backend {
   /**
    * @brief Register an event handler for a named event on an object.
    *
-   * Handlers are invoked synchronously from within `send_request` when the
-   * object's code calls `ctx_.emit_event`.
+   * Handlers are invoked on the worker thread from within `send_request`
+   * when the object's code calls `ctx_.emit_event`.
    *
    * @param object_id Object that emits the event.
    * @param name      Event name token.
@@ -167,7 +181,56 @@ class standalone : public proxy_backend {
    */
   void unregister_object_events(bison::key_t object_id);
 
+  /**
+   * @brief Return a reference to the synchronized session context.
+   *
+   * The returned `bison::synchronized<context>` may be read or written safely
+   * from any thread via `rlock()` and `wlock()`.  The worker thread holds the
+   * write lock while executing each operation.
+   */
+  bison::synchronized<context>& session_context() {
+    return ctx_;
+  }
+
+  /** @brief Const overload of `session_context()`. */
+  const bison::synchronized<context>& session_context() const {
+    return ctx_;
+  }
+
  private:
+  // ── Task queue ────────────────────────────────────────────────────────────
+
+  /**
+   * @brief Unit of work dispatched to the worker thread.
+   */
+  struct task_item {
+    std::function<bison::dynamic()> work;
+    std::promise<bison::dynamic> promise;
+  };
+
+  /**
+   * @brief Enqueue @p work and return a future for its result.
+   *
+   * Returns an exception future immediately if the worker is not running.
+   */
+  std::future<bison::dynamic> enqueue(std::function<bison::dynamic()> work);
+
+  /**
+   * @brief Worker loop: dequeue and execute tasks until stopped.
+   *
+   * Remaining tasks in the queue are drained (executed, not failed) when
+   * `running_` transitions to false.
+   */
+  void worker_loop();
+
+  /**
+   * @brief Signal the worker to stop, drain the remaining queue, and join
+   *        the worker thread.
+   *
+   * Safe to call multiple times; subsequent calls are no-ops.
+   */
+  void stop_worker();
+
   // ── Operation handlers (mirror server-side logic without transport) ───────
 
   bison::dynamic handle_describe(bison::key_t klass);
@@ -179,35 +242,28 @@ class standalone : public proxy_backend {
   handle_call(bison::key_t object_id, bison::dynamic payload, bool oneway);
   bison::dynamic handle_destroy(bison::key_t object_id);
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-
-  /**
-   * @brief Look up a live object or throw `std::runtime_error`.
-   * @param object_id Object identifier to look up.
-   * @return Reference to the stored shared pointer.
-   */
-  bison::dynamic_ptr& require_object(bison::key_t object_id);
-
-  /**
-   * @brief Wrap a value in an already-resolved future.
-   */
-  static std::future<bison::dynamic> resolved(bison::dynamic value);
-
   // ── State ─────────────────────────────────────────────────────────────────
 
   /**
    * @brief Per-instance server context holding all live objects and the
-   *        event-emission callback.
+   *        event-emission callback, wrapped for thread-safe external access.
    */
-  context ctx_;
+  bison::synchronized<context> ctx_;
 
   /**
-   * @brief Event handlers keyed first by object ID then by event name.
+   * @brief Event handlers keyed first by object ID then by event name,
+   *        wrapped for thread-safe concurrent registration and dispatch.
    */
-  std::unordered_map<
+  bison::synchronized<std::unordered_map<
       bison::hash_t,
-      std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>
+      std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
       event_handlers_;
+
+  std::queue<task_item> queue_;
+  std::mutex queue_mutex_;
+  std::condition_variable queue_cv_;
+  std::atomic<bool> running_{false};
+  std::thread worker_;
 };
 
 } // namespace bdg::bison::rmi

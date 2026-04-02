@@ -108,7 +108,9 @@ void server::accept_loop() {
  * @param conn Active connection object.
  */
 void server::client_worker(std::unique_ptr<connection_iface> conn) {
-  context ctx;
+  auto ctx_ptr = std::make_shared<context>();
+  context& ctx = *ctx_ptr;
+  ctx.session_id = shared::generate_id();
   ctx.emit_event =
       [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
         bison::dynamic ev_payload;
@@ -123,6 +125,9 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
         auto frame = event_env.encode();
         conn->send(std::move(frame));
       };
+
+  // Register the context so external observers can access it.
+  session_contexts_.wlock()->emplace(ctx.session_id.id, ctx_ptr);
 
   while (!conn->is_closed()) {
     bison::buffer frame;
@@ -161,6 +166,9 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
   }
 
   cleanup_context(ctx);
+
+  // Unregister and clear emit_event to prevent dangling references to conn.
+  session_contexts_.wlock()->erase(ctx.session_id.id);
 }
 
 // ── Envelope helpers
@@ -571,6 +579,7 @@ void server::cleanup_context(context& ctx) {
     }
   }
   ctx.objects.clear();
+  ctx.emit_event = nullptr;
 }
 
 } // namespace bdg::bison::rmi

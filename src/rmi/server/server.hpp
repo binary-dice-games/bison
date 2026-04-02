@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace bdg::bison::rmi {
@@ -68,6 +69,32 @@ class server {
 
   /** @brief Stop accept loop, close active workers, and release resources. */
   void stop();
+
+  /**
+   * @brief Return a reference to the map of active session contexts.
+   *
+   * The map is keyed by session-ID hash.  Each value is a
+   * `shared_ptr<context>` that remains valid as long as the connection is
+   * open; the pointer is removed from the map when the connection closes.
+   *
+   * Access the map safely from any thread via `rlock()` and `wlock()`:
+   * @code
+   *   auto lp = srv.session_contexts().rlock();
+   *   for (auto& [id, ctx] : *lp) { ... }
+   * @endcode
+   */
+  bison::synchronized<
+      std::unordered_map<bison::hash_t, std::shared_ptr<context>>>&
+  session_contexts() {
+    return session_contexts_;
+  }
+
+  /** @brief Const overload of `session_contexts()`. */
+  const bison::synchronized<
+      std::unordered_map<bison::hash_t, std::shared_ptr<context>>>&
+  session_contexts() const {
+    return session_contexts_;
+  }
 
  private:
   // ── Inner interfaces ──────────────────────────────────────────────────────
@@ -222,6 +249,10 @@ class server {
   std::atomic<bool> running_{false};
 
   bison::synchronized<std::vector<std::thread>> workers_;
+
+  bison::synchronized<
+      std::unordered_map<bison::hash_t, std::shared_ptr<context>>>
+      session_contexts_;
 };
 
 } // namespace bdg::bison::rmi

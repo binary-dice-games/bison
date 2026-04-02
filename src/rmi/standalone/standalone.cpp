@@ -3,9 +3,9 @@
  * @file standalone.cpp
  * @brief Implementation of the standalone in-process RMI runtime.
  *
- * All operations execute synchronously on the calling thread.  Object
- * references are stored directly in the session context (`context::objects`)
- * and dispatched without envelope serialization or transport I/O.
+ * All proxy operations are queued to a background worker thread and return
+ * pending futures.  Object references are stored in the session context
+ * (`ctx_`) and dispatched without envelope serialization or transport I/O.
  */
 #include "src/rmi/standalone/standalone.hpp"
 
@@ -45,30 +45,50 @@ bison::key_t read_key_token(
 
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
-/** @brief Initialise the session context with an event-dispatch callback. */
+/** @brief Initialise the session context and start the worker thread. */
 standalone::standalone() {
-  ctx_.session_id = shared::generate_id();
-  ctx_.emit_event =
-      [this](bison::key_t object_id, bison::key_t name, bison::dynamic params) {
-        auto obj_it = event_handlers_.find(object_id.id);
-        if (obj_it == event_handlers_.end())
-          return;
-        auto ev_it = obj_it->second.find(static_cast<bison::hash_t>(name));
-        if (ev_it == obj_it->second.end())
-          return;
-        try {
-          ev_it->second(std::move(params));
-        } catch (...) {
-          // Silently discard exceptions from event handlers to maintain
-          // consistency with the server-side event-dispatch behaviour.
-        }
-      };
+  {
+    auto lp = ctx_.wlock();
+    lp->session_id = shared::generate_id();
+    lp->emit_event =
+        [this](bison::key_t object_id, bison::key_t name, bison::dynamic params) {
+          // Copy the handler out of the map before calling it so we do not
+          // hold event_handlers_ lock while the user callback runs.
+          std::function<void(bison::dynamic)> handler;
+          {
+            auto elp = event_handlers_.rlock();
+            auto obj_it = elp->find(object_id.id);
+            if (obj_it == elp->end())
+              return;
+            auto ev_it =
+                obj_it->second.find(static_cast<bison::hash_t>(name));
+            if (ev_it == obj_it->second.end())
+              return;
+            handler = ev_it->second;
+          }
+          try {
+            handler(std::move(params));
+          } catch (...) {
+            // Silently discard exceptions from event handlers to maintain
+            // consistency with server-side event-dispatch behaviour.
+          }
+        };
+  }
+
+  running_.store(true, std::memory_order_release);
+  worker_ = std::thread(&standalone::worker_loop, this);
 }
 
-/** @brief Invoke `__destruct` on all remaining objects and clear the context.
+/**
+ * @brief Stop the worker, invoke `__destruct` on remaining objects, and
+ *        clear the context.
  */
 standalone::~standalone() {
-  for (auto& [oid, obj] : ctx_.objects) {
+  stop_worker();
+
+  // Worker is joined; we are the only thread — cleanup remaining objects.
+  auto lp = ctx_.wlock();
+  for (auto& [oid, obj] : lp->objects) {
     if (obj && obj->findMethod(HOOK_DESTRUCT) != nullptr) {
       try {
         obj->call(HOOK_DESTRUCT, bison::dynamic{});
@@ -76,41 +96,35 @@ standalone::~standalone() {
       }
     }
   }
-  ctx_.objects.clear();
-  event_handlers_.clear();
+  lp->objects.clear();
 }
 
 // ── Client-compatible public methods ──────────────────────────────────────
 
 /** @copydoc bdg::bison::rmi::standalone::connect */
 void standalone::connect(bison::dynamic /*params*/) {
-  // No transport to open; standalone is always "connected".
+  // Worker already running from constructor; nothing to do.
 }
 
 /** @copydoc bdg::bison::rmi::standalone::describe */
 std::future<bison::dynamic> standalone::describe(bison::key_t klass) {
-  try {
-    return resolved(handle_describe(klass));
-  } catch (...) {
-    std::promise<bison::dynamic> p;
-    p.set_exception(std::current_exception());
-    return p.get_future();
-  }
+  return enqueue([this, klass]() { return handle_describe(klass); });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::instantiate */
 std::future<proxy::dynamic> standalone::instantiate(
     bison::key_t klass,
     bison::dynamic params) {
-  std::promise<proxy::dynamic> p;
-  try {
-    bison::dynamic resp = handle_instantiate(klass, std::move(params));
-    bison::key_t oid = resp.as<bison::key_t>(FIELD_OBJECT_ID);
-    p.set_value(proxy::dynamic{this, oid});
-  } catch (...) {
-    p.set_exception(std::current_exception());
-  }
-  return p.get_future();
+  auto f = enqueue([this, klass, params = std::move(params)]() mutable {
+    return handle_instantiate(klass, std::move(params));
+  });
+  return std::async(
+      std::launch::async,
+      [this, f = std::move(f)]() mutable {
+        auto result = f.get();
+        bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
+        return proxy::dynamic{this, std::move(oid)};
+      });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::destroy */
@@ -122,24 +136,12 @@ void standalone::destroy(proxy::dynamic&& proxy) {
   proxy.valid_ = false;
   proxy.backend_ = nullptr;
 
-  auto it = ctx_.objects.find(oid.id);
-  if (it == ctx_.objects.end())
-    return;
-
-  if (it->second && it->second->findMethod(HOOK_DESTRUCT) != nullptr) {
-    try {
-      it->second->call(HOOK_DESTRUCT, bison::dynamic{});
-    } catch (...) {
-    }
-  }
-
-  ctx_.objects.erase(it);
-  unregister_object_events(oid);
+  enqueue([this, oid]() { return handle_destroy(oid); }).get();
 }
 
 /** @copydoc bdg::bison::rmi::standalone::disconnect */
 void standalone::disconnect() {
-  // No transport to close; standalone is always "connected".
+  stop_worker();
 }
 
 /** @copydoc bdg::bison::rmi::standalone::send_request */
@@ -148,29 +150,26 @@ std::future<bison::dynamic> standalone::send_request(
     bison::key_t object_id,
     bison::dynamic payload,
     bool oneway) {
-  try {
-    bison::dynamic result;
-
-    if (op == OP_CLEAR) {
-      result = handle_clear(object_id);
-    } else if (op == OP_SET) {
-      result = handle_set(object_id, std::move(payload));
-    } else if (op == OP_GET) {
-      result = handle_get(object_id, std::move(payload));
-    } else if (op == OP_CALL) {
-      result = handle_call(object_id, std::move(payload), oneway);
-    } else if (op == OP_DESTROY) {
-      result = handle_destroy(object_id);
-    } else {
-      throw std::runtime_error("Unsupported operation in standalone mode");
-    }
-
-    return resolved(std::move(result));
-  } catch (...) {
-    std::promise<bison::dynamic> p;
-    p.set_exception(std::current_exception());
-    return p.get_future();
-  }
+  return enqueue(
+      [this, op, object_id, payload = std::move(payload), oneway]() mutable
+      -> bison::dynamic {
+        if (op == OP_CLEAR) {
+          return handle_clear(object_id);
+        }
+        if (op == OP_SET) {
+          return handle_set(object_id, std::move(payload));
+        }
+        if (op == OP_GET) {
+          return handle_get(object_id, std::move(payload));
+        }
+        if (op == OP_CALL) {
+          return handle_call(object_id, std::move(payload), oneway);
+        }
+        if (op == OP_DESTROY) {
+          return handle_destroy(object_id);
+        }
+        throw std::runtime_error("Unsupported operation in standalone mode");
+      });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::register_event_handler */
@@ -178,13 +177,75 @@ void standalone::register_event_handler(
     bison::key_t object_id,
     bison::key_t name,
     std::function<void(bison::dynamic)> handler) {
-  event_handlers_[object_id.id][static_cast<bison::hash_t>(name)] =
+  event_handlers_.wlock()
+      ->operator[](object_id.id)[static_cast<bison::hash_t>(name)] =
       std::move(handler);
 }
 
 /** @copydoc bdg::bison::rmi::standalone::unregister_object_events */
 void standalone::unregister_object_events(bison::key_t object_id) {
-  event_handlers_.erase(object_id.id);
+  event_handlers_.wlock()->erase(object_id.id);
+}
+
+// ── Worker ────────────────────────────────────────────────────────────────
+
+/** @brief Enqueue work and return a pending future. */
+std::future<bison::dynamic> standalone::enqueue(
+    std::function<bison::dynamic()> work) {
+  if (!running_.load(std::memory_order_acquire)) {
+    std::promise<bison::dynamic> p;
+    p.set_exception(std::make_exception_ptr(
+        std::runtime_error("standalone is not connected")));
+    return p.get_future();
+  }
+
+  std::promise<bison::dynamic> promise;
+  auto future = promise.get_future();
+  {
+    std::lock_guard<std::mutex> lk(queue_mutex_);
+    queue_.push({std::move(work), std::move(promise)});
+  }
+  queue_cv_.notify_one();
+  return future;
+}
+
+/**
+ * @brief Dequeue and execute tasks until stopped.
+ *
+ * When `running_` is cleared, the loop drains any remaining tasks before
+ * exiting so that all pending futures are resolved.
+ */
+void standalone::worker_loop() {
+  while (true) {
+    std::unique_lock<std::mutex> lk(queue_mutex_);
+    queue_cv_.wait(lk, [this] {
+      return !queue_.empty() ||
+             !running_.load(std::memory_order_relaxed);
+    });
+
+    if (!running_.load(std::memory_order_relaxed) && queue_.empty())
+      break;
+
+    task_item task = std::move(queue_.front());
+    queue_.pop();
+    lk.unlock();
+
+    try {
+      task.promise.set_value(task.work());
+    } catch (...) {
+      task.promise.set_exception(std::current_exception());
+    }
+  }
+}
+
+/** @brief Signal the worker to stop, drain remaining tasks, and join. */
+void standalone::stop_worker() {
+  if (!running_.load(std::memory_order_acquire))
+    return;
+  running_.store(false, std::memory_order_release);
+  queue_cv_.notify_all();
+  if (worker_.joinable())
+    worker_.join();
 }
 
 // ── Private operation handlers ────────────────────────────────────────────
@@ -245,7 +306,10 @@ bison::dynamic standalone::handle_instantiate(
   }
 
   const bison::key_t oid = shared::generate_id();
-  ctx_.objects[oid.id] = obj;
+  {
+    auto lp = ctx_.wlock();
+    lp->objects[oid.id] = obj;
+  }
 
   bison::dynamic resp;
   resp[FIELD_OBJECT_ID] = oid;
@@ -259,14 +323,18 @@ bison::dynamic standalone::handle_instantiate(
  * Mirrors `server::handle_clear` without transport.
  */
 bison::dynamic standalone::handle_clear(bison::key_t object_id) {
-  auto& obj_ptr = require_object(object_id);
-  auto& obj = *obj_ptr;
+  auto lp = ctx_.wlock();
+
+  auto it = lp->objects.find(object_id.id);
+  if (it == lp->objects.end())
+    throw std::runtime_error("Object not found");
+  auto& obj = *it->second;
 
   bison::key_t klass_key = obj.as<bison::key_t>(bison::dynamic::CLASS);
   {
-    auto lp = bison::dynamic::getRegistry().rlock();
-    auto class_it = lp->find(klass_key);
-    if (class_it != lp->end() && class_it->second) {
+    auto reg = bison::dynamic::getRegistry().rlock();
+    auto class_it = reg->find(klass_key);
+    if (class_it != reg->end() && class_it->second) {
       obj = class_it->second->clone();
     } else {
       obj = bison::dynamic::instantiate(klass_key);
@@ -291,8 +359,12 @@ bison::dynamic standalone::handle_clear(bison::key_t object_id) {
 bison::dynamic standalone::handle_set(
     bison::key_t object_id,
     bison::dynamic payload) {
-  auto& obj_ptr = require_object(object_id);
-  auto& obj = *obj_ptr;
+  auto lp = ctx_.wlock();
+
+  auto it = lp->objects.find(object_id.id);
+  if (it == lp->objects.end())
+    throw std::runtime_error("Object not found");
+  auto& obj = *it->second;
 
   bison::dynamic patch = payload.clone();
 
@@ -316,8 +388,12 @@ bison::dynamic standalone::handle_set(
 bison::dynamic standalone::handle_get(
     bison::key_t object_id,
     bison::dynamic projection) {
-  auto& obj_ptr = require_object(object_id);
-  auto& obj = *obj_ptr;
+  auto lp = ctx_.wlock();
+
+  auto it = lp->objects.find(object_id.id);
+  if (it == lp->objects.end())
+    throw std::runtime_error("Object not found");
+  auto& obj = *it->second;
 
   bool has_projection = false;
   projection.forEach([&](bison::key_t k, const bison::field&) {
@@ -357,8 +433,12 @@ bison::dynamic standalone::handle_call(
     bison::key_t object_id,
     bison::dynamic payload,
     bool oneway) {
-  auto& obj_ptr = require_object(object_id);
-  auto& obj = *obj_ptr;
+  auto lp = ctx_.wlock();
+
+  auto it = lp->objects.find(object_id.id);
+  if (it == lp->objects.end())
+    throw std::runtime_error("Object not found");
+  auto& obj = *it->second;
 
   bison::key_t method_name = read_key_token(payload, FIELD_NAME);
 
@@ -380,37 +460,23 @@ bison::dynamic standalone::handle_call(
  * Mirrors `server::handle_destroy` without transport.
  */
 bison::dynamic standalone::handle_destroy(bison::key_t object_id) {
-  auto it = ctx_.objects.find(object_id.id);
-  if (it == ctx_.objects.end())
-    throw std::runtime_error("Object not found");
+  {
+    auto lp = ctx_.wlock();
+    auto it = lp->objects.find(object_id.id);
+    if (it == lp->objects.end())
+      throw std::runtime_error("Object not found");
 
-  if (it->second && it->second->findMethod(HOOK_DESTRUCT) != nullptr) {
-    try {
-      it->second->call(HOOK_DESTRUCT, bison::dynamic{});
-    } catch (...) {
+    if (it->second && it->second->findMethod(HOOK_DESTRUCT) != nullptr) {
+      try {
+        it->second->call(HOOK_DESTRUCT, bison::dynamic{});
+      } catch (...) {
+      }
     }
-  }
 
-  ctx_.objects.erase(it);
+    lp->objects.erase(it);
+  }
   unregister_object_events(object_id);
   return bison::dynamic{};
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-/** @copydoc bdg::bison::rmi::standalone::require_object */
-bison::dynamic_ptr& standalone::require_object(bison::key_t object_id) {
-  auto it = ctx_.objects.find(object_id.id);
-  if (it == ctx_.objects.end())
-    throw std::runtime_error("Object not found");
-  return it->second;
-}
-
-/** @brief Wrap @p value in an already-resolved `std::future`. */
-std::future<bison::dynamic> standalone::resolved(bison::dynamic value) {
-  std::promise<bison::dynamic> p;
-  p.set_value(std::move(value));
-  return p.get_future();
 }
 
 } // namespace bdg::bison::rmi
