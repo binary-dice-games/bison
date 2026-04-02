@@ -6,10 +6,10 @@
 #pragma once
 
 #include "src/core/bison.hpp"
+#include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
 #include <memory>
-#include <optional>
 #include <string>
 
 namespace bdg::bison::rmi::transport {
@@ -17,7 +17,7 @@ namespace bdg::bison::rmi::transport {
 /**
  * @brief Client-side TCP transport endpoint.
  */
-class socket_client_transport {
+class socket_client_transport : public client_transport_iface {
  public:
     /** @brief Construct a client endpoint with default host/port values. */
   socket_client_transport(std::string host = "127.0.0.1", uint16_t port = 7070);
@@ -34,10 +34,10 @@ class socket_client_transport {
      * @brief Open and connect to the configured TCP endpoint.
      * @param params Optional overrides (for example host/port fields).
      */
-  void open(bison::dynamic&& params);
+  void open(bison::dynamic params) override;
 
     /** @brief Send one framed message to the server. */
-  void send(bison::buffer frame);
+  void send(bison::buffer frame) override;
 
     /**
      * @brief Receive one framed message from the server.
@@ -47,10 +47,10 @@ class socket_client_transport {
      */
   bool receive(
       bison::buffer& frame,
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
     /** @brief Shutdown and close the socket endpoint. */
-  void shutdown();
+  void shutdown() override;
 
  private:
   struct impl;
@@ -60,7 +60,7 @@ class socket_client_transport {
 /**
  * @brief Server-side TCP connection accepted from a listener.
  */
-class socket_server_connection {
+class socket_server_connection : public server_connection_iface {
  public:
     /** @brief Construct an empty/closed connection state. */
   socket_server_connection();
@@ -74,7 +74,7 @@ class socket_server_connection {
   socket_server_connection& operator=(const socket_server_connection&) = delete;
 
     /** @brief Send one framed message to the connected client. */
-  void send(bison::buffer frame);
+  void send(bison::buffer frame) override;
 
     /**
      * @brief Receive one framed message from the connected client.
@@ -84,26 +84,26 @@ class socket_server_connection {
      */
   bool receive(
       bison::buffer& frame,
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
     /** @brief Close this accepted connection. */
-  void close();
+  void close() override;
 
     /** @brief Return whether the connection is closed. */
-  bool is_closed() const;
+  bool is_closed() const override;
 
- private:
-  friend class socket_server_transport;
   struct impl;
+  /** @brief Construct from an owned impl (used by socket_server_transport). */
   explicit socket_server_connection(std::unique_ptr<impl> impl);
 
+ private:
   std::unique_ptr<impl> impl_;
 };
 
 /**
  * @brief TCP listener transport for server-side RMI endpoints.
  */
-class socket_server_transport {
+class socket_server_transport : public server_transport_iface {
  public:
     /** @brief Construct a listener using default bind host/port values. */
   socket_server_transport(
@@ -122,7 +122,7 @@ class socket_server_transport {
      * @brief Start listening for incoming client TCP connections.
      * @param params Optional overrides (for example host/port fields).
      */
-  void start(bison::dynamic params);
+  void start(bison::dynamic params) override;
 
     /** @brief Create a client transport configured for this listener endpoint. */
   socket_client_transport connect() const;
@@ -130,13 +130,13 @@ class socket_server_transport {
     /**
      * @brief Accept an incoming client connection.
      * @param timeout Maximum wait duration for the next connection.
-     * @return Accepted server connection on success, otherwise `std::nullopt`.
+     * @return Accepted server connection on success, otherwise `nullptr`.
      */
-  std::optional<socket_server_connection> accept(
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+  std::unique_ptr<server_connection_iface> accept(
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
     /** @brief Stop listening for new connections. */
-  void stop();
+  void stop() override;
 
  private:
   struct impl;

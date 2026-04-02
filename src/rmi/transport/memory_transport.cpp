@@ -16,7 +16,7 @@ memory_client_transport::memory_client_transport(
     : ch_(std::move(ch)) {}
 
 /** @copydoc bdg::bison::rmi::transport::memory_client_transport::open */
-void memory_client_transport::open(bison::dynamic&& /*params*/) {}
+void memory_client_transport::open(bison::dynamic /*params*/) {}
 
 /** @copydoc bdg::bison::rmi::transport::memory_client_transport::send */
 void memory_client_transport::send(bison::buffer frame) {
@@ -113,17 +113,17 @@ memory_client_transport memory_server_transport::connect() {
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_transport::accept */
-std::optional<memory_server_connection> memory_server_transport::accept(
+std::unique_ptr<server_connection_iface> memory_server_transport::accept(
     std::chrono::milliseconds timeout) {
   std::unique_lock<std::mutex> lk(mtx_);
   if (!cv_.wait_for(
           lk, timeout, [this] { return !pending_.empty() || stopped_.load(); }))
-    return std::nullopt;
+    return nullptr;
   if (pending_.empty())
-    return std::nullopt;
+    return nullptr;
   auto ch = std::move(pending_.front());
   pending_.pop();
-  return memory_server_connection{std::move(ch)};
+  return std::make_unique<memory_server_connection>(std::move(ch));
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_transport::stop */

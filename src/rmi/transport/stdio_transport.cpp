@@ -816,7 +816,7 @@ stdio_client_transport::stdio_client_transport(
 stdio_client_transport& stdio_client_transport::operator=(
     stdio_client_transport&&) noexcept = default;
 
-void stdio_client_transport::open(bison::dynamic&& params) {
+void stdio_client_transport::open(bison::dynamic params) {
   if (!impl_ || !impl_->state) {
     throw std::runtime_error("stdio_client_transport::open invalid state");
   }
@@ -1014,20 +1014,20 @@ void stdio_server_transport::start(bison::dynamic params) {
   }
 }
 
-std::optional<stdio_server_connection> stdio_server_transport::accept(
+std::unique_ptr<server_connection_iface> stdio_server_transport::accept(
     std::chrono::milliseconds timeout) {
   if (!impl_ || !impl_->state || !impl_->running.load()) {
-    return std::nullopt;
+    return nullptr;
   }
 
   if (impl_->accepted.load()) {
     std::this_thread::sleep_for(timeout);
-    return std::nullopt;
+    return nullptr;
   }
 
   impl_->accepted.store(true);
-  return stdio_server_connection{
-      std::make_unique<stdio_server_connection::impl>(impl_->state)};
+  return std::make_unique<stdio_server_connection>(
+      std::make_unique<stdio_server_connection::impl>(impl_->state));
 }
 
 void stdio_server_transport::stop() {

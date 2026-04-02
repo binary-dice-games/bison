@@ -516,9 +516,17 @@ rmi_client_tcp_create(const char* host, uint16_t port) {
   if (!host)
     return nullptr;
   try {
-    socket_client_transport transport{host, port};
+    return make_owned_client_handle(std::make_unique<client>(
+        std::make_unique<socket_client_transport>(host, port)));
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+RMI_API rmi_client_handle rmi_client_stdio_create(void) {
+  try {
     return make_owned_client_handle(
-        std::make_unique<client>(std::move(transport)));
+        std::make_unique<client>(std::make_unique<stdio_client_transport>()));
   } catch (...) {
     return nullptr;
   }
@@ -895,8 +903,18 @@ rmi_server_tcp_create(const char* host, uint16_t port) {
   if (!host)
     return nullptr;
   try {
-    socket_server_transport transport{host, port};
-    auto* sp = new server_ptr(std::make_unique<server>(std::move(transport)));
+    auto* sp = new server_ptr(std::make_unique<server>(
+        std::make_unique<socket_server_transport>(host, port)));
+    return as_server_handle(sp);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+RMI_API rmi_server_handle rmi_server_stdio_create(void) {
+  try {
+    auto* sp = new server_ptr(
+        std::make_unique<server>(std::make_unique<stdio_server_transport>()));
     return as_server_handle(sp);
   } catch (...) {
     return nullptr;

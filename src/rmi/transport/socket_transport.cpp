@@ -203,7 +203,7 @@ socket_client_transport::socket_client_transport(
 socket_client_transport& socket_client_transport::operator=(
     socket_client_transport&&) noexcept = default;
 
-void socket_client_transport::open(bison::dynamic&& params) {
+void socket_client_transport::open(bison::dynamic params) {
   if (!impl_) {
     throw std::runtime_error("socket_client_transport::open invalid state");
   }
@@ -415,13 +415,13 @@ socket_client_transport socket_server_transport::connect() const {
   return socket_client_transport{impl_->bind_host, impl_->port};
 }
 
-std::optional<socket_server_connection> socket_server_transport::accept(
+std::unique_ptr<server_connection_iface> socket_server_transport::accept(
     std::chrono::milliseconds timeout) {
   if (!impl_) {
-    return std::nullopt;
+    return nullptr;
   }
   if (!impl_->running || !impl_->acceptor.is_open()) {
-    return std::nullopt;
+    return nullptr;
   }
 
   const auto deadline = std::chrono::steady_clock::now() + timeout;
@@ -436,27 +436,27 @@ std::optional<socket_server_connection> socket_server_transport::accept(
       if (ec) {
         asio::error_code close_ec;
         client_socket.close(close_ec);
-        return std::nullopt;
+        return nullptr;
       }
 
       auto conn_impl = std::make_unique<socket_server_connection::impl>(
           std::move(io_context), std::move(client_socket));
       conn_impl->closed = false;
-      return socket_server_connection{std::move(conn_impl)};
+      return std::make_unique<socket_server_connection>(std::move(conn_impl));
     }
 
     if (ec == asio::error::operation_aborted ||
         ec == asio::error::bad_descriptor) {
-      return std::nullopt;
+      return nullptr;
     }
     if (!is_retryable_error(ec)) {
-      return std::nullopt;
+      return nullptr;
     }
 
     sleep_until_deadline(deadline);
   }
 
-  return std::nullopt;
+  return nullptr;
 }
 
 void socket_server_transport::stop() {

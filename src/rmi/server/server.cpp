@@ -15,6 +15,7 @@
 namespace bdg::bison::rmi {
 
 using namespace shared::constants;
+using namespace transport;
 
 namespace {
 
@@ -60,14 +61,14 @@ server::~server() {
 void server::listen(bison::dynamic params) {
   shared::register_all_schemas();
   running_.store(true);
-  transport_->start(std::move(params));
+  transport_raw_->start(std::move(params));
   accept_thread_ = std::thread(&server::accept_loop, this);
 }
 
 /** @copydoc bdg::bison::rmi::server::stop */
 void server::stop() {
   running_.store(false);
-  transport_->stop();
+  transport_raw_->stop();
   if (accept_thread_.joinable())
     accept_thread_.join();
   join_workers();
@@ -92,7 +93,7 @@ void server::join_workers() {
  */
 void server::accept_loop() {
   while (running_.load(std::memory_order_acquire)) {
-    auto conn = transport_->accept(std::chrono::milliseconds{100});
+    auto conn = transport_raw_->accept(std::chrono::milliseconds{100});
     if (!conn)
       continue;
     workers_.wlock()->emplace_back(
@@ -107,7 +108,7 @@ void server::accept_loop() {
  * @brief Process one client connection until closed.
  * @param conn Active connection object.
  */
-void server::client_worker(std::unique_ptr<connection_iface> conn) {
+void server::client_worker(std::unique_ptr<transport::server_connection_iface> conn) {
   auto ctx_ptr = std::make_shared<context>();
   context& ctx = *ctx_ptr;
   ctx.session_id = shared::generate_id();
@@ -178,7 +179,7 @@ void server::client_worker(std::unique_ptr<connection_iface> conn) {
  * @brief Send a protocol response envelope.
  */
 void server::send_response(
-    connection_iface& conn,
+    transport::server_connection_iface& conn,
     const shared::envelope& env,
     bison::key_t op,
     bison::dynamic payload) {
@@ -196,7 +197,7 @@ void server::send_response(
  * @brief Send an error response envelope.
  */
 void server::send_error(
-    connection_iface& conn,
+    transport::server_connection_iface& conn,
     const shared::envelope& env,
     bison::key_t op,
     bison::key_t code,
@@ -224,7 +225,7 @@ void server::send_error(
 void server::handle_request(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   if (env.op == 0u) {
     send_error(
         conn, env, OP_CONNECT, ERR_INVALID_REQUEST, "Missing operation token");
@@ -283,7 +284,7 @@ void server::handle_request(
 void server::handle_connect(
     context& /*ctx*/,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   bison::dynamic resp;
   resp[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
   send_response(conn, env, OP_CONNECT, std::move(resp));
@@ -293,7 +294,7 @@ void server::handle_connect(
 void server::handle_describe(
     context& /*ctx*/,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   const auto& p = env.payload;
 
   bison::key_t requested = p.as<bison::key_t>(FIELD_KLASS);
@@ -333,7 +334,7 @@ void server::handle_describe(
 void server::handle_instantiate(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   const auto& p = env.payload;
 
   bison::key_t klass = p.as<bison::key_t>(FIELD_KLASS);
@@ -388,7 +389,7 @@ void server::handle_instantiate(
 void server::handle_clear(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -421,7 +422,7 @@ void server::handle_clear(
 void server::handle_set(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -458,7 +459,7 @@ void server::handle_set(
 void server::handle_get(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -502,7 +503,7 @@ void server::handle_get(
 void server::handle_call(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -538,7 +539,7 @@ void server::handle_call(
 void server::handle_destroy(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -561,7 +562,7 @@ void server::handle_destroy(
 void server::handle_disconnect(
     context& ctx,
     const shared::envelope& env,
-    connection_iface& conn) {
+    transport::server_connection_iface& conn) {
   cleanup_context(ctx);
   conn.close();
 }

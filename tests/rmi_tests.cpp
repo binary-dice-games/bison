@@ -236,20 +236,19 @@ TEST(SocketTransport, SendReceivePair) {
   auto client_t = server_transport.connect();
   client_t.open(dynamic{});
 
-  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(maybe.has_value());
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
 
-  auto& server_conn = *maybe;
   const buffer frame{'H', 'i'};
   client_t.send(frame);
 
   buffer received;
-  const bool ok = server_conn.receive(received, std::chrono::milliseconds{500});
+  const bool ok = server_conn->receive(received, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
   EXPECT_EQ(received, frame);
 
   client_t.shutdown();
-  server_conn.close();
+  server_conn->close();
   server_transport.stop();
 }
 
@@ -258,12 +257,11 @@ TEST(SocketTransport, ServerToClientSend) {
   auto client_t = server_transport.connect();
   client_t.open(dynamic{});
 
-  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(maybe.has_value());
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
 
-  auto& server_conn = *maybe;
   const buffer reply{'O', 'K'};
-  server_conn.send(reply);
+  server_conn->send(reply);
 
   buffer got;
   const bool ok = client_t.receive(got, std::chrono::milliseconds{500});
@@ -271,14 +269,14 @@ TEST(SocketTransport, ServerToClientSend) {
   EXPECT_EQ(got, reply);
 
   client_t.shutdown();
-  server_conn.close();
+  server_conn->close();
   server_transport.stop();
 }
 
 TEST(SocketTransport, AcceptTimeoutReturnsNullopt) {
   auto server_transport = make_socket_server_transport();
   auto result = server_transport.accept(std::chrono::milliseconds{50});
-  EXPECT_FALSE(result.has_value());
+  EXPECT_EQ(result, nullptr);
   server_transport.stop();
 }
 
@@ -287,16 +285,14 @@ TEST(MemoryTransport, SendReceivePair) {
   server_transport.start(dynamic{});
 
   auto client_t = server_transport.connect();
-  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(maybe.has_value());
-
-  auto& server_conn = *maybe;
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
 
   const buffer frame{'H', 'i'};
   client_t.send(frame);
 
   buffer received;
-  bool ok = server_conn.receive(received, std::chrono::milliseconds{500});
+  bool ok = server_conn->receive(received, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
   EXPECT_EQ(received, frame);
 }
@@ -306,12 +302,11 @@ TEST(MemoryTransport, ServerToClientSend) {
   server_transport.start(dynamic{});
 
   auto client_t = server_transport.connect();
-  auto maybe = server_transport.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(maybe.has_value());
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
 
-  auto& server_conn = *maybe;
   const buffer reply{'O', 'K'};
-  server_conn.send(reply);
+  server_conn->send(reply);
 
   buffer got;
   bool ok = client_t.receive(got, std::chrono::milliseconds{500});
@@ -323,7 +318,7 @@ TEST(MemoryTransport, AcceptTimeoutReturnsNullopt) {
   memory_server_transport t;
   t.start(dynamic{});
   auto r = t.accept(std::chrono::milliseconds{50});
-  EXPECT_FALSE(r.has_value());
+  EXPECT_EQ(r, nullptr);
   t.stop();
 }
 
@@ -759,7 +754,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
   mt2.start(dynamic{});
   auto ct2 = mt2.connect();
   auto conn2 = mt2.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(conn2.has_value());
+  ASSERT_TRUE(conn2 != nullptr);
 
   // Build an event frame manually.
   dynamic event_payload;

@@ -10,6 +10,7 @@
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/shared/ids.hpp"
+#include "src/rmi/transport/transport_iface.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -35,17 +36,52 @@ namespace bdg::bison::rmi {
  * client can dispatch their operations back through the same interface as
  * in-process `standalone` sessions.
  *
- * @tparam TTransport Transport type accepted by the constructor. It must
- *         provide `open`, `send`, `receive`, and `shutdown` methods with
- *         signatures compatible with the internal type-erased wrapper.
+ * ## Transport
+ *
+ * The primary constructor accepts a `unique_ptr<transport::client_transport_iface>`
+ * giving the caller full control over which transport is used (TCP socket,
+ * stdio, in-memory, or any custom implementation).  A template convenience
+ * constructor is also provided so concrete transport objects can be passed
+ * directly and are automatically wrapped in a `unique_ptr`:
+ *
+ * ```cpp
+ * // Explicit ownership transfer:
+ * client c{std::make_unique<socket_client_transport>("127.0.0.1", 8080)};
+ *
+ * // Convenience (concrete type is inferred):
+ * socket_client_transport t{"127.0.0.1", 8080};
+ * client c{std::move(t)};
+ * ```
  */
 class client : public proxy_backend {
  public:
-  template <typename TTransport>
+  /**
+   * @brief Construct a client that takes ownership of @p transport.
+   * @param transport Transport implementation to use.
+   */
+  explicit client(
+      std::unique_ptr<transport::client_transport_iface> transport)
+      : transport_(std::move(transport)) {}
+
+  /**
+   * @brief Convenience constructor for concrete transport types.
+   *
+   * Accepts any type that is (or inherits) `transport::client_transport_iface`
+   * and wraps it in a `unique_ptr` automatically.  This keeps call sites that
+   * pass concrete transport values unchanged.
+   *
+   * @tparam TTransport Concrete type that inherits `client_transport_iface`.
+   */
+  template <
+      typename TTransport,
+      std::enable_if_t<
+          std::is_base_of_v<
+              transport::client_transport_iface,
+              std::decay_t<TTransport>>,
+          int> = 0>
   explicit client(TTransport&& transport)
-      : transport_(
-            std::make_unique<transport_wrapper<std::decay_t<TTransport>>>(
-                std::forward<TTransport>(transport))) {}
+      : client(std::make_unique<std::decay_t<TTransport>>(
+            std::forward<TTransport>(transport))) {}
 
   client(const client&) = delete;
   client& operator=(const client&) = delete;
@@ -120,34 +156,6 @@ class client : public proxy_backend {
   void unregister_object_events(bison::key_t object_id);
 
  private:
-  // ── Type-erased transport ─────────────────────────────────────────────────
-
-  struct transport_iface {
-    virtual void open(bison::dynamic params) = 0;
-    virtual void send(bison::buffer frame) = 0;
-    virtual bool receive(bison::buffer&, std::chrono::milliseconds timeout) = 0;
-    virtual void shutdown() = 0;
-    virtual ~transport_iface() = default;
-  };
-
-  template <typename T>
-  struct transport_wrapper final : transport_iface {
-    explicit transport_wrapper(T&& t) : t_(std::move(t)) {}
-    void open(bison::dynamic p) override {
-      t_.open(std::move(p));
-    }
-    void send(bison::buffer f) override {
-      t_.send(std::move(f));
-    }
-    bool receive(bison::buffer& f, std::chrono::milliseconds to) override {
-      return t_.receive(f, to);
-    }
-    void shutdown() override {
-      t_.shutdown();
-    }
-    T t_;
-  };
-
   // ── Private methods (defined in client.cpp) ───────────────────────────────
 
   void worker_loop();
@@ -156,7 +164,7 @@ class client : public proxy_backend {
 
   // ── Members ───────────────────────────────────────────────────────────────
 
-  std::unique_ptr<transport_iface> transport_;
+  std::unique_ptr<transport::client_transport_iface> transport_;
   std::thread worker_;
   std::atomic<bool> running_{false};
 

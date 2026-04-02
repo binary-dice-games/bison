@@ -191,11 +191,18 @@ RMI_API rmi_client_handle
 rmi_client_tcp_create(const char* host, uint16_t port);
 
 /**
- * @brief Create a standalone in-process client.
+ * @brief Create a stdio (stdin/stdout) client transport.
  *
- * A standalone client combines client and server logic within a single process
- * and operates directly on in-memory object references without any
- * serialization, deserialization, or transport overhead.
+ * Useful for PTY/pipe-backed workflows where the RMI channel is multiplexed
+ * over process stdin/stdout.  The client is not connected until
+ * `rmi_client_connect()` is called.
+ *
+ * @return New client handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_client_handle rmi_client_stdio_create(void);
+
+/**
+ * @brief Create a standalone in-process client.
  *
  * The returned handle is opaque and can be used with all existing
  * `rmi_client_*` and `rmi_proxy_*` ABI functions.  `rmi_client_connect()` and
@@ -501,6 +508,16 @@ RMI_API rmi_error rmi_proxy_call_async(
  */
 RMI_API rmi_server_handle
 rmi_server_tcp_create(const char* host, uint16_t port);
+
+/**
+ * @brief Create a stdio (stdin/stdout) server transport.
+ *
+ * Useful for PTY/pipe-backed server workflows.  The server is not listening
+ * until `rmi_server_listen()` is called.
+ *
+ * @return New server handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_server_handle rmi_server_stdio_create(void);
 
 /**
  * @brief Start the server listener.

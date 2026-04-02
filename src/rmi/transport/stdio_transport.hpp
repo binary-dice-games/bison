@@ -6,11 +6,11 @@
 #pragma once
 
 #include "src/core/bison.hpp"
+#include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
 #include <istream>
 #include <memory>
-#include <optional>
 #include <ostream>
 
 namespace bdg::bison::rmi::transport {
@@ -18,7 +18,7 @@ namespace bdg::bison::rmi::transport {
 /**
  * @brief Client-side endpoint using stdin/stdout as a framed channel.
  */
-class stdio_client_transport {
+class stdio_client_transport : public client_transport_iface {
  public:
   /** @brief Construct using process stdin/stdout streams. */
   stdio_client_transport();
@@ -52,10 +52,10 @@ class stdio_client_transport {
    * @brief Open and handshake the stdio channel.
    * @param params Optional transport configuration.
    */
-  void open(bison::dynamic&& params);
+  void open(bison::dynamic params) override;
 
   /** @brief Send one encoded frame to the remote endpoint. */
-  void send(bison::buffer frame);
+  void send(bison::buffer frame) override;
 
   /**
    * @brief Receive one encoded frame from the remote endpoint.
@@ -63,10 +63,10 @@ class stdio_client_transport {
    */
   bool receive(
       bison::buffer& frame,
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Close transport and send an end-of-session control message. */
-  void shutdown();
+  void shutdown() override;
 
  private:
   struct impl;
@@ -76,7 +76,7 @@ class stdio_client_transport {
 /**
  * @brief Server-side connection over stdin/stdout framed channel.
  */
-class stdio_server_connection {
+class stdio_server_connection : public server_connection_iface {
  public:
   /** @brief Construct an empty/closed connection state. */
   stdio_server_connection();
@@ -91,7 +91,7 @@ class stdio_server_connection {
   stdio_server_connection& operator=(const stdio_server_connection&) = delete;
 
   /** @brief Send one encoded frame to the remote endpoint. */
-  void send(bison::buffer frame);
+  void send(bison::buffer frame) override;
 
   /**
    * @brief Receive one encoded frame from the remote endpoint.
@@ -99,26 +99,26 @@ class stdio_server_connection {
    */
   bool receive(
       bison::buffer& frame,
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Close this connection. */
-  void close();
+  void close() override;
 
   /** @brief Return whether this connection has been closed. */
-  bool is_closed() const;
+  bool is_closed() const override;
 
- private:
-  friend class stdio_server_transport;
   struct impl;
+  /** @brief Construct from an owned impl (used by stdio_server_transport). */
   explicit stdio_server_connection(std::unique_ptr<impl> impl);
 
+ private:
   std::unique_ptr<impl> impl_;
 };
 
 /**
  * @brief Server-side listener over stdin/stdout framed channel.
  */
-class stdio_server_transport {
+class stdio_server_transport : public server_transport_iface {
  public:
   /** @brief Construct using process stdin/stdout streams. */
   stdio_server_transport();
@@ -143,17 +143,17 @@ class stdio_server_transport {
    * @brief Start the framed stdio listener and emit a hello control frame.
    * @param params Optional transport configuration.
    */
-  void start(bison::dynamic params);
+  void start(bison::dynamic params) override;
 
   /**
    * @brief Accept the single stdio connection.
-   * @return Connection on first accept, otherwise `std::nullopt`.
+   * @return Connection on first accept, otherwise `nullptr`.
    */
-  std::optional<stdio_server_connection> accept(
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000});
+  std::unique_ptr<server_connection_iface> accept(
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Stop the listener and close the active connection state. */
-  void stop();
+  void stop() override;
 
   /**
    * @brief Wait until the underlying stream channel is closed.
