@@ -38,7 +38,7 @@ struct client_state {
   std::unique_ptr<client> client_owner;
   std::unique_ptr<standalone> standalone_owner;
   client* borrowed_client = nullptr;
-  bool owns_client = true;
+  bool owns_resource = true;  /**< True when this state owns the underlying object. */
   bool released = false;
 
   /** @brief True when this state wraps a standalone session. */
@@ -52,7 +52,7 @@ struct client_state {
       return false;
     if (is_standalone())
       return standalone_owner != nullptr;
-    return (owns_client ? client_owner.get() : borrowed_client) != nullptr;
+    return (owns_resource ? client_owner.get() : borrowed_client) != nullptr;
   }
 };
 
@@ -71,7 +71,7 @@ static inline rmi_client_handle make_owned_client_handle(
     std::unique_ptr<client>&& owned_client) {
   auto* state = new client_state{};
   state->client_owner = std::move(owned_client);
-  state->owns_client = true;
+  state->owns_resource = true;
   state->released = false;
   return as_client_handle(state);
 }
@@ -80,7 +80,7 @@ static inline rmi_client_handle make_owned_client_handle(
 static inline rmi_client_handle make_borrowed_client_handle(client& borrowed) {
   auto* state = new client_state{};
   state->borrowed_client = &borrowed;
-  state->owns_client = false;
+  state->owns_resource = false;
   state->released = false;
   return as_client_handle(state);
 }
@@ -90,7 +90,7 @@ static inline rmi_client_handle make_owned_standalone_handle(
     std::unique_ptr<standalone>&& sa) {
   auto* state = new client_state{};
   state->standalone_owner = std::move(sa);
-  state->owns_client = true;
+  state->owns_resource = true;
   state->released = false;
   return as_client_handle(state);
 }
@@ -108,8 +108,8 @@ static inline client* client_deref(rmi_client_handle h) {
   client_state* state = as_client_state(h);
   if (!state || state->released || state->is_standalone())
     return nullptr;
-  return state->owns_client ? state->client_owner.get()
-                            : state->borrowed_client;
+  return state->owns_resource ? state->client_owner.get()
+                              : state->borrowed_client;
 }
 
 /**
@@ -599,9 +599,9 @@ RMI_API rmi_error rmi_client_instantiate(
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    proxy::dynamic prx = make_instantiate_future(h, klass, params).get();
+    proxy::dynamic proxy_obj = make_instantiate_future(h, klass, params).get();
     auto* pp =
-        new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(prx)));
+        new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy_obj)));
     *out_proxy = as_proxy_handle(pp);
     return RMI_OK;
   } catch (const std::runtime_error&) {
@@ -664,7 +664,7 @@ RMI_API void rmi_client_release(rmi_client_handle h) {
   }
 
   state->released = true;
-  if (state->owns_client || state->is_standalone())
+  if (state->owns_resource || state->is_standalone())
     delete state;
 }
 

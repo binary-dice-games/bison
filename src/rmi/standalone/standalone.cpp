@@ -232,7 +232,9 @@ bison::dynamic standalone::handle_instantiate(
   {
     auto lp = bison::dynamic::getRegistry().rlock();
     if (!lp->count(klass))
-      throw std::runtime_error("Class not registered");
+      throw std::runtime_error(
+          std::string("Class not registered: ") +
+          std::to_string(static_cast<bison::hash_t>(klass)));
   }
 
   auto obj =
@@ -315,7 +317,7 @@ bison::dynamic standalone::handle_get(
     bison::key_t object_id,
     bison::dynamic projection) {
   auto& obj_ptr = require_object(object_id);
-  const auto& obj = *obj_ptr;
+  auto& obj = *obj_ptr;
 
   bool has_projection = false;
   projection.forEach([&](bison::key_t k, const bison::field&) {
@@ -338,7 +340,7 @@ bison::dynamic standalone::handle_get(
 
   if (obj.findMethod(HOOK_GETTER) != nullptr) {
     try {
-      result = const_cast<bison::dynamic&>(obj).call(HOOK_GETTER, result);
+      result = obj.call(HOOK_GETTER, result);
     } catch (...) {
     }
   }

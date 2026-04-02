@@ -24,6 +24,12 @@ class standalone;
  * Both `client` (transport-backed) and `standalone` (in-process) inherit
  * from this interface so that `proxy::dynamic` can remain transport-agnostic.
  * The two virtual methods cover the complete set of operations a proxy needs.
+ *
+ * @par Thread safety
+ * Implementers are responsible for documenting their own thread-safety
+ * guarantees.  `client` is thread-safe (guards its state with mutexes);
+ * `standalone` is **not** thread-safe and must not be shared across threads
+ * without external synchronization.
  */
 struct proxy_backend {
   /**
