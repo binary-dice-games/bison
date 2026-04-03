@@ -293,27 +293,38 @@ void server::handle_describe(
 
   {
     auto lp = bison::dynamic::getRegistry().rlock();
-    auto& classes = *lp;
+    const auto& nsmap = *lp;
 
     if (static_cast<bison::hash_t>(requested) == 0u) {
+      // List all classes across all namespaces.
       size_t idx = 0;
-      for (const auto& [klass, proto] : classes) {
-        if (klass == CLASS_ENVELOPE)
-          continue;
-        bison::dynamic desc;
-        desc[FIELD_KLASS] = klass;
-        resp[idx++] = bison::dynamic_ptr{std::move(desc)};
+      for (const auto& [ns, classes] : nsmap) {
+        for (const auto& [klass, proto] : classes) {
+          if (klass == CLASS_ENVELOPE)
+            continue;
+          bison::dynamic desc;
+          desc[FIELD_KLASS] = klass;
+          resp[idx++] = bison::dynamic_ptr{std::move(desc)};
+        }
       }
     } else {
-      auto it = classes.find(requested);
-      if (it == classes.end()) {
+      // Find a specific class by searching all namespaces.
+      const bison::dynamic* proto = nullptr;
+      for (const auto& [ns, classes] : nsmap) {
+        auto it = classes.find(requested);
+        if (it != classes.end()) {
+          proto = it->second.get();
+          break;
+        }
+      }
+      if (!proto) {
         lp.unlock();
         send_error(
             conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
         return;
       }
       resp[FIELD_KLASS] = requested;
-      it->second->forEach(
+      proto->forEach(
           [&resp](bison::key_t k, const bison::field& v) { resp[k] = v; });
     }
   }
@@ -331,8 +342,19 @@ void server::handle_instantiate(
   bison::key_t klass = p.as<bison::key_t>(FIELD_KLASS);
 
   {
+    // Find which namespace this class is registered in.
+    bison::key_t ns{0U};
     auto lp = bison::dynamic::getRegistry().rlock();
-    if (!lp->count(klass)) {
+    const auto& nsmap = *lp;
+    bool found = false;
+    for (const auto& [nsKey, classes] : nsmap) {
+      if (classes.count(klass)) {
+        ns = nsKey;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
       send_error(
           conn,
           env,
@@ -341,39 +363,40 @@ void server::handle_instantiate(
           "Class not registered on server");
       return;
     }
-  }
+    // Release lock before instantiating.
+    lp.unlock();
+    auto obj = std::make_shared<bison::dynamic>(
+        bison::dynamic::instantiate(klass, ns));
 
-  auto obj =
-      std::make_shared<bison::dynamic>(bison::dynamic::instantiate(klass));
-
-  if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
-    try {
-      bison::dynamic construct_params;
-      auto& pf = p[FIELD_PARAMS];
-      if (pf.is<bison::dynamic_ptr>()) {
-        auto ptr = pf.as<bison::dynamic_ptr>();
-        if (ptr)
-          construct_params = std::move(*ptr);
+    if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
+      try {
+        bison::dynamic construct_params;
+        auto& pf = p[FIELD_PARAMS];
+        if (pf.is<bison::dynamic_ptr>()) {
+          auto ptr = pf.as<bison::dynamic_ptr>();
+          if (ptr)
+            construct_params = std::move(*ptr);
+        }
+        obj->call(HOOK_CONSTRUCT, construct_params);
+      } catch (const std::exception& e) {
+        send_error(
+            conn,
+            env,
+            OP_INSTANTIATE,
+            ERR_INTERNAL_ERROR,
+            std::string("__construct failed: ") + e.what());
+        return;
       }
-      obj->call(HOOK_CONSTRUCT, construct_params);
-    } catch (const std::exception& e) {
-      send_error(
-          conn,
-          env,
-          OP_INSTANTIATE,
-          ERR_INTERNAL_ERROR,
-          std::string("__construct failed: ") + e.what());
-      return;
     }
+
+    const bison::key_t oid = shared::generate_id();
+    ctx.objects[oid.id] = obj;
+
+    bison::dynamic resp;
+    resp[FIELD_OBJECT_ID] = oid;
+    resp[FIELD_KLASS] = klass;
+    send_response(conn, env, OP_INSTANTIATE, std::move(resp));
   }
-
-  const bison::key_t oid = shared::generate_id();
-  ctx.objects[oid.id] = obj;
-
-  bison::dynamic resp;
-  resp[FIELD_OBJECT_ID] = oid;
-  resp[FIELD_KLASS] = klass;
-  send_response(conn, env, OP_INSTANTIATE, std::move(resp));
 }
 
 /** @brief Handle clear requests for a live remote object. */
@@ -390,10 +413,23 @@ void server::handle_clear(
 
   bison::key_t klass_key = it->second->as<bison::key_t>(bison::dynamic::CLASS);
   {
+    // Resolve the namespace from the existing object so we look in the
+    // correct collection.
+    bison::key_t ns{0U};
+    auto* nsField = it->second->findField(bison::dynamic::NAMESPACE);
+    if (nsField && nsField->is<bison::key_t>()) {
+      ns = nsField->as<bison::key_t>();
+    }
     auto lp = bison::dynamic::getRegistry().rlock();
-    auto class_it = lp->find(klass_key);
-    if (class_it != lp->end() && class_it->second) {
-      *it->second = class_it->second->clone();
+    const auto& nsmap = *lp;
+    auto nsIt = nsmap.find(ns);
+    if (nsIt != nsmap.end()) {
+      auto class_it = nsIt->second.find(klass_key);
+      if (class_it != nsIt->second.end() && class_it->second) {
+        *it->second = class_it->second->clone();
+      } else {
+        *it->second = bison::dynamic::instantiate(klass_key, ns);
+      }
     } else {
       *it->second = bison::dynamic::instantiate(klass_key);
     }

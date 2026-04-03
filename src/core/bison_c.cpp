@@ -80,6 +80,20 @@ BISON_API bison_handle bison_instantiate(bison_hash klass_name) {
   }
 }
 
+BISON_API bison_handle bison_instantiate_ns(
+    bison_hash klass_name,
+    bison_hash ns_name) {
+  try {
+    bdg::bison::dynamic obj = bdg::bison::dynamic::instantiate(
+        bdg::bison::key_t{klass_name}, bdg::bison::key_t{ns_name});
+    auto* sp =
+        new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
+    return as_handle(sp);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 BISON_API bison_handle bison_add_ref(bison_handle h) {
   if (!h)
     return nullptr;
@@ -126,13 +140,23 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
 
 BISON_API bison_error
 bison_add_class(bison_hash parent_name, bison_handle klass) {
+  return bison_add_class_ns(parent_name, klass, 0);
+}
+
+BISON_API bison_error
+bison_add_class_ns(
+    bison_hash parent_name,
+    bison_handle klass,
+    bison_hash ns_name) {
   if (!klass)
     return BISON_ERR_NULL;
   try {
     // addClass takes a shared_ptr; copy the one inside the handle.
     sp_dyn copy = *as_sp(klass);
     bool ok = bdg::bison::dynamic::addClass(
-        bdg::bison::key_t{parent_name}, std::move(copy));
+        bdg::bison::key_t{parent_name},
+        std::move(copy),
+        bdg::bison::key_t{ns_name});
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
@@ -146,16 +170,20 @@ BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name) {
     bdg::bison::dynamic* found = dyn(h)->findClass(bdg::bison::key_t{name});
     if (!found)
       return nullptr;
-    // Return a new owning handle that shares ownership via a separate
-    // shared_ptr constructed from the raw pointer and the existing shared_ptr.
-    // We need to get the shared_ptr from the registry to do this properly.
-    // Use findClass result with a no-op deleter as a non-owning view.
-    // Since the class registry holds a shared_ptr, we can look it up:
+    // Retrieve the namespace from the found prototype's __namespace field.
+    bdg::bison::key_t ns{0U};
+    auto* nsField = found->findField(bdg::bison::dynamic::NAMESPACE);
+    if (nsField && nsField->is<bdg::bison::key_t>()) {
+      ns = nsField->as<bdg::bison::key_t>();
+    }
+    auto classKey =
+        found->at(bdg::bison::dynamic::CLASS).as<bdg::bison::key_t>();
     auto lp = bdg::bison::dynamic::getRegistry().rlock();
-    auto& classes = *lp;
-    auto key = found->at(bdg::bison::dynamic::CLASS).as<bdg::bison::key_t>();
-    auto it = classes.find(key);
-    if (it == classes.end())
+    auto nsIt = lp->find(ns);
+    if (nsIt == lp->end())
+      return nullptr;
+    auto it = nsIt->second.find(classKey);
+    if (it == nsIt->second.end())
       return nullptr;
     auto* sp = new sp_dyn(it->second); // owning copy from registry
     return as_handle(sp);

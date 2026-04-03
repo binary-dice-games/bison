@@ -1,0 +1,1 @@
+/usr/bin/c++ -O0 -g -Wl,--dependency-file=CMakeFiles/pty_server_example.dir/link.d CMakeFiles/pty_server_example.dir/pty_server_example.cpp.o -o pty_server_example  ../libbison.a ../extern/yaml/libyaml.a

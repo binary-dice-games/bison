@@ -245,4 +245,15 @@ using field_base = std::variant<
  */
 using collection = std::unordered_map<key_t, dynamic_ptr, key_t, key_t>;
 
+/**
+ * @brief The namespace registry: a map of namespace hash → class collection.
+ *
+ * The global (default) namespace uses key `0U`.  Named namespaces use the
+ * FNV-1a hash of their name (produced by `hash()` or `"name"_key`).
+ * Each entry holds an independent `collection` of class prototypes so that
+ * the same class name may be registered in multiple namespaces without
+ * collision.
+ */
+using namespace_map = std::unordered_map<key_t, collection, key_t, key_t>;
+
 } // namespace bdg::bison

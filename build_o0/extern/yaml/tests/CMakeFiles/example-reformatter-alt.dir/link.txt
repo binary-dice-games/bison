@@ -1,0 +1,1 @@
+/usr/bin/cc -g -rdynamic -Wl,--dependency-file=CMakeFiles/example-reformatter-alt.dir/link.d "CMakeFiles/example-reformatter-alt.dir/example-reformatter-alt.c.o" -o ../example-reformatter-alt  ../libyaml.a

@@ -519,6 +519,77 @@ tags:
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Example 11: Namespaces – isolating classes by unit
+//
+// A namespace is a named collection of class prototypes.  Classes registered
+// in different namespaces may share the same name without colliding.  Pass the
+// optional third argument to addClass() and the optional second argument to
+// instantiate() to target a specific namespace.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_namespaces() {
+  section("Namespaces - class isolation by unit");
+
+  // Clear any leftover classes from previous examples.
+  dynamic::getRegistry().wlock()->clear();
+
+  // ── Register classes with the same name in different namespaces ───────────
+  // "math" namespace: a table is a data structure with rows and columns.
+  auto math_table =
+      dynamic_ptr{"table"_key,
+                  {{"rows"_key, int32_t{0}}, {"cols"_key, int32_t{0}}}};
+  dynamic::addClass(0U, math_table, "math"_key);
+
+  // "ikea" namespace: a table is a piece of furniture with legs and a surface.
+  auto ikea_table =
+      dynamic_ptr{"table"_key,
+                  {{"legs"_key, int32_t{4}}, {"material"_key, std::string{"wood"}}}};
+  dynamic::addClass(0U, ikea_table, "ikea"_key);
+
+  std::cout << "Registered 'table' in both 'math' and 'ikea' namespaces\n";
+
+  // ── Instantiate from the correct namespace ────────────────────────────────
+  dynamic mt = dynamic::instantiate("table"_key, "math"_key);
+  mt["rows"_key] = int32_t{10};
+  mt["cols"_key] = int32_t{5};
+
+  dynamic it = dynamic::instantiate("table"_key, "ikea"_key);
+  it["legs"_key] = int32_t{4};
+  it["material"_key] = std::string{"oak"};
+
+  std::cout << "math::table rows=" << mt["rows"_key].as<int32_t>()
+            << " cols=" << mt["cols"_key].as<int32_t>() << "\n";
+  std::cout << "ikea::table legs=" << it["legs"_key].as<int32_t>()
+            << " material=" << it["material"_key].as<std::string>() << "\n";
+
+  // ── Namespace is stored in __namespace ───────────────────────────────────
+  // After the first field lookup the namespace is cached on the instance.
+  auto* nsf = mt.findField(dynamic::NAMESPACE);
+  if (nsf) {
+    bdg::bison::key_t ns = nsf->as<bdg::bison::key_t>();
+    std::cout << "math::table __namespace matches 'math': "
+              << std::boolalpha << (ns.id == hash("math")) << "\n";
+  }
+
+  // ── Inheritance within a namespace ───────────────────────────────────────
+  auto base = dynamic_ptr{"Furniture"_key,
+                           {{"warranty"_key, int32_t{5}}}};
+  dynamic::addClass(0U, base, "ikea"_key);
+
+  auto sofa = dynamic_ptr{"Sofa"_key, {{"seats"_key, int32_t{3}}}};
+  dynamic::addClass("Furniture"_key, sofa, "ikea"_key);
+
+  dynamic s = dynamic::instantiate("Sofa"_key, "ikea"_key);
+  std::cout << "ikea::Sofa seats=" << s["seats"_key].as<int32_t>()
+            << " warranty=" << s["warranty"_key].as<int32_t>() << "\n";
+  std::cout << "s is-a Furniture: "
+            << std::boolalpha << (s.findClass("Furniture"_key) != nullptr)
+            << "\n";
+
+  // Clean up
+  dynamic::getRegistry().wlock()->clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
 int main() {
@@ -532,6 +603,7 @@ int main() {
   example_userdata();
   example_json();
   example_yaml();
+  example_namespaces();
 
   std::cout << "\nAll examples completed successfully.\n";
   return 0;

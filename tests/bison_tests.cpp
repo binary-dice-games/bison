@@ -1229,3 +1229,153 @@ TEST(YamlTests, QuotedStringNotCoerced) {
 TEST(YamlTests, InvalidYamlThrows) {
   EXPECT_THROW(extensions::from_yaml("{broken"), std::runtime_error);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 16. Namespace support
+// ═════════════════════════════════════════════════════════════════════════════
+
+class NamespaceTest : public ::testing::Test {
+ protected:
+  void SetUp() override { clearClassRegistry(); }
+  void TearDown() override { clearClassRegistry(); }
+};
+
+TEST_F(NamespaceTest, SameClassNameInDifferentNamespacesSucceeds) {
+  auto math_table =
+      dynamic_ptr{"table"_key, {{"rows"_key, int32_t{10}}}};
+  auto ikea_table =
+      dynamic_ptr{"table"_key, {{"legs"_key, int32_t{4}}}};
+  EXPECT_TRUE(dynamic::addClass(0U, math_table, "math"_key));
+  EXPECT_TRUE(dynamic::addClass(0U, ikea_table, "ikea"_key));
+}
+
+TEST_F(NamespaceTest, DuplicateClassInSameNamespaceFails) {
+  auto t1 = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{0}}}};
+  auto t2 = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{1}}}};
+  EXPECT_TRUE(dynamic::addClass(0U, t1, "math"_key));
+  EXPECT_FALSE(dynamic::addClass(0U, t2, "math"_key));
+}
+
+TEST_F(NamespaceTest, PrototypeHasNamespaceFieldSet) {
+  auto klass = dynamic_ptr{"Vec3"_key, {{"x"_key, float{0}}}};
+  ASSERT_TRUE(dynamic::addClass(0U, klass, "math"_key));
+  auto* nsField = klass->findField(dynamic::NAMESPACE);
+  ASSERT_NE(nsField, nullptr);
+  EXPECT_EQ(nsField->as<bison_key_t>().id, hash("math"));
+}
+
+TEST_F(NamespaceTest, InstantiateWithNamespaceResolvesCorrectFields) {
+  // Two namespaces with a class named "table" but different fields.
+  auto math_table =
+      dynamic_ptr{"table"_key, {{"rows"_key, int32_t{10}}}};
+  auto ikea_table =
+      dynamic_ptr{"table"_key, {{"legs"_key, int32_t{4}}}};
+  ASSERT_TRUE(dynamic::addClass(0U, math_table, "math"_key));
+  ASSERT_TRUE(dynamic::addClass(0U, ikea_table, "ikea"_key));
+
+  dynamic mt = dynamic::instantiate("table"_key, "math"_key);
+  dynamic it = dynamic::instantiate("table"_key, "ikea"_key);
+
+  EXPECT_EQ(mt["rows"_key].as<int32_t>(), 10);
+  EXPECT_EQ(it["legs"_key].as<int32_t>(), 4);
+}
+
+TEST_F(NamespaceTest, CircularInheritanceCheckedWithinNamespace) {
+  auto a = dynamic_ptr{"A"_key};
+  auto b = dynamic_ptr{"B"_key};
+  EXPECT_TRUE(dynamic::addClass(0U, a, "ns"_key));
+  EXPECT_TRUE(dynamic::addClass("A"_key, b, "ns"_key));
+  // Trying to make A a child of B (within "ns") creates a cycle.
+  auto a2 = dynamic_ptr{"A"_key};
+  EXPECT_FALSE(dynamic::addClass("B"_key, a2, "ns"_key));
+}
+
+TEST_F(NamespaceTest, InheritanceWorksWithinNamespace) {
+  auto base =
+      dynamic_ptr{"Furniture"_key, {{"material"_key, std::string{"wood"}}}};
+  auto derived = dynamic_ptr{"Chair"_key, {{"backrest"_key, true}}};
+  ASSERT_TRUE(dynamic::addClass(0U, base, "ikea"_key));
+  ASSERT_TRUE(dynamic::addClass("Furniture"_key, derived, "ikea"_key));
+
+  dynamic chair = dynamic::instantiate("Chair"_key, "ikea"_key);
+  EXPECT_EQ(chair["material"_key].as<std::string>(), "wood");
+  EXPECT_TRUE(chair["backrest"_key].as<bool>());
+}
+
+TEST_F(NamespaceTest, FindClassSearchesCorrectNamespace) {
+  auto shape = dynamic_ptr{"Shape"_key};
+  auto circle = dynamic_ptr{"Circle"_key};
+  ASSERT_TRUE(dynamic::addClass(0U, shape, "geo"_key));
+  ASSERT_TRUE(dynamic::addClass("Shape"_key, circle, "geo"_key));
+
+  dynamic c = dynamic::instantiate("Circle"_key, "geo"_key);
+  EXPECT_NE(c.findClass("Shape"_key), nullptr);
+  EXPECT_NE(c.findClass("Circle"_key), nullptr);
+  EXPECT_EQ(c.findClass("Missing"_key), nullptr);
+}
+
+TEST_F(NamespaceTest, GlobalNamespaceUsedWhenNoNamespaceGiven) {
+  auto klass = dynamic_ptr{"Widget"_key, {{"size"_key, int32_t{1}}}};
+  ASSERT_TRUE(dynamic::addClass(0U, klass));
+  dynamic w = dynamic::instantiate("Widget"_key);
+  EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
+}
+
+TEST_F(NamespaceTest, SchemaSerializationRoundtripWithNamespace) {
+  dynamic::addClass(
+      0U,
+      dynamic_ptr{"Pt"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}},
+      "math"_key);
+
+  dynamic pt = dynamic::instantiate("Pt"_key, "math"_key);
+  pt["x"_key] = int32_t{5};
+  pt["y"_key] = int32_t{9};
+
+  buffer_serializer out;
+  pt.serializeWithSchema(out);
+
+  buffer_deserializer in{out.buffer()};
+  auto restored = dynamic::deserializeWithSchema(in);
+  EXPECT_EQ(restored["x"_key].as<int32_t>(), 5);
+  EXPECT_EQ(restored["y"_key].as<int32_t>(), 9);
+}
+
+TEST_F(InheritanceTest, SingleClassDirectField) {
+  // Minimal: single class with a field, no namespace
+  dynamic::addClass(0U, dynamic_ptr{"Widget42"_key, {{"size"_key, int32_t{1}}}});
+  dynamic w = dynamic::instantiate("Widget42"_key);
+  auto* sf = w.findField("size"_key);
+  EXPECT_NE(sf, nullptr) << "findField returned null";
+  if (sf) EXPECT_EQ(sf->as<int32_t>(), 1) << "wrong value";
+}
+
+TEST_F(InheritanceTest, SingleClassOperatorBracket) {
+  // Same as SingleClassDirectField but via operator[]
+  dynamic::addClass(0U, dynamic_ptr{"Widget43"_key, {{"size"_key, int32_t{1}}}});
+  dynamic w = dynamic::instantiate("Widget43"_key);
+  EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
+}
+
+TEST_F(InheritanceTest, DebugOperatorBracket) {
+  // Print the exact value returned from operator[] for diagnosis
+  dynamic::addClass(0U, dynamic_ptr{"DbgW"_key, {{"size"_key, int32_t{7}}}});
+  dynamic w = dynamic::instantiate("DbgW"_key);
+
+  // First check via findField:
+  auto* p = w.findField("size"_key);
+  int ff_val = (p ? p->as<int32_t>() : -1);
+
+  // Now via operator[] (note: this is a second call, field is already cached!)
+  int op_val = w["size"_key].as<int32_t>();
+
+  EXPECT_EQ(ff_val, 7) << "findField returned wrong value";
+  EXPECT_EQ(op_val, 7) << "operator[] returned wrong value";
+}
+
+TEST_F(InheritanceTest, DebugOperatorBracketNoCache) {
+  // operator[] WITHOUT prior findField
+  dynamic::addClass(0U, dynamic_ptr{"DbgX"_key, {{"size"_key, int32_t{7}}}});
+  dynamic w = dynamic::instantiate("DbgX"_key);
+  int op_val = w["size"_key].as<int32_t>();
+  EXPECT_EQ(op_val, 7) << "operator[] (no prior findField) returned wrong value";
+}

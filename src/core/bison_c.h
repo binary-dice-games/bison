@@ -157,12 +157,28 @@ BISON_API bison_handle bison_create(bison_hash klass_name);
  * `dynamic::instantiate`.
  *
  * This is equivalent to `bison_create(klass_name)` but mirrors the C++ API
- * naming and behavior explicitly.
+ * naming and behavior explicitly.  The object is placed in the global (default)
+ * namespace; use `bison_instantiate_ns()` to target a named namespace.
  *
  * @param klass_name  Hashed class name (use `bison_key()` to compute).
  * @return New handle (ref-count 1) or `NULL` on allocation failure.
  */
 BISON_API bison_handle bison_instantiate(bison_hash klass_name);
+
+/**
+ * @brief Create a new dynamic object in a specific namespace.
+ *
+ * Sets the `__namespace` field on the new instance so that subsequent field,
+ * method, and class lookups target the correct namespace collection.
+ *
+ * @param klass_name  Hashed class name (use `bison_key()` to compute).
+ * @param ns_name     Hash of the namespace name (use `bison_key()`); pass
+ *                    `0` for the global (default) namespace.
+ * @return New handle (ref-count 1) or `NULL` on allocation failure.
+ */
+BISON_API bison_handle bison_instantiate_ns(
+    bison_hash klass_name,
+    bison_hash ns_name);
 
 /**
  * @brief Increment the reference count of @p h and return a new handle.
@@ -224,18 +240,47 @@ BISON_API bison_handle bison_from_yaml(const char* yaml);
  * ═════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @brief Register @p klass as a class prototype in the global registry.
+ * @brief Register @p klass as a class prototype in the global (default)
+ *        namespace of the class registry.
+ *
+ * This is equivalent to calling `bison_add_class_ns(parent_name, klass, 0)`.
+ * All classes registered with this function share the global namespace and
+ * are visible to objects whose `__namespace` field is `0` (or absent).
  *
  * @param parent_name  Hash of the parent class name (use `bison_key()`); pass
  *                     `0` for a root class.
  * @param klass        Handle whose `__class` field has already been set.
  *                     The library **does not** take ownership of @p klass.
  * @return `BISON_OK` on success, `BISON_ERR_DUPLICATE` if a class with the
- *         same name is already registered, or `BISON_ERR_NULL` if @p klass is
- *         `NULL`.
+ *         same name is already registered in the global namespace, or
+ *         `BISON_ERR_NULL` if @p klass is `NULL`.
  */
 BISON_API bison_error
 bison_add_class(bison_hash parent_name, bison_handle klass);
+
+/**
+ * @brief Register @p klass as a class prototype in a named namespace.
+ *
+ * Classes in different namespaces may share the same name without collision.
+ * The `__namespace` field of @p klass is set automatically to @p ns_name.
+ * Use `bison_instantiate_ns()` (or set `__namespace` on the instance before
+ * any field lookup) to direct lookups to the correct namespace.
+ *
+ * @param parent_name  Hash of the parent class name (use `bison_key()`); pass
+ *                     `0` for a root class.
+ * @param klass        Handle whose `__class` field has already been set.
+ *                     The library **does not** take ownership of @p klass.
+ * @param ns_name      Hash of the namespace name (use `bison_key()`); pass
+ *                     `0` to register in the global (default) namespace.
+ * @return `BISON_OK` on success, `BISON_ERR_DUPLICATE` if a class with the
+ *         same name is already registered in @p ns_name, or `BISON_ERR_NULL`
+ *         if @p klass is `NULL`.
+ */
+BISON_API bison_error
+bison_add_class_ns(
+    bison_hash parent_name,
+    bison_handle klass,
+    bison_hash ns_name);
 
 /**
  * @brief Search the class hierarchy of @p h for a registered class.

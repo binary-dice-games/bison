@@ -1,0 +1,1 @@
+/usr/bin/c++ -O0 -g -Wl,--dependency-file=CMakeFiles/rmi_stdio_server_example.dir/link.d CMakeFiles/rmi_stdio_server_example.dir/rmi_stdio_server_example.cpp.o -o rmi_stdio_server_example  ../libbison.a ../extern/yaml/libyaml.a

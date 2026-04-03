@@ -1,0 +1,5 @@
+if(EXISTS "/home/runner/work/bison/bison/build_o0/tests/bison_test[1]_tests.cmake")
+  include("/home/runner/work/bison/bison/build_o0/tests/bison_test[1]_tests.cmake")
+else()
+  add_test(bison_test_NOT_BUILT bison_test_NOT_BUILT)
+endif()
