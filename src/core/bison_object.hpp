@@ -385,13 +385,13 @@ class dynamic {
   }
 
   inline field& operator[](key_t name) {
-    auto field = findField(name);
-    return field != nullptr ? *field : fields_[name];
+    auto f = findField(name);
+    return f != nullptr ? *f : fields_[name];
   }
 
   inline const field& operator[](key_t name) const {
-    auto field = findField(name);
-    return field != nullptr ? *field : fields_[name];
+    auto f = findField(name);
+    return f != nullptr ? *f : fields_[name];
   }
 
   field& at(key_t name) {
@@ -555,28 +555,38 @@ class dynamic {
    * @return Pointer to the resolved field, or `nullptr`.
    */
   field* findField(key_t name) const {
-    auto it = fields_.find(name);
-    if (it == fields_.end()) {
+    // Fast path: field already cached in this instance.
+    {
+      auto it = fields_.find(name);
+      if (it != fields_.end())
+        return &it->second;
+    }
+
+    // Slow path: search the class prototype chain.
+    {
       auto lp = getRegistry().rlock();
+      // resolveNamespace_ may write __namespace into fields_, so we must
+      // not rely on any iterator captured before this call.
       auto ns = resolveNamespace_(*lp);
       auto nsIt = lp->find(ns);
       if (nsIt != lp->end()) {
         const auto& col = nsIt->second;
         auto classKey = as<key_t>(CLASS);
-        auto itClass = col.find(classKey);
-        while (itClass != col.end() && it == fields_.end()) {
+        for (auto itClass = col.find(classKey);
+             itClass != col.end();) {
           auto& klass = itClass->second;
           auto itField = klass->fields_.find(name);
           if (itField != klass->fields_.end()) {
-            auto r = fields_.insert(std::make_pair(name, itField->second));
-            it = r.first;
-          } else {
-            itClass = col.find(klass->as<key_t>(PARENT));
+            fields_.insert(std::make_pair(name, itField->second));
+            break;
           }
+          itClass = col.find(klass->as<key_t>(PARENT));
         }
       }
     }
 
+    // Return whatever is now in the cache (inserted above, or absent).
+    auto it = fields_.find(name);
     return it != fields_.end() ? &it->second : nullptr;
   }
 
@@ -591,27 +601,34 @@ class dynamic {
    * @return Pointer to the resolved method, or `nullptr`.
    */
   method* findMethod(key_t name) const {
-    auto it = methods_.find(name);
-    if (it == methods_.end()) {
+    // Fast path: method already cached in this instance.
+    {
+      auto it = methods_.find(name);
+      if (it != methods_.end())
+        return &it->second;
+    }
+
+    // Slow path: search the class prototype chain.
+    {
       auto lp = getRegistry().rlock();
       auto ns = resolveNamespace_(*lp);
       auto nsIt = lp->find(ns);
       if (nsIt != lp->end()) {
         const auto& col = nsIt->second;
-        auto itClass = col.find(as<key_t>(CLASS));
-        while (itClass != col.end() && it == methods_.end()) {
+        for (auto itClass = col.find(as<key_t>(CLASS));
+             itClass != col.end();) {
           auto& klass = itClass->second;
           auto itMethod = klass->methods_.find(name);
           if (itMethod != klass->methods_.end()) {
-            it =
-                methods_.insert(std::make_pair(name, itMethod->second)).first;
-          } else {
-            itClass = col.find(klass->as<key_t>(PARENT));
+            methods_.insert(std::make_pair(name, itMethod->second));
+            break;
           }
+          itClass = col.find(klass->as<key_t>(PARENT));
         }
       }
     }
 
+    auto it = methods_.find(name);
     return it != methods_.end() ? &it->second : nullptr;
   }
 

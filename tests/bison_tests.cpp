@@ -1355,27 +1355,3 @@ TEST_F(InheritanceTest, SingleClassOperatorBracket) {
   dynamic w = dynamic::instantiate("Widget43"_key);
   EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
 }
-
-TEST_F(InheritanceTest, DebugOperatorBracket) {
-  // Print the exact value returned from operator[] for diagnosis
-  dynamic::addClass(0U, dynamic_ptr{"DbgW"_key, {{"size"_key, int32_t{7}}}});
-  dynamic w = dynamic::instantiate("DbgW"_key);
-
-  // First check via findField:
-  auto* p = w.findField("size"_key);
-  int ff_val = (p ? p->as<int32_t>() : -1);
-
-  // Now via operator[] (note: this is a second call, field is already cached!)
-  int op_val = w["size"_key].as<int32_t>();
-
-  EXPECT_EQ(ff_val, 7) << "findField returned wrong value";
-  EXPECT_EQ(op_val, 7) << "operator[] returned wrong value";
-}
-
-TEST_F(InheritanceTest, DebugOperatorBracketNoCache) {
-  // operator[] WITHOUT prior findField
-  dynamic::addClass(0U, dynamic_ptr{"DbgX"_key, {{"size"_key, int32_t{7}}}});
-  dynamic w = dynamic::instantiate("DbgX"_key);
-  int op_val = w["size"_key].as<int32_t>();
-  EXPECT_EQ(op_val, 7) << "operator[] (no prior findField) returned wrong value";
-}

@@ -1,0 +1,1 @@
+/usr/bin/cc -g -rdynamic -Wl,--dependency-file=CMakeFiles/run-parser-test-suite.dir/link.d "CMakeFiles/run-parser-test-suite.dir/run-parser-test-suite.c.o" -o ../run-parser-test-suite  ../libyaml.a

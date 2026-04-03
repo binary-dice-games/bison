@@ -1,0 +1,1 @@
+/usr/bin/cc -g -rdynamic -Wl,--dependency-file=CMakeFiles/run-emitter-test-suite.dir/link.d "CMakeFiles/run-emitter-test-suite.dir/run-emitter-test-suite.c.o" -o ../run-emitter-test-suite  ../libyaml.a

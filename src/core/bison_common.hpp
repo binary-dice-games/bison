@@ -146,19 +146,6 @@ constexpr hash_t hash(const char* input) {
 }
 
 /**
- * @brief User-defined literal that hashes a string constant to a `hash_t`.
- *
- * Enables concise compile-time field-name hashing, e.g. `"score"_key`.
- *
- * @param name  Null-terminated string literal.
- * @param size  Length of the literal (unused; provided by the compiler).
- * @return FNV-1a hash of @p name with MSB set.
- */
-constexpr hash_t operator""_key(const char* name, std::size_t size) noexcept {
-  return hash(name);
-}
-
-/**
  * @brief Key type that wraps a `hash_t` and serves as a map key.
  *
  * Supports construction from raw `hash_t`, `const char*`, and `std::string`
@@ -167,10 +154,10 @@ constexpr hash_t operator""_key(const char* name, std::size_t size) noexcept {
  * use as both template arguments in `std::unordered_map`.
  */
 struct _key_t {
-  _key_t(hash_t v = 0) : id(v) {}
-  _key_t(const char* input) : id(hash(input)) {}
+  constexpr _key_t(hash_t v = 0) : id(v) {}
+  constexpr _key_t(const char* input) : id(hash(input)) {}
   _key_t(const std::string& input) : id(hash(input.c_str())) {}
-  operator hash_t() const {
+  constexpr operator hash_t() const {
     return id;
   }
   std::size_t operator()(const struct _key_t& k) const {
@@ -184,6 +171,22 @@ struct _key_t {
 
 /** @brief Convenience alias for `_key_t`. */
 using key_t = struct _key_t;
+
+/**
+ * @brief User-defined literal that hashes a string constant to a `key_t`.
+ *
+ * Enables concise compile-time field-name hashing, e.g. `"score"_key`.
+ * Returns `key_t` (not `hash_t`) so that `obj["name"_key]` resolves to the
+ * `operator[](key_t)` overload via an exact match, instead of the numeric
+ * `operator[](size_t)` overload via an integral widening conversion.
+ *
+ * @param name  Null-terminated string literal.
+ * @param size  Length of the literal (unused; provided by the compiler).
+ * @return `key_t` wrapping the FNV-1a hash of @p name with MSB set.
+ */
+constexpr key_t operator""_key(const char* name, std::size_t size) noexcept {
+  return key_t{hash(name)};
+}
 
 /**
  * @brief Reference-counted smart pointer to a `dynamic` object.
