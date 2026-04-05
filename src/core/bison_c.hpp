@@ -34,10 +34,11 @@
  * int32_t score = score_obj.get<int32_t>(object::key("score"));  // 42
  *
  * // Register a method with a lambda:
- * score_obj.add_method(object::key("reset"), [](auto self, auto params, auto
- * result, auto user) {
+ * score_obj.add_method(
+ *     object::key("reset"),
+ *     [](object& self, const object& params, object& result) {
  *   // Method implementation
- * });
+ *     });
  * @endcode
  */
 
@@ -54,6 +55,7 @@
 
 namespace bdg::bison_c {
 
+class object;
 namespace detail {
 
 inline void check(bison_error err, const char* msg) {
@@ -64,29 +66,30 @@ inline void check(bison_error err, const char* msg) {
   }
 }
 
-// ── Method callback bridge (userdata-backed) ──────────────────────────────
-// Bridge C++ callables to the C ABI by passing a callback context through the
-// C callback's `user` pointer.
+template <size_t N>
+consteval bison_hash hash_literal(const char (&name)[N]) {
+  // 32-bit FNV-1a with the MSB forced to 1 to match bison_key semantics.
+  bison_hash value = 0x811c9dc5u;
+  for (size_t i = 0; i + 1 < N; ++i) {
+    value ^= static_cast<unsigned char>(name[i]);
+    value *= 0x01000193u;
+  }
+  return value | 0x80000000u;
+}
 
-using MethodCallback = std::function<
-    void(bison_handle self, bison_handle params, bison_handle result)>;
+using MethodCallback =
+    std::function<void(object& self, const object& params, object& result)>;
 
 inline void adapter_wrapper(
     bison_handle self,
     bison_handle params,
     bison_handle result,
-    void* user) {
-  auto* callback = static_cast<MethodCallback*>(user);
-  if (callback) {
-    (*callback)(self, params, result);
-  }
-}
+    void* user);
 
 } // namespace detail
 
 // ────────────────────────────────────────────────────────────────────────────
 // object — RAII wrapper for bison_handle
-// ────────────────────────────────────────────────────────────────────────────
 
 /**
  * @brief RAII owner of a `bison_handle`.
@@ -256,6 +259,12 @@ class object {
   // ── Registry (static) ─────────────────────────────────────────────────────
 
   /** @brief Compute the FNV-1a hash of a null-terminated string. */
+  template <size_t N>
+  static consteval bison_hash key(const char (&name)[N]) {
+    return detail::hash_literal(name);
+  }
+
+  /** @brief Compute the FNV-1a hash at runtime for dynamic strings. */
   static bison_hash key(const char* name) {
     return bison_key(name);
   }
@@ -495,24 +504,25 @@ class object {
    * fully supported.
    *
    * @param name  Method name hash (use `key()`).
-   * @param fn    Callable that takes (self, params, result) and returns
-   *              void. Signature must match the expected method callback type.
+   * @param fn    Callable that takes `(object& self, const object& params,
+   *              object& result)` and returns void.
    * @throws std::runtime_error on duplicate or null error.
    * @code
    *   // With a lambda:
-   *   obj.add_method(key("greet"), [](auto self, auto params, auto result) {
-   *     // Implementation
-   *   });
+   *   obj.add_method(key("greet"),
+   *                  [](object& self, const object& params, object& result) {
+   *                    // Implementation
+   *                  });
    *
    *   // With a std::function:
-   *   std::function<void(bison_handle, bison_handle, bison_handle)> fn =
-   *       [](auto self, auto params, auto result) { ... };
+   *   std::function<void(object&, const object&, object&)> fn =
+   *       [](object& self, const object& params, object& result) { ... };
    *   obj.add_method(key("speak"), fn);
    * @endcode
    */
   void add_method(
       bison_hash name,
-      std::function<void(bison_handle, bison_handle, bison_handle)> fn) {
+      std::function<void(object&, const object&, object&)> fn) {
     auto callback = std::make_unique<detail::MethodCallback>(std::move(fn));
     auto* callback_ptr = callback.get();
     detail::check(
@@ -552,5 +562,23 @@ class object {
 
   explicit object(bison_handle h) noexcept : h_(h) {}
 };
+
+inline void detail::adapter_wrapper(
+    bison_handle self,
+    bison_handle params,
+    bison_handle result,
+    void* user) {
+  auto* callback = static_cast<MethodCallback*>(user);
+  if (!callback) {
+    return;
+  }
+
+  // Borrow to avoid taking ownership of temporary bridge handles created by
+  // the C ABI layer while still presenting RAII objects to C++ callbacks.
+  object self_obj = object::borrow(self);
+  object params_obj = object::borrow(params);
+  object result_obj = object::borrow(result);
+  (*callback)(self_obj, params_obj, result_obj);
+}
 
 } // namespace bdg::bison_c

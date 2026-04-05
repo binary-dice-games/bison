@@ -250,44 +250,17 @@ bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
 
 BISON_API bison_error
 bison_set_int_at(bison_handle h, size_t index, int32_t value) {
-  if (!h)
-    return BISON_ERR_NULL;
-  try {
-    (*dyn(h))[index] = value;
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_set_int(h, static_cast<bison_hash>(index), value);
 }
 
 BISON_API bison_error
 bison_set_float_at(bison_handle h, size_t index, float value) {
-  if (!h)
-    return BISON_ERR_NULL;
-  try {
-    (*dyn(h))[index] = value;
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_set_float(h, static_cast<bison_hash>(index), value);
 }
 
 BISON_API bison_error
 bison_set_string_at(bison_handle h, size_t index, const char* value) {
-  if (!h || !value)
-    return BISON_ERR_NULL;
-  try {
-    (*dyn(h))[index] = std::string(value);
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_set_string(h, static_cast<bison_hash>(index), value);
 }
 
 // ─── Getters ────────────────────────────────────────────────────────────────
@@ -380,30 +353,12 @@ bison_get_object(bison_handle h, bison_hash name, bison_handle* out) {
 
 BISON_API bison_error
 bison_get_int_at(bison_handle h, size_t index, int32_t* out) {
-  if (!h || !out)
-    return BISON_ERR_NULL;
-  try {
-    *out = (*dyn(h))[index].as<int32_t>();
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_get_int(h, static_cast<bison_hash>(index), out);
 }
 
 BISON_API bison_error
 bison_get_float_at(bison_handle h, size_t index, float* out) {
-  if (!h || !out)
-    return BISON_ERR_NULL;
-  try {
-    *out = (*dyn(h))[index].as<float>();
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_get_float(h, static_cast<bison_hash>(index), out);
 }
 
 BISON_API bison_error bison_get_string_at(
@@ -412,23 +367,8 @@ BISON_API bison_error bison_get_string_at(
     char* buf,
     size_t buf_len,
     size_t* len_out) {
-  if (!h)
-    return BISON_ERR_NULL;
-  try {
-    const std::string& s = (*dyn(h))[index].as<std::string>();
-    if (len_out)
-      *len_out = s.size();
-    if (buf && buf_len > 0) {
-      size_t copy_len = s.size() < buf_len - 1 ? s.size() : buf_len - 1;
-      std::memcpy(buf, s.data(), copy_len);
-      buf[copy_len] = '\0';
-    }
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_get_string(
+      h, static_cast<bison_hash>(index), buf, buf_len, len_out);
 }
 
 BISON_API size_t bison_size(bison_handle h) {

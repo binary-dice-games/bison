@@ -2,6 +2,7 @@
 // Google Test suite for the pure-C Bison shared-library API.
 
 #include "src/core/bison_c.h"
+#include "src/core/bison_c.hpp"
 
 #include <gtest/gtest.h>
 #include <cstdint>
@@ -433,4 +434,88 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
   bison_handle found = bison_find_class_ns(ns, key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. C++ RAII wrapper coverage
+// ═════════════════════════════════════════════════════════════════════════════
+
+class CxxWrapperTests : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClasses();
+  }
+  void TearDown() override {
+    clearClasses();
+  }
+};
+
+TEST_F(CxxWrapperTests, SetGetSupportsChainingAndTypedAccess) {
+  using bdg::bison_c::object;
+
+  auto h = object::create();
+  h.set(object::key("score"), 42)
+      .set(object::key("ratio"), 2.5f)
+      .set(object::key("name"), "alice")
+      .set(0u, 100)
+      .set(1u, 200);
+
+  EXPECT_EQ(h.get<int32_t>(object::key("score")), 42);
+  EXPECT_NEAR(h.get<float>(object::key("ratio")), 2.5f, 1e-4f);
+  EXPECT_EQ(h.get<std::string>(object::key("name")), "alice");
+  EXPECT_EQ(h.get<int32_t>(0u), 100);
+  EXPECT_EQ(h.get<int32_t>(1u), 200);
+  EXPECT_EQ(h.size(), 2u);
+}
+
+TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
+  using bdg::bison_c::object;
+
+  bison_hash ns = object::key("math");
+  bison_hash klass = object::key("Vec2");
+
+  auto proto = object::create(klass);
+  proto.set(object::key("x"), 7);
+  object::add_class_ns(ns, proto, 0);
+
+  auto found_ns = object::find_class_ns(ns, klass);
+  ASSERT_TRUE(static_cast<bool>(found_ns));
+  EXPECT_EQ(found_ns.get<int32_t>(object::key("x")), 7);
+
+  auto found_global = object::find_class(klass);
+  EXPECT_FALSE(static_cast<bool>(found_global));
+}
+
+TEST_F(CxxWrapperTests, AddMethodWithCapturedLambdaWorksAndPersistsAcrossCopy) {
+  using bdg::bison_c::object;
+
+  auto h = object::create();
+  h.set(object::key("n"), 3);
+
+  int calls = 0;
+  int factor = 4;
+  h.add_method(
+      object::key("mul"),
+      [&calls, factor](object& self, const object&, object& result) {
+        ++calls;
+        int32_t n = self.get<int32_t>(object::key("n"));
+        result.set(object::key("value"), n * factor);
+      });
+
+  // Copy should keep method callback state alive.
+  object h2 = h;
+  auto params = object::create();
+  auto result = h2.call(object::key("mul"), params);
+
+  EXPECT_EQ(result.get<int32_t>(object::key("value")), 12);
+  EXPECT_EQ(calls, 1);
+}
+
+TEST_F(CxxWrapperTests, MissingMethodThrowsRuntimeError) {
+  using bdg::bison_c::object;
+
+  auto h = object::create();
+  auto params = object::create();
+  EXPECT_THROW(
+      (void)h.call(object::key("does_not_exist"), params), std::runtime_error);
 }
