@@ -17,6 +17,7 @@
  *   failure instead of using out-parameters and error codes.
  * - String getters return `std::string`.
  * - Boolean fields use `bool` rather than `int`.
+ * - Method registration uses `std::function`, supporting lambdas with captures.
  *
  * Because every call goes through the C ABI, these wrappers are safe to use
  * from a different DLL or shared library — no C++ vtables, `std::string`
@@ -28,8 +29,15 @@
  * using namespace bdg::bison_c;
  *
  * auto score_obj = object::create(object::key("Player"));
- * score_obj.set_int(object::key("score"), 42);
- * int32_t score = score_obj.get_int(object::key("score"));  // 42
+ * score_obj.set(object::key("score"), 42)
+ *          .set(object::key("name"), "Alice");
+ * int32_t score = score_obj.get<int32_t>(object::key("score"));  // 42
+ *
+ * // Register a method with a lambda:
+ * score_obj.add_method(object::key("reset"), [](auto self, auto params, auto
+ * result, auto user) {
+ *   // Method implementation
+ * });
  * @endcode
  */
 
@@ -37,8 +45,12 @@
 
 #include "src/core/bison_c.h"
 
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace bdg::bison_c {
 
@@ -49,6 +61,24 @@ inline void check(bison_error err, const char* msg) {
     throw std::runtime_error(
         std::string(msg) + " (code " + std::to_string(static_cast<int>(err)) +
         ")");
+  }
+}
+
+// ── Method callback bridge (userdata-backed) ──────────────────────────────
+// Bridge C++ callables to the C ABI by passing a callback context through the
+// C callback's `user` pointer.
+
+using MethodCallback = std::function<
+    void(bison_handle self, bison_handle params, bison_handle result)>;
+
+inline void adapter_wrapper(
+    bison_handle self,
+    bison_handle params,
+    bison_handle result,
+    void* user) {
+  auto* callback = static_cast<MethodCallback*>(user);
+  if (callback) {
+    (*callback)(self, params, result);
   }
 }
 
@@ -165,17 +195,23 @@ class object {
   }
 
   /** @brief Copy: increments the reference count via `bison_add_ref`. */
-  object(const object& o) noexcept : h_(bison_add_ref(o.h_)) {}
+  object(const object& o) noexcept
+      : h_(bison_add_ref(o.h_)), method_state_(o.method_state_) {}
 
   /** @brief Move: takes the handle; source becomes null. */
-  object(object&& o) noexcept : h_(o.h_) {
+  object(object&& o) noexcept
+      : h_(o.h_), method_state_(std::move(o.method_state_)) {
     o.h_ = nullptr;
+    if (!o.method_state_) {
+      o.method_state_ = std::make_shared<method_state>();
+    }
   }
 
   object& operator=(const object& o) noexcept {
     if (this != &o) {
       reset();
       h_ = bison_add_ref(o.h_);
+      method_state_ = o.method_state_;
     }
     return *this;
   }
@@ -185,6 +221,10 @@ class object {
       reset();
       h_ = o.h_;
       o.h_ = nullptr;
+      method_state_ = std::move(o.method_state_);
+      if (!o.method_state_) {
+        o.method_state_ = std::make_shared<method_state>();
+      }
     }
     return *this;
   }
@@ -193,12 +233,14 @@ class object {
   void reset() noexcept {
     bison_release(h_);
     h_ = nullptr;
+    method_state_ = std::make_shared<method_state>();
   }
 
   /** @brief Release the current handle and take ownership of @p h. */
   void reset(bison_handle h) noexcept {
     bison_release(h_);
     h_ = h;
+    method_state_ = std::make_shared<method_state>();
   }
 
   /** @brief Return the raw handle without transferring ownership. */
@@ -248,20 +290,25 @@ class object {
   }
 
   /**
-   * @brief Look up a class in the registry using this object's namespace.
+   * @brief Look up a class in the global namespace.
    *
+   * @param klass_name  Hashed class name (use `key()`).
    * @return An owning copy of the found prototype, or a null `object` if
-   *         not found.  The underlying registry handle is non-owning, so
-   *         `bison_add_ref` is called internally to produce a safe owner.
+   *         not found.
    */
-  object find_class(bison_hash klass_name) const {
-    // Get the namespace from this object (defaults to 0 if not set).
-    bison_hash ns_name = 0;
-    try {
-      ns_name = get_int(NAMESPACE);
-    } catch (...) {
-      ns_name = 0;
-    }
+  static object find_class(bison_hash klass_name) {
+    return find_class_ns(static_cast<bison_hash>(0L), klass_name);
+  }
+
+  /**
+   * @brief Look up a class in a specific namespace.
+   *
+   * @param ns_name     Hashed namespace name (use `key()`); `0` for global.
+   * @param klass_name  Hashed class name (use `key()`).
+   * @return An owning copy of the found prototype, or a null `object` if
+   *         not found.
+   */
+  static object find_class_ns(bison_hash ns_name, bison_hash klass_name) {
     bison_handle found = bison_find_class_ns(ns_name, klass_name);
     if (!found)
       return object{};
@@ -270,97 +317,120 @@ class object {
   }
 
   // ── Scalar setters ────────────────────────────────────────────────────────
+  // Overloaded set methods with method chaining support.
 
-  /** @throws std::runtime_error on error. */
-  void set_int(bison_hash name, int32_t value) {
+  /** @brief Set an `int32_t` field. @throws std::runtime_error on error. */
+  object& set(bison_hash name, int32_t value) {
     detail::check(bison_set_int(h_, name, value), "bison_set_int");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_float(bison_hash name, float value) {
+  /** @brief Set a `float` field. @throws std::runtime_error on error. */
+  object& set(bison_hash name, float value) {
     detail::check(bison_set_float(h_, name, value), "bison_set_float");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_bool(bison_hash name, bool value) {
+  /** @brief Set a `bool` field. @throws std::runtime_error on error. */
+  object& set(bison_hash name, bool value) {
     detail::check(bison_set_bool(h_, name, value ? 1 : 0), "bison_set_bool");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_string(bison_hash name, const char* value) {
+  /** @brief Set a string field from C string. @throws std::runtime_error on
+   * error. */
+  object& set(bison_hash name, const char* value) {
     detail::check(bison_set_string(h_, name, value), "bison_set_string");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_string(bison_hash name, const std::string& value) {
+  /** @brief Set a string field from std::string. @throws std::runtime_error on
+   * error. */
+  object& set(bison_hash name, const std::string& value) {
     detail::check(
         bison_set_string(h_, name, value.c_str()), "bison_set_string");
+    return *this;
   }
 
-  /**
-   * @brief Set a nested object field.
-   *
-   * The library increments @p value's ref-count so both this object and the
-   * field share the same underlying instance.
-   *
-   * @throws std::runtime_error on error.
-   */
-  void set_object(bison_hash name, const object& value) {
+  /** @brief Set a nested object field. @throws std::runtime_error on error. */
+  object& set(bison_hash name, const object& value) {
     detail::check(bison_set_object(h_, name, value.h_), "bison_set_object");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_int_at(size_t index, int32_t value) {
+  /** @brief Set an `int32_t` field by index. @throws std::runtime_error on
+   * error. */
+  object& set(size_t index, int32_t value) {
     detail::check(bison_set_int_at(h_, index, value), "bison_set_int_at");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_float_at(size_t index, float value) {
+  /** @brief Set a `float` field by index. @throws std::runtime_error on error.
+   */
+  object& set(size_t index, float value) {
     detail::check(bison_set_float_at(h_, index, value), "bison_set_float_at");
+    return *this;
   }
 
-  /** @throws std::runtime_error on error. */
-  void set_string_at(size_t index, const char* value) {
+  /** @brief Set a string field by index. @throws std::runtime_error on error.
+   */
+  object& set(size_t index, const char* value) {
     detail::check(bison_set_string_at(h_, index, value), "bison_set_string_at");
+    return *this;
   }
 
   // ── Scalar getters ────────────────────────────────────────────────────────
+  // Template-based getters for type-safe field retrieval by name.
 
   /**
-   * @brief Get an `int32_t` field by hash key.
+   * @brief Get a field by hash key with automatic type deduction.
+   *
+   * Supports both named field access (by `bison_hash`) and indexed/array
+   * access (by `size_t index`). The overload is selected automatically based
+   * on the parameter type.
+   *
    * @throws std::runtime_error on type mismatch or null handle.
+   * @code
+   *   // Named field access:
+   *   int32_t x = obj.get<int32_t>(key("x"));
+   *   float y = obj.get<float>(key("y"));
+   *   bool z = obj.get<bool>(key("z"));
+   *   std::string s = obj.get<std::string>(key("s"));
+   *   object child = obj.get<object>(key("child"));
+   *
+   *   // Indexed/array access:
+   *   int32_t elem0 = obj.get<int32_t>(0);
+   *   float elem1 = obj.get<float>(1);
+   *   std::string elem2 = obj.get<std::string>(2);
+   * @endcode
    */
-  int32_t get_int(bison_hash name) const {
+  template <typename T>
+  T get(bison_hash name) const;
+
+  // Explicit specializations for supported types
+  template <>
+  int32_t get<int32_t>(bison_hash name) const {
     int32_t v = 0;
     detail::check(bison_get_int(h_, name, &v), "bison_get_int");
     return v;
   }
 
-  /**
-   * @brief Get a `float` field by hash key.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  float get_float(bison_hash name) const {
+  template <>
+  float get<float>(bison_hash name) const {
     float v = 0.0f;
     detail::check(bison_get_float(h_, name, &v), "bison_get_float");
     return v;
   }
 
-  /**
-   * @brief Get a `bool` field by hash key.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  bool get_bool(bison_hash name) const {
+  template <>
+  bool get<bool>(bison_hash name) const {
     int v = 0;
     detail::check(bison_get_bool(h_, name, &v), "bison_get_bool");
     return v != 0;
   }
 
-  /**
-   * @brief Get a string field by hash key as `std::string`.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  std::string get_string(bison_hash name) const {
+  template <>
+  std::string get<std::string>(bison_hash name) const {
     size_t len = 0;
     detail::check(
         bison_get_string(h_, name, nullptr, 0, &len),
@@ -372,44 +442,33 @@ class object {
     return result;
   }
 
-  /**
-   * @brief Get a nested object field by hash key.
-   *
-   * @return An owning handle.  May be null if the field holds a null
-   *         dynamic reference; check with `operator bool()`.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  object get_object(bison_hash name) const {
+  template <>
+  object get<object>(bison_hash name) const {
     bison_handle out = nullptr;
     detail::check(bison_get_object(h_, name, &out), "bison_get_object");
     return object(out); // null dynamic ref is a valid result
   }
 
-  /**
-   * @brief Get an `int32_t` field by numeric index.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  int32_t get_int_at(size_t index) const {
+  // Template-based indexed getters for array-like access (overloads of get<T>)
+  template <typename T>
+  T get(size_t index) const;
+
+  template <>
+  int32_t get<int32_t>(size_t index) const {
     int32_t v = 0;
     detail::check(bison_get_int_at(h_, index, &v), "bison_get_int_at");
     return v;
   }
 
-  /**
-   * @brief Get a `float` field by numeric index.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  float get_float_at(size_t index) const {
+  template <>
+  float get<float>(size_t index) const {
     float v = 0.0f;
     detail::check(bison_get_float_at(h_, index, &v), "bison_get_float_at");
     return v;
   }
 
-  /**
-   * @brief Get a string field by numeric index as `std::string`.
-   * @throws std::runtime_error on type mismatch or null handle.
-   */
-  std::string get_string_at(size_t index) const {
+  template <>
+  std::string get<std::string>(size_t index) const {
     size_t len = 0;
     detail::check(
         bison_get_string_at(h_, index, nullptr, 0, &len),
@@ -429,15 +488,37 @@ class object {
   // ── Methods ───────────────────────────────────────────────────────────────
 
   /**
-   * @brief Register a C callback as a named method on this object.
+   * @brief Register a callable as a named method on this object.
+   *
+   * Accepts any callable (function pointer, lambda, functor, or
+   * `std::function`) and registers it as a method. Lambdas with captures are
+   * fully supported.
    *
    * @param name  Method name hash (use `key()`).
-   * @param fn    Callback function.
-   * @param user  Arbitrary context pointer passed to @p fn on each call.
+   * @param fn    Callable that takes (self, params, result) and returns
+   *              void. Signature must match the expected method callback type.
    * @throws std::runtime_error on duplicate or null error.
+   * @code
+   *   // With a lambda:
+   *   obj.add_method(key("greet"), [](auto self, auto params, auto result) {
+   *     // Implementation
+   *   });
+   *
+   *   // With a std::function:
+   *   std::function<void(bison_handle, bison_handle, bison_handle)> fn =
+   *       [](auto self, auto params, auto result) { ... };
+   *   obj.add_method(key("speak"), fn);
+   * @endcode
    */
-  void add_method(bison_hash name, bison_method_fn fn, void* user = nullptr) {
-    detail::check(bison_add_method(h_, name, fn, user), "bison_add_method");
+  void add_method(
+      bison_hash name,
+      std::function<void(bison_handle, bison_handle, bison_handle)> fn) {
+    auto callback = std::make_unique<detail::MethodCallback>(std::move(fn));
+    auto* callback_ptr = callback.get();
+    detail::check(
+        bison_add_method(h_, name, detail::adapter_wrapper, callback_ptr),
+        "bison_add_method");
+    method_state_->add_callback(std::move(callback));
   }
 
   /**
@@ -455,7 +536,20 @@ class object {
   }
 
  private:
+  struct method_state {
+    void add_callback(std::unique_ptr<detail::MethodCallback> callback) {
+      std::lock_guard<std::mutex> lock(mutex);
+      callbacks.push_back(std::move(callback));
+    }
+
+    std::mutex mutex;
+    std::vector<std::unique_ptr<detail::MethodCallback>> callbacks;
+  };
+
   bison_handle h_ = nullptr;
+  std::shared_ptr<method_state> method_state_ =
+      std::make_shared<method_state>();
+
   explicit object(bison_handle h) noexcept : h_(h) {}
 };
 
