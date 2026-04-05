@@ -451,71 +451,71 @@ class CxxWrapperTests : public ::testing::Test {
 };
 
 TEST_F(CxxWrapperTests, SetGetSupportsChainingAndTypedAccess) {
-  using bdg::bison_c::object;
+  using bdg::bison_c::dynamic;
 
-  auto h = object::create();
-  h.set(object::key("score"), 42)
-      .set(object::key("ratio"), 2.5f)
-      .set(object::key("name"), "alice")
+  auto h = dynamic::create();
+  h.set(dynamic::key("score"), 42)
+      .set(dynamic::key("ratio"), 2.5f)
+      .set(dynamic::key("name"), "alice")
       .set(0u, 100)
       .set(1u, 200);
 
-  EXPECT_EQ(h.get<int32_t>(object::key("score")), 42);
-  EXPECT_NEAR(h.get<float>(object::key("ratio")), 2.5f, 1e-4f);
-  EXPECT_EQ(h.get<std::string>(object::key("name")), "alice");
+  EXPECT_EQ(h.get<int32_t>(dynamic::key("score")), 42);
+  EXPECT_NEAR(h.get<float>(dynamic::key("ratio")), 2.5f, 1e-4f);
+  EXPECT_EQ(h.get<std::string>(dynamic::key("name")), "alice");
   EXPECT_EQ(h.get<int32_t>(0u), 100);
   EXPECT_EQ(h.get<int32_t>(1u), 200);
   EXPECT_EQ(h.size(), 2u);
 }
 
 TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
-  using bdg::bison_c::object;
+  using bdg::bison_c::dynamic;
 
-  bison_hash ns = object::key("math");
-  bison_hash klass = object::key("Vec2");
+  bison_hash ns = dynamic::key("math");
+  bison_hash klass = dynamic::key("Vec2");
 
-  auto proto = object::create(klass);
-  proto.set(object::key("x"), 7);
-  object::add_class_ns(ns, proto, 0);
+  auto proto = dynamic::create(klass);
+  proto.set(dynamic::key("x"), 7);
+  dynamic::add_class_ns(ns, proto, 0);
 
-  auto found_ns = object::find_class_ns(ns, klass);
+  auto found_ns = dynamic::find_class_ns(ns, klass);
   ASSERT_TRUE(static_cast<bool>(found_ns));
-  EXPECT_EQ(found_ns.get<int32_t>(object::key("x")), 7);
+  EXPECT_EQ(found_ns.get<int32_t>(dynamic::key("x")), 7);
 
-  auto found_global = object::find_class(klass);
+  auto found_global = dynamic::find_class(klass);
   EXPECT_FALSE(static_cast<bool>(found_global));
 }
 
 TEST_F(CxxWrapperTests, AddMethodWithCapturedLambdaWorksAndPersistsAcrossCopy) {
-  using bdg::bison_c::object;
+  using bdg::bison_c::dynamic;
 
-  auto h = object::create();
-  h.set(object::key("n"), 3);
+  auto h = dynamic::create();
+  h.set(dynamic::key("n"), 3);
 
   int calls = 0;
   int factor = 4;
   h.add_method(
-      object::key("mul"),
-      [&calls, factor](object& self, const object&, object& result) {
+      dynamic::key("mul"),
+      [&calls, factor](dynamic& self, const dynamic&, dynamic& result) {
         ++calls;
-        int32_t n = self.get<int32_t>(object::key("n"));
-        result.set(object::key("value"), n * factor);
+        int32_t n = self.get<int32_t>(dynamic::key("n"));
+        result.set(dynamic::key("value"), n * factor);
       });
 
   // Copy should keep method callback state alive.
-  object h2 = h;
-  auto params = object::create();
-  auto result = h2.call(object::key("mul"), params);
+  dynamic h2 = h;
+  auto params = dynamic::create();
+  auto result = h2.call(dynamic::key("mul"), params);
 
-  EXPECT_EQ(result.get<int32_t>(object::key("value")), 12);
+  EXPECT_EQ(result.get<int32_t>(dynamic::key("value")), 12);
   EXPECT_EQ(calls, 1);
 }
 
 TEST_F(CxxWrapperTests, MissingMethodThrowsRuntimeError) {
-  using bdg::bison_c::object;
+  using bdg::bison_c::dynamic;
 
-  auto h = object::create();
-  auto params = object::create();
+  auto h = dynamic::create();
+  auto params = dynamic::create();
   EXPECT_THROW(
-      (void)h.call(object::key("does_not_exist"), params), std::runtime_error);
+      (void)h.call(dynamic::key("does_not_exist"), params), std::runtime_error);
 }

@@ -7,11 +7,11 @@
  * @file bison_c.hpp
  * @brief C++ RAII wrappers for the Bison C ABI (`bison_c.h`).
  *
- * Provides `bdg::bison_c::object` — a thin, header-only RAII class that sits
+ * Provides `bdg::bison_c::dynamic` — a thin, header-only RAII class that sits
  * top of the stable C ABI and offer a more idiomatic C++ interface:
  *
  * - Handles are released automatically in destructors.
- * - Copying an `object` calls `bison_add_ref()` so reference counting is
+ * - Copying a `dynamic` calls `bison_add_ref()` so reference counting is
  *   transparent to the caller.
  * - Scalar getters return values directly and throw `std::runtime_error` on
  *   failure instead of using out-parameters and error codes.
@@ -28,15 +28,15 @@
  * #include "src/core/bison_c.hpp"
  * using namespace bdg::bison_c;
  *
- * auto score_obj = object::create(object::key("Player"));
- * score_obj.set(object::key("score"), 42)
- *          .set(object::key("name"), "Alice");
- * int32_t score = score_obj.get<int32_t>(object::key("score"));  // 42
+ * auto score_obj = dynamic::create(dynamic::key("Player"));
+ * score_obj.set(dynamic::key("score"), 42)
+ *          .set(dynamic::key("name"), "Alice");
+ * int32_t score = score_obj.get<int32_t>(dynamic::key("score"));  // 42
  *
  * // Register a method with a lambda:
  * score_obj.add_method(
- *     object::key("reset"),
- *     [](object& self, const object& params, object& result) {
+ *     dynamic::key("reset"),
+ *     [](dynamic& self, const dynamic& params, dynamic& result) {
  *   // Method implementation
  *     });
  * @endcode
@@ -55,7 +55,7 @@
 
 namespace bdg::bison_c {
 
-class object;
+class dynamic;
 namespace detail {
 
 inline void check(bison_error err, const char* msg) {
@@ -78,7 +78,7 @@ consteval bison_hash hash_literal(const char (&name)[N]) {
 }
 
 using MethodCallback =
-    std::function<void(object& self, const object& params, object& result)>;
+    std::function<void(dynamic& self, const dynamic& params, dynamic& result)>;
 
 inline void adapter_wrapper(
     bison_handle self,
@@ -89,7 +89,7 @@ inline void adapter_wrapper(
 } // namespace detail
 
 // ────────────────────────────────────────────────────────────────────────────
-// object — RAII wrapper for bison_handle
+// dynamic — RAII wrapper for bison_handle
 
 /**
  * @brief RAII owner of a `bison_handle`.
@@ -98,10 +98,10 @@ inline void adapter_wrapper(
  * calls `bison_add_ref()` so both the original and the copy are independent
  * owners.  Moving leaves the source in the null (invalid) state.
  *
- * The default constructor produces a null object; check validity with
+ * The default constructor produces a null handle; check validity with
  * `operator bool()` before calling any getter or setter.
  */
-class object {
+class dynamic {
  public:
   // ── Factories ─────────────────────────────────────────────────────────────
 
@@ -110,8 +110,8 @@ class object {
    *
    * The caller must **not** call `bison_release()` on @p h after this.
    */
-  static object own(bison_handle h) noexcept {
-    return object(h);
+  static dynamic own(bison_handle h) noexcept {
+    return dynamic(h);
   }
 
   /**
@@ -120,8 +120,8 @@ class object {
    * Useful for handles returned by functions that do not transfer ownership,
    * such as `bison_find_class`.
    */
-  static object borrow(bison_handle h) noexcept {
-    return object(bison_add_ref(h));
+  static dynamic borrow(bison_handle h) noexcept {
+    return dynamic(bison_add_ref(h));
   }
 
   /**
@@ -131,11 +131,11 @@ class object {
    *                    anonymous object.
    * @throws std::runtime_error on allocation failure.
    */
-  static object create(bison_hash klass_name = 0) {
+  static dynamic create(bison_hash klass_name = 0) {
     bison_handle h = bison_create(klass_name);
     if (!h)
       throw std::runtime_error("bison_create failed");
-    return object(h);
+    return dynamic(h);
   }
 
   /**
@@ -144,7 +144,7 @@ class object {
    * @param klass_name  Hashed class name (use `key()`).
    * @throws std::runtime_error on failure.
    */
-  static object instantiate(bison_hash klass_name) {
+  static dynamic instantiate(bison_hash klass_name) {
     return instantiate_ns(static_cast<bison_hash>(0L), klass_name);
   }
 
@@ -155,11 +155,11 @@ class object {
    * @param klass_name  Hashed class name (use `key()`).
    * @throws std::runtime_error on failure.
    */
-  static object instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
+  static dynamic instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
     bison_handle h = bison_instantiate_ns(ns_name, klass_name);
     if (!h)
       throw std::runtime_error("bison_instantiate_ns failed");
-    return object(h);
+    return dynamic(h);
   }
 
   /**
@@ -168,11 +168,11 @@ class object {
    * @param json  Null-terminated UTF-8 JSON string.
    * @throws std::runtime_error on parse failure.
    */
-  static object from_json(const char* json) {
+  static dynamic from_json(const char* json) {
     bison_handle h = bison_from_json(json);
     if (!h)
       throw std::runtime_error("bison_from_json: parse error");
-    return object(h);
+    return dynamic(h);
   }
 
   /**
@@ -181,28 +181,28 @@ class object {
    * @param yaml  Null-terminated UTF-8 YAML string.
    * @throws std::runtime_error on parse failure.
    */
-  static object from_yaml(const char* yaml) {
+  static dynamic from_yaml(const char* yaml) {
     bison_handle h = bison_from_yaml(yaml);
     if (!h)
       throw std::runtime_error("bison_from_yaml: parse error");
-    return object(h);
+    return dynamic(h);
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
-  /** @brief Construct a null (invalid) object. */
-  object() noexcept = default;
+  /** @brief Construct a null (invalid) handle. */
+  dynamic() noexcept = default;
 
-  ~object() {
+  ~dynamic() {
     reset();
   }
 
   /** @brief Copy: increments the reference count via `bison_add_ref`. */
-  object(const object& o) noexcept
+  dynamic(const dynamic& o) noexcept
       : h_(bison_add_ref(o.h_)), method_state_(o.method_state_) {}
 
   /** @brief Move: takes the handle; source becomes null. */
-  object(object&& o) noexcept
+  dynamic(dynamic&& o) noexcept
       : h_(o.h_), method_state_(std::move(o.method_state_)) {
     o.h_ = nullptr;
     if (!o.method_state_) {
@@ -210,7 +210,7 @@ class object {
     }
   }
 
-  object& operator=(const object& o) noexcept {
+  dynamic& operator=(const dynamic& o) noexcept {
     if (this != &o) {
       reset();
       h_ = bison_add_ref(o.h_);
@@ -219,7 +219,7 @@ class object {
     return *this;
   }
 
-  object& operator=(object&& o) noexcept {
+  dynamic& operator=(dynamic&& o) noexcept {
     if (this != &o) {
       reset();
       h_ = o.h_;
@@ -277,7 +277,7 @@ class object {
    * @param klass        Object whose `__class` field has already been set.
    * @throws std::runtime_error on null handle or duplicate class name.
    */
-  static void add_class(bison_hash parent_name, const object& klass) {
+  static void add_class(bison_hash parent_name, const dynamic& klass) {
     detail::check(bison_add_class(parent_name, klass.h_), "bison_add_class");
   }
 
@@ -291,7 +291,7 @@ class object {
    */
   static void add_class_ns(
       bison_hash ns_name,
-      const object& klass,
+      const dynamic& klass,
       bison_hash parent_name) {
     detail::check(
         bison_add_class_ns(ns_name, klass.h_, parent_name),
@@ -302,10 +302,10 @@ class object {
    * @brief Look up a class in the global namespace.
    *
    * @param klass_name  Hashed class name (use `key()`).
-   * @return An owning copy of the found prototype, or a null `object` if
+   * @return An owning copy of the found prototype, or a null `dynamic` if
    *         not found.
    */
-  static object find_class(bison_hash klass_name) {
+  static dynamic find_class(bison_hash klass_name) {
     return find_class_ns(static_cast<bison_hash>(0L), klass_name);
   }
 
@@ -314,76 +314,76 @@ class object {
    *
    * @param ns_name     Hashed namespace name (use `key()`); `0` for global.
    * @param klass_name  Hashed class name (use `key()`).
-   * @return An owning copy of the found prototype, or a null `object` if
+   * @return An owning copy of the found prototype, or a null `dynamic` if
    *         not found.
    */
-  static object find_class_ns(bison_hash ns_name, bison_hash klass_name) {
+  static dynamic find_class_ns(bison_hash ns_name, bison_hash klass_name) {
     bison_handle found = bison_find_class_ns(ns_name, klass_name);
     if (!found)
-      return object{};
+      return dynamic{};
     // bison_find_class_ns returns a non-owning handle; add_ref to own it.
-    return object(bison_add_ref(found));
+    return dynamic(bison_add_ref(found));
   }
 
   // ── Scalar setters ────────────────────────────────────────────────────────
   // Overloaded set methods with method chaining support.
 
   /** @brief Set an `int32_t` field. @throws std::runtime_error on error. */
-  object& set(bison_hash name, int32_t value) {
+  dynamic& set(bison_hash name, int32_t value) {
     detail::check(bison_set_int(h_, name, value), "bison_set_int");
     return *this;
   }
 
   /** @brief Set a `float` field. @throws std::runtime_error on error. */
-  object& set(bison_hash name, float value) {
+  dynamic& set(bison_hash name, float value) {
     detail::check(bison_set_float(h_, name, value), "bison_set_float");
     return *this;
   }
 
   /** @brief Set a `bool` field. @throws std::runtime_error on error. */
-  object& set(bison_hash name, bool value) {
+  dynamic& set(bison_hash name, bool value) {
     detail::check(bison_set_bool(h_, name, value ? 1 : 0), "bison_set_bool");
     return *this;
   }
 
   /** @brief Set a string field from C string. @throws std::runtime_error on
    * error. */
-  object& set(bison_hash name, const char* value) {
+  dynamic& set(bison_hash name, const char* value) {
     detail::check(bison_set_string(h_, name, value), "bison_set_string");
     return *this;
   }
 
   /** @brief Set a string field from std::string. @throws std::runtime_error on
    * error. */
-  object& set(bison_hash name, const std::string& value) {
+  dynamic& set(bison_hash name, const std::string& value) {
     detail::check(
         bison_set_string(h_, name, value.c_str()), "bison_set_string");
     return *this;
   }
 
   /** @brief Set a nested object field. @throws std::runtime_error on error. */
-  object& set(bison_hash name, const object& value) {
+  dynamic& set(bison_hash name, const dynamic& value) {
     detail::check(bison_set_object(h_, name, value.h_), "bison_set_object");
     return *this;
   }
 
   /** @brief Set an `int32_t` field by index. @throws std::runtime_error on
    * error. */
-  object& set(size_t index, int32_t value) {
+  dynamic& set(size_t index, int32_t value) {
     detail::check(bison_set_int_at(h_, index, value), "bison_set_int_at");
     return *this;
   }
 
   /** @brief Set a `float` field by index. @throws std::runtime_error on error.
    */
-  object& set(size_t index, float value) {
+  dynamic& set(size_t index, float value) {
     detail::check(bison_set_float_at(h_, index, value), "bison_set_float_at");
     return *this;
   }
 
   /** @brief Set a string field by index. @throws std::runtime_error on error.
    */
-  object& set(size_t index, const char* value) {
+  dynamic& set(size_t index, const char* value) {
     detail::check(bison_set_string_at(h_, index, value), "bison_set_string_at");
     return *this;
   }
@@ -405,7 +405,7 @@ class object {
    *   float y = obj.get<float>(key("y"));
    *   bool z = obj.get<bool>(key("z"));
    *   std::string s = obj.get<std::string>(key("s"));
-   *   object child = obj.get<object>(key("child"));
+   *   dynamic child = obj.get<dynamic>(key("child"));
    *
    *   // Indexed/array access:
    *   int32_t elem0 = obj.get<int32_t>(0);
@@ -452,10 +452,10 @@ class object {
   }
 
   template <>
-  object get<object>(bison_hash name) const {
+  dynamic get<dynamic>(bison_hash name) const {
     bison_handle out = nullptr;
     detail::check(bison_get_object(h_, name, &out), "bison_get_object");
-    return object(out); // null dynamic ref is a valid result
+    return dynamic(out); // null dynamic ref is a valid result
   }
 
   // Template-based indexed getters for array-like access (overloads of get<T>)
@@ -504,25 +504,26 @@ class object {
    * fully supported.
    *
    * @param name  Method name hash (use `key()`).
-   * @param fn    Callable that takes `(object& self, const object& params,
-   *              object& result)` and returns void.
+   * @param fn    Callable that takes `(dynamic& self, const dynamic& params,
+   *              dynamic& result)` and returns void.
    * @throws std::runtime_error on duplicate or null error.
    * @code
    *   // With a lambda:
    *   obj.add_method(key("greet"),
-   *                  [](object& self, const object& params, object& result) {
+   *                  [](dynamic& self, const dynamic& params, dynamic& result)
+   * {
    *                    // Implementation
    *                  });
    *
    *   // With a std::function:
-   *   std::function<void(object&, const object&, object&)> fn =
-   *       [](object& self, const object& params, object& result) { ... };
+   *   std::function<void(dynamic&, const dynamic&, dynamic&)> fn =
+   *       [](dynamic& self, const dynamic& params, dynamic& result) { ... };
    *   obj.add_method(key("speak"), fn);
    * @endcode
    */
   void add_method(
       bison_hash name,
-      std::function<void(object&, const object&, object&)> fn) {
+      std::function<void(dynamic&, const dynamic&, dynamic&)> fn) {
     auto callback = std::make_unique<detail::MethodCallback>(std::move(fn));
     auto* callback_ptr = callback.get();
     detail::check(
@@ -539,10 +540,10 @@ class object {
    * @return Result object (caller owns).
    * @throws std::runtime_error if the method is not found or on error.
    */
-  object call(bison_hash name, const object& params) const {
+  dynamic call(bison_hash name, const dynamic& params) const {
     bison_handle result = nullptr;
     detail::check(bison_call(h_, name, params.h_, &result), "bison_call");
-    return object(result);
+    return dynamic(result);
   }
 
  private:
@@ -560,7 +561,7 @@ class object {
   std::shared_ptr<method_state> method_state_ =
       std::make_shared<method_state>();
 
-  explicit object(bison_handle h) noexcept : h_(h) {}
+  explicit dynamic(bison_handle h) noexcept : h_(h) {}
 };
 
 inline void detail::adapter_wrapper(
@@ -575,9 +576,9 @@ inline void detail::adapter_wrapper(
 
   // Borrow to avoid taking ownership of temporary bridge handles created by
   // the C ABI layer while still presenting RAII objects to C++ callbacks.
-  object self_obj = object::borrow(self);
-  object params_obj = object::borrow(params);
-  object result_obj = object::borrow(result);
+  dynamic self_obj = dynamic::borrow(self);
+  dynamic params_obj = dynamic::borrow(params);
+  dynamic result_obj = dynamic::borrow(result);
   (*callback)(self_obj, params_obj, result_obj);
 }
 
