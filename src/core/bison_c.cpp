@@ -26,7 +26,7 @@
  * `bison_handle`; callers must follow the documented ownership rules.
  */
 
-#include "bison_c.h"
+#include "../include/bison_c.h"
 #include "bison.hpp"
 
 #include <cstring>

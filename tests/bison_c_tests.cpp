@@ -1,8 +1,8 @@
 // MIT License © 2025 Binary Dice Games
 // Google Test suite for the pure-C Bison shared-library API.
 
-#include "src/core/bison_c.h"
-#include "src/core/bison_c.hpp"
+#include "bison_c.h"
+#include "bison_c.hpp"
 
 #include <gtest/gtest.h>
 #include <cstdint>

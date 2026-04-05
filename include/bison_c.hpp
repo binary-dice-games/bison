@@ -25,7 +25,7 @@
  *
  * ### Example
  * @code{.cpp}
- * #include "src/core/bison_c.hpp"
+ * #include "bison_c.hpp"
  * using namespace bdg::bison_c;
  *
  * auto score_obj = dynamic::create(dynamic::key("Player"));
@@ -44,7 +44,7 @@
 
 #pragma once
 
-#include "src/core/bison_c.h"
+#include "bison_c.h"
 
 #include <functional>
 #include <memory>

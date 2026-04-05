@@ -8,7 +8,7 @@
  * return codes so that no exception can propagate through the C ABI.
  */
 
-#include "rmi_c.h"
+#include "../../include/rmi_c.h"
 #include "rmi.hpp"
 
 #include <cstring>

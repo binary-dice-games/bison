@@ -24,7 +24,7 @@
  *
  * ### Example
  * @code{.cpp}
- * #include "src/rmi/rmi_c.hpp"
+ * #include "rmi_c.hpp"
  * using namespace bdg::rmi_c;
  *
  * auto c = client::tcp("127.0.0.1", 8080);
