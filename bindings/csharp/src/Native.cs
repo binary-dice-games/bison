@@ -21,13 +21,13 @@ internal static class Native
 {
     // ── Error codes ──────────────────────────────────────────────────────────
 
-    internal const int BISON_OK             =  0;
-    internal const int BISON_ERR_NULL       = -1;
-    internal const int BISON_ERR_TYPE       = -2;
-    internal const int BISON_ERR_NOT_FOUND  = -3;
-    internal const int BISON_ERR_DUPLICATE  = -4;
-    internal const int BISON_ERR_EXCEPTION  = -5;
-    internal const int BISON_ERR_PARSE      = -6;
+    internal const int BISON_OK = 0;
+    internal const int BISON_ERR_NULL = -1;
+    internal const int BISON_ERR_TYPE = -2;
+    internal const int BISON_ERR_NOT_FOUND = -3;
+    internal const int BISON_ERR_DUPLICATE = -4;
+    internal const int BISON_ERR_EXCEPTION = -5;
+    internal const int BISON_ERR_PARSE = -6;
 
     // ── Method callback delegate ─────────────────────────────────────────────
 
@@ -166,7 +166,11 @@ internal static class Native
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl,
                EntryPoint = "bison_find_class")]
-    internal static extern IntPtr bison_find_class(IntPtr h, uint name);
+    internal static extern IntPtr bison_find_class(uint klassName);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl,
+               EntryPoint = "bison_find_class_ns")]
+    internal static extern IntPtr bison_find_class_ns(uint nsName, uint klassName);
 
     // ── Named setters ─────────────────────────────────────────────────────────
 

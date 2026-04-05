@@ -153,26 +153,18 @@ BISON_API bison_error bison_add_class_ns(
   }
 }
 
-BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name) {
-  if (!h)
-    return nullptr;
+BISON_API bison_handle bison_find_class(bison_hash klass_name) {
+  return bison_find_class_ns(static_cast<bison_hash>(0L), klass_name);
+}
+
+BISON_API bison_handle
+bison_find_class_ns(bison_hash ns_name, bison_hash klass_name) {
   try {
-    bdg::bison::dynamic* found = dyn(h)->findClass(bdg::bison::key_t{name});
-    if (!found)
-      return nullptr;
-    // Retrieve the namespace from the found prototype's __namespace field.
-    bdg::bison::key_t ns{0U};
-    auto* nsField = found->findField(bdg::bison::dynamic::NAMESPACE);
-    if (nsField && nsField->is<bdg::bison::key_t>()) {
-      ns = nsField->as<bdg::bison::key_t>();
-    }
-    auto classKey =
-        found->at(bdg::bison::dynamic::CLASS).as<bdg::bison::key_t>();
     auto lp = bdg::bison::dynamic::getRegistry().rlock();
-    auto nsIt = lp->find(ns);
+    auto nsIt = lp->find(bdg::bison::key_t{ns_name});
     if (nsIt == lp->end())
       return nullptr;
-    auto it = nsIt->second.find(classKey);
+    auto it = nsIt->second.find(bdg::bison::key_t{klass_name});
     if (it == nsIt->second.end())
       return nullptr;
     auto* sp = new sp_dyn(it->second); // owning copy from registry

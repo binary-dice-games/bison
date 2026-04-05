@@ -267,8 +267,7 @@ TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
   ScopedHandle proto{bison_create(key)};
   bison_add_class(0, proto);
 
-  ScopedHandle inst{bison_create(key)};
-  bison_handle found = bison_find_class(inst, key);
+  bison_handle found = bison_find_class(key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
 }
@@ -279,15 +278,13 @@ TEST_F(ClassRegistryTests, FindClassFromInstantiatedObjectReturnsHandle) {
   bison_set_int(proto, H("v"), 1);
   ASSERT_EQ(bison_add_class(0, proto), BISON_OK);
 
-  ScopedHandle inst{bison_instantiate(key)};
-  bison_handle found = bison_find_class(inst, key);
+  bison_handle found = bison_find_class(key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
 }
 
 TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
-  ScopedHandle inst{bison_create(0)};
-  bison_handle found = bison_find_class(inst, bison_key("NoSuchClass"));
+  bison_handle found = bison_find_class(bison_key("NoSuchClass"));
   EXPECT_EQ(found, nullptr);
 }
 
@@ -433,10 +430,7 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
   ScopedHandle proto{bison_create(key)};
   ASSERT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
 
-  ScopedHandle inst{bison_instantiate_ns(ns, key)};
-  ASSERT_NE(inst.h, nullptr);
-
-  bison_handle found = bison_find_class(inst, key);
+  bison_handle found = bison_find_class_ns(ns, key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
 }

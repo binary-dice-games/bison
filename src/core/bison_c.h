@@ -281,17 +281,31 @@ BISON_API bison_error bison_add_class_ns(
     bison_hash parent_name);
 
 /**
- * @brief Search the class hierarchy of @p h for a registered class.
+ * @brief Look up a class in the global (default) namespace.
  *
- * Starts from the class of @p h and walks up parent links until @p name is
- * found or the chain ends.
+ * Equivalent to `bison_find_class_ns(0, klass_name)`. Performs a direct lookup
+ * in the global namespace of the class registry.
  *
- * @param h     Handle to search from.
- * @param name  Hash of the class name to look for (use `bison_key()`).
+ * @param klass_name Hash of the class name to look up (use `bison_key()`).
  * @return A **non-owning** handle for the found prototype, or `NULL` if not
  *         found.  Do **not** call `bison_release` on the returned handle.
  */
-BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name);
+BISON_API bison_handle bison_find_class(bison_hash klass_name);
+
+/**
+ * @brief Look up a class in a specific namespace.
+ *
+ * Performs a direct lookup in the class registry for a class in the given
+ * namespace. Returns the registered class prototype.
+ *
+ * @param ns_name    Hash of the namespace name (use `bison_key()`); pass
+ *                   `0` for the global (default) namespace.
+ * @param klass_name Hash of the class name to look up (use `bison_key()`).
+ * @return A **non-owning** handle for the found prototype, or `NULL` if not
+ *         found.  Do **not** call `bison_release` on the returned handle.
+ */
+BISON_API bison_handle
+bison_find_class_ns(bison_hash ns_name, bison_hash klass_name);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar setters

@@ -7,9 +7,7 @@
  * @file bison_c.hpp
  * @brief C++ RAII wrappers for the Bison C ABI (`bison_c.h`).
  *
- * Provides `bdg::bison_c::object`, `bdg::bison_c::rmi_transport`,
- * `bdg::bison_c::rmi_server`, `bdg::bison_c::rmi_client`, and
- * `bdg::bison_c::rmi_proxy` — thin, header-only RAII classes that sit on
+ * Provides `bdg::bison_c::object` — a thin, header-only RAII class that sits
  * top of the stable C ABI and offer a more idiomatic C++ interface:
  *
  * - Handles are released automatically in destructors.
@@ -114,10 +112,7 @@ class object {
    * @throws std::runtime_error on failure.
    */
   static object instantiate(bison_hash klass_name) {
-    bison_handle h = bison_instantiate(klass_name);
-    if (!h)
-      throw std::runtime_error("bison_instantiate failed");
-    return object(h);
+    return instantiate_ns(static_cast<bison_hash>(0L), klass_name);
   }
 
   /**
@@ -253,17 +248,24 @@ class object {
   }
 
   /**
-   * @brief Walk the class hierarchy of this object looking for @p name.
+   * @brief Look up a class in the registry using this object's namespace.
    *
    * @return An owning copy of the found prototype, or a null `object` if
    *         not found.  The underlying registry handle is non-owning, so
    *         `bison_add_ref` is called internally to produce a safe owner.
    */
-  object find_class(bison_hash name) const {
-    bison_handle found = bison_find_class(h_, name);
+  object find_class(bison_hash klass_name) const {
+    // Get the namespace from this object (defaults to 0 if not set).
+    bison_hash ns_name = 0;
+    try {
+      ns_name = get_int(NAMESPACE);
+    } catch (...) {
+      ns_name = 0;
+    }
+    bison_handle found = bison_find_class_ns(ns_name, klass_name);
     if (!found)
       return object{};
-    // bison_find_class returns a non-owning handle; add_ref to own it.
+    // bison_find_class_ns returns a non-owning handle; add_ref to own it.
     return object(bison_add_ref(found));
   }
 
@@ -455,414 +457,6 @@ class object {
  private:
   bison_handle h_ = nullptr;
   explicit object(bison_handle h) noexcept : h_(h) {}
-};
-
-// ────────────────────────────────────────────────────────────────────────────
-// rmi_transport — RAII wrapper for bison_rmi_transport (in-memory)
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * @brief RAII owner of a `bison_rmi_transport` (in-memory server transport).
- *
- * Move-only.  The transport must outlive any `rmi_server` or `rmi_client`
- * created from it.
- */
-class rmi_transport {
- public:
-  /**
-   * @brief Create a new in-memory server transport.
-   * @throws std::runtime_error on allocation failure.
-   */
-  rmi_transport() : t_(bison_rmi_transport_create()) {
-    if (!t_)
-      throw std::runtime_error("bison_rmi_transport_create failed");
-  }
-
-  ~rmi_transport() {
-    bison_rmi_transport_destroy(t_);
-  }
-
-  rmi_transport(const rmi_transport&) = delete;
-  rmi_transport& operator=(const rmi_transport&) = delete;
-
-  rmi_transport(rmi_transport&& o) noexcept : t_(o.t_) {
-    o.t_ = nullptr;
-  }
-
-  rmi_transport& operator=(rmi_transport&& o) noexcept {
-    if (this != &o) {
-      bison_rmi_transport_destroy(t_);
-      t_ = o.t_;
-      o.t_ = nullptr;
-    }
-    return *this;
-  }
-
-  /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_transport get() const noexcept {
-    return t_;
-  }
-
- private:
-  bison_rmi_transport t_ = nullptr;
-};
-
-// Forward declaration needed by rmi_proxy.
-class rmi_client;
-
-// ────────────────────────────────────────────────────────────────────────────
-// rmi_proxy — RAII wrapper for bison_rmi_proxy (in-memory)
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * @brief RAII owner of a `bison_rmi_proxy` (in-memory transport proxy).
- *
- * Move-only.  Destroyed via `bison_rmi_client_destroy_proxy`; the
- * `rmi_client` that created this proxy must outlive it.
- *
- * Proxy operations (`clear`, `set`, `get`, `call`, `call_oneway`) are
- * defined on this class directly because the in-memory C API uses the
- * proxy handle as the single locus for those calls.
- */
-class rmi_proxy {
- public:
-  /** @brief Construct a null (invalid) proxy. */
-  rmi_proxy() noexcept = default;
-
-  /** @brief Destructor: calls `bison_rmi_client_destroy_proxy`. */
-  ~rmi_proxy();
-
-  rmi_proxy(const rmi_proxy&) = delete;
-  rmi_proxy& operator=(const rmi_proxy&) = delete;
-
-  rmi_proxy(rmi_proxy&& o) noexcept : proxy_(o.proxy_), client_(o.client_) {
-    o.proxy_ = nullptr;
-    o.client_ = nullptr;
-  }
-
-  rmi_proxy& operator=(rmi_proxy&& o) noexcept;
-
-  /** @brief `true` if the proxy is non-null. */
-  explicit operator bool() const noexcept {
-    return proxy_ != nullptr;
-  }
-
-  /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_proxy get() const noexcept {
-    return proxy_;
-  }
-
-  // ── Proxy operations ──────────────────────────────────────────────────────
-
-  /**
-   * @brief Clear all explicitly set fields on the remote object.
-   * @throws std::runtime_error on failure.
-   */
-  void clear() {
-    detail::check(
-        static_cast<bison_error>(bison_rmi_proxy_clear(proxy_)),
-        "bison_rmi_proxy_clear");
-  }
-
-  /**
-   * @brief Apply a partial field update to the remote object.
-   *
-   * @param fields  Object containing the fields to apply.
-   * @throws std::runtime_error on failure.
-   */
-  void set(const object& fields) {
-    detail::check(
-        static_cast<bison_error>(bison_rmi_proxy_set(proxy_, fields.get())),
-        "bison_rmi_proxy_set");
-  }
-
-  /**
-   * @brief Retrieve fields from the remote object.
-   *
-   * @param projection  Optional projection template; pass a default-constructed
-   *                    (null) `object` for a full snapshot.
-   * @return Owning result object.
-   * @throws std::runtime_error on failure.
-   *
-   * @note `bison_rmi_proxy_get` uses an in-out parameter and releases the
-   *       input handle internally before writing the result.  This wrapper
-   *       calls `bison_add_ref` on the projection beforehand so the caller's
-   *       `object` remains valid after the call.
-   */
-  object get(const object& projection = object{}) const {
-    // The C function releases *fields_out before writing the result, so we
-    // add_ref the projection to avoid affecting the caller's object.
-    bison_handle inout = bison_add_ref(projection.get());
-    bison_error err =
-        static_cast<bison_error>(bison_rmi_proxy_get(proxy_, &inout));
-    if (err != BISON_OK) {
-      bison_release(inout);
-      detail::check(err, "bison_rmi_proxy_get");
-    }
-    return object::own(inout);
-  }
-
-  /**
-   * @brief Call a method on the remote object (blocking).
-   *
-   * @param method_name  Hashed method name (use `object::key()`).
-   * @param params       Call arguments; pass a default-constructed `object`
-   *                     for no arguments.
-   * @return Result object (caller owns).
-   * @throws std::runtime_error on failure.
-   */
-  object call(bison_hash method_name, const object& params = object{}) const {
-    // bison_rmi_proxy_call requires a non-null params handle.
-    object actual_params = params ? params : object::create(0);
-    bison_handle result = nullptr;
-    detail::check(
-        static_cast<bison_error>(bison_rmi_proxy_call(
-            proxy_, method_name, actual_params.get(), &result)),
-        "bison_rmi_proxy_call");
-    return object::own(result);
-  }
-
-  /**
-   * @brief Call a method on the remote object without waiting for a response.
-   *
-   * @param method_name  Hashed method name (use `object::key()`).
-   * @param params       Call arguments; pass a default-constructed `object`
-   *                     for no arguments.
-   * @throws std::runtime_error on failure.
-   */
-  void call_oneway(bison_hash method_name, const object& params = object{}) {
-    object actual_params = params ? params : object::create(0);
-    detail::check(
-        static_cast<bison_error>(bison_rmi_proxy_call_oneway(
-            proxy_, method_name, actual_params.get())),
-        "bison_rmi_proxy_call_oneway");
-  }
-
-  /**
-   * @brief Register a handler for a server-initiated event.
-   *
-   * @param event_name  Hashed event name (use `object::key()`).
-   * @param handler     Callback invoked on the client's worker thread.
-   * @param user        Arbitrary context pointer passed to @p handler.
-   * @throws std::runtime_error on failure.
-   */
-  void on_event(
-      bison_hash event_name,
-      bison_rmi_event_fn handler,
-      void* user = nullptr) {
-    detail::check(
-        static_cast<bison_error>(
-            bison_rmi_proxy_on_event(proxy_, event_name, handler, user)),
-        "bison_rmi_proxy_on_event");
-  }
-
- private:
-  friend class rmi_client;
-
-  bison_rmi_proxy proxy_ = nullptr;
-  bison_rmi_client client_ = nullptr; // non-owning; needed for destroy_proxy
-
-  rmi_proxy(bison_rmi_proxy proxy, bison_rmi_client client) noexcept
-      : proxy_(proxy), client_(client) {}
-};
-
-// ────────────────────────────────────────────────────────────────────────────
-// rmi_client — RAII wrapper for bison_rmi_client (in-memory)
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * @brief RAII owner of a `bison_rmi_client` (in-memory transport client).
- *
- * Move-only.  The owning `rmi_transport` must outlive this object.
- * The destructor calls `bison_rmi_client_disconnect` then
- * `bison_rmi_client_destroy`.
- */
-class rmi_client {
- public:
-  /**
-   * @brief Create a client connected to @p transport.
-   *
-   * @throws std::runtime_error on allocation failure.
-   */
-  explicit rmi_client(const rmi_transport& transport)
-      : c_(bison_rmi_client_create(transport.get())) {
-    if (!c_)
-      throw std::runtime_error("bison_rmi_client_create failed");
-  }
-
-  ~rmi_client() {
-    if (c_) {
-      bison_rmi_client_disconnect(c_);
-      bison_rmi_client_destroy(c_);
-    }
-  }
-
-  rmi_client(const rmi_client&) = delete;
-  rmi_client& operator=(const rmi_client&) = delete;
-
-  rmi_client(rmi_client&& o) noexcept : c_(o.c_) {
-    o.c_ = nullptr;
-  }
-
-  rmi_client& operator=(rmi_client&& o) noexcept {
-    if (this != &o) {
-      if (c_) {
-        bison_rmi_client_disconnect(c_);
-        bison_rmi_client_destroy(c_);
-      }
-      c_ = o.c_;
-      o.c_ = nullptr;
-    }
-    return *this;
-  }
-
-  /** @brief Connect to the server and start the worker thread. */
-  void connect() {
-    detail::check(
-        static_cast<bison_error>(bison_rmi_client_connect(c_)),
-        "bison_rmi_client_connect");
-  }
-
-  /** @brief Gracefully disconnect and join the worker thread. */
-  void disconnect() {
-    detail::check(
-        static_cast<bison_error>(bison_rmi_client_disconnect(c_)),
-        "bison_rmi_client_disconnect");
-  }
-
-  /**
-   * @brief Query the server for class metadata.
-   *
-   * @param klass  Hashed class name (use `object::key()`); `0` for all.
-   * @return Owning descriptor object.
-   * @throws std::runtime_error on failure.
-   */
-  object describe(bison_hash klass = 0) const {
-    bison_handle h = bison_rmi_client_describe(c_, klass);
-    if (!h)
-      throw std::runtime_error("bison_rmi_client_describe failed");
-    return object::own(h);
-  }
-
-  /**
-   * @brief Instantiate a remote object on the server.
-   *
-   * @param klass   Hashed class name (use `object::key()`).
-   * @param params  Construction parameters; pass a default-constructed
-   *                `object` for none.
-   * @return Owning proxy for the remote object.
-   * @throws std::runtime_error on failure.
-   */
-  rmi_proxy instantiate(bison_hash klass, const object& params = object{}) {
-    bison_rmi_proxy p = bison_rmi_client_instantiate(c_, klass, params.get());
-    if (!p)
-      throw std::runtime_error("bison_rmi_client_instantiate failed");
-    return rmi_proxy(p, c_);
-  }
-
-  /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_client get() const noexcept {
-    return c_;
-  }
-
- private:
-  bison_rmi_client c_ = nullptr;
-};
-
-// ── rmi_proxy out-of-line definitions ─────────────────────────────────────
-
-inline rmi_proxy::~rmi_proxy() {
-  if (proxy_ && client_)
-    bison_rmi_client_destroy_proxy(client_, proxy_);
-}
-
-inline rmi_proxy& rmi_proxy::operator=(rmi_proxy&& o) noexcept {
-  if (this != &o) {
-    if (proxy_ && client_)
-      bison_rmi_client_destroy_proxy(client_, proxy_);
-    proxy_ = o.proxy_;
-    client_ = o.client_;
-    o.proxy_ = nullptr;
-    o.client_ = nullptr;
-  }
-  return *this;
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// rmi_server — RAII wrapper for bison_rmi_server (in-memory)
-// ────────────────────────────────────────────────────────────────────────────
-
-/**
- * @brief RAII owner of a `bison_rmi_server` (in-memory transport server).
- *
- * Move-only.  The owning `rmi_transport` must outlive this object.  The
- * destructor calls `bison_rmi_server_stop` followed by
- * `bison_rmi_server_destroy`.
- */
-class rmi_server {
- public:
-  /**
-   * @brief Create a server backed by @p transport.
-   *
-   * @throws std::runtime_error on allocation failure.
-   */
-  explicit rmi_server(const rmi_transport& transport)
-      : srv_(bison_rmi_server_create(transport.get())) {
-    if (!srv_)
-      throw std::runtime_error("bison_rmi_server_create failed");
-  }
-
-  ~rmi_server() {
-    if (srv_) {
-      bison_rmi_server_stop(srv_);
-      bison_rmi_server_destroy(srv_);
-    }
-  }
-
-  rmi_server(const rmi_server&) = delete;
-  rmi_server& operator=(const rmi_server&) = delete;
-
-  rmi_server(rmi_server&& o) noexcept : srv_(o.srv_) {
-    o.srv_ = nullptr;
-  }
-
-  rmi_server& operator=(rmi_server&& o) noexcept {
-    if (this != &o) {
-      if (srv_) {
-        bison_rmi_server_stop(srv_);
-        bison_rmi_server_destroy(srv_);
-      }
-      srv_ = o.srv_;
-      o.srv_ = nullptr;
-    }
-    return *this;
-  }
-
-  /**
-   * @brief Start the server's accept loop.
-   * @throws std::runtime_error on failure.
-   */
-  void listen() {
-    detail::check(bison_rmi_server_listen(srv_), "bison_rmi_server_listen");
-  }
-
-  /**
-   * @brief Stop the server, close all connections, join worker threads.
-   *
-   * Idempotent — safe to call multiple times or before destruction.
-   */
-  void stop() noexcept {
-    if (srv_)
-      bison_rmi_server_stop(srv_);
-  }
-
-  /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_server get() const noexcept {
-    return srv_;
-  }
-
- private:
-  bison_rmi_server srv_ = nullptr;
 };
 
 } // namespace bdg::bison_c
