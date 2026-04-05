@@ -49,8 +49,8 @@ namespace detail {
 inline void check(bison_error err, const char* msg) {
   if (err != BISON_OK) {
     throw std::runtime_error(
-        std::string(msg) + " (code " +
-        std::to_string(static_cast<int>(err)) + ")");
+        std::string(msg) + " (code " + std::to_string(static_cast<int>(err)) +
+        ")");
   }
 }
 
@@ -79,7 +79,9 @@ class object {
    *
    * The caller must **not** call `bison_release()` on @p h after this.
    */
-  static object own(bison_handle h) noexcept { return object(h); }
+  static object own(bison_handle h) noexcept {
+    return object(h);
+  }
 
   /**
    * @brief Create an owning copy of a non-owning handle via `bison_add_ref`.
@@ -121,12 +123,12 @@ class object {
   /**
    * @brief Instantiate a class-typed object in a named namespace.
    *
-   * @param klass_name  Hashed class name (use `key()`).
    * @param ns_name     Hashed namespace name (use `key()`); `0` for global.
+   * @param klass_name  Hashed class name (use `key()`).
    * @throws std::runtime_error on failure.
    */
-  static object instantiate_ns(bison_hash klass_name, bison_hash ns_name) {
-    bison_handle h = bison_instantiate_ns(klass_name, ns_name);
+  static object instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
+    bison_handle h = bison_instantiate_ns(ns_name, klass_name);
     if (!h)
       throw std::runtime_error("bison_instantiate_ns failed");
     return object(h);
@@ -163,13 +165,17 @@ class object {
   /** @brief Construct a null (invalid) object. */
   object() noexcept = default;
 
-  ~object() { reset(); }
+  ~object() {
+    reset();
+  }
 
   /** @brief Copy: increments the reference count via `bison_add_ref`. */
   object(const object& o) noexcept : h_(bison_add_ref(o.h_)) {}
 
   /** @brief Move: takes the handle; source becomes null. */
-  object(object&& o) noexcept : h_(o.h_) { o.h_ = nullptr; }
+  object(object&& o) noexcept : h_(o.h_) {
+    o.h_ = nullptr;
+  }
 
   object& operator=(const object& o) noexcept {
     if (this != &o) {
@@ -201,15 +207,21 @@ class object {
   }
 
   /** @brief Return the raw handle without transferring ownership. */
-  bison_handle get() const noexcept { return h_; }
+  bison_handle get() const noexcept {
+    return h_;
+  }
 
   /** @brief `true` if the handle is non-null. */
-  explicit operator bool() const noexcept { return h_ != nullptr; }
+  explicit operator bool() const noexcept {
+    return h_ != nullptr;
+  }
 
   // ── Registry (static) ─────────────────────────────────────────────────────
 
   /** @brief Compute the FNV-1a hash of a null-terminated string. */
-  static bison_hash key(const char* name) { return bison_key(name); }
+  static bison_hash key(const char* name) {
+    return bison_key(name);
+  }
 
   /**
    * @brief Register @p klass as a prototype in the global namespace.
@@ -220,24 +232,23 @@ class object {
    * @throws std::runtime_error on null handle or duplicate class name.
    */
   static void add_class(bison_hash parent_name, const object& klass) {
-    detail::check(
-        bison_add_class(parent_name, klass.h_), "bison_add_class");
+    detail::check(bison_add_class(parent_name, klass.h_), "bison_add_class");
   }
 
   /**
    * @brief Register @p klass as a prototype in a named namespace.
    *
-   * @param parent_name  Hashed parent class name; `0` for a root class.
-   * @param klass        Object whose `__class` field has already been set.
    * @param ns_name      Hashed namespace name (use `key()`); `0` for global.
+   * @param klass        Object whose `__class` field has already been set.
+   * @param parent_name  Hashed parent class name; `0` for a root class.
    * @throws std::runtime_error on null handle or duplicate class name.
    */
   static void add_class_ns(
-      bison_hash parent_name,
+      bison_hash ns_name,
       const object& klass,
-      bison_hash ns_name) {
+      bison_hash parent_name) {
     detail::check(
-        bison_add_class_ns(parent_name, klass.h_, ns_name),
+        bison_add_class_ns(ns_name, klass.h_, parent_name),
         "bison_add_class_ns");
   }
 
@@ -270,8 +281,7 @@ class object {
 
   /** @throws std::runtime_error on error. */
   void set_bool(bison_hash name, bool value) {
-    detail::check(
-        bison_set_bool(h_, name, value ? 1 : 0), "bison_set_bool");
+    detail::check(bison_set_bool(h_, name, value ? 1 : 0), "bison_set_bool");
   }
 
   /** @throws std::runtime_error on error. */
@@ -294,26 +304,22 @@ class object {
    * @throws std::runtime_error on error.
    */
   void set_object(bison_hash name, const object& value) {
-    detail::check(
-        bison_set_object(h_, name, value.h_), "bison_set_object");
+    detail::check(bison_set_object(h_, name, value.h_), "bison_set_object");
   }
 
   /** @throws std::runtime_error on error. */
   void set_int_at(size_t index, int32_t value) {
-    detail::check(
-        bison_set_int_at(h_, index, value), "bison_set_int_at");
+    detail::check(bison_set_int_at(h_, index, value), "bison_set_int_at");
   }
 
   /** @throws std::runtime_error on error. */
   void set_float_at(size_t index, float value) {
-    detail::check(
-        bison_set_float_at(h_, index, value), "bison_set_float_at");
+    detail::check(bison_set_float_at(h_, index, value), "bison_set_float_at");
   }
 
   /** @throws std::runtime_error on error. */
   void set_string_at(size_t index, const char* value) {
-    detail::check(
-        bison_set_string_at(h_, index, value), "bison_set_string_at");
+    detail::check(bison_set_string_at(h_, index, value), "bison_set_string_at");
   }
 
   // ── Scalar getters ────────────────────────────────────────────────────────
@@ -393,8 +399,7 @@ class object {
    */
   float get_float_at(size_t index) const {
     float v = 0.0f;
-    detail::check(
-        bison_get_float_at(h_, index, &v), "bison_get_float_at");
+    detail::check(bison_get_float_at(h_, index, &v), "bison_get_float_at");
     return v;
   }
 
@@ -415,7 +420,9 @@ class object {
   }
 
   /** @brief Return the number of array-like (numeric-key) elements. */
-  size_t size() const noexcept { return bison_size(h_); }
+  size_t size() const noexcept {
+    return bison_size(h_);
+  }
 
   // ── Methods ───────────────────────────────────────────────────────────────
 
@@ -427,10 +434,8 @@ class object {
    * @param user  Arbitrary context pointer passed to @p fn on each call.
    * @throws std::runtime_error on duplicate or null error.
    */
-  void add_method(
-      bison_hash name, bison_method_fn fn, void* user = nullptr) {
-    detail::check(
-        bison_add_method(h_, name, fn, user), "bison_add_method");
+  void add_method(bison_hash name, bison_method_fn fn, void* user = nullptr) {
+    detail::check(bison_add_method(h_, name, fn, user), "bison_add_method");
   }
 
   /**
@@ -443,8 +448,7 @@ class object {
    */
   object call(bison_hash name, const object& params) const {
     bison_handle result = nullptr;
-    detail::check(
-        bison_call(h_, name, params.h_, &result), "bison_call");
+    detail::check(bison_call(h_, name, params.h_, &result), "bison_call");
     return object(result);
   }
 
@@ -474,7 +478,9 @@ class rmi_transport {
       throw std::runtime_error("bison_rmi_transport_create failed");
   }
 
-  ~rmi_transport() { bison_rmi_transport_destroy(t_); }
+  ~rmi_transport() {
+    bison_rmi_transport_destroy(t_);
+  }
 
   rmi_transport(const rmi_transport&) = delete;
   rmi_transport& operator=(const rmi_transport&) = delete;
@@ -493,7 +499,9 @@ class rmi_transport {
   }
 
   /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_transport get() const noexcept { return t_; }
+  bison_rmi_transport get() const noexcept {
+    return t_;
+  }
 
  private:
   bison_rmi_transport t_ = nullptr;
@@ -527,8 +535,7 @@ class rmi_proxy {
   rmi_proxy(const rmi_proxy&) = delete;
   rmi_proxy& operator=(const rmi_proxy&) = delete;
 
-  rmi_proxy(rmi_proxy&& o) noexcept
-      : proxy_(o.proxy_), client_(o.client_) {
+  rmi_proxy(rmi_proxy&& o) noexcept : proxy_(o.proxy_), client_(o.client_) {
     o.proxy_ = nullptr;
     o.client_ = nullptr;
   }
@@ -536,10 +543,14 @@ class rmi_proxy {
   rmi_proxy& operator=(rmi_proxy&& o) noexcept;
 
   /** @brief `true` if the proxy is non-null. */
-  explicit operator bool() const noexcept { return proxy_ != nullptr; }
+  explicit operator bool() const noexcept {
+    return proxy_ != nullptr;
+  }
 
   /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_proxy get() const noexcept { return proxy_; }
+  bison_rmi_proxy get() const noexcept {
+    return proxy_;
+  }
 
   // ── Proxy operations ──────────────────────────────────────────────────────
 
@@ -600,8 +611,7 @@ class rmi_proxy {
    * @return Result object (caller owns).
    * @throws std::runtime_error on failure.
    */
-  object call(
-      bison_hash method_name, const object& params = object{}) const {
+  object call(bison_hash method_name, const object& params = object{}) const {
     // bison_rmi_proxy_call requires a non-null params handle.
     object actual_params = params ? params : object::create(0);
     bison_handle result = nullptr;
@@ -620,8 +630,7 @@ class rmi_proxy {
    *                     for no arguments.
    * @throws std::runtime_error on failure.
    */
-  void call_oneway(
-      bison_hash method_name, const object& params = object{}) {
+  void call_oneway(bison_hash method_name, const object& params = object{}) {
     object actual_params = params ? params : object::create(0);
     detail::check(
         static_cast<bison_error>(bison_rmi_proxy_call_oneway(
@@ -691,7 +700,9 @@ class rmi_client {
   rmi_client(const rmi_client&) = delete;
   rmi_client& operator=(const rmi_client&) = delete;
 
-  rmi_client(rmi_client&& o) noexcept : c_(o.c_) { o.c_ = nullptr; }
+  rmi_client(rmi_client&& o) noexcept : c_(o.c_) {
+    o.c_ = nullptr;
+  }
 
   rmi_client& operator=(rmi_client&& o) noexcept {
     if (this != &o) {
@@ -742,17 +753,17 @@ class rmi_client {
    * @return Owning proxy for the remote object.
    * @throws std::runtime_error on failure.
    */
-  rmi_proxy instantiate(
-      bison_hash klass, const object& params = object{}) {
-    bison_rmi_proxy p =
-        bison_rmi_client_instantiate(c_, klass, params.get());
+  rmi_proxy instantiate(bison_hash klass, const object& params = object{}) {
+    bison_rmi_proxy p = bison_rmi_client_instantiate(c_, klass, params.get());
     if (!p)
       throw std::runtime_error("bison_rmi_client_instantiate failed");
     return rmi_proxy(p, c_);
   }
 
   /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_client get() const noexcept { return c_; }
+  bison_rmi_client get() const noexcept {
+    return c_;
+  }
 
  private:
   bison_rmi_client c_ = nullptr;
@@ -832,8 +843,7 @@ class rmi_server {
    * @throws std::runtime_error on failure.
    */
   void listen() {
-    detail::check(
-        bison_rmi_server_listen(srv_), "bison_rmi_server_listen");
+    detail::check(bison_rmi_server_listen(srv_), "bison_rmi_server_listen");
   }
 
   /**
@@ -847,7 +857,9 @@ class rmi_server {
   }
 
   /** @brief Return the raw handle without transferring ownership. */
-  bison_rmi_server get() const noexcept { return srv_; }
+  bison_rmi_server get() const noexcept {
+    return srv_;
+  }
 
  private:
   bison_rmi_server srv_ = nullptr;

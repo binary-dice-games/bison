@@ -13,7 +13,7 @@ using namespace bdg::bison::rmi;
 class pty_test_client_app final : public apps::pty_client_application {
  protected:
   int on_session(client& rmi_client, const run_context& /*ctx*/) override {
-    auto service = rmi_client.instantiate("PtyTestService"_key).get();
+    auto service = rmi_client.instantiate(0U, "PtyTestService"_key).get();
 
     dynamic params;
     params["message"_key] = std::string{"hello from pty_client_example"};

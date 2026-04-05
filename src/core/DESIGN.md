@@ -120,8 +120,8 @@ The class registry is a **namespace-partitioned multipleton** rather than a flat
 
 ### 5.2 Class Registration
 
-`dynamic::addClass(parent, klass)` — registers in the global namespace (backward-compatible).
-`dynamic::addClass(parent, klass, ns)` — registers in the named namespace `ns`.
+`dynamic::addClass(ns, klass, parent)` — registers in namespace `ns`.
+Use `ns = 0U` (empty/global namespace) for the global namespace.
 
 Registration actions:
 - Writes `parent` to `klass[PARENT]`.
@@ -142,18 +142,17 @@ Reserved field keys (set automatically on class prototypes):
 ### 5.3 Instantiation
 
 `dynamic::instantiate(klass)` — creates an instance in the global namespace.
-`dynamic::instantiate(klass, ns)` — creates an instance and sets `__namespace = ns`.
+`dynamic::instantiate(ns, klass)` — creates an instance and sets `__namespace = ns`.
 
 When `ns != 0`, the `__namespace` field is written to the new instance immediately so that the first field/method/class lookup goes directly to the correct namespace collection.
 
 ### 5.4 Namespace Resolution during Lookup
 
-When `findField`, `findMethod`, or `findClass` is called, the private helper `resolveNamespace_` determines the correct namespace collection:
+When `findField`, `findMethod`, or `findClass` is called, the private helper `resolveNamespace` determines the correct namespace collection:
 
 1. If the instance already has `__namespace` in its `fields_`, that value is returned directly (O(1) fast path).
-2. Otherwise, the global namespace (`0U`) is checked first (backward-compatibility).
-3. All remaining namespaces are searched.
-4. The resolved namespace is cached into `fields_[NAMESPACE]` for future calls.
+2. Otherwise, absent `__namespace` means the global namespace (`0U`).
+3. The resolved namespace is cached into `fields_[NAMESPACE]` for future calls.
 
 ### 5.5 Inheritance Lookup Rules
 
@@ -391,3 +390,4 @@ Core library provides object and serialization primitives consumed by:
 ## 15. Summary
 
 Bison core is a dynamic object runtime with two serialization modes, inheritance-aware field and method resolution, and a stable C ABI wrapper. The design balances flexibility (runtime object graph and callable methods) with portability (endian-safe binary format) and interoperability (JSON/YAML import and C API), making it a suitable foundation for higher-level systems such as the planned RMI layer.
+

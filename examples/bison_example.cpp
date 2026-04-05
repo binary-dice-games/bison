@@ -249,7 +249,8 @@ static void example_template_serialization() {
       0U,
       dynamic_ptr{
           "Vector3"_key,
-          {{"x"_key, float{0}}, {"y"_key, float{0}}, {"z"_key, float{0}}}});
+          {{"x"_key, float{0}}, {"y"_key, float{0}}, {"z"_key, float{0}}}},
+      0U);
 
   // Create and populate an instance.
   dynamic v = dynamic::instantiate("Vector3"_key);
@@ -355,7 +356,7 @@ static void example_inheritance() {
         result["text"_key] = self["color"_key].as<std::string>() + " shape";
         return result;
       });
-  dynamic::addClass(0U, shape);
+  dynamic::addClass(0U, shape, 0U);
 
   // ── Register a child class ────────────────────────────────────────────────
   auto circle = dynamic_ptr{"Circle"_key, {{"radius"_key, float{1.0f}}}};
@@ -367,7 +368,7 @@ static void example_inheritance() {
         result["area"_key] = pi * r * r;
         return result;
       });
-  dynamic::addClass("Shape"_key, circle);
+  dynamic::addClass(0U, circle, "Shape"_key);
 
   // ── Instantiate and use ───────────────────────────────────────────────────
   dynamic c = dynamic::instantiate("Circle"_key);
@@ -387,7 +388,7 @@ static void example_inheritance() {
   std::cout << "Inherited color: " << c2["color"_key].as<std::string>() << "\n";
 
   // Circular inheritance is rejected.
-  bool ok = dynamic::addClass("Circle"_key, dynamic_ptr{"Shape"_key});
+  bool ok = dynamic::addClass(0U, dynamic_ptr{"Shape"_key}, "Circle"_key);
   std::cout << "Circular addClass rejected: " << !ok << "\n";
 
   // findClass() walks the hierarchy.
@@ -523,8 +524,8 @@ tags:
 //
 // A namespace is a named collection of class prototypes.  Classes registered
 // in different namespaces may share the same name without colliding.  Pass the
-// optional third argument to addClass() and the optional second argument to
-// instantiate() to target a specific namespace.
+// first argument to addClass() and instantiate() to target a specific
+// namespace. Use `0U` for global.
 // ─────────────────────────────────────────────────────────────────────────────
 static void example_namespaces() {
   section("Namespaces - class isolation by unit");
@@ -534,25 +535,24 @@ static void example_namespaces() {
 
   // ── Register classes with the same name in different namespaces ───────────
   // "math" namespace: a table is a data structure with rows and columns.
-  auto math_table =
-      dynamic_ptr{"table"_key,
-                  {{"rows"_key, int32_t{0}}, {"cols"_key, int32_t{0}}}};
-  dynamic::addClass(0U, math_table, "math"_key);
+  auto math_table = dynamic_ptr{
+      "table"_key, {{"rows"_key, int32_t{0}}, {"cols"_key, int32_t{0}}}};
+  dynamic::addClass("math"_key, math_table, 0U);
 
   // "ikea" namespace: a table is a piece of furniture with legs and a surface.
-  auto ikea_table =
-      dynamic_ptr{"table"_key,
-                  {{"legs"_key, int32_t{4}}, {"material"_key, std::string{"wood"}}}};
-  dynamic::addClass(0U, ikea_table, "ikea"_key);
+  auto ikea_table = dynamic_ptr{
+      "table"_key,
+      {{"legs"_key, int32_t{4}}, {"material"_key, std::string{"wood"}}}};
+  dynamic::addClass("ikea"_key, ikea_table, 0U);
 
   std::cout << "Registered 'table' in both 'math' and 'ikea' namespaces\n";
 
   // ── Instantiate from the correct namespace ────────────────────────────────
-  dynamic mt = dynamic::instantiate("table"_key, "math"_key);
+  dynamic mt = dynamic::instantiate("math"_key, "table"_key);
   mt["rows"_key] = int32_t{10};
   mt["cols"_key] = int32_t{5};
 
-  dynamic it = dynamic::instantiate("table"_key, "ikea"_key);
+  dynamic it = dynamic::instantiate("ikea"_key, "table"_key);
   it["legs"_key] = int32_t{4};
   it["material"_key] = std::string{"oak"};
 
@@ -566,24 +566,22 @@ static void example_namespaces() {
   auto* nsf = mt.findField(dynamic::NAMESPACE);
   if (nsf) {
     bdg::bison::key_t ns = nsf->as<bdg::bison::key_t>();
-    std::cout << "math::table __namespace matches 'math': "
-              << std::boolalpha << (ns.id == hash("math")) << "\n";
+    std::cout << "math::table __namespace matches 'math': " << std::boolalpha
+              << (ns.id == hash("math")) << "\n";
   }
 
   // ── Inheritance within a namespace ───────────────────────────────────────
-  auto base = dynamic_ptr{"Furniture"_key,
-                           {{"warranty"_key, int32_t{5}}}};
-  dynamic::addClass(0U, base, "ikea"_key);
+  auto base = dynamic_ptr{"Furniture"_key, {{"warranty"_key, int32_t{5}}}};
+  dynamic::addClass("ikea"_key, base, 0U);
 
   auto sofa = dynamic_ptr{"Sofa"_key, {{"seats"_key, int32_t{3}}}};
-  dynamic::addClass("Furniture"_key, sofa, "ikea"_key);
+  dynamic::addClass("ikea"_key, sofa, "Furniture"_key);
 
-  dynamic s = dynamic::instantiate("Sofa"_key, "ikea"_key);
+  dynamic s = dynamic::instantiate("ikea"_key, "Sofa"_key);
   std::cout << "ikea::Sofa seats=" << s["seats"_key].as<int32_t>()
             << " warranty=" << s["warranty"_key].as<int32_t>() << "\n";
-  std::cout << "s is-a Furniture: "
-            << std::boolalpha << (s.findClass("Furniture"_key) != nullptr)
-            << "\n";
+  std::cout << "s is-a Furniture: " << std::boolalpha
+            << (s.findClass("Furniture"_key) != nullptr) << "\n";
 
   // Clean up
   dynamic::getRegistry().wlock()->clear();

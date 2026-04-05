@@ -374,8 +374,12 @@ TEST(UtilityTests, BisonKeyNullReturnsZero) {
 
 class CApiNamespaceTest : public ::testing::Test {
  protected:
-  void SetUp() override { clearClasses(); }
-  void TearDown() override { clearClasses(); }
+  void SetUp() override {
+    clearClasses();
+  }
+  void TearDown() override {
+    clearClasses();
+  }
 };
 
 TEST_F(CApiNamespaceTest, AddClassNsSucceeds) {
@@ -383,15 +387,15 @@ TEST_F(CApiNamespaceTest, AddClassNsSucceeds) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("rows"), 5);
-  EXPECT_EQ(bison_add_class_ns(0, proto, ns), BISON_OK);
+  EXPECT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, SameNameInDifferentNamespacesSucceeds) {
   bison_hash key = bison_key("table");
   ScopedHandle math_proto{bison_create(key)};
   ScopedHandle ikea_proto{bison_create(key)};
-  EXPECT_EQ(bison_add_class_ns(0, math_proto, bison_key("math")), BISON_OK);
-  EXPECT_EQ(bison_add_class_ns(0, ikea_proto, bison_key("ikea")), BISON_OK);
+  EXPECT_EQ(bison_add_class_ns(bison_key("math"), math_proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class_ns(bison_key("ikea"), ikea_proto, 0), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
@@ -399,12 +403,12 @@ TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
   bison_hash ns = bison_key("ikea");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class_ns(0, p1, ns), BISON_OK);
-  EXPECT_EQ(bison_add_class_ns(0, p2, ns), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class_ns(ns, p1, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class_ns(ns, p2, 0), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(CApiNamespaceTest, AddClassNsNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class_ns(0, nullptr, bison_key("ns")), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class_ns(bison_key("ns"), nullptr, 0), BISON_ERR_NULL);
 }
 
 TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
@@ -412,9 +416,9 @@ TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("x"), 0);
-  ASSERT_EQ(bison_add_class_ns(0, proto, ns), BISON_OK);
+  ASSERT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
 
-  ScopedHandle inst{bison_instantiate_ns(key, ns)};
+  ScopedHandle inst{bison_instantiate_ns(ns, key)};
   ASSERT_NE(inst.h, nullptr);
 
   // Field inherited from the prototype.
@@ -427,9 +431,9 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
   bison_hash key = bison_key("Sofa");
   bison_hash ns = bison_key("ikea");
   ScopedHandle proto{bison_create(key)};
-  ASSERT_EQ(bison_add_class_ns(0, proto, ns), BISON_OK);
+  ASSERT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
 
-  ScopedHandle inst{bison_instantiate_ns(key, ns)};
+  ScopedHandle inst{bison_instantiate_ns(ns, key)};
   ASSERT_NE(inst.h, nullptr);
 
   bison_handle found = bison_find_class(inst, key);

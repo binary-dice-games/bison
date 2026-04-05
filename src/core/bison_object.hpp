@@ -283,14 +283,13 @@ class field : public field_base {
  *   registered in (set automatically by `addClass`; `0U` = global namespace).
  *
  * ### Namespaces
- * Classes are registered in namespaces via `addClass(parent, klass, ns)`.
+ * Classes are registered in namespaces via `addClass(ns, klass, parent)`.
  * Each namespace is an independent `collection` (class-name → prototype map)
  * inside a process-wide `namespace_map`.  The same class name may exist in
  * multiple namespaces without collision.  When performing field / method /
  * class lookups, the library reads the `__namespace` field of the instance to
- * select the correct collection.  If `__namespace` is absent, all namespaces
- * are searched (with the global namespace `0U` checked first) and the result
- * is cached in `__namespace` for subsequent calls.
+ * select the correct collection. If `__namespace` is absent, the global
+ * namespace (`0U`) is used and cached in `__namespace`.
  *
  * ### Inheritance
  * Field and method lookups walk the prototype chain stored in the namespace's
@@ -314,12 +313,16 @@ class dynamic {
   friend class field;
   friend class dynamic_ptr;
 
-  static inline constexpr hash_t CLASS = "__class"_key;     /**< Reserved: class name hash. */
-  static inline constexpr hash_t PARENT = "__parent"_key;   /**< Reserved: parent class hash. */
-  static inline constexpr hash_t NAMESPACE = "__namespace"_key; /**< Reserved: namespace hash (0 = global). */
+  static inline constexpr hash_t CLASS =
+      "__class"_key; /**< Reserved: class name hash. */
+  static inline constexpr hash_t PARENT =
+      "__parent"_key; /**< Reserved: parent class hash. */
+  static inline constexpr hash_t NAMESPACE =
+      "__namespace"_key; /**< Reserved: namespace hash (0 = global). */
 
   /**
-   * @brief Construct a dynamic object with an optional class and initial fields.
+   * @brief Construct a dynamic object with an optional class and initial
+   * fields.
    *
    * @param klass     Hash of the class name; `0` for an anonymous object.
    * @param fields    Initial field map (moved in).
@@ -371,7 +374,8 @@ class dynamic {
     return fields_.empty();
   }
 
-  /** @brief Erase all numeric-index (array-like) fields; named fields remain. */
+  /** @brief Erase all numeric-index (array-like) fields; named fields remain.
+   */
   inline void clear() {
     fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
   }
@@ -484,23 +488,31 @@ class dynamic {
   }
 
   /**
-   * @brief Create a new dynamic object with the given class key.
+   * @brief Create a new dynamic object in a specific namespace.
    *
-   * @param klass  Hash of the class name.
    * @param ns     Hash of the namespace the class was registered in; `0U` for
    *               the global (default) namespace.  When non-zero, the
    *               `__namespace` field is set on the new instance so that
    *               field / method / class lookups target the correct namespace
    *               collection without an additional registry search.
+   * @param klass  Hash of the class name.
    * @return A `dynamic` whose `CLASS` field is set to @p klass and, if @p ns
    *         is non-zero, whose `NAMESPACE` field is set to @p ns.
    */
-  static dynamic instantiate(const key_t klass, const key_t ns = key_t{0U}) {
+  static dynamic instantiate(const key_t ns, const key_t klass) {
     dynamic obj{klass};
     if (ns.id != 0U) {
       obj.fields_[NAMESPACE] = ns;
     }
     return obj;
+  }
+
+  /**
+   * @brief Create a new dynamic object in the global namespace.
+   * @param klass  Hash of the class name.
+   */
+  static dynamic instantiate(const key_t klass) {
+    return instantiate(key_t{0U}, klass);
   }
 
   /**
@@ -511,17 +523,17 @@ class dynamic {
    * under `(ns, class_name)`.  Returns `false` if a class with the same name
    * is already registered in @p ns, or if registering would create a
    * circular inheritance chain within @p ns.
-   *
-   * @param parent  Hash of the parent class name (`0U` for a root class).
-   * @param klass   Prototype object; its `CLASS` field must be set.
-   * @param ns      Hash of the namespace to register in; `0U` for the global
-   *                (default) namespace.
+  *
+  * @param ns      Hash of the namespace to register in; `0U` for the global
+  *                (default) namespace.
+  * @param klass   Prototype object; its `CLASS` field must be set.
+  * @param parent  Hash of the parent class name (`0U` for a root class).
    * @return `true` on success, `false` on duplicate or cycle.
    */
   static bool addClass(
-      const key_t parent,
-      dynamic_ptr klass,
-      const key_t ns = key_t{0U}) {
+    const key_t ns,
+    dynamic_ptr klass,
+    const key_t parent = key_t{0U}) {
     auto name = klass->as<key_t>(CLASS);
     (*klass)[PARENT] = parent;
     (*klass)[NAMESPACE] = ns;
@@ -549,7 +561,7 @@ class dynamic {
    *
    * Returns a mutable pointer to the field (caching into `fields_` on first
    * inherited hit), or `nullptr` if not found anywhere in the chain.
-   * The correct namespace collection is resolved via `resolveNamespace_`.
+   * The correct namespace collection is resolved via `resolveNamespace`.
    *
    * @param name  Hash key to look up.
    * @return Pointer to the resolved field, or `nullptr`.
@@ -565,15 +577,14 @@ class dynamic {
     // Slow path: search the class prototype chain.
     {
       auto lp = getRegistry().rlock();
-      // resolveNamespace_ may write __namespace into fields_, so we must
+      // resolveNamespace may write __namespace into fields_, so we must
       // not rely on any iterator captured before this call.
-      auto ns = resolveNamespace_(*lp);
+      auto ns = resolveNamespace();
       auto nsIt = lp->find(ns);
       if (nsIt != lp->end()) {
         const auto& col = nsIt->second;
         auto classKey = as<key_t>(CLASS);
-        for (auto itClass = col.find(classKey);
-             itClass != col.end();) {
+        for (auto itClass = col.find(classKey); itClass != col.end();) {
           auto& klass = itClass->second;
           auto itField = klass->fields_.find(name);
           if (itField != klass->fields_.end()) {
@@ -595,7 +606,7 @@ class dynamic {
    *
    * Returns a pointer to the callable (caching into `methods_` on first
    * inherited hit), or `nullptr` if not found anywhere in the chain.
-   * The correct namespace collection is resolved via `resolveNamespace_`.
+   * The correct namespace collection is resolved via `resolveNamespace`.
    *
    * @param name  Hash key to look up.
    * @return Pointer to the resolved method, or `nullptr`.
@@ -611,12 +622,11 @@ class dynamic {
     // Slow path: search the class prototype chain.
     {
       auto lp = getRegistry().rlock();
-      auto ns = resolveNamespace_(*lp);
+      auto ns = resolveNamespace();
       auto nsIt = lp->find(ns);
       if (nsIt != lp->end()) {
         const auto& col = nsIt->second;
-        for (auto itClass = col.find(as<key_t>(CLASS));
-             itClass != col.end();) {
+        for (auto itClass = col.find(as<key_t>(CLASS)); itClass != col.end();) {
           auto& klass = itClass->second;
           auto itMethod = klass->methods_.find(name);
           if (itMethod != klass->methods_.end()) {
@@ -636,7 +646,7 @@ class dynamic {
    * @brief Walk the class chain looking for a registered prototype named
    *        @p name.
    *
-   * Uses the instance's namespace (resolved via `resolveNamespace_`) to
+   * Uses the instance's namespace (resolved via `resolveNamespace`) to
    * select the correct collection before walking the chain.
    *
    * @param name  Hash of the class to search for.
@@ -645,7 +655,7 @@ class dynamic {
    */
   dynamic* findClass(key_t name) const {
     auto lp = getRegistry().rlock();
-    auto ns = resolveNamespace_(*lp);
+    auto ns = resolveNamespace();
     auto nsIt = lp->find(ns);
     if (nsIt == lp->end())
       return nullptr;
@@ -695,52 +705,22 @@ class dynamic {
    * @brief Resolve and cache the namespace for this instance's class chain.
    *
    * 1. If `__namespace` is already in `fields_`, it is returned immediately.
-   * 2. Otherwise the global namespace (`0U`) is checked first; if the
-   *    instance's class is found there, `0U` is cached and returned.
-   * 3. All remaining namespaces are searched in unspecified order; the first
-   *    match is cached and returned.
-   * 4. If the class is not registered anywhere, `0U` is cached and returned.
+   * 2. If absent, the global namespace (`0U`) is cached and returned.
    *
    * This result is cached in `fields_[NAMESPACE]` so that subsequent calls
    * are O(1).  The write to `fields_` is safe because `fields_` is `mutable`
    * and single-instance mutations are documented as non-thread-safe.
    *
-   * @param registry  A read-locked snapshot of the namespace registry.
    * @return The namespace hash to use for prototype chain traversal.
    */
-  key_t resolveNamespace_(const namespace_map& registry) const {
+  key_t resolveNamespace() const {
     // 1. Return cached value if present.
     auto nsField = fields_.find(NAMESPACE);
     if (nsField != fields_.end() && nsField->second.is<key_t>()) {
       return nsField->second.as<key_t>();
     }
 
-    // 2. Determine the class name safely.
-    auto classField = fields_.find(CLASS);
-    if (classField == fields_.end() || !classField->second.is<key_t>()) {
-      fields_[NAMESPACE] = key_t{0U};
-      return key_t{0U};
-    }
-    auto className = classField->second.as<key_t>();
-
-    // 3. Check global namespace first (backward-compatibility).
-    auto globalIt = registry.find(key_t{0U});
-    if (globalIt != registry.end() && globalIt->second.count(className)) {
-      fields_[NAMESPACE] = key_t{0U};
-      return key_t{0U};
-    }
-
-    // 4. Search remaining namespaces.
-    for (const auto& [nsKey, col] : registry) {
-      if (nsKey.id == 0U)
-        continue;
-      if (col.count(className)) {
-        fields_[NAMESPACE] = nsKey;
-        return nsKey;
-      }
-    }
-
-    // 5. Not found – default to global.
+    // 2. Absent namespace means global namespace.
     fields_[NAMESPACE] = key_t{0U};
     return key_t{0U};
   }
@@ -959,7 +939,7 @@ inline void dynamic::serialize(buffer_serializer& out) const {
 inline void dynamic::serializeWithSchema(buffer_serializer& out) const {
   auto lp = getRegistry().rlock();
   auto klass = as<key_t>(CLASS);
-  auto ns = resolveNamespace_(*lp);
+  auto ns = resolveNamespace();
   auto nsIt = lp->find(ns);
 
   out.write(ns);

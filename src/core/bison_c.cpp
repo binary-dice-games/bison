@@ -69,23 +69,14 @@ BISON_API bison_handle bison_create(bison_hash klass_name) {
 }
 
 BISON_API bison_handle bison_instantiate(bison_hash klass_name) {
-  try {
-    bdg::bison::dynamic obj =
-        bdg::bison::dynamic::instantiate(bdg::bison::key_t{klass_name});
-    auto* sp =
-        new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
-    return as_handle(sp);
-  } catch (...) {
-    return nullptr;
-  }
+  return bison_instantiate_ns(static_cast<bison_hash>(0L), klass_name);
 }
 
-BISON_API bison_handle bison_instantiate_ns(
-    bison_hash klass_name,
-    bison_hash ns_name) {
+BISON_API bison_handle
+bison_instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
   try {
     bdg::bison::dynamic obj = bdg::bison::dynamic::instantiate(
-        bdg::bison::key_t{klass_name}, bdg::bison::key_t{ns_name});
+        bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
     auto* sp =
         new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
     return as_handle(sp);
@@ -140,23 +131,22 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
 
 BISON_API bison_error
 bison_add_class(bison_hash parent_name, bison_handle klass) {
-  return bison_add_class_ns(parent_name, klass, 0);
+  return bison_add_class_ns(0, klass, parent_name);
 }
 
-BISON_API bison_error
-bison_add_class_ns(
-    bison_hash parent_name,
+BISON_API bison_error bison_add_class_ns(
+    bison_hash ns_name,
     bison_handle klass,
-    bison_hash ns_name) {
+    bison_hash parent_name) {
   if (!klass)
     return BISON_ERR_NULL;
   try {
     // addClass takes a shared_ptr; copy the one inside the handle.
     sp_dyn copy = *as_sp(klass);
     bool ok = bdg::bison::dynamic::addClass(
-        bdg::bison::key_t{parent_name},
+        bdg::bison::key_t{ns_name},
         std::move(copy),
-        bdg::bison::key_t{ns_name});
+        bdg::bison::key_t{parent_name});
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
@@ -689,7 +679,7 @@ BISON_API bison_rmi_proxy bison_rmi_client_instantiate(
     if (params && dyn(params))
       p = dyn(params)->clone();
 
-    auto fut = c->c->instantiate(bdg::bison::key_t{klass}, std::move(p));
+    auto fut = c->c->instantiate(0U, bdg::bison::key_t{klass}, std::move(p));
     auto proxy = fut.get();
     return new bison_rmi_proxy_(std::move(proxy));
   } catch (...) {

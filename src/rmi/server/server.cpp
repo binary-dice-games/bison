@@ -340,33 +340,33 @@ void server::handle_instantiate(
   const auto& p = env.payload;
 
   bison::key_t klass = p.as<bison::key_t>(FIELD_KLASS);
+  bison::key_t ns{0U};
+
+  if (p.findField(FIELD_NAMESPACE) != nullptr) {
+    try {
+      ns = read_key_token(p, FIELD_NAMESPACE);
+    } catch (const std::exception& e) {
+      send_error(conn, env, OP_INSTANTIATE, ERR_INVALID_REQUEST, e.what());
+      return;
+    }
+  }
 
   {
-    // Find which namespace this class is registered in.
-    bison::key_t ns{0U};
     auto lp = bison::dynamic::getRegistry().rlock();
     const auto& nsmap = *lp;
-    bool found = false;
-    for (const auto& [nsKey, classes] : nsmap) {
-      if (classes.count(klass)) {
-        ns = nsKey;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
+    auto nsIt = nsmap.find(ns);
+    if (nsIt == nsmap.end() || !nsIt->second.count(klass)) {
       send_error(
           conn,
           env,
           OP_INSTANTIATE,
           ERR_CLASS_NOT_FOUND,
-          "Class not registered on server");
+          "Class not registered in requested namespace");
       return;
     }
-    // Release lock before instantiating.
-    lp.unlock();
+
     auto obj = std::make_shared<bison::dynamic>(
-        bison::dynamic::instantiate(klass, ns));
+        bison::dynamic::instantiate(ns, klass));
 
     if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
       try {
@@ -428,7 +428,7 @@ void server::handle_clear(
       if (class_it != nsIt->second.end() && class_it->second) {
         *it->second = class_it->second->clone();
       } else {
-        *it->second = bison::dynamic::instantiate(klass_key, ns);
+        *it->second = bison::dynamic::instantiate(ns, klass_key);
       }
     } else {
       *it->second = bison::dynamic::instantiate(klass_key);

@@ -171,14 +171,13 @@ BISON_API bison_handle bison_instantiate(bison_hash klass_name);
  * Sets the `__namespace` field on the new instance so that subsequent field,
  * method, and class lookups target the correct namespace collection.
  *
- * @param klass_name  Hashed class name (use `bison_key()` to compute).
  * @param ns_name     Hash of the namespace name (use `bison_key()`); pass
  *                    `0` for the global (default) namespace.
+ * @param klass_name  Hashed class name (use `bison_key()` to compute).
  * @return New handle (ref-count 1) or `NULL` on allocation failure.
  */
-BISON_API bison_handle bison_instantiate_ns(
-    bison_hash klass_name,
-    bison_hash ns_name);
+BISON_API bison_handle
+bison_instantiate_ns(bison_hash ns_name, bison_hash klass_name);
 
 /**
  * @brief Increment the reference count of @p h and return a new handle.
@@ -243,7 +242,7 @@ BISON_API bison_handle bison_from_yaml(const char* yaml);
  * @brief Register @p klass as a class prototype in the global (default)
  *        namespace of the class registry.
  *
- * This is equivalent to calling `bison_add_class_ns(parent_name, klass, 0)`.
+ * This is equivalent to calling `bison_add_class_ns(0, klass, parent_name)`.
  * All classes registered with this function share the global namespace and
  * are visible to objects whose `__namespace` field is `0` (or absent).
  *
@@ -266,21 +265,20 @@ bison_add_class(bison_hash parent_name, bison_handle klass);
  * Use `bison_instantiate_ns()` (or set `__namespace` on the instance before
  * any field lookup) to direct lookups to the correct namespace.
  *
- * @param parent_name  Hash of the parent class name (use `bison_key()`); pass
- *                     `0` for a root class.
- * @param klass        Handle whose `__class` field has already been set.
- *                     The library **does not** take ownership of @p klass.
  * @param ns_name      Hash of the namespace name (use `bison_key()`); pass
  *                     `0` to register in the global (default) namespace.
+ * @param klass        Handle whose `__class` field has already been set.
+ *                     The library **does not** take ownership of @p klass.
+ * @param parent_name  Hash of the parent class name (use `bison_key()`); pass
+ *                     `0` for a root class.
  * @return `BISON_OK` on success, `BISON_ERR_DUPLICATE` if a class with the
  *         same name is already registered in @p ns_name, or `BISON_ERR_NULL`
  *         if @p klass is `NULL`.
  */
-BISON_API bison_error
-bison_add_class_ns(
-    bison_hash parent_name,
+BISON_API bison_error bison_add_class_ns(
+    bison_hash ns_name,
     bison_handle klass,
-    bison_hash ns_name);
+    bison_hash parent_name);
 
 /**
  * @brief Search the class hierarchy of @p h for a registered class.
