@@ -1,1 +1,0 @@
-/usr/bin/cc -g -fsanitize=address,undefined -rdynamic -Wl,--dependency-file=CMakeFiles/example-reformatter.dir/link.d "CMakeFiles/example-reformatter.dir/example-reformatter.c.o" -o ../example-reformatter  ../libyaml.a

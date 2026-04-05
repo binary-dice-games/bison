@@ -1,1 +1,0 @@
-/usr/bin/cc -g -fsanitize=address,undefined -rdynamic -Wl,--dependency-file=CMakeFiles/example-deconstructor.dir/link.d "CMakeFiles/example-deconstructor.dir/example-deconstructor.c.o" -o ../example-deconstructor  ../libyaml.a

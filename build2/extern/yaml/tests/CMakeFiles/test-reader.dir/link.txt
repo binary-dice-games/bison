@@ -1,1 +1,0 @@
-/usr/bin/cc -g -rdynamic -Wl,--dependency-file=CMakeFiles/test-reader.dir/link.d "CMakeFiles/test-reader.dir/test-reader.c.o" -o ../test-reader  ../libyaml.a

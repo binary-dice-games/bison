@@ -1,1 +1,0 @@
-/usr/bin/cc -g -fsanitize=address,undefined -rdynamic -Wl,--dependency-file=CMakeFiles/run-dumper.dir/link.d "CMakeFiles/run-dumper.dir/run-dumper.c.o" -o ../run-dumper  ../libyaml.a

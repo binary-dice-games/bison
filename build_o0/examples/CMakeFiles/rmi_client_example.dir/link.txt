@@ -1,1 +1,0 @@
-/usr/bin/c++ -O0 -g -Wl,--dependency-file=CMakeFiles/rmi_client_example.dir/link.d CMakeFiles/rmi_client_example.dir/rmi_client_example.cpp.o -o rmi_client_example  ../libbison.a ../extern/yaml/libyaml.a

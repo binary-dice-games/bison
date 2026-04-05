@@ -1,5 +1,0 @@
-if(EXISTS "/home/runner/work/bison/bison/build_asan/tests/rmi_test[1]_tests.cmake")
-  include("/home/runner/work/bison/bison/build_asan/tests/rmi_test[1]_tests.cmake")
-else()
-  add_test(rmi_test_NOT_BUILT rmi_test_NOT_BUILT)
-endif()

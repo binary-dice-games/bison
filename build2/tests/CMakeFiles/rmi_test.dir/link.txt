@@ -1,1 +1,0 @@
-/usr/bin/c++ -g -Wl,--dependency-file=CMakeFiles/rmi_test.dir/link.d CMakeFiles/rmi_test.dir/rmi_tests.cpp.o -o rmi_test  ../libbison.a ../lib/libgtest.a ../lib/libgmock.a ../lib/libgtest_main.a ../extern/yaml/libyaml.a ../lib/libgtest.a

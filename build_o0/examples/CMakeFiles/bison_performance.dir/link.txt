@@ -1,1 +1,0 @@
-/usr/bin/c++ -O0 -g -Wl,--dependency-file=CMakeFiles/bison_performance.dir/link.d CMakeFiles/bison_performance.dir/performance.cpp.o -o bison_performance  ../libbison.a ../extern/yaml/libyaml.a
