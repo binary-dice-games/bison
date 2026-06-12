@@ -124,7 +124,7 @@ TEST(ClientLifecycleTests, DisconnectNullClientReturnsError) {
 TEST(ClientLifecycleTests, DescribeUnconnectedClientFails) {
   ScopedClientHandle client{make_test_client()};
   bison_handle desc = nullptr;
-  rmi_error err = rmi_client_describe(client, 0, &desc);
+  rmi_error err = rmi_client_describe(client, 0, 0, &desc);
   EXPECT_NE(err, RMI_OK);
   // desc should remain nullptr
   EXPECT_EQ(desc, nullptr);
@@ -183,7 +183,7 @@ TEST(ParameterTests, ClientConnectWithParams) {
 TEST(ErrorHandlingTests, InstantiateNullClientReturnsError) {
   rmi_proxy_handle proxy = nullptr;
   rmi_error err =
-      rmi_client_instantiate(nullptr, H("TestClass"), nullptr, &proxy);
+      rmi_client_instantiate(nullptr, 0, H("TestClass"), nullptr, &proxy);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(proxy, nullptr);
 }
@@ -242,7 +242,7 @@ TEST(ErrorHandlingTests, FutureGetProxyNullReturnsError) {
 
 TEST(ErrorHandlingTests, DescribeAsyncNullClientReturnsError) {
   rmi_future_handle fut = nullptr;
-  rmi_error err = rmi_client_describe_async(nullptr, 0, &fut);
+  rmi_error err = rmi_client_describe_async(nullptr, 0, 0, &fut);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(fut, nullptr);
 }
@@ -250,7 +250,7 @@ TEST(ErrorHandlingTests, DescribeAsyncNullClientReturnsError) {
 TEST(ErrorHandlingTests, InstantiateAsyncNullClientReturnsError) {
   rmi_future_handle fut = nullptr;
   rmi_error err =
-      rmi_client_instantiate_async(nullptr, H("TestClass"), nullptr, &fut);
+      rmi_client_instantiate_async(nullptr, 0, H("TestClass"), nullptr, &fut);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(fut, nullptr);
 }
@@ -477,7 +477,7 @@ TEST_F(StandaloneAbiTests, DescribeAllReturnsHandle) {
   ASSERT_NE(sa.h, nullptr);
 
   bison_handle desc = nullptr;
-  EXPECT_EQ(rmi_client_describe(sa, 0, &desc), RMI_OK);
+  EXPECT_EQ(rmi_client_describe(sa, 0, 0, &desc), RMI_OK);
   EXPECT_NE(desc, nullptr);
   bison_release(desc);
 }
@@ -491,7 +491,7 @@ TEST_F(StandaloneAbiTests, InstantiateAndProxyGetField) {
   rmi_proxy_handle proxy = nullptr;
   ASSERT_EQ(
       rmi_client_instantiate(
-          sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+          sa, 0, bison_key("StandaloneCounter"), nullptr, &proxy),
       RMI_OK);
   ASSERT_NE(proxy, nullptr);
 
@@ -516,7 +516,7 @@ TEST_F(StandaloneAbiTests, ProxySetAndGet) {
   rmi_proxy_handle proxy = nullptr;
   ASSERT_EQ(
       rmi_client_instantiate(
-          sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+          sa, 0, bison_key("StandaloneCounter"), nullptr, &proxy),
       RMI_OK);
   ASSERT_NE(proxy, nullptr);
 
@@ -548,7 +548,7 @@ TEST_F(StandaloneAbiTests, ProxyClearResetsField) {
   rmi_proxy_handle proxy = nullptr;
   ASSERT_EQ(
       rmi_client_instantiate(
-          sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+          sa, 0, bison_key("StandaloneCounter"), nullptr, &proxy),
       RMI_OK);
 
   ScopedBisonHandle fields{bison_create(0)};
@@ -573,7 +573,7 @@ TEST_F(StandaloneAbiTests, InstantiateUnregisteredClassFails) {
 
   rmi_proxy_handle proxy = nullptr;
   rmi_error err =
-      rmi_client_instantiate(sa, bison_key("NoSuchClass"), nullptr, &proxy);
+      rmi_client_instantiate(sa, 0, bison_key("NoSuchClass"), nullptr, &proxy);
   EXPECT_NE(err, RMI_OK);
   EXPECT_EQ(proxy, nullptr);
 }

@@ -438,24 +438,27 @@ static inline rmi_error wait_future_bool(
   return RMI_OK;
 }
 
-static inline std::future<dynamic> make_describe_future(
-    rmi_client_handle h,
-    bison_hash klass) {
+static inline std::future<dynamic>
+make_describe_future(rmi_client_handle h, bison_hash ns, bison_hash klass) {
   if (auto* sa = standalone_deref(h))
-    return sa->describe(bdg::bison::key_t{klass});
-  return client_deref(h)->describe(bdg::bison::key_t{klass});
+    return sa->describe(bdg::bison::key_t{ns}, bdg::bison::key_t{klass});
+  return client_deref(h)->describe(
+      bdg::bison::key_t{ns}, bdg::bison::key_t{klass});
 }
 
 static inline std::future<proxy::dynamic> make_instantiate_future(
     rmi_client_handle h,
+    bison_hash ns,
     bison_hash klass,
     bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
   if (auto* sa = standalone_deref(h))
-    return sa->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
+    return sa->instantiate(
+        bdg::bison::key_t{ns}, bdg::bison::key_t{klass}, std::move(dyn_params));
 
   client* c = client_deref(h);
-  return c->instantiate(0U, bdg::bison::key_t{klass}, std::move(dyn_params));
+  return c->instantiate(
+      bdg::bison::key_t{ns}, bdg::bison::key_t{klass}, std::move(dyn_params));
 }
 
 static inline std::future<bool> make_proxy_clear_future(proxy::dynamic* px) {
@@ -569,6 +572,7 @@ RMI_API rmi_error rmi_client_connect(rmi_client_handle h, bison_handle params) {
 
 RMI_API rmi_error rmi_client_describe(
     rmi_client_handle h,
+    bison_hash ns,
     bison_hash klass,
     bison_handle* out_desc) {
   if (!out_desc)
@@ -576,7 +580,7 @@ RMI_API rmi_error rmi_client_describe(
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    dynamic desc = make_describe_future(h, klass).get();
+    dynamic desc = make_describe_future(h, ns, klass).get();
     *out_desc = dynamic_to_bison_handle(std::move(desc));
     return RMI_OK;
   } catch (const std::runtime_error&) {
@@ -588,13 +592,14 @@ RMI_API rmi_error rmi_client_describe(
 
 RMI_API rmi_error rmi_client_describe_async(
     rmi_client_handle h,
+    bison_hash ns,
     bison_hash klass,
     rmi_future_handle* out_future) {
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
     return store_future_handle<dynamic_future_state>(
-        out_future, make_describe_future(h, klass));
+        out_future, make_describe_future(h, ns, klass));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -604,6 +609,7 @@ RMI_API rmi_error rmi_client_describe_async(
 
 RMI_API rmi_error rmi_client_instantiate(
     rmi_client_handle h,
+    bison_hash ns,
     bison_hash klass,
     bison_handle params,
     rmi_proxy_handle* out_proxy) {
@@ -612,7 +618,8 @@ RMI_API rmi_error rmi_client_instantiate(
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    proxy::dynamic proxy_obj = make_instantiate_future(h, klass, params).get();
+    proxy::dynamic proxy_obj =
+        make_instantiate_future(h, ns, klass, params).get();
     auto* pp =
         new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy_obj)));
     *out_proxy = as_proxy_handle(pp);
@@ -626,6 +633,7 @@ RMI_API rmi_error rmi_client_instantiate(
 
 RMI_API rmi_error rmi_client_instantiate_async(
     rmi_client_handle h,
+    bison_hash ns,
     bison_hash klass,
     bison_handle params,
     rmi_future_handle* out_future) {
@@ -633,7 +641,7 @@ RMI_API rmi_error rmi_client_instantiate_async(
     return RMI_ERR_NULL;
   try {
     return store_future_handle<proxy_future_state>(
-        out_future, make_instantiate_future(h, klass, params));
+        out_future, make_instantiate_future(h, ns, klass, params));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {

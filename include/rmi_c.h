@@ -219,14 +219,15 @@ rmi_client_connect(rmi_client_handle client, bison_handle params);
  * @brief Request class metadata from the server.
  *
  * @param client    Valid connected client handle.
- * @param klass     Class key to query (use `bison_key()` to compute), or `0`
- * for all metadata.
+ * @param ns        Namespace key to query, or `0` for the global namespace.
+ * @param klass     Class key to query, or `0` for all metadata.
  * @param out_desc  Output handle for the description object; caller must
  *                  release this with `bison_release()`.
  * @return `RMI_OK` on success, or a negative error code.
  */
 RMI_API rmi_error rmi_client_describe(
     rmi_client_handle client,
+    bison_hash ns,
     bison_hash klass,
     bison_handle* out_desc);
 
@@ -234,6 +235,7 @@ RMI_API rmi_error rmi_client_describe(
  * @brief Request class metadata from the server asynchronously.
  *
  * @param client      Valid connected client handle.
+ * @param ns          Namespace key to query, or `0` for the global namespace.
  * @param klass       Class key to query, or `0` for all metadata.
  * @param out_future  Output async future consumed with
  *                    `rmi_future_get_dynamic()`.
@@ -241,6 +243,7 @@ RMI_API rmi_error rmi_client_describe(
  */
 RMI_API rmi_error rmi_client_describe_async(
     rmi_client_handle client,
+    bison_hash ns,
     bison_hash klass,
     rmi_future_handle* out_future);
 
@@ -248,6 +251,7 @@ RMI_API rmi_error rmi_client_describe_async(
  * @brief Instantiate a remote object on the server.
  *
  * @param client    Valid connected client handle.
+ * @param ns        Namespace key to instantiate in, or `0` for global.
  * @param klass     Class key to instantiate (use `bison_key()` to compute).
  * @param params    Constructor parameters (`bison_handle` or `NULL`).
  * @param out_proxy Output proxy handle for the remote object; the caller owns
@@ -256,6 +260,7 @@ RMI_API rmi_error rmi_client_describe_async(
  */
 RMI_API rmi_error rmi_client_instantiate(
     rmi_client_handle client,
+    bison_hash ns,
     bison_hash klass,
     bison_handle params,
     rmi_proxy_handle* out_proxy);
@@ -264,6 +269,7 @@ RMI_API rmi_error rmi_client_instantiate(
  * @brief Instantiate a remote object asynchronously.
  *
  * @param client      Valid connected client handle.
+ * @param ns          Namespace key to instantiate in, or `0` for global.
  * @param klass       Class key to instantiate.
  * @param params      Constructor parameters (`bison_handle` or `NULL`).
  * @param out_future  Output async future consumed with
@@ -272,6 +278,7 @@ RMI_API rmi_error rmi_client_instantiate(
  */
 RMI_API rmi_error rmi_client_instantiate_async(
     rmi_client_handle client,
+    bison_hash ns,
     bison_hash klass,
     bison_handle params,
     rmi_future_handle* out_future);

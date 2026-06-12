@@ -37,8 +37,11 @@ void client::connect(bison::dynamic params) {
 }
 
 /** @copydoc bdg::bison::rmi::client::describe */
-std::future<bison::dynamic> client::describe(bison::key_t klass) {
+std::future<bison::dynamic> client::describe(
+    bison::key_t ns,
+    bison::key_t klass) {
   bison::dynamic payload;
+  payload[FIELD_NAMESPACE] = ns;
   payload[FIELD_KLASS] = klass;
   return send_request(OP_DESCRIBE, {}, std::move(payload), false);
 }

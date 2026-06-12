@@ -460,45 +460,67 @@ class client {
   /**
    * @brief Request class metadata from the server (synchronous).
    *
+   * @param ns     Namespace key, or `0` for the global namespace.
    * @param klass  Class key (use `object::key()`); `0` for all metadata.
    * @return Owning descriptor object.
    * @throws std::runtime_error on failure.
    */
-  dynamic describe(bison_hash klass = 0) const {
+  dynamic describe(bison_hash ns = 0, bison_hash klass = 0) const {
     bison_handle out = nullptr;
-    detail::check(rmi_client_describe(h_, klass, &out), "rmi_client_describe");
+    detail::check(
+        rmi_client_describe(h_, ns, klass, &out), "rmi_client_describe");
     return dynamic::own(out);
   }
 
   /**
    * @brief Request class metadata asynchronously.
    *
+   * @param ns     Namespace key, or `0` for the global namespace.
    * @param klass  Class key; `0` for all metadata.
    * @return Future consumed with `future::get_dynamic()`.
    * @throws std::runtime_error on submission failure.
    */
-  future describe_async(bison_hash klass = 0) const {
+  future describe_async(bison_hash ns = 0, bison_hash klass = 0) const {
     rmi_future_handle f = nullptr;
     detail::check(
-        rmi_client_describe_async(h_, klass, &f), "rmi_client_describe_async");
+        rmi_client_describe_async(h_, ns, klass, &f),
+        "rmi_client_describe_async");
     return future::own(f);
   }
 
   /**
    * @brief Instantiate a remote object (synchronous).
    *
+   * @param ns      Namespace key, or `0` for the global namespace.
    * @param klass   Class key (use `object::key()`).
    * @param params  Constructor arguments; pass a default-constructed `object`
    *                for none.
    * @return Owning proxy for the remote object.
    * @throws std::runtime_error on failure.
    */
-  proxy instantiate(bison_hash klass, const dynamic& params = dynamic{}) {
+  proxy instantiate(
+      bison_hash ns,
+      bison_hash klass,
+      const dynamic& params = dynamic{}) {
     rmi_proxy_handle p = nullptr;
     detail::check(
-        rmi_client_instantiate(h_, klass, params.get(), &p),
+        rmi_client_instantiate(h_, ns, klass, params.get(), &p),
         "rmi_client_instantiate");
     return proxy::own(p);
+  }
+
+  /**
+   * @brief Instantiate a remote object in the global namespace.
+   *
+   * Convenience overload forwarding to the namespace-aware form.
+   *
+   * @param klass   Class key.
+   * @param params  Constructor arguments.
+   * @return Owning proxy for the remote object.
+   * @throws std::runtime_error on failure.
+   */
+  proxy instantiate(bison_hash klass, const dynamic& params = dynamic()) {
+    return instantiate(0, klass, params);
   }
 
   /**
@@ -506,6 +528,28 @@ class client {
    *
    * Consume the returned future with `future::get_proxy()` to obtain the
    * owning `proxy`.
+   *
+   * @param ns      Namespace key, or `0` for the global namespace.
+   * @param klass   Class key to instantiate.
+   * @param params  Constructor arguments.
+   * @return Future consumed with `future::get_proxy()`.
+   * @throws std::runtime_error on submission failure.
+   */
+  future instantiate_async(
+      bison_hash ns,
+      bison_hash klass,
+      const dynamic& params = dynamic{}) {
+    rmi_future_handle f = nullptr;
+    detail::check(
+        rmi_client_instantiate_async(h_, ns, klass, params.get(), &f),
+        "rmi_client_instantiate_async");
+    return future::own(f);
+  }
+
+  /**
+   * @brief Instantiate a remote object asynchronously in the global namespace.
+   *
+   * Convenience overload forwarding to the namespace-aware form.
    *
    * @param klass   Class key.
    * @param params  Constructor arguments.
@@ -515,11 +559,7 @@ class client {
   future instantiate_async(
       bison_hash klass,
       const dynamic& params = dynamic{}) {
-    rmi_future_handle f = nullptr;
-    detail::check(
-        rmi_client_instantiate_async(h_, klass, params.get(), &f),
-        "rmi_client_instantiate_async");
-    return future::own(f);
+    return instantiate_async(0, klass, params);
   }
 
   /** @brief Return the raw handle without transferring ownership. */

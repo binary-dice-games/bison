@@ -107,16 +107,18 @@ void standalone::connect(bison::dynamic /*params*/) {
 }
 
 /** @copydoc bdg::bison::rmi::standalone::describe */
-std::future<bison::dynamic> standalone::describe(bison::key_t klass) {
-  return enqueue([this, klass]() { return handle_describe(klass); });
+std::future<bison::dynamic> standalone::describe(
+    bison::key_t ns,
+    bison::key_t klass) {
+  return enqueue([this, ns, klass]() { return handle_describe(ns, klass); });
 }
 
-/** @copydoc bdg::bison::rmi::standalone::instantiate */
 std::future<proxy::dynamic> standalone::instantiate(
+    bison::key_t ns,
     bison::key_t klass,
     bison::dynamic params) {
-  auto f = enqueue([this, klass, params = std::move(params)]() mutable {
-    return handle_instantiate(klass, std::move(params));
+  auto f = enqueue([this, ns, klass, params = std::move(params)]() mutable {
+    return handle_instantiate(ns, klass, std::move(params));
   });
   return std::async(std::launch::async, [this, f = std::move(f)]() mutable {
     auto result = f.get();
@@ -252,14 +254,20 @@ void standalone::stop_worker() {
  *
  * Mirrors `server::handle_describe` without transport.
  */
-bison::dynamic standalone::handle_describe(bison::key_t klass) {
+bison::dynamic standalone::handle_describe(
+    bison::key_t ns,
+    bison::key_t klass) {
   bison::dynamic resp;
   auto lp = bison::dynamic::getRegistry().rlock();
   const auto& classes = *lp;
 
   if (static_cast<bison::hash_t>(klass) == 0u) {
+    auto nsIt = classes.find(ns);
+    if (nsIt == classes.end())
+      return resp;
+
     std::size_t idx = 0;
-    for (const auto& [k, proto] : classes) {
+    for (const auto& [k, proto] : nsIt->second) {
       if (k == CLASS_ENVELOPE)
         continue;
       bison::dynamic desc;
@@ -268,12 +276,11 @@ bison::dynamic standalone::handle_describe(bison::key_t klass) {
     }
   } else {
     const bison::dynamic* proto = nullptr;
-    for (const auto& [ns, classes] : classes) {
-      auto it = classes.find(klass);
-      if (it != classes.end()) {
+    auto nsIt = classes.find(ns);
+    if (nsIt != classes.end()) {
+      auto it = nsIt->second.find(klass);
+      if (it != nsIt->second.end())
         proto = it->second.get();
-        break;
-      }
     }
     if (!proto)
       throw std::runtime_error("Class not found");
@@ -293,18 +300,20 @@ bison::dynamic standalone::handle_describe(bison::key_t klass) {
  * response payload containing the new object ID.
  */
 bison::dynamic standalone::handle_instantiate(
+    bison::key_t ns,
     bison::key_t klass,
     bison::dynamic params) {
   {
     auto lp = bison::dynamic::getRegistry().rlock();
-    if (!lp->count(klass))
+    auto nsIt = lp->find(ns);
+    if (nsIt == lp->end() || !nsIt->second.count(klass))
       throw std::runtime_error(
-          std::string("Class not registered: ") +
+          std::string("Class not registered in requested namespace: ") +
           std::to_string(static_cast<bison::hash_t>(klass)));
   }
 
   auto obj =
-      std::make_shared<bison::dynamic>(bison::dynamic::instantiate(klass));
+      std::make_shared<bison::dynamic>(bison::dynamic::instantiate(ns, klass));
 
   if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
     obj->call(HOOK_CONSTRUCT, params);

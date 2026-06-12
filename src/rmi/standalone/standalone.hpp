@@ -99,7 +99,9 @@ class standalone : public proxy_backend {
    *              descriptors for all registered classes.
    * @return Future already resolved with the description payload.
    */
-  std::future<bison::dynamic> describe(bison::key_t klass = 0U);
+  std::future<bison::dynamic> describe(
+      bison::key_t ns = 0U,
+      bison::key_t klass = 0U);
 
   /**
    * @brief Instantiate an object from the local class registry.
@@ -109,13 +111,15 @@ class standalone : public proxy_backend {
    * the object in the internal session context, and returns a proxy that owns
    * the object ID.
    *
-   * @param klass  Class key to instantiate.
+   * @param ns    Namespace key; `0U` selects the global namespace.
+   * @param klass Class key to instantiate.
    * @param params Optional constructor parameters forwarded to `__construct`.
    * @return Future already resolved with a `proxy::dynamic` owning the new
    *         object.
    * @throws std::runtime_error if the class is not registered.
    */
   std::future<proxy::dynamic> instantiate(
+      bison::key_t ns,
       bison::key_t klass,
       bison::dynamic params = bison::dynamic{});
 
@@ -130,7 +134,8 @@ class standalone : public proxy_backend {
   void destroy(proxy::dynamic&& proxy);
 
   /**
-   * @brief No-op compatibility shim for code that calls `disconnect` generically.
+   * @brief No-op compatibility shim for code that calls `disconnect`
+   * generically.
    *
    * There is no transport to close in standalone mode; this function always
    * returns immediately without error.
@@ -233,8 +238,11 @@ class standalone : public proxy_backend {
 
   // ── Operation handlers (mirror server-side logic without transport) ───────
 
-  bison::dynamic handle_describe(bison::key_t klass);
-  bison::dynamic handle_instantiate(bison::key_t klass, bison::dynamic params);
+  bison::dynamic handle_describe(bison::key_t ns, bison::key_t klass);
+  bison::dynamic handle_instantiate(
+      bison::key_t ns,
+      bison::key_t klass,
+      bison::dynamic params);
   bison::dynamic handle_clear(bison::key_t object_id);
   bison::dynamic handle_set(bison::key_t object_id, bison::dynamic payload);
   bison::dynamic handle_get(bison::key_t object_id, bison::dynamic projection);

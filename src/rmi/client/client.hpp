@@ -38,11 +38,12 @@ namespace bdg::bison::rmi {
  *
  * ## Transport
  *
- * The primary constructor accepts a `unique_ptr<transport::client_transport_iface>`
- * giving the caller full control over which transport is used (TCP socket,
- * stdio, in-memory, or any custom implementation).  A template convenience
- * constructor is also provided so concrete transport objects can be passed
- * directly and are automatically wrapped in a `unique_ptr`:
+ * The primary constructor accepts a
+ * `unique_ptr<transport::client_transport_iface>` giving the caller full
+ * control over which transport is used (TCP socket, stdio, in-memory, or any
+ * custom implementation).  A template convenience constructor is also provided
+ * so concrete transport objects can be passed directly and are automatically
+ * wrapped in a `unique_ptr`:
  *
  * ```cpp
  * // Explicit ownership transfer:
@@ -59,8 +60,7 @@ class client : public proxy_backend {
    * @brief Construct a client that takes ownership of @p transport.
    * @param transport Transport implementation to use.
    */
-  explicit client(
-      std::unique_ptr<transport::client_transport_iface> transport)
+  explicit client(std::unique_ptr<transport::client_transport_iface> transport)
       : transport_(std::move(transport)) {}
 
   /**
@@ -80,8 +80,9 @@ class client : public proxy_backend {
               std::decay_t<TTransport>>,
           int> = 0>
   explicit client(TTransport&& transport)
-      : client(std::make_unique<std::decay_t<TTransport>>(
-            std::forward<TTransport>(transport))) {}
+      : client(
+            std::make_unique<std::decay_t<TTransport>>(
+                std::forward<TTransport>(transport))) {}
 
   client(const client&) = delete;
   client& operator=(const client&) = delete;
@@ -98,13 +99,15 @@ class client : public proxy_backend {
 
   /**
    * @brief Request class metadata from the server.
+   * @param ns Namespace key; `0U` selects the global namespace.
    * @param klass Optional class key. Pass `0` to request full metadata.
    * @return Future resolved with the description payload from the server.
    */
-  std::future<bison::dynamic> describe(bison::key_t klass = 0U);
+  std::future<bison::dynamic> describe(
+      bison::key_t ns = 0U,
+      bison::key_t klass = 0U);
 
-  /**
-   * @brief Create a remote object instance on the server.
+  /**   * @brief Create a remote object instance on the server.
    * @param ns Class namespace key; `0U` selects the global namespace.
    * @param klass Class key to instantiate.
    * @param params Optional constructor parameters.
