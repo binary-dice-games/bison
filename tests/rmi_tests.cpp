@@ -243,7 +243,8 @@ TEST(SocketTransport, SendReceivePair) {
   client_t.send(frame);
 
   buffer received;
-  const bool ok = server_conn->receive(received, std::chrono::milliseconds{500});
+  const bool ok =
+      server_conn->receive(received, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
   EXPECT_EQ(received, frame);
 
@@ -968,8 +969,7 @@ TEST_F(StandaloneTests, ConnectAndDisconnectAreNoOps) {
 
 TEST_F(StandaloneTests, DescribeAllClassesReturnsRegistered) {
   auto proto = dynamic_ptr{
-      "Widget"_key,
-      {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+      "Widget"_key, {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   standalone sa;
@@ -1004,8 +1004,7 @@ TEST_F(StandaloneTests, DescribeUnknownClassThrows) {
 
 TEST_F(StandaloneTests, InstantiateUnregisteredClassFails) {
   standalone sa;
-  EXPECT_THROW(
-      sa.instantiate("NonExistent"_key).get(), std::runtime_error);
+  EXPECT_THROW(sa.instantiate(0U, "NonExistent"_key).get(), std::runtime_error);
 }
 
 TEST_F(StandaloneTests, InstantiateAndDestroyRegisteredClass) {
@@ -1013,7 +1012,7 @@ TEST_F(StandaloneTests, InstantiateAndDestroyRegisteredClass) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto proxy = sa.instantiate("Counter"_key).get();
+  auto proxy = sa.instantiate(0U, "Counter"_key).get();
   EXPECT_TRUE(proxy.valid());
   EXPECT_NE(static_cast<hash_t>(proxy.object_id()), 0u);
 
@@ -1026,7 +1025,7 @@ TEST_F(StandaloneTests, SetAndGetField) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto proxy = sa.instantiate("Box"_key).get();
+  auto proxy = sa.instantiate(0U, "Box"_key).get();
 
   dynamic fields;
   fields["x"_key] = int32_t{42};
@@ -1047,7 +1046,7 @@ TEST_F(StandaloneTests, GetProjection) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto proxy = sa.instantiate("Point"_key).get();
+  auto proxy = sa.instantiate(0U, "Point"_key).get();
 
   dynamic fields;
   fields["a"_key] = int32_t{1};
@@ -1076,7 +1075,7 @@ TEST_F(StandaloneTests, ClearResetsFields) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto proxy = sa.instantiate("Config"_key).get();
+  auto proxy = sa.instantiate(0U, "Config"_key).get();
 
   dynamic fields;
   fields["timeout"_key] = int32_t{999};
@@ -1105,7 +1104,7 @@ TEST_F(StandaloneTests, CallMethod) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto proxy = sa.instantiate("Adder"_key).get();
+  auto proxy = sa.instantiate(0U, "Adder"_key).get();
 
   dynamic params;
   params["a"_key] = int32_t{3};
@@ -1122,14 +1121,12 @@ TEST_F(StandaloneTests, ConstructAndDestructHooksAreCalled) {
 
   auto proto = dynamic_ptr{"Tracked"_key, {}};
   proto->addMethod(
-      HOOK_CONSTRUCT,
-      [&constructed](dynamic& /*self*/, const dynamic&) {
+      HOOK_CONSTRUCT, [&constructed](dynamic& /*self*/, const dynamic&) {
         ++constructed;
         return dynamic{};
       });
   proto->addMethod(
-      HOOK_DESTRUCT,
-      [&destructed](dynamic& /*self*/, const dynamic&) {
+      HOOK_DESTRUCT, [&destructed](dynamic& /*self*/, const dynamic&) {
         ++destructed;
         return dynamic{};
       });
@@ -1137,7 +1134,7 @@ TEST_F(StandaloneTests, ConstructAndDestructHooksAreCalled) {
 
   {
     standalone sa;
-    auto proxy = sa.instantiate("Tracked"_key).get();
+    auto proxy = sa.instantiate(0U, "Tracked"_key).get();
     EXPECT_EQ(constructed.load(), 1);
     EXPECT_EQ(destructed.load(), 0);
 
@@ -1151,7 +1148,7 @@ TEST_F(StandaloneTests, DestroyInvalidatesProxy) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto proxy = sa.instantiate("Node"_key).get();
+  auto proxy = sa.instantiate(0U, "Node"_key).get();
   EXPECT_TRUE(proxy.valid());
 
   sa.destroy(std::move(proxy));
@@ -1163,8 +1160,8 @@ TEST_F(StandaloneTests, TwoProxiesAreIsolated) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  auto p1 = sa.instantiate("Cell"_key).get();
-  auto p2 = sa.instantiate("Cell"_key).get();
+  auto p1 = sa.instantiate(0U, "Cell"_key).get();
+  auto p2 = sa.instantiate(0U, "Cell"_key).get();
 
   dynamic f1;
   f1["value"_key] = int32_t{10};
