@@ -40,8 +40,12 @@
 #include "bison_c.hpp"
 #include "rmi_c.h"
 
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace bdg::rmi::abi {
 
@@ -53,6 +57,18 @@ inline void check(rmi_error err, const char* msg) {
         std::string(msg) + " (code " + std::to_string(static_cast<int>(err)) +
         ")");
   }
+}
+
+using EventCallback = std::function<void(const bdg::bison::object& params)>;
+
+inline void event_adapter(bison_handle params, void* user) {
+  auto* callback = static_cast<EventCallback*>(user);
+  if (!callback) {
+    return;
+  }
+
+  bdg::bison::object params_obj = bdg::bison::object::borrow(params);
+  (*callback)(params_obj);
 }
 
 } // namespace detail
@@ -204,10 +220,44 @@ class proxy {
   // ── Event subscription ────────────────────────────────────────────────────
 
   /**
+   * @brief Event callback type for a subscribed proxy event.
+   *
+   * @param params  Read-only event parameters.
+   */
+  using event_callback = std::function<void(const object& params)>;
+
+  /**
    * @brief Subscribe to a server-initiated event on this proxy.
    *
    * @param event_name  Hashed event name (use `object::key()`).
-   * @param handler     Callback invoked on the client's worker thread.
+   * @param callback    Callable invoked on the client's worker thread.
+   * @throws std::runtime_error on error.
+   *
+   * Lambda captures are supported because the callback is stored inside the
+   * proxy until the proxy itself is destroyed.
+   */
+  void on_event(uint32_t event_name, event_callback callback) {
+    if (!callback) {
+      throw std::invalid_argument("event callback must not be empty");
+    }
+
+    auto callback_ptr =
+        std::make_unique<detail::EventCallback>(std::move(callback));
+    auto* callback_raw = callback_ptr.get();
+
+    detail::check(
+        rmi_proxy_on_event(p_, event_name, detail::event_adapter, callback_raw),
+        "rmi_proxy_on_event");
+
+    event_state_->add_callback(std::move(callback_ptr));
+  }
+
+  /**
+   * @brief Subscribe to a server-initiated event on this proxy using a raw
+   * callback function.
+   *
+   * @param event_name  Hashed event name (use `object::key()`).
+   * @param handler     Event callback function.
    * @param user        Arbitrary context pointer passed to @p handler.
    * @throws std::runtime_error on error.
    */
@@ -315,7 +365,18 @@ class proxy {
   call_async(client& c, uint32_t method, const object& params = object{});
 
  private:
+  struct event_state {
+    void add_callback(std::unique_ptr<detail::EventCallback> callback) {
+      std::lock_guard<std::mutex> lock(mutex);
+      callbacks.push_back(std::move(callback));
+    }
+
+    std::mutex mutex;
+    std::vector<std::unique_ptr<detail::EventCallback>> callbacks;
+  };
+
   rmi_proxy_handle p_ = nullptr;
+  std::shared_ptr<event_state> event_state_ = std::make_shared<event_state>();
   explicit proxy(rmi_proxy_handle p) noexcept : p_(p) {}
 };
 
