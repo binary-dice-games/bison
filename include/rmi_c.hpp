@@ -7,8 +7,8 @@
  * @file rmi_c.hpp
  * @brief C++ RAII wrappers for the Bison RMI C ABI (`rmi_c.h`).
  *
- * Provides `bdg::rmi_c::future`, `bdg::rmi_c::client`,
- * `bdg::rmi_c::server`, and `bdg::rmi_c::proxy` — thin, header-only RAII
+ * Provides `bdg::rmi::abi::future`, `bdg::rmi::abi::client`,
+ * `bdg::rmi::abi::server`, and `bdg::rmi::abi::proxy` — thin, header-only RAII
  * classes that sit on top of the stable C ABI and offer a more idiomatic
  * C++ interface:
  *
@@ -25,7 +25,7 @@
  * ### Example
  * @code{.cpp}
  * #include "rmi_c.hpp"
- * using namespace bdg::rmi_c;
+ * using namespace bdg::rmi::abi;
  *
  * auto c = client::tcp("127.0.0.1", 8080);
  * c.connect();
@@ -43,7 +43,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace bdg::rmi_c {
+namespace bdg::rmi::abi {
 
 namespace detail {
 
@@ -58,7 +58,7 @@ inline void check(rmi_error err, const char* msg) {
 } // namespace detail
 
 /** @brief Convenience alias for the bison object wrapper. */
-using object = bdg::bison::abi::object;
+using dynamic = bdg::bison::abi::dynamic;
 
 // ────────────────────────────────────────────────────────────────────────────
 // future — RAII wrapper for rmi_future_handle
@@ -128,10 +128,10 @@ class future {
    * @return Owning `object` wrapping the result value.
    * @throws std::runtime_error on error.
    */
-  object get_dynamic() {
+  dynamic get_dynamic() {
     bison_handle out = nullptr;
     detail::check(rmi_future_get_dynamic(&f_, &out), "rmi_future_get_dynamic");
-    return object::own(out);
+    return dynamic::own(out);
   }
 
   /** @brief Return the raw handle without transferring ownership. */
@@ -249,7 +249,7 @@ class proxy {
    * @param timeout_ms  Timeout in milliseconds; `-1` for the default.
    * @throws std::runtime_error on error.
    */
-  void set(client& c, const object& fields, int64_t timeout_ms = -1);
+  void set(client& c, const dynamic& fields, int64_t timeout_ms = -1);
 
   /**
    * @brief Apply a partial field update asynchronously.
@@ -259,7 +259,7 @@ class proxy {
    * @return Future waited on with `future::wait()`.
    * @throws std::runtime_error on submission failure.
    */
-  future set_async(client& c, const object& fields);
+  future set_async(client& c, const dynamic& fields);
 
   /**
    * @brief Retrieve fields from the remote object (synchronous).
@@ -271,8 +271,10 @@ class proxy {
    * @return Owning result object.
    * @throws std::runtime_error on error.
    */
-  object
-  get(client& c, const object& projection = object{}, int64_t timeout_ms = -1);
+  dynamic get(
+      client& c,
+      const dynamic& projection = dynamic{},
+      int64_t timeout_ms = -1);
 
   /**
    * @brief Retrieve fields from the remote object asynchronously.
@@ -282,7 +284,7 @@ class proxy {
    * @return Future consumed with `future::get_dynamic()`.
    * @throws std::runtime_error on submission failure.
    */
-  future get_async(client& c, const object& projection = object{});
+  future get_async(client& c, const dynamic& projection = dynamic{});
 
   /**
    * @brief Call a method on the remote object (synchronous).
@@ -295,10 +297,10 @@ class proxy {
    * @return Result object (caller owns).
    * @throws std::runtime_error on error.
    */
-  object call(
+  dynamic call(
       client& c,
       uint32_t method,
-      const object& params = object{},
+      const dynamic& params = dynamic{},
       int64_t timeout_ms = -1);
 
   /**
@@ -312,7 +314,7 @@ class proxy {
    * @throws std::runtime_error on submission failure.
    */
   future
-  call_async(client& c, uint32_t method, const object& params = object{});
+  call_async(client& c, uint32_t method, const dynamic& params = dynamic{});
 
  private:
   rmi_proxy_handle p_ = nullptr;
@@ -379,10 +381,10 @@ class client {
    * @brief Connect to the server and start the background worker thread.
    *
    * @param params  Optional connection parameters; pass a
-   *                default-constructed `object` for none.
+   *                default-constructed `dynamic` for none.
    * @throws std::runtime_error on failure.
    */
-  void connect(const object& params = object{}) {
+  void connect(const dynamic& params = dynamic{}) {
     detail::check(rmi_client_connect(h_, params.get()), "rmi_client_connect");
   }
 
@@ -401,10 +403,10 @@ class client {
    * @return Owning descriptor object.
    * @throws std::runtime_error on failure.
    */
-  object describe(uint32_t klass = 0) const {
+  dynamic describe(uint32_t klass = 0) const {
     bison_handle out = nullptr;
     detail::check(rmi_client_describe(h_, klass, &out), "rmi_client_describe");
-    return object::own(out);
+    return dynamic::own(out);
   }
 
   /**
@@ -430,7 +432,7 @@ class client {
    * @return Owning proxy for the remote object.
    * @throws std::runtime_error on failure.
    */
-  proxy instantiate(uint32_t klass, const object& params = object{}) {
+  proxy instantiate(uint32_t klass, const dynamic& params = dynamic{}) {
     rmi_proxy_handle p = nullptr;
     detail::check(
         rmi_client_instantiate(h_, klass, params.get(), &p),
@@ -449,7 +451,7 @@ class client {
    * @return Future consumed with `future::get_proxy()`.
    * @throws std::runtime_error on submission failure.
    */
-  future instantiate_async(uint32_t klass, const object& params = object{}) {
+  future instantiate_async(uint32_t klass, const dynamic& params = dynamic{}) {
     rmi_future_handle f = nullptr;
     detail::check(
         rmi_client_instantiate_async(h_, klass, params.get(), &f),
@@ -501,12 +503,12 @@ inline future proxy::clear_async(client& c) {
   return future::own(f);
 }
 
-inline void proxy::set(client& c, const object& fields, int64_t timeout_ms) {
+inline void proxy::set(client& c, const dynamic& fields, int64_t timeout_ms) {
   detail::check(
       rmi_proxy_set(c.get(), p_, fields.get(), timeout_ms), "rmi_proxy_set");
 }
 
-inline future proxy::set_async(client& c, const object& fields) {
+inline future proxy::set_async(client& c, const dynamic& fields) {
   rmi_future_handle f = nullptr;
   detail::check(
       rmi_proxy_set_async(c.get(), p_, fields.get(), &f),
@@ -514,16 +516,16 @@ inline future proxy::set_async(client& c, const object& fields) {
   return future::own(f);
 }
 
-inline object
-proxy::get(client& c, const object& projection, int64_t timeout_ms) {
+inline dynamic
+proxy::get(client& c, const dynamic& projection, int64_t timeout_ms) {
   bison_handle out = nullptr;
   detail::check(
       rmi_proxy_get(c.get(), p_, projection.get(), &out, timeout_ms),
       "rmi_proxy_get");
-  return object::own(out);
+  return dynamic::own(out);
 }
 
-inline future proxy::get_async(client& c, const object& projection) {
+inline future proxy::get_async(client& c, const dynamic& projection) {
   rmi_future_handle f = nullptr;
   detail::check(
       rmi_proxy_get_async(c.get(), p_, projection.get(), &f),
@@ -531,20 +533,20 @@ inline future proxy::get_async(client& c, const object& projection) {
   return future::own(f);
 }
 
-inline object proxy::call(
+inline dynamic proxy::call(
     client& c,
     uint32_t method,
-    const object& params,
+    const dynamic& params,
     int64_t timeout_ms) {
   bison_handle out = nullptr;
   detail::check(
       rmi_proxy_call(c.get(), p_, method, params.get(), &out, timeout_ms),
       "rmi_proxy_call");
-  return object::own(out);
+  return dynamic::own(out);
 }
 
 inline future
-proxy::call_async(client& c, uint32_t method, const object& params) {
+proxy::call_async(client& c, uint32_t method, const dynamic& params) {
   rmi_future_handle f = nullptr;
   detail::check(
       rmi_proxy_call_async(c.get(), p_, method, params.get(), &f),
@@ -612,10 +614,10 @@ class server {
    * @brief Start listening for incoming client connections.
    *
    * @param params  Optional listen parameters; pass a default-constructed
-   *                `object` for none.
+   *                `dynamic` for none.
    * @throws std::runtime_error on failure.
    */
-  void listen(const object& params = object{}) {
+  void listen(const dynamic& params = dynamic{}) {
     detail::check(rmi_server_listen(h_, params.get()), "rmi_server_listen");
   }
 
@@ -639,4 +641,4 @@ class server {
   explicit server(rmi_server_handle h) noexcept : h_(h) {}
 };
 
-} // namespace bdg::rmi_c
+} // namespace bdg::rmi::abi

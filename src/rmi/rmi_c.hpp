@@ -7,8 +7,8 @@
  * @file rmi_c.hpp
  * @brief C++ RAII wrappers for the Bison RMI C ABI (`rmi_c.h`).
  *
- * Provides `bdg::rmi_c::future`, `bdg::rmi_c::client`,
- * `bdg::rmi_c::server`, and `bdg::rmi_c::proxy` — thin, header-only RAII
+ * Provides `bdg::rmi::abi::future`, `bdg::rmi::abi::client`,
+ * `bdg::rmi::abi::server`, and `bdg::rmi::abi::proxy` — thin, header-only RAII
  * classes that sit on top of the stable C ABI and offer a more idiomatic
  * C++ interface:
  *
@@ -25,7 +25,7 @@
  * ### Example
  * @code{.cpp}
  * #include "src/rmi/rmi_c.hpp"
- * using namespace bdg::rmi_c;
+ * using namespace bdg::rmi::abi;
  *
  * auto c = client::tcp("127.0.0.1", 8080);
  * c.connect();
@@ -43,7 +43,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace bdg::rmi_c {
+namespace bdg::rmi::abi {
 
 namespace detail {
 
@@ -58,7 +58,7 @@ inline void check(rmi_error err, const char* msg) {
 } // namespace detail
 
 /** @brief Convenience alias for the bison object wrapper. */
-using object = bdg::bison::abi::object;
+using object = bdg::bison::object;
 
 // ────────────────────────────────────────────────────────────────────────────
 // future — RAII wrapper for rmi_future_handle
@@ -639,4 +639,4 @@ class server {
   explicit server(rmi_server_handle h) noexcept : h_(h) {}
 };
 
-} // namespace bdg::rmi_c
+} // namespace bdg::rmi::abi
