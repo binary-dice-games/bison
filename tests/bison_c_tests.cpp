@@ -476,9 +476,9 @@ TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
 
   auto proto = dynamic::create(klass);
   proto.set(dynamic::key("x"), 7);
-  dynamic::add_class_ns(ns, proto, 0);
+  dynamic::add_class(ns, proto, 0);
 
-  auto found_ns = dynamic::find_class_ns(ns, klass);
+  auto found_ns = dynamic::find_class(ns, klass);
   ASSERT_TRUE(static_cast<bool>(found_ns));
   EXPECT_EQ(found_ns.get<int32_t>(dynamic::key("x")), 7);
 

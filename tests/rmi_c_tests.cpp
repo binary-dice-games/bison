@@ -447,7 +447,7 @@ class StandaloneAbiTests : public ::testing::Test {
     if (!proto)
       return false;
     bison_set_int(proto, bison_key("value"), 0);
-    bool ok = bison_add_class(0, proto) == BISON_OK;
+    bool ok = bison_add_class(0, proto, 0) == BISON_OK;
     bison_release(proto);
     return ok;
   }
@@ -490,7 +490,8 @@ TEST_F(StandaloneAbiTests, InstantiateAndProxyGetField) {
 
   rmi_proxy_handle proxy = nullptr;
   ASSERT_EQ(
-      rmi_client_instantiate(sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+      rmi_client_instantiate(
+          sa, bison_key("StandaloneCounter"), nullptr, &proxy),
       RMI_OK);
   ASSERT_NE(proxy, nullptr);
 
@@ -514,7 +515,8 @@ TEST_F(StandaloneAbiTests, ProxySetAndGet) {
 
   rmi_proxy_handle proxy = nullptr;
   ASSERT_EQ(
-      rmi_client_instantiate(sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+      rmi_client_instantiate(
+          sa, bison_key("StandaloneCounter"), nullptr, &proxy),
       RMI_OK);
   ASSERT_NE(proxy, nullptr);
 
@@ -545,7 +547,8 @@ TEST_F(StandaloneAbiTests, ProxyClearResetsField) {
 
   rmi_proxy_handle proxy = nullptr;
   ASSERT_EQ(
-      rmi_client_instantiate(sa, bison_key("StandaloneCounter"), nullptr, &proxy),
+      rmi_client_instantiate(
+          sa, bison_key("StandaloneCounter"), nullptr, &proxy),
       RMI_OK);
 
   ScopedBisonHandle fields{bison_create(0)};

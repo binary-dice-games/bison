@@ -368,6 +368,16 @@ BISON_API size_t bison_size(bison_handle h) {
   }
 }
 
+BISON_API bison_hash bison_key(const char* name) {
+  if (!name)
+    return 0u;
+  try {
+    return static_cast<bison_hash>(bdg::bison::hash(name));
+  } catch (...) {
+    return 0u;
+  }
+}
+
 // ─── Methods ────────────────────────────────────────────────────────────────
 
 BISON_API bison_error bison_add_method(
