@@ -68,12 +68,8 @@ BISON_API bison_handle bison_create(bison_hash klass_name) {
   }
 }
 
-BISON_API bison_handle bison_instantiate(bison_hash klass_name) {
-  return bison_instantiate_ns(static_cast<bison_hash>(0L), klass_name);
-}
-
 BISON_API bison_handle
-bison_instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
+bison_instantiate(bison_hash ns_name, bison_hash klass_name) {
   try {
     bdg::bison::dynamic obj = bdg::bison::dynamic::instantiate(
         bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
@@ -129,12 +125,7 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
 
 // ─── Class registry ─────────────────────────────────────────────────────────
 
-BISON_API bison_error
-bison_add_class(bison_hash parent_name, bison_handle klass) {
-  return bison_add_class_ns(0, klass, parent_name);
-}
-
-BISON_API bison_error bison_add_class_ns(
+BISON_API bison_error bison_add_class(
     bison_hash ns_name,
     bison_handle klass,
     bison_hash parent_name) {
@@ -153,12 +144,8 @@ BISON_API bison_error bison_add_class_ns(
   }
 }
 
-BISON_API bison_handle bison_find_class(bison_hash klass_name) {
-  return bison_find_class_ns(static_cast<bison_hash>(0L), klass_name);
-}
-
 BISON_API bison_handle
-bison_find_class_ns(bison_hash ns_name, bison_hash klass_name) {
+bison_find_class(bison_hash ns_name, bison_hash klass_name) {
   try {
     auto lp = bdg::bison::dynamic::getRegistry().rlock();
     auto nsIt = lp->find(bdg::bison::key_t{ns_name});
