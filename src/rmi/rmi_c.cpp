@@ -38,7 +38,8 @@ struct client_state {
   std::unique_ptr<client> client_owner;
   std::unique_ptr<standalone> standalone_owner;
   client* borrowed_client = nullptr;
-  bool owns_resource = true;  /**< True when this state owns the underlying object. */
+  bool owns_resource =
+      true; /**< True when this state owns the underlying object. */
   bool released = false;
 
   /** @brief True when this state wraps a standalone session. */
@@ -445,8 +446,10 @@ static inline std::future<dynamic> make_describe_future(
   return client_deref(h)->describe(bdg::bison::key_t{klass});
 }
 
-static inline std::future<proxy::dynamic>
-make_instantiate_future(rmi_client_handle h, uint32_t klass, bison_handle params) {
+static inline std::future<proxy::dynamic> make_instantiate_future(
+    rmi_client_handle h,
+    uint32_t klass,
+    bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
   if (auto* sa = standalone_deref(h))
     return sa->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
@@ -517,8 +520,9 @@ rmi_client_tcp_create(const char* host, uint16_t port) {
   if (!host)
     return nullptr;
   try {
-    return make_owned_client_handle(std::make_unique<client>(
-        std::make_unique<socket_client_transport>(host, port)));
+    return make_owned_client_handle(
+        std::make_unique<client>(
+            std::make_unique<socket_client_transport>(host, port)));
   } catch (...) {
     return nullptr;
   }
@@ -904,8 +908,9 @@ rmi_server_tcp_create(const char* host, uint16_t port) {
   if (!host)
     return nullptr;
   try {
-    auto* sp = new server_ptr(std::make_unique<server>(
-        std::make_unique<socket_server_transport>(host, port)));
+    auto* sp = new server_ptr(
+        std::make_unique<server>(
+            std::make_unique<socket_server_transport>(host, port)));
     return as_server_handle(sp);
   } catch (...) {
     return nullptr;

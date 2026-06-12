@@ -191,6 +191,18 @@ RMI_API rmi_client_handle
 rmi_client_tcp_create(const char* host, uint16_t port);
 
 /**
+ * @brief Create a standalone in-process client.
+ *
+ * The returned handle can be used with all existing `rmi_client_*` and
+ * `rmi_proxy_*` API functions. `rmi_client_connect()` and
+ * `rmi_client_disconnect()` are accepted but are no-ops for standalone
+ * handles.
+ *
+ * @return New standalone client handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_client_handle rmi_standalone_create(void);
+
+/**
  * @brief Connect the client to the server.
  *
  * Opens the transport and starts the background worker thread for receiving

@@ -51,7 +51,8 @@ standalone::standalone() {
     auto lp = ctx_.wlock();
     lp->session_id = shared::generate_id();
     lp->emit_event =
-        [this](bison::key_t object_id, bison::key_t name, bison::dynamic params) {
+        [this](
+            bison::key_t object_id, bison::key_t name, bison::dynamic params) {
           // Copy the handler out of the map before calling it so we do not
           // hold event_handlers_ lock while the user callback runs.
           std::function<void(bison::dynamic)> handler;
@@ -60,8 +61,7 @@ standalone::standalone() {
             auto obj_it = elp->find(object_id.id);
             if (obj_it == elp->end())
               return;
-            auto ev_it =
-                obj_it->second.find(static_cast<bison::hash_t>(name));
+            auto ev_it = obj_it->second.find(static_cast<bison::hash_t>(name));
             if (ev_it == obj_it->second.end())
               return;
             handler = ev_it->second;
@@ -118,13 +118,11 @@ std::future<proxy::dynamic> standalone::instantiate(
   auto f = enqueue([this, klass, params = std::move(params)]() mutable {
     return handle_instantiate(klass, std::move(params));
   });
-  return std::async(
-      std::launch::async,
-      [this, f = std::move(f)]() mutable {
-        auto result = f.get();
-        bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
-        return proxy::dynamic{this, std::move(oid)};
-      });
+  return std::async(std::launch::async, [this, f = std::move(f)]() mutable {
+    auto result = f.get();
+    bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
+    return proxy::dynamic{this, std::move(oid)};
+  });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::destroy */
@@ -152,7 +150,7 @@ std::future<bison::dynamic> standalone::send_request(
     bool oneway) {
   return enqueue(
       [this, op, object_id, payload = std::move(payload), oneway]() mutable
-      -> bison::dynamic {
+          -> bison::dynamic {
         if (op == OP_CLEAR) {
           return handle_clear(object_id);
         }
@@ -177,9 +175,8 @@ void standalone::register_event_handler(
     bison::key_t object_id,
     bison::key_t name,
     std::function<void(bison::dynamic)> handler) {
-  event_handlers_.wlock()
-      ->operator[](object_id.id)[static_cast<bison::hash_t>(name)] =
-      std::move(handler);
+  event_handlers_.wlock()->operator[](
+      object_id.id)[static_cast<bison::hash_t>(name)] = std::move(handler);
 }
 
 /** @copydoc bdg::bison::rmi::standalone::unregister_object_events */
@@ -194,8 +191,9 @@ std::future<bison::dynamic> standalone::enqueue(
     std::function<bison::dynamic()> work) {
   if (!running_.load(std::memory_order_acquire)) {
     std::promise<bison::dynamic> p;
-    p.set_exception(std::make_exception_ptr(
-        std::runtime_error("standalone is not connected")));
+    p.set_exception(
+        std::make_exception_ptr(
+            std::runtime_error("standalone is not connected")));
     return p.get_future();
   }
 
@@ -219,8 +217,7 @@ void standalone::worker_loop() {
   while (true) {
     std::unique_lock<std::mutex> lk(queue_mutex_);
     queue_cv_.wait(lk, [this] {
-      return !queue_.empty() ||
-             !running_.load(std::memory_order_relaxed);
+      return !queue_.empty() || !running_.load(std::memory_order_relaxed);
     });
 
     if (!running_.load(std::memory_order_relaxed) && queue_.empty())
@@ -270,11 +267,19 @@ bison::dynamic standalone::handle_describe(bison::key_t klass) {
       resp[idx++] = bison::dynamic_ptr{std::move(desc)};
     }
   } else {
-    auto it = classes.find(klass);
-    if (it == classes.end())
+    const bison::dynamic* proto = nullptr;
+    for (const auto& [ns, classes] : classes) {
+      auto it = classes.find(klass);
+      if (it != classes.end()) {
+        proto = it->second.get();
+        break;
+      }
+    }
+    if (!proto)
       throw std::runtime_error("Class not found");
+
     resp[FIELD_KLASS] = klass;
-    it->second->forEach(
+    proto->forEach(
         [&resp](bison::key_t k, const bison::field& v) { resp[k] = v; });
   }
 
@@ -332,10 +337,22 @@ bison::dynamic standalone::handle_clear(bison::key_t object_id) {
 
   bison::key_t klass_key = obj.as<bison::key_t>(bison::dynamic::CLASS);
   {
+    // Resolve the namespace from the existing object so we look in the
+    // correct collection.
+    bison::key_t ns{0U};
+    auto* nsField = obj.findField(bison::dynamic::NAMESPACE);
+    if (nsField && nsField->is<bison::key_t>())
+      ns = nsField->as<bison::key_t>();
+
     auto reg = bison::dynamic::getRegistry().rlock();
-    auto class_it = reg->find(klass_key);
-    if (class_it != reg->end() && class_it->second) {
-      obj = class_it->second->clone();
+    const auto& nsmap = *reg;
+    auto nsIt = nsmap.find(ns);
+    if (nsIt != nsmap.end()) {
+      auto class_it = nsIt->second.find(klass_key);
+      if (class_it != nsIt->second.end() && class_it->second)
+        obj = class_it->second->clone();
+      else
+        obj = bison::dynamic::instantiate(ns, klass_key);
     } else {
       obj = bison::dynamic::instantiate(klass_key);
     }
