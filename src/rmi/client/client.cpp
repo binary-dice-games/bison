@@ -45,10 +45,12 @@ std::future<bison::dynamic> client::describe(bison::key_t klass) {
 
 /** @copydoc bdg::bison::rmi::client::instantiate */
 std::future<proxy::dynamic> client::instantiate(
+    bison::key_t ns,
     bison::key_t klass,
     bison::dynamic params) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
+  payload[FIELD_NAMESPACE] = ns;
   payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
 
   auto f = send_request(OP_INSTANTIATE, {}, std::move(payload), false);

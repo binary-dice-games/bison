@@ -8,7 +8,7 @@
  * return codes so that no exception can propagate through the C ABI.
  */
 
-#include "rmi_c.h"
+#include "../../include/rmi_c.h"
 #include "rmi.hpp"
 
 #include <cstring>
@@ -375,7 +375,7 @@ static inline std::future<dynamic> make_describe_future(
 static inline std::future<proxy::dynamic>
 make_instantiate_future(client* c, uint32_t klass, bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
-  return c->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
+  return c->instantiate(0U, bdg::bison::key_t{klass}, std::move(dyn_params));
 }
 
 static inline std::future<bool> make_proxy_clear_future(proxy::dynamic* px) {

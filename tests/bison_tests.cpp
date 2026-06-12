@@ -871,32 +871,32 @@ class InheritanceTest : public ::testing::Test {
 
 TEST_F(InheritanceTest, AddClassSucceeds) {
   auto klass = dynamic_ptr{"Animal"_key, {{"legs"_key, int32_t{4}}}};
-  EXPECT_TRUE(dynamic::addClass(0U, klass));
+  EXPECT_TRUE(dynamic::addClass(0U, klass, 0U));
 }
 
 TEST_F(InheritanceTest, AddDuplicateClassFails) {
   auto k1 = dynamic_ptr{"Cat"_key};
   auto k2 = dynamic_ptr{"Cat"_key};
-  EXPECT_TRUE(dynamic::addClass(0U, k1));
-  EXPECT_FALSE(dynamic::addClass(0U, k2));
+  EXPECT_TRUE(dynamic::addClass(0U, k1, 0U));
+  EXPECT_FALSE(dynamic::addClass(0U, k2, 0U));
 }
 
 TEST_F(InheritanceTest, CircularInheritanceIsRejected) {
   auto a = dynamic_ptr{"A"_key};
   auto b = dynamic_ptr{"B"_key};
-  EXPECT_TRUE(dynamic::addClass(0U, a));
-  EXPECT_TRUE(dynamic::addClass("A"_key, b));
+  EXPECT_TRUE(dynamic::addClass(0U, a, 0U));
+  EXPECT_TRUE(dynamic::addClass(0U, b, "A"_key));
   // Trying to make A a child of B would create a cycle A→B→A
   auto a2 = dynamic_ptr{"A"_key};
-  EXPECT_FALSE(dynamic::addClass("B"_key, a2));
+  EXPECT_FALSE(dynamic::addClass(0U, a2, "B"_key));
 }
 
 TEST_F(InheritanceTest, FieldInheritedFromParent) {
   auto base = dynamic_ptr{"Vehicle"_key, {{"wheels"_key, int32_t{4}}}};
-  ASSERT_TRUE(dynamic::addClass(0U, base));
+  ASSERT_TRUE(dynamic::addClass(0U, base, 0U));
 
   auto child = dynamic_ptr{"Car"_key};
-  ASSERT_TRUE(dynamic::addClass("Vehicle"_key, child));
+  ASSERT_TRUE(dynamic::addClass(0U, child, "Vehicle"_key));
 
   dynamic car = dynamic::instantiate("Car"_key);
 
@@ -918,10 +918,10 @@ TEST_F(InheritanceTest, MethodInheritedFromParent) {
         r["sound"_key] = std::string{"..."};
         return r;
       });
-  dynamic::addClass(0U, base);
+  dynamic::addClass(0U, base, 0U);
 
   auto child = dynamic_ptr{"Dog"_key};
-  dynamic::addClass("Animal2"_key, child);
+  dynamic::addClass(0U, child, "Animal2"_key);
 
   dynamic dog = dynamic::instantiate("Dog"_key);
   dynamic res = dog.call("speak"_key, dynamic{});
@@ -930,10 +930,10 @@ TEST_F(InheritanceTest, MethodInheritedFromParent) {
 
 TEST_F(InheritanceTest, DerivedClassOverridesParentField) {
   auto base = dynamic_ptr{"Base2"_key, {{"val"_key, int32_t{1}}}};
-  ASSERT_TRUE(dynamic::addClass(0U, base));
+  ASSERT_TRUE(dynamic::addClass(0U, base, 0U));
 
   auto derived = dynamic_ptr{"Derived2"_key, {{"val"_key, int32_t{2}}}};
-  ASSERT_TRUE(dynamic::addClass("Base2"_key, derived));
+  ASSERT_TRUE(dynamic::addClass(0U, derived, "Base2"_key));
 
   dynamic d = dynamic::instantiate("Derived2"_key);
   // Warm the inheritance cache via a direct findField call, then verify
@@ -945,17 +945,17 @@ TEST_F(InheritanceTest, DerivedClassOverridesParentField) {
 }
 
 TEST_F(InheritanceTest, MultiLevelFieldInheritance) {
-  dynamic::addClass(0U, dynamic_ptr{"L0"_key, {{"depth"_key, int32_t{0}}}});
-  dynamic::addClass("L0"_key, dynamic_ptr{"L1"_key});
-  dynamic::addClass("L1"_key, dynamic_ptr{"L2"_key});
+  dynamic::addClass(0U, dynamic_ptr{"L0"_key, {{"depth"_key, int32_t{0}}}}, 0U);
+  dynamic::addClass(0U, dynamic_ptr{"L1"_key}, "L0"_key);
+  dynamic::addClass(0U, dynamic_ptr{"L2"_key}, "L1"_key);
 
   dynamic obj = dynamic::instantiate("L2"_key);
   EXPECT_EQ(obj["depth"_key].as<int32_t>(), 0);
 }
 
 TEST_F(InheritanceTest, FindClassSearchesHierarchy) {
-  dynamic::addClass(0U, dynamic_ptr{"Root"_key});
-  dynamic::addClass("Root"_key, dynamic_ptr{"Child"_key});
+  dynamic::addClass(0U, dynamic_ptr{"Root"_key}, 0U);
+  dynamic::addClass(0U, dynamic_ptr{"Child"_key}, "Root"_key);
 
   dynamic obj = dynamic::instantiate("Child"_key);
   EXPECT_NE(obj.findClass("Root"_key), nullptr);
@@ -985,9 +985,7 @@ class TemplateSerTest : public ::testing::Test {
 
 TEST_F(TemplateSerTest, RoundtripWithSingleClass) {
   // Register a prototype with two fields.
-  dynamic::addClass(
-      0U,
-      dynamic_ptr{"Pt"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}});
+  dynamic::addClass(0U, dynamic_ptr{"Pt"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}}, 0U);
 
   // Create an instance and populate it.
   dynamic pt = dynamic::instantiate("Pt"_key);
@@ -1228,4 +1226,137 @@ TEST(YamlTests, QuotedStringNotCoerced) {
 
 TEST(YamlTests, InvalidYamlThrows) {
   EXPECT_THROW(extensions::from_yaml("{broken"), std::runtime_error);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 16. Namespace support
+// ═════════════════════════════════════════════════════════════════════════════
+
+class NamespaceTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClassRegistry();
+  }
+  void TearDown() override {
+    clearClassRegistry();
+  }
+};
+
+TEST_F(NamespaceTest, SameClassNameInDifferentNamespacesSucceeds) {
+  auto math_table = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{10}}}};
+  auto ikea_table = dynamic_ptr{"table"_key, {{"legs"_key, int32_t{4}}}};
+  EXPECT_TRUE(dynamic::addClass("math"_key, math_table, 0U));
+  EXPECT_TRUE(dynamic::addClass("ikea"_key, ikea_table, 0U));
+}
+
+TEST_F(NamespaceTest, DuplicateClassInSameNamespaceFails) {
+  auto t1 = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{0}}}};
+  auto t2 = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{1}}}};
+  EXPECT_TRUE(dynamic::addClass("math"_key, t1, 0U));
+  EXPECT_FALSE(dynamic::addClass("math"_key, t2, 0U));
+}
+
+TEST_F(NamespaceTest, PrototypeHasNamespaceFieldSet) {
+  auto klass = dynamic_ptr{"Vec3"_key, {{"x"_key, float{0}}}};
+  ASSERT_TRUE(dynamic::addClass("math"_key, klass, 0U));
+  auto* nsField = klass->findField(dynamic::NAMESPACE);
+  ASSERT_NE(nsField, nullptr);
+  EXPECT_EQ(nsField->as<bison_key_t>().id, hash("math"));
+}
+
+TEST_F(NamespaceTest, InstantiateWithNamespaceResolvesCorrectFields) {
+  // Two namespaces with a class named "table" but different fields.
+  auto math_table = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{10}}}};
+  auto ikea_table = dynamic_ptr{"table"_key, {{"legs"_key, int32_t{4}}}};
+  ASSERT_TRUE(dynamic::addClass("math"_key, math_table, 0U));
+  ASSERT_TRUE(dynamic::addClass("ikea"_key, ikea_table, 0U));
+
+  dynamic mt = dynamic::instantiate("math"_key, "table"_key);
+  dynamic it = dynamic::instantiate("ikea"_key, "table"_key);
+
+  EXPECT_EQ(mt["rows"_key].as<int32_t>(), 10);
+  EXPECT_EQ(it["legs"_key].as<int32_t>(), 4);
+}
+
+TEST_F(NamespaceTest, CircularInheritanceCheckedWithinNamespace) {
+  auto a = dynamic_ptr{"A"_key};
+  auto b = dynamic_ptr{"B"_key};
+  EXPECT_TRUE(dynamic::addClass("ns"_key, a, 0U));
+  EXPECT_TRUE(dynamic::addClass("ns"_key, b, "A"_key));
+  // Trying to make A a child of B (within "ns") creates a cycle.
+  auto a2 = dynamic_ptr{"A"_key};
+  EXPECT_FALSE(dynamic::addClass("ns"_key, a2, "B"_key));
+}
+
+TEST_F(NamespaceTest, InheritanceWorksWithinNamespace) {
+  auto base =
+      dynamic_ptr{"Furniture"_key, {{"material"_key, std::string{"wood"}}}};
+  auto derived = dynamic_ptr{"Chair"_key, {{"backrest"_key, true}}};
+  ASSERT_TRUE(dynamic::addClass("ikea"_key, base, 0U));
+  ASSERT_TRUE(dynamic::addClass("ikea"_key, derived, "Furniture"_key));
+
+  dynamic chair = dynamic::instantiate("ikea"_key, "Chair"_key);
+  EXPECT_EQ(chair["material"_key].as<std::string>(), "wood");
+  EXPECT_TRUE(chair["backrest"_key].as<bool>());
+}
+
+TEST_F(NamespaceTest, FindClassSearchesCorrectNamespace) {
+  auto shape = dynamic_ptr{"Shape"_key};
+  auto circle = dynamic_ptr{"Circle"_key};
+  ASSERT_TRUE(dynamic::addClass("geo"_key, shape, 0U));
+  ASSERT_TRUE(dynamic::addClass("geo"_key, circle, "Shape"_key));
+
+  dynamic c = dynamic::instantiate("geo"_key, "Circle"_key);
+  EXPECT_NE(c.findClass("Shape"_key), nullptr);
+  EXPECT_NE(c.findClass("Circle"_key), nullptr);
+  EXPECT_EQ(c.findClass("Missing"_key), nullptr);
+}
+
+TEST_F(NamespaceTest, GlobalNamespaceUsedWhenNoNamespaceGiven) {
+  auto klass = dynamic_ptr{"Widget"_key, {{"size"_key, int32_t{1}}}};
+  ASSERT_TRUE(dynamic::addClass(0U, klass, 0U));
+  dynamic w = dynamic::instantiate("Widget"_key);
+  EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
+}
+
+TEST_F(NamespaceTest, AbsentNamespaceDoesNotSearchNamedNamespaces) {
+  auto ns_only = dynamic_ptr{"WidgetNsOnly"_key, {{"size"_key, int32_t{7}}}};
+  ASSERT_TRUE(dynamic::addClass("math"_key, ns_only, 0U));
+
+  // No namespace on the instance means global namespace only.
+  dynamic w = dynamic::instantiate("WidgetNsOnly"_key);
+  EXPECT_EQ(w.findField("size"_key), nullptr);
+}
+
+TEST_F(NamespaceTest, SchemaSerializationRoundtripWithNamespace) {
+  dynamic::addClass("math"_key, dynamic_ptr{"Pt"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}}, 0U);
+
+  dynamic pt = dynamic::instantiate("math"_key, "Pt"_key);
+  pt["x"_key] = int32_t{5};
+  pt["y"_key] = int32_t{9};
+
+  buffer_serializer out;
+  pt.serializeWithSchema(out);
+
+  buffer_deserializer in{out.buffer()};
+  auto restored = dynamic::deserializeWithSchema(in);
+  EXPECT_EQ(restored["x"_key].as<int32_t>(), 5);
+  EXPECT_EQ(restored["y"_key].as<int32_t>(), 9);
+}
+
+TEST_F(InheritanceTest, SingleClassDirectField) {
+  // Minimal: single class with a field, no namespace
+  dynamic::addClass(0U, dynamic_ptr{"Widget42"_key, {{"size"_key, int32_t{1}}}}, 0U);
+  dynamic w = dynamic::instantiate("Widget42"_key);
+  auto* sf = w.findField("size"_key);
+  EXPECT_NE(sf, nullptr) << "findField returned null";
+  if (sf)
+    EXPECT_EQ(sf->as<int32_t>(), 1) << "wrong value";
+}
+
+TEST_F(InheritanceTest, SingleClassOperatorBracket) {
+  // Same as SingleClassDirectField but via operator[]
+  dynamic::addClass(0U, dynamic_ptr{"Widget43"_key, {{"size"_key, int32_t{1}}}}, 0U);
+  dynamic w = dynamic::instantiate("Widget43"_key);
+  EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
 }

@@ -3,6 +3,17 @@
 // distribute this file. See the LICENSE file or
 // https://opensource.org/licenses/MIT for details.
 
+/**
+ * @file bison.cpp
+ * @brief Implementations of the JSON and YAML import extensions for the Bison
+ *        core library.
+ *
+ * Provides `bdg::bison::extensions::from_json` (using nlohmann/json) and
+ * `bdg::bison::extensions::from_yaml` (using libyaml event-stream parsing).
+ * Both functions return a `dynamic_ptr` representing the root of the parsed
+ * document.
+ */
+
 #include <bison.hpp>
 #include <nlohmann/json.hpp>
 #include <yaml.h>

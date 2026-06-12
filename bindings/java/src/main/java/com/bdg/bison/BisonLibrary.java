@@ -14,16 +14,18 @@ import java.util.Map;
 /**
  * JNA interface that maps every exported function in {@code libbison_c}.
  *
- * <p>This interface is loaded once (singleton) and the loaded instance is
+ * <p>
+ * This interface is loaded once (singleton) and the loaded instance is
  * shared across all {@link Dynamic} objects on the same JVM. Users should
  * never interact with {@code BisonLibrary} directly; use {@link Dynamic}
  * instead.
  *
- * <p>To locate the shared library the loader checks (in order):
+ * <p>
+ * To locate the shared library the loader checks (in order):
  * <ol>
- *   <li>The {@code BISON_LIB} environment variable.</li>
- *   <li>A {@code build/} sibling directory of the repository root.</li>
- *   <li>The JNA system-library search path.</li>
+ * <li>The {@code BISON_LIB} environment variable.</li>
+ * <li>A {@code build/} sibling directory of the repository root.</li>
+ * <li>The JNA system-library search path.</li>
  * </ol>
  */
 public interface BisonLibrary extends Library {
@@ -31,29 +33,30 @@ public interface BisonLibrary extends Library {
     // ── Error codes ──────────────────────────────────────────────────────────
 
     /** Success. */
-    int BISON_OK             =  0;
+    int BISON_OK = 0;
     /** A required handle or pointer argument was NULL. */
-    int BISON_ERR_NULL       = -1;
+    int BISON_ERR_NULL = -1;
     /** The field holds a different type than requested. */
-    int BISON_ERR_TYPE       = -2;
+    int BISON_ERR_TYPE = -2;
     /** Method or field not found. */
-    int BISON_ERR_NOT_FOUND  = -3;
+    int BISON_ERR_NOT_FOUND = -3;
     /** Attempted to add a duplicate class or method. */
-    int BISON_ERR_DUPLICATE  = -4;
+    int BISON_ERR_DUPLICATE = -4;
     /** An unexpected C++ exception was caught. */
-    int BISON_ERR_EXCEPTION  = -5;
+    int BISON_ERR_EXCEPTION = -5;
     /** Input string failed to parse (JSON / YAML). */
-    int BISON_ERR_PARSE      = -6;
+    int BISON_ERR_PARSE = -6;
 
     // ── Callback type ────────────────────────────────────────────────────────
 
     /**
      * Callback signature for methods registered on {@code dynamic} objects.
      *
-     * <p>The callback receives the object on which the method is called
+     * <p>
+     * The callback receives the object on which the method is called
      * ({@code self}), a separate object containing call arguments
      * ({@code params}), and an output handle for the return value
-     * ({@code result}).  The {@code user} pointer is an arbitrary context
+     * ({@code result}). The {@code user} pointer is an arbitrary context
      * value supplied to {@link #bison_add_method}.
      */
     interface MethodCallback extends Callback {
@@ -123,40 +126,60 @@ public interface BisonLibrary extends Library {
     int bison_add_class(int parentName, Pointer klass);
 
     /**
-     * Search the class hierarchy of {@code h} for a registered class.
+     * Look up a class in the global namespace.
      *
-     * @param h    handle to search from.
-     * @param name hash of the class name to look for.
+     * @param name hash of the class name to look up.
      * @return non-owning handle for the found prototype, or {@code null}.
      */
-    Pointer bison_find_class(Pointer h, int name);
+    Pointer bison_find_class(int name);
+
+    /**
+     * Look up a class in a specific namespace.
+     *
+     * @param ns_name hash of the namespace name.
+     * @param name    hash of the class name to look up.
+     * @return non-owning handle for the found prototype, or {@code null}.
+     */
+    Pointer bison_find_class_ns(int ns_name, int name);
 
     // ── Scalar setters ───────────────────────────────────────────────────────
 
     int bison_set_int(Pointer h, int name, int value);
+
     int bison_set_float(Pointer h, int name, float value);
+
     int bison_set_bool(Pointer h, int name, int value);
+
     int bison_set_string(Pointer h, int name, String value);
+
     int bison_set_object(Pointer h, int name, Pointer value);
 
     // ── Indexed setters ──────────────────────────────────────────────────────
 
     int bison_set_int_at(Pointer h, long index, int value);
+
     int bison_set_float_at(Pointer h, long index, float value);
+
     int bison_set_string_at(Pointer h, long index, String value);
 
     // ── Scalar getters ───────────────────────────────────────────────────────
 
     int bison_get_int(Pointer h, int name, IntByReference out);
+
     int bison_get_float(Pointer h, int name, FloatByReference out);
+
     int bison_get_bool(Pointer h, int name, IntByReference out);
+
     int bison_get_string(Pointer h, int name, byte[] buf, long bufLen, PointerByReference lenOut);
+
     int bison_get_object(Pointer h, int name, PointerByReference out);
 
     // ── Indexed getters ──────────────────────────────────────────────────────
 
     int bison_get_int_at(Pointer h, long index, IntByReference out);
+
     int bison_get_float_at(Pointer h, long index, FloatByReference out);
+
     int bison_get_string_at(Pointer h, long index, byte[] buf, long bufLen, PointerByReference lenOut);
 
     /** Return the number of array-like (numeric-key) elements. */
@@ -201,7 +224,8 @@ public interface BisonLibrary extends Library {
     /**
      * Returns the singleton loaded instance of {@link BisonLibrary}.
      *
-     * <p>The library is loaded once; subsequent calls return the same instance.
+     * <p>
+     * The library is loaded once; subsequent calls return the same instance.
      *
      * @return loaded library instance.
      * @throws UnsatisfiedLinkError if the native library cannot be found.
@@ -223,14 +247,14 @@ public interface BisonLibrary extends Library {
 
             // Probe for a library built in the canonical build/ directory.
             String[] candidates = {
-                "build/libbison_c.so",       // Linux (when cwd is repo root)
-                "build/libbison_c.dylib",    // macOS (when cwd is repo root)
-                "build/Release/bison_c.dll",
-                "build/Debug/bison_c.dll",
-                "../../build/libbison_c.so",    // Linux (when cwd is bindings/java)
-                "../../build/libbison_c.dylib", // macOS (when cwd is bindings/java)
-                "../../build/Release/bison_c.dll",
-                "../../build/Debug/bison_c.dll",
+                    "build/libbison_c.so", // Linux (when cwd is repo root)
+                    "build/libbison_c.dylib", // macOS (when cwd is repo root)
+                    "build/Release/bison_c.dll",
+                    "build/Debug/bison_c.dll",
+                    "../../build/libbison_c.so", // Linux (when cwd is bindings/java)
+                    "../../build/libbison_c.dylib", // macOS (when cwd is bindings/java)
+                    "../../build/Release/bison_c.dll",
+                    "../../build/Debug/bison_c.dll",
             };
             for (String candidate : candidates) {
                 java.io.File f = new java.io.File(

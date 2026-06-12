@@ -2,6 +2,7 @@
 out/
 build/
 build-linux/
+build_asan/
 __pycache__/
 *.pyc
 *.pyo

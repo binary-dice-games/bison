@@ -99,7 +99,7 @@ target_include_directories(bison PRIVATE src/rmi)
 
 # ─── Shared library (pure-C ABI for core) ──────────────────────────────────
 add_library(bison_core_c SHARED
-  src/core/bison_c.h
+  include/bison_c.h
   src/core/bison_c.cpp
 )
 
@@ -107,7 +107,7 @@ add_library(bison_core_c SHARED
 target_compile_definitions(bison_core_c PRIVATE BISON_BUILDING_DLL)
 target_include_directories(bison_core_c
     PUBLIC
-  ${CMAKE_CURRENT_LIST_DIR}/src/core
+  ${CMAKE_CURRENT_LIST_DIR}/include
         ${CMAKE_CURRENT_LIST_DIR}
 )
 target_link_libraries(bison_core_c PRIVATE bison nlohmann_json::nlohmann_json yaml)
@@ -117,7 +117,7 @@ endif()
 
 # ─── Shared library (pure-C ABI for RMI) ───────────────────────────────────
 add_library(bison_rmi_c SHARED
-  src/rmi/rmi_c.h
+  include/rmi_c.h
   src/rmi/rmi_c.cpp
 )
 
@@ -125,7 +125,7 @@ add_library(bison_rmi_c SHARED
 target_compile_definitions(bison_rmi_c PRIVATE BISON_BUILDING_DLL)
 target_include_directories(bison_rmi_c
     PUBLIC
-  ${CMAKE_CURRENT_LIST_DIR}/src/core
+  ${CMAKE_CURRENT_LIST_DIR}/include
         ${CMAKE_CURRENT_LIST_DIR}
     PRIVATE
   src/rmi

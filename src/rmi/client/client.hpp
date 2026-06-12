@@ -65,12 +65,14 @@ class client {
 
   /**
    * @brief Create a remote object instance on the server.
+   * @param ns Class namespace key; `0U` selects the global namespace.
    * @param klass Class key to instantiate.
    * @param params Optional constructor parameters.
    * @return Future resolved with a move-only proxy referencing the server-side
    * object.
    */
   std::future<proxy::dynamic> instantiate(
+      bison::key_t ns,
       bison::key_t klass,
       bison::dynamic params = bison::dynamic{});
 

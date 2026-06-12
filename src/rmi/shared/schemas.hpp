@@ -56,7 +56,7 @@ inline void register_all_schemas() {
   using namespace bdg::bison;
 
   for (const auto& [schema_id, schema] : get_schemas()) {
-    dynamic::addClass(0U, dynamic_ptr{schema.clone()});
+    dynamic::addClass(0U, dynamic_ptr{schema.clone()}, 0U);
   }
 }
 

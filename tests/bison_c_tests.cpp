@@ -1,7 +1,8 @@
 // MIT License © 2025 Binary Dice Games
 // Google Test suite for the pure-C Bison shared-library API.
 
-#include "src/core/bison_c.h"
+#include "bison_c.h"
+#include "bison_c.hpp"
 
 #include <gtest/gtest.h>
 #include <cstdint>
@@ -267,8 +268,7 @@ TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
   ScopedHandle proto{bison_create(key)};
   bison_add_class(0, proto);
 
-  ScopedHandle inst{bison_create(key)};
-  bison_handle found = bison_find_class(inst, key);
+  bison_handle found = bison_find_class(key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
 }
@@ -279,15 +279,13 @@ TEST_F(ClassRegistryTests, FindClassFromInstantiatedObjectReturnsHandle) {
   bison_set_int(proto, H("v"), 1);
   ASSERT_EQ(bison_add_class(0, proto), BISON_OK);
 
-  ScopedHandle inst{bison_instantiate(key)};
-  bison_handle found = bison_find_class(inst, key);
+  bison_handle found = bison_find_class(key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
 }
 
 TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
-  ScopedHandle inst{bison_create(0)};
-  bison_handle found = bison_find_class(inst, bison_key("NoSuchClass"));
+  bison_handle found = bison_find_class(bison_key("NoSuchClass"));
   EXPECT_EQ(found, nullptr);
 }
 
@@ -366,4 +364,158 @@ TEST(UtilityTests, BisonKeyDifferentStringsProduceDifferentHashes) {
 
 TEST(UtilityTests, BisonKeyNullReturnsZero) {
   EXPECT_EQ(bison_key(nullptr), 0u);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8. Namespace support
+// ═════════════════════════════════════════════════════════════════════════════
+
+class CApiNamespaceTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClasses();
+  }
+  void TearDown() override {
+    clearClasses();
+  }
+};
+
+TEST_F(CApiNamespaceTest, AddClassNsSucceeds) {
+  bison_hash key = bison_key("table");
+  bison_hash ns = bison_key("math");
+  ScopedHandle proto{bison_create(key)};
+  bison_set_int(proto, bison_key("rows"), 5);
+  EXPECT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
+}
+
+TEST_F(CApiNamespaceTest, SameNameInDifferentNamespacesSucceeds) {
+  bison_hash key = bison_key("table");
+  ScopedHandle math_proto{bison_create(key)};
+  ScopedHandle ikea_proto{bison_create(key)};
+  EXPECT_EQ(bison_add_class_ns(bison_key("math"), math_proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class_ns(bison_key("ikea"), ikea_proto, 0), BISON_OK);
+}
+
+TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
+  bison_hash key = bison_key("chair");
+  bison_hash ns = bison_key("ikea");
+  ScopedHandle p1{bison_create(key)};
+  ScopedHandle p2{bison_create(key)};
+  EXPECT_EQ(bison_add_class_ns(ns, p1, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class_ns(ns, p2, 0), BISON_ERR_DUPLICATE);
+}
+
+TEST_F(CApiNamespaceTest, AddClassNsNullHandleReturnsNull) {
+  EXPECT_EQ(bison_add_class_ns(bison_key("ns"), nullptr, 0), BISON_ERR_NULL);
+}
+
+TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
+  bison_hash key = bison_key("Vec3");
+  bison_hash ns = bison_key("math");
+  ScopedHandle proto{bison_create(key)};
+  bison_set_int(proto, bison_key("x"), 0);
+  ASSERT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
+
+  ScopedHandle inst{bison_instantiate_ns(ns, key)};
+  ASSERT_NE(inst.h, nullptr);
+
+  // Field inherited from the prototype.
+  int32_t v = -1;
+  EXPECT_EQ(bison_get_int(inst, bison_key("x"), &v), BISON_OK);
+  EXPECT_EQ(v, 0);
+}
+
+TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
+  bison_hash key = bison_key("Sofa");
+  bison_hash ns = bison_key("ikea");
+  ScopedHandle proto{bison_create(key)};
+  ASSERT_EQ(bison_add_class_ns(ns, proto, 0), BISON_OK);
+
+  bison_handle found = bison_find_class_ns(ns, key);
+  EXPECT_NE(found, nullptr);
+  bison_release(found);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. C++ RAII wrapper coverage
+// ═════════════════════════════════════════════════════════════════════════════
+
+class CxxWrapperTests : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClasses();
+  }
+  void TearDown() override {
+    clearClasses();
+  }
+};
+
+TEST_F(CxxWrapperTests, SetGetSupportsChainingAndTypedAccess) {
+  using bdg::bison_c::dynamic;
+
+  auto h = dynamic::create();
+  h.set(dynamic::key("score"), 42)
+      .set(dynamic::key("ratio"), 2.5f)
+      .set(dynamic::key("name"), "alice")
+      .set(0u, 100)
+      .set(1u, 200);
+
+  EXPECT_EQ(h.get<int32_t>(dynamic::key("score")), 42);
+  EXPECT_NEAR(h.get<float>(dynamic::key("ratio")), 2.5f, 1e-4f);
+  EXPECT_EQ(h.get<std::string>(dynamic::key("name")), "alice");
+  EXPECT_EQ(h.get<int32_t>(0u), 100);
+  EXPECT_EQ(h.get<int32_t>(1u), 200);
+  EXPECT_EQ(h.size(), 2u);
+}
+
+TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
+  using bdg::bison_c::dynamic;
+
+  bison_hash ns = dynamic::key("math");
+  bison_hash klass = dynamic::key("Vec2");
+
+  auto proto = dynamic::create(klass);
+  proto.set(dynamic::key("x"), 7);
+  dynamic::add_class_ns(ns, proto, 0);
+
+  auto found_ns = dynamic::find_class_ns(ns, klass);
+  ASSERT_TRUE(static_cast<bool>(found_ns));
+  EXPECT_EQ(found_ns.get<int32_t>(dynamic::key("x")), 7);
+
+  auto found_global = dynamic::find_class(klass);
+  EXPECT_FALSE(static_cast<bool>(found_global));
+}
+
+TEST_F(CxxWrapperTests, AddMethodWithCapturedLambdaWorksAndPersistsAcrossCopy) {
+  using bdg::bison_c::dynamic;
+
+  auto h = dynamic::create();
+  h.set(dynamic::key("n"), 3);
+
+  int calls = 0;
+  int factor = 4;
+  h.add_method(
+      dynamic::key("mul"),
+      [&calls, factor](dynamic& self, const dynamic&, dynamic& result) {
+        ++calls;
+        int32_t n = self.get<int32_t>(dynamic::key("n"));
+        result.set(dynamic::key("value"), n * factor);
+      });
+
+  // Copy should keep method callback state alive.
+  dynamic h2 = h;
+  auto params = dynamic::create();
+  auto result = h2.call(dynamic::key("mul"), params);
+
+  EXPECT_EQ(result.get<int32_t>(dynamic::key("value")), 12);
+  EXPECT_EQ(calls, 1);
+}
+
+TEST_F(CxxWrapperTests, MissingMethodThrowsRuntimeError) {
+  using bdg::bison_c::dynamic;
+
+  auto h = dynamic::create();
+  auto params = dynamic::create();
+  EXPECT_THROW(
+      (void)h.call(dynamic::key("does_not_exist"), params), std::runtime_error);
 }
