@@ -7,8 +7,8 @@
  * @file bison_c.hpp
  * @brief C++ RAII wrappers for the Bison C ABI (`bison_c.h`).
  *
- * Provides `bdg::bison_c::dynamic` — a thin, header-only RAII class that sits
- * top of the stable C ABI and offer a more idiomatic C++ interface:
+ * Provides `bdg::bison::abi::dynamic` — a thin, header-only RAII class that
+ * sits top of the stable C ABI and offer a more idiomatic C++ interface:
  *
  * - Handles are released automatically in destructors.
  * - Copying a `dynamic` calls `bison_add_ref()` so reference counting is
@@ -26,7 +26,7 @@
  * ### Example
  * @code{.cpp}
  * #include "bison_c.hpp"
- * using namespace bdg::bison_c;
+ * using namespace bdg::bison::abi;
  *
  * auto score_obj = dynamic::create(dynamic::key("Player"));
  * score_obj.set(dynamic::key("score"), 42)
@@ -53,7 +53,7 @@
 #include <string>
 #include <vector>
 
-namespace bdg::bison_c {
+namespace bdg::bison::abi {
 
 class dynamic;
 namespace detail {
@@ -582,4 +582,4 @@ inline void detail::adapter_wrapper(
   (*callback)(self_obj, params_obj, result_obj);
 }
 
-} // namespace bdg::bison_c
+} // namespace bdg::bison::abi

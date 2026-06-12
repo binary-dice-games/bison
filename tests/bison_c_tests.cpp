@@ -451,7 +451,7 @@ class CxxWrapperTests : public ::testing::Test {
 };
 
 TEST_F(CxxWrapperTests, SetGetSupportsChainingAndTypedAccess) {
-  using bdg::bison_c::dynamic;
+  using bdg::bison::abi::dynamic;
 
   auto h = dynamic::create();
   h.set(dynamic::key("score"), 42)
@@ -469,7 +469,7 @@ TEST_F(CxxWrapperTests, SetGetSupportsChainingAndTypedAccess) {
 }
 
 TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
-  using bdg::bison_c::dynamic;
+  using bdg::bison::abi::dynamic;
 
   bison_hash ns = dynamic::key("math");
   bison_hash klass = dynamic::key("Vec2");
@@ -487,7 +487,7 @@ TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
 }
 
 TEST_F(CxxWrapperTests, AddMethodWithCapturedLambdaWorksAndPersistsAcrossCopy) {
-  using bdg::bison_c::dynamic;
+  using bdg::bison::abi::dynamic;
 
   auto h = dynamic::create();
   h.set(dynamic::key("n"), 3);
@@ -512,7 +512,7 @@ TEST_F(CxxWrapperTests, AddMethodWithCapturedLambdaWorksAndPersistsAcrossCopy) {
 }
 
 TEST_F(CxxWrapperTests, MissingMethodThrowsRuntimeError) {
-  using bdg::bison_c::dynamic;
+  using bdg::bison::abi::dynamic;
 
   auto h = dynamic::create();
   auto params = dynamic::create();

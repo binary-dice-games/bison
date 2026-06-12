@@ -58,7 +58,7 @@ inline void check(rmi_error err, const char* msg) {
 } // namespace detail
 
 /** @brief Convenience alias for the bison object wrapper. */
-using object = bdg::bison_c::object;
+using object = bdg::bison::abi::object;
 
 // ────────────────────────────────────────────────────────────────────────────
 // future — RAII wrapper for rmi_future_handle
