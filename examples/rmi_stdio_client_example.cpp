@@ -13,7 +13,7 @@ using namespace bdg::bison::rmi;
 class calculator_pty_client_app final : public apps::pty_client_application {
  protected:
   int on_session(client& rmi_client, const run_context& /*ctx*/) override {
-    auto calc = rmi_client.instantiate("Calculator"_key).get();
+    auto calc = rmi_client.instantiate(0U, "Calculator"_key).get();
     std::cerr << "[Client] instantiated Calculator, id=" << calc.object_id()
               << '\n';
 

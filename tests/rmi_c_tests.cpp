@@ -1,8 +1,8 @@
 // MIT License © 2025 Binary Dice Games
 // Google Test suite for the pure-C RMI shared-library API.
 
-#include "src/core/bison_c.h"
-#include "src/rmi/rmi_c.h"
+#include "bison_c.h"
+#include "rmi_c.h"
 
 #include <gtest/gtest.h>
 

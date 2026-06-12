@@ -27,7 +27,7 @@ class pty_test_server_app final : public apps::pty_server_application {
           return result;
         });
 
-    dynamic::addClass(0U, proto);
+    dynamic::addClass(0U, proto, 0U);
   }
 };
 

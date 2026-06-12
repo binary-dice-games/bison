@@ -98,6 +98,7 @@ Reserved field keys:
 
 - CLASS ("__class")
 - PARENT ("__parent")
+- NAMESPACE ("__namespace") — set automatically by addClass; 0U = global namespace
 
 Object supports both:
 
@@ -106,30 +107,64 @@ Object supports both:
 
 ## 5. Class Registry and Inheritance
 
-Global class registry:
+### 5.1 Namespace Registry (Multipleton)
 
-- Type: unordered_map<key_t, shared_ptr<dynamic>>
-- Accessor: dynamic::getClasses()
-- Lock: dynamic::getMutex() (shared_mutex)
+The class registry is a **namespace-partitioned multipleton** rather than a flat singleton.
 
-Class registration:
+- Type: `unordered_map<key_t, collection>` (called `namespace_map`)
+  - Outer key: namespace hash (`0U` = global/default namespace)
+  - Value: `collection` = `unordered_map<key_t, shared_ptr<dynamic>>` (class name → prototype)
+- Accessor: `dynamic::getRegistry()` returns a `synchronized<namespace_map>&`
 
-- dynamic::addClass(parent, klass)
-- Writes parent to klass[PARENT]
-- Rejects circular inheritance
-- Rejects duplicate class names
+**Namespace key**: produced by the `"name"_key` literal or `hash("name")`.  The value `0U` (hash 0) is reserved for the global (default) namespace and is never a valid FNV-1a hash of any string.
 
-Inheritance lookup rules:
+### 5.2 Class Registration
 
-- Field lookup first checks instance fields_
-- If not found, traverses class chain from instance CLASS through PARENT
-- On hit, value is copied into instance cache (fields_)
-- Method lookup uses the same strategy with methods_ cache
+`dynamic::addClass(ns, klass, parent)` — registers in namespace `ns`.
+Use `ns = 0U` (empty/global namespace) for the global namespace.
+
+Registration actions:
+- Writes `parent` to `klass[PARENT]`.
+- Writes `ns` to `klass[NAMESPACE]`.
+- Cycle detection is performed **within the same namespace only**.
+- Rejects duplicate class names **within the same namespace**.
+
+Two classes with the same name may coexist in different namespaces without collision.
+
+Reserved field keys (set automatically on class prototypes):
+
+| Key | Constant | Purpose |
+|---|---|---|
+| `"__class"` | `CLASS` | Hash of the class name |
+| `"__parent"` | `PARENT` | Hash of the parent class name |
+| `"__namespace"` | `NAMESPACE` | Hash of the registered namespace |
+
+### 5.3 Instantiation
+
+`dynamic::instantiate(klass)` — creates an instance in the global namespace.
+`dynamic::instantiate(ns, klass)` — creates an instance and sets `__namespace = ns`.
+
+When `ns != 0`, the `__namespace` field is written to the new instance immediately so that the first field/method/class lookup goes directly to the correct namespace collection.
+
+### 5.4 Namespace Resolution during Lookup
+
+When `findField`, `findMethod`, or `findClass` is called, the private helper `resolveNamespace` determines the correct namespace collection:
+
+1. If the instance already has `__namespace` in its `fields_`, that value is returned directly (O(1) fast path).
+2. Otherwise, absent `__namespace` means the global namespace (`0U`).
+3. The resolved namespace is cached into `fields_[NAMESPACE]` for future calls.
+
+### 5.5 Inheritance Lookup Rules
+
+- Field lookup first checks instance `fields_`.
+- If not found, the correct namespace collection is selected and the class chain is traversed (via `PARENT` links, all within the same namespace collection).
+- On hit, the field value is copied into the instance's `fields_` cache.
+- Method lookup uses the same strategy with `methods_` cache.
 
 Implication:
 
-- First inherited read is more expensive; subsequent reads are fast
-- Instance can override inherited members by writing local entries
+- First inherited read is more expensive; subsequent reads are fast.
+- Instance can override inherited members by writing local entries.
 
 ## 6. Method Dispatch Model
 
@@ -209,18 +244,16 @@ Properties:
 
 serializeWithSchema and deserializeWithSchema format:
 
-1. key_t class id
-2. For each field declared in class prototype chain order: serialized field value only
+1. key_t namespace id
+2. key_t class id
+3. For each field declared in class prototype chain order: serialized field value only
 
 Properties:
 
 - More compact than standard mode (keys omitted)
-- Requires class registry consistency between writer and reader
+- Requires class registry consistency between writer and reader (same namespace and class definitions)
 - Uses prototype default field values when instance is missing a field during serialization
-
-Known behavior note:
-
-- deserializeWithSchema currently reconstructs fields by class chain but does not explicitly restore CLASS on the new instance. Consumers relying on CLASS immediately after template deserialization should verify behavior expectations.
+- Namespace and class are resolved from the instance at write time and stored at the head
 
 ## 8. JSON and YAML Extensions
 
@@ -279,7 +312,9 @@ All C++ exceptions are caught at ABI boundary and translated to error codes.
 
 - Object lifecycle and reference counting
 - JSON/YAML import wrappers
-- Class registration and class lookup
+- Class registration (global: `bison_add_class`; named namespace: `bison_add_class_ns`)
+- Object instantiation (global: `bison_instantiate`; named namespace: `bison_instantiate_ns`)
+- Class lookup
 - Scalar and object field set/get by key and by numeric index
 - Method registration via callback bridge
 - Method invocation
@@ -355,3 +390,4 @@ Core library provides object and serialization primitives consumed by:
 ## 15. Summary
 
 Bison core is a dynamic object runtime with two serialization modes, inheritance-aware field and method resolution, and a stable C ABI wrapper. The design balances flexibility (runtime object graph and callable methods) with portability (endian-safe binary format) and interoperability (JSON/YAML import and C API), making it a suitable foundation for higher-level systems such as the planned RMI layer.
+

@@ -114,6 +114,8 @@ inline const bison::key_t FIELD_ERROR_DETAILS = "__details"_key;
 // ──────────────────────────────────────────────
 /** @brief Operation payload key for class token. */
 inline const bison::key_t FIELD_KLASS = "__klass"_key;
+/** @brief Operation payload key for class namespace token. */
+inline const bison::key_t FIELD_NAMESPACE = "__namespace"_key;
 /** @brief Operation payload key for argument/field payload object. */
 inline const bison::key_t FIELD_PARAMS = "__params"_key;
 /** @brief Operation payload key for method or event name token. */

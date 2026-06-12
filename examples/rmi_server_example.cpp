@@ -59,7 +59,7 @@ static void register_calculator() {
         return result;
       });
 
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 }
 
 int main(int argc, char** argv) {

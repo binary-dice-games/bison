@@ -3,6 +3,20 @@
 // distribute this file. See the LICENSE file or
 // https://opensource.org/licenses/MIT for details.
 
+/**
+ * @file bison_common.hpp
+ * @brief Fundamental types, hashing utilities, and forward declarations shared
+ *        across all Bison core headers.
+ *
+ * This header establishes the `bdg::bison` namespace and defines:
+ * - Endianness detection and the `byte_swap` helper.
+ * - The FNV-1a-based `hash_t` / `key_t` name-hashing system.
+ * - The `dynamic_ptr`, `method`, `field_base`, and `collection` type aliases
+ *   used throughout the object model.
+ *
+ * All other core headers include this file via their own `#pragma once` guard.
+ */
+
 #pragma once
 
 #include <atomic>
@@ -36,15 +50,27 @@ class attribute;
 class field;
 class dynamic;
 
+/** @brief Endianness constants and a compile-time native-endian probe. */
 namespace endian {
-const size_t big = 1;
-const size_t little = 0;
+const size_t big = 1;    /**< Big-endian sentinel value. */
+const size_t little = 0; /**< Little-endian sentinel value. */
+/** @brief Runtime-detected native byte order; equals `little` or `big`. */
 const size_t native = []() {
   uint32_t i = 0x01020304;
   return ((char*)&i)[0] == 0x04 ? little : big;
 }();
 } // namespace endian
 
+/**
+ * @brief Swap the byte order of a scalar value on little-endian hosts.
+ *
+ * On big-endian hosts this is a no-op.  Compiler intrinsics are used where
+ * available (`__builtin_bswap*` on GCC/Clang, `_byteswap_*` on MSVC).
+ *
+ * @tparam T  A trivially-copyable type of size 1, 2, 4, or 8 bytes.
+ * @param  value  The value to byte-swap.
+ * @return The byte-swapped value, or @p value unchanged on big-endian hosts.
+ */
 template <typename T>
 constexpr T byte_swap(T value) {
   if constexpr (sizeof(T) == 1)
@@ -90,9 +116,21 @@ constexpr T byte_swap(T value) {
   return result;
 }
 
+/** @brief 32-bit hash type used as the wire representation of a name. */
 using hash_t = uint32_t;
+/** @brief Byte buffer used for in-memory binary payloads. */
 using buffer = std::vector<uint8_t>;
 
+/**
+ * @brief Compute a compile-time FNV-1a hash of a null-terminated string.
+ *
+ * The MSB of the result is always set so that hashed names are distinguishable
+ * from plain numeric indices (which are small non-negative integers stored in
+ * the same `key_t` map).
+ *
+ * @param input  Null-terminated ASCII/UTF-8 string to hash.
+ * @return FNV-1a hash with the MSB forced to 1.
+ */
 constexpr hash_t hash(const char* input) {
   hash_t value = sizeof(hash_t) == 8 ? 0xcbf29ce484222325 : 0x811c9dc5;
   hash_t mask = sizeof(hash_t) == 8 ? 0x8000000000000000 : 0x80000000;
@@ -107,15 +145,19 @@ constexpr hash_t hash(const char* input) {
   return value | mask;
 }
 
-constexpr hash_t operator""_key(const char* name, std::size_t size) noexcept {
-  return hash(name);
-}
-
+/**
+ * @brief Key type that wraps a `hash_t` and serves as a map key.
+ *
+ * Supports construction from raw `hash_t`, `const char*`, and `std::string`
+ * so that callers can use either pre-hashed values or plain strings
+ * interchangeably.  Also satisfies the `Hash` and `KeyEqual` requirements for
+ * use as both template arguments in `std::unordered_map`.
+ */
 struct _key_t {
-  _key_t(hash_t v = 0) : id(v) {}
-  _key_t(const char* input) : id(hash(input)) {}
+  constexpr _key_t(hash_t v = 0) : id(v) {}
+  constexpr _key_t(const char* input) : id(hash(input)) {}
   _key_t(const std::string& input) : id(hash(input.c_str())) {}
-  operator hash_t() const {
+  constexpr operator hash_t() const {
     return id;
   }
   std::size_t operator()(const struct _key_t& k) const {
@@ -127,8 +169,32 @@ struct _key_t {
   hash_t id;
 };
 
+/** @brief Convenience alias for `_key_t`. */
 using key_t = struct _key_t;
 
+/**
+ * @brief User-defined literal that hashes a string constant to a `key_t`.
+ *
+ * Enables concise compile-time field-name hashing, e.g. `"score"_key`.
+ * Returns `key_t` (not `hash_t`) so that `obj["name"_key]` resolves to the
+ * `operator[](key_t)` overload via an exact match, instead of the numeric
+ * `operator[](size_t)` overload via an integral widening conversion.
+ *
+ * @param name  Null-terminated string literal.
+ * @param size  Length of the literal (unused; provided by the compiler).
+ * @return `key_t` wrapping the FNV-1a hash of @p name with MSB set.
+ */
+constexpr key_t operator""_key(const char* name, std::size_t size) noexcept {
+  return key_t{hash(name)};
+}
+
+/**
+ * @brief Reference-counted smart pointer to a `dynamic` object.
+ *
+ * Extends `std::shared_ptr<dynamic>` with additional constructors that
+ * allow in-place construction of a `dynamic` and conversion from a bare
+ * `std::shared_ptr<dynamic>`.
+ */
 class dynamic_ptr : public std::shared_ptr<dynamic> {
  public:
   using std::shared_ptr<dynamic>::shared_ptr;
@@ -144,23 +210,53 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {});
 };
 
+/**
+ * @brief Callable type for methods attached to a `dynamic` object.
+ *
+ * Methods receive a mutable reference to the object they are called on
+ * (`self`) and a read-only `dynamic` containing call arguments (`params`),
+ * and return a `dynamic` result.
+ */
 using method =
     std::function<dynamic(dynamic& /*self*/, const dynamic& /*params*/)>;
 
+/**
+ * @brief Variant base that enumerates all value types a `field` can hold.
+ *
+ * The index of each alternative in this variant determines its one-byte
+ * serialisation tag.  The ordering must not be changed without a
+ * corresponding wire-format version bump.
+ */
 using field_base = std::variant<
-    std::monostate,
-    hash_t,
-    key_t,
-    bool,
-    int32_t,
-    float,
-    dynamic_ptr,
-    std::string,
-    std::vector<bool>,
-    std::vector<int32_t>,
-    std::vector<float>,
-    std::vector<uint8_t>>;
+    std::monostate,       /**< Empty / null field. */
+    hash_t,               /**< Raw 32-bit hash value. */
+    key_t,                /**< Hashed name key. */
+    bool,                 /**< Boolean value. */
+    int32_t,              /**< 32-bit signed integer. */
+    float,                /**< Single-precision float. */
+    dynamic_ptr,          /**< Nested dynamic object (may be null). */
+    std::string,          /**< UTF-8 string. */
+    std::vector<bool>,    /**< Homogeneous bool array. */
+    std::vector<int32_t>, /**< Homogeneous int32 array. */
+    std::vector<float>,   /**< Homogeneous float array. */
+    std::vector<uint8_t>  /**< Raw byte array. */
+    >;
 
+/**
+ * @brief Unordered map of `key_t` → `dynamic_ptr` used for the class
+ *        registry and other named object collections.
+ */
 using collection = std::unordered_map<key_t, dynamic_ptr, key_t, key_t>;
+
+/**
+ * @brief The namespace registry: a map of namespace hash → class collection.
+ *
+ * The global (default) namespace uses key `0U`.  Named namespaces use the
+ * FNV-1a hash of their name (produced by `hash()` or `"name"_key`).
+ * Each entry holds an independent `collection` of class prototypes so that
+ * the same class name may be registered in multiple namespaces without
+ * collision.
+ */
+using namespace_map = std::unordered_map<key_t, collection, key_t, key_t>;
 
 } // namespace bdg::bison

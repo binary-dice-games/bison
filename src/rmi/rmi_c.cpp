@@ -8,7 +8,7 @@
  * return codes so that no exception can propagate through the C ABI.
  */
 
-#include "rmi_c.h"
+#include "../../include/rmi_c.h"
 #include "rmi.hpp"
 
 #include <cstring>
@@ -450,8 +450,9 @@ make_instantiate_future(rmi_client_handle h, uint32_t klass, bison_handle params
   dynamic dyn_params = bison_handle_to_dynamic(params);
   if (auto* sa = standalone_deref(h))
     return sa->instantiate(bdg::bison::key_t{klass}, std::move(dyn_params));
-  return client_deref(h)->instantiate(
-      bdg::bison::key_t{klass}, std::move(dyn_params));
+
+  client* c = client_deref(h);
+  return c->instantiate(0U, bdg::bison::key_t{klass}, std::move(dyn_params));
 }
 
 static inline std::future<bool> make_proxy_clear_future(proxy::dynamic* px) {

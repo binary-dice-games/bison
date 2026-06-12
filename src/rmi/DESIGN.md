@@ -353,7 +353,8 @@ public:
     bison::dynamic describe(bison::key_t klass = 0U);
 
     remote::dynamic instantiate(
-      bison::key_t klass,
+        bison::key_t ns,
+        bison::key_t klass,
         bison::dynamic&& params = bison::dynamic::object()
     );
 
@@ -369,7 +370,7 @@ Behavior:
 - `connect` initializes transport and starts a worker thread.
 - `describe(0U)` returns all server-registered classes.
 - `describe(klass)` returns full metadata for the specific class, including fields, methods, and events.
-- `instantiate` receives a hashed class id, creates server object in current session context, and returns proxy.
+- `instantiate` receives a namespace id and hashed class id, creates a server object in current session context, and returns proxy.
 - `destroy` consumes a remote object proxy and releases the corresponding server object in current session context.
 - `disconnect` gracefully tears down worker thread and connection.
 

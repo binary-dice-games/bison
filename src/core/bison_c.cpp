@@ -26,7 +26,7 @@
  * `bison_handle`; callers must follow the documented ownership rules.
  */
 
-#include "bison_c.h"
+#include "../include/bison_c.h"
 #include "bison.hpp"
 
 #include <cstring>
@@ -69,9 +69,14 @@ BISON_API bison_handle bison_create(bison_hash klass_name) {
 }
 
 BISON_API bison_handle bison_instantiate(bison_hash klass_name) {
+  return bison_instantiate_ns(static_cast<bison_hash>(0L), klass_name);
+}
+
+BISON_API bison_handle
+bison_instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
   try {
-    bdg::bison::dynamic obj =
-        bdg::bison::dynamic::instantiate(bdg::bison::key_t{klass_name});
+    bdg::bison::dynamic obj = bdg::bison::dynamic::instantiate(
+        bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
     auto* sp =
         new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
     return as_handle(sp);
@@ -126,36 +131,41 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
 
 BISON_API bison_error
 bison_add_class(bison_hash parent_name, bison_handle klass) {
+  return bison_add_class_ns(0, klass, parent_name);
+}
+
+BISON_API bison_error bison_add_class_ns(
+    bison_hash ns_name,
+    bison_handle klass,
+    bison_hash parent_name) {
   if (!klass)
     return BISON_ERR_NULL;
   try {
     // addClass takes a shared_ptr; copy the one inside the handle.
     sp_dyn copy = *as_sp(klass);
     bool ok = bdg::bison::dynamic::addClass(
-        bdg::bison::key_t{parent_name}, std::move(copy));
+        bdg::bison::key_t{ns_name},
+        std::move(copy),
+        bdg::bison::key_t{parent_name});
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
   }
 }
 
-BISON_API bison_handle bison_find_class(bison_handle h, bison_hash name) {
-  if (!h)
-    return nullptr;
+BISON_API bison_handle bison_find_class(bison_hash klass_name) {
+  return bison_find_class_ns(static_cast<bison_hash>(0L), klass_name);
+}
+
+BISON_API bison_handle
+bison_find_class_ns(bison_hash ns_name, bison_hash klass_name) {
   try {
-    bdg::bison::dynamic* found = dyn(h)->findClass(bdg::bison::key_t{name});
-    if (!found)
-      return nullptr;
-    // Return a new owning handle that shares ownership via a separate
-    // shared_ptr constructed from the raw pointer and the existing shared_ptr.
-    // We need to get the shared_ptr from the registry to do this properly.
-    // Use findClass result with a no-op deleter as a non-owning view.
-    // Since the class registry holds a shared_ptr, we can look it up:
     auto lp = bdg::bison::dynamic::getRegistry().rlock();
-    auto& classes = *lp;
-    auto key = found->at(bdg::bison::dynamic::CLASS).as<bdg::bison::key_t>();
-    auto it = classes.find(key);
-    if (it == classes.end())
+    auto nsIt = lp->find(bdg::bison::key_t{ns_name});
+    if (nsIt == lp->end())
+      return nullptr;
+    auto it = nsIt->second.find(bdg::bison::key_t{klass_name});
+    if (it == nsIt->second.end())
       return nullptr;
     auto* sp = new sp_dyn(it->second); // owning copy from registry
     return as_handle(sp);
@@ -240,44 +250,17 @@ bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
 
 BISON_API bison_error
 bison_set_int_at(bison_handle h, size_t index, int32_t value) {
-  if (!h)
-    return BISON_ERR_NULL;
-  try {
-    (*dyn(h))[index] = value;
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_set_int(h, static_cast<bison_hash>(index), value);
 }
 
 BISON_API bison_error
 bison_set_float_at(bison_handle h, size_t index, float value) {
-  if (!h)
-    return BISON_ERR_NULL;
-  try {
-    (*dyn(h))[index] = value;
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_set_float(h, static_cast<bison_hash>(index), value);
 }
 
 BISON_API bison_error
 bison_set_string_at(bison_handle h, size_t index, const char* value) {
-  if (!h || !value)
-    return BISON_ERR_NULL;
-  try {
-    (*dyn(h))[index] = std::string(value);
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_set_string(h, static_cast<bison_hash>(index), value);
 }
 
 // ─── Getters ────────────────────────────────────────────────────────────────
@@ -370,30 +353,12 @@ bison_get_object(bison_handle h, bison_hash name, bison_handle* out) {
 
 BISON_API bison_error
 bison_get_int_at(bison_handle h, size_t index, int32_t* out) {
-  if (!h || !out)
-    return BISON_ERR_NULL;
-  try {
-    *out = (*dyn(h))[index].as<int32_t>();
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_get_int(h, static_cast<bison_hash>(index), out);
 }
 
 BISON_API bison_error
 bison_get_float_at(bison_handle h, size_t index, float* out) {
-  if (!h || !out)
-    return BISON_ERR_NULL;
-  try {
-    *out = (*dyn(h))[index].as<float>();
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_get_float(h, static_cast<bison_hash>(index), out);
 }
 
 BISON_API bison_error bison_get_string_at(
@@ -402,23 +367,8 @@ BISON_API bison_error bison_get_string_at(
     char* buf,
     size_t buf_len,
     size_t* len_out) {
-  if (!h)
-    return BISON_ERR_NULL;
-  try {
-    const std::string& s = (*dyn(h))[index].as<std::string>();
-    if (len_out)
-      *len_out = s.size();
-    if (buf && buf_len > 0) {
-      size_t copy_len = s.size() < buf_len - 1 ? s.size() : buf_len - 1;
-      std::memcpy(buf, s.data(), copy_len);
-      buf[copy_len] = '\0';
-    }
-    return BISON_OK;
-  } catch (const std::runtime_error&) {
-    return BISON_ERR_TYPE;
-  } catch (...) {
-    return BISON_ERR_EXCEPTION;
-  }
+  return bison_get_string(
+      h, static_cast<bison_hash>(index), buf, buf_len, len_out);
 }
 
 BISON_API size_t bison_size(bison_handle h) {
@@ -661,7 +611,7 @@ BISON_API bison_rmi_proxy bison_rmi_client_instantiate(
     if (params && dyn(params))
       p = dyn(params)->clone();
 
-    auto fut = c->c->instantiate(bdg::bison::key_t{klass}, std::move(p));
+    auto fut = c->c->instantiate(0U, bdg::bison::key_t{klass}, std::move(p));
     auto proxy = fut.get();
     return new bison_rmi_proxy_(std::move(proxy));
   } catch (...) {

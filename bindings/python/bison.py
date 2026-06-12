@@ -183,7 +183,10 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_add_class.argtypes = [ctypes.c_uint32, _Handle]
 
     lib.bison_find_class.restype  = _Handle
-    lib.bison_find_class.argtypes = [_Handle, ctypes.c_uint32]
+    lib.bison_find_class.argtypes = [ctypes.c_uint32]
+
+    lib.bison_find_class_ns.restype  = _Handle
+    lib.bison_find_class_ns.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
 
     # Setters (named)
     for fn_name in ("bison_set_int", "bison_set_float", "bison_set_bool"):

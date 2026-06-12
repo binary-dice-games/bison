@@ -3,28 +3,65 @@
 // distribute this file. See the LICENSE file or
 // https://opensource.org/licenses/MIT for details.
 
+/**
+ * @file bison_serialization.hpp
+ * @brief Binary serialization and deserialization backends for Bison objects.
+ *
+ * Provides two families of serializer/deserializer pairs:
+ * - **Buffer** (`buffer_serializer` / `buffer_deserializer`) – operates on
+ *   in-memory `std::vector<uint8_t>` buffers.
+ * - **Stream** (`stream_serializer` / `stream_deserializer`) – wraps
+ *   `std::ostream` / `std::istream` for file or network I/O.
+ *
+ * All values are written in **big-endian** (network) byte order using
+ * `byte_swap` from `bison_common.hpp`.  Strings and vectors are prefixed with
+ * a `size_t` element count (also big-endian).
+ */
+
 #pragma once
 
 #include "src/core/bison_common.hpp"
 
 namespace bdg::bison {
 
+/**
+ * @brief In-memory binary serializer that writes big-endian data to an
+ *        internal byte buffer.
+ *
+ * Call `buffer()` to access the accumulated bytes without transferring
+ * ownership, or `release()` to move the buffer out.  `buffer_serializer` is
+ * move-only (not copyable).
+ *
+ * All `write` overloads return `*this` for fluent chaining.
+ */
 class buffer_serializer {
  public:
+  /**
+   * @brief Construct a serializer with a pre-allocated internal buffer.
+   * @param initial_capacity  Number of bytes to reserve upfront (default 256).
+   */
   explicit buffer_serializer(size_t initial_capacity = 256) {
     buf_.reserve(initial_capacity);
   }
   buffer_serializer(const buffer_serializer&) = delete;
   buffer_serializer(buffer_serializer&&) = default;
 
+  /** @brief Read-only view of the accumulated serialized bytes. */
   const bdg::bison::buffer& buffer() const {
     return buf_;
   }
 
+  /** @brief Move the internal buffer out, leaving the serializer empty. */
   bdg::bison::buffer release() {
     return std::move(buf_);
   }
 
+  /**
+   * @brief Write a scalar value in big-endian byte order.
+   * @tparam T  A trivially-copyable scalar type.
+   * @param  data  Value to write.
+   * @return `*this` for chaining.
+   */
   template <typename T>
   buffer_serializer& write(T data) {
     data = byte_swap(data);
@@ -106,6 +143,14 @@ class buffer_serializer {
   bdg::bison::buffer buf_;
 };
 
+/**
+ * @brief In-memory binary deserializer that reads big-endian data from a
+ *        caller-supplied byte range.
+ *
+ * Constructed from a raw pointer + size, a `buffer`, or a `std::string`.
+ * Reading past the end throws `std::runtime_error("buffer_deserializer:
+ * buffer underflow")`.  `buffer_deserializer` is move-only (not copyable).
+ */
 class buffer_deserializer {
  public:
   buffer_deserializer(const char* data, size_t size)
@@ -125,6 +170,13 @@ class buffer_deserializer {
   buffer_deserializer(const buffer_deserializer&) = delete;
   buffer_deserializer(buffer_deserializer&&) = default;
 
+  /**
+   * @brief Read and return a scalar value, advancing the read position.
+   *
+   * @tparam T  A trivially-copyable scalar type.
+   * @return The deserialized value (byte-swapped from big-endian).
+   * @throws std::runtime_error on buffer underflow.
+   */
   template <typename T>
   T read() {
     if (pos_ + sizeof(T) > end_) {
@@ -214,8 +266,22 @@ class buffer_deserializer {
   const uint8_t* pos_;
 };
 
+/**
+ * @brief Streaming binary serializer that writes big-endian data to a
+ *        `std::ostream`.
+ *
+ * Internally delegates vector and string writes through a `buffer_serializer`
+ * to reuse the endian-swapping logic.  Neither copyable nor movable.
+ *
+ * All `write` overloads return `*this` for fluent chaining.
+ */
 class stream_serializer {
  public:
+  /**
+   * @brief Construct a serializer that writes to @p out.
+   * @param out  Output stream; must remain valid for the lifetime of this
+   *             serializer.
+   */
   stream_serializer(std::ostream& out) : out_(out) {}
   stream_serializer(const stream_serializer& that) = delete;
   stream_serializer(stream_serializer&& that) = delete;
@@ -274,8 +340,20 @@ class stream_serializer {
   std::ostream& out_;
 };
 
+/**
+ * @brief Streaming binary deserializer that reads big-endian data from a
+ *        `std::istream`.
+ *
+ * Internally delegates vector and span reads through `buffer_deserializer`.
+ * Neither copyable nor movable.
+ */
 class stream_deserializer {
  public:
+  /**
+   * @brief Construct a deserializer that reads from @p in.
+   * @param in  Input stream; must remain valid for the lifetime of this
+   *            deserializer.
+   */
   stream_deserializer(std::istream& in) : in_(in) {}
   stream_deserializer(const stream_deserializer& that) = delete;
   stream_deserializer(stream_deserializer&& that) = delete;

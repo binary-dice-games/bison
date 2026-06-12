@@ -88,7 +88,7 @@ static void register_calculator() {
         return result;
       });
 
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 }
 
 // ─── Client worker
@@ -100,7 +100,7 @@ static void run_client(memory_server_transport& transport, int client_id) {
   c.connect();
 
   // Instantiate a Calculator on the server.
-  auto calc = c.instantiate("Calculator"_key);
+  auto calc = c.instantiate(0U, "Calculator"_key);
 
   println("[Client ", client_id, "] connected, object id=", calc.object_id());
 

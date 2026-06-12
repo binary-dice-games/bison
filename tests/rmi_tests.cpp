@@ -362,7 +362,7 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   auto proto = dynamic_ptr{
       "TestWidget"_key,
       {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
@@ -389,18 +389,44 @@ TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
 TEST_F(RmiE2E, InstantiateUnregisteredClassFails) {
   auto c = make_client();
   c.connect();
-  EXPECT_THROW(c.instantiate("NoSuchClass"_key).get(), std::runtime_error);
+  EXPECT_THROW(c.instantiate(0U, "NoSuchClass"_key).get(), std::runtime_error);
   c.disconnect();
 }
 
 TEST_F(RmiE2E, InstantiateAndDestroyRegisteredClass) {
   auto proto = dynamic_ptr{"Counter"_key, {{"value"_key, int32_t{0}}}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Counter"_key).get();
+  auto proxy = c.instantiate(0U, "Counter"_key).get();
+  EXPECT_TRUE(proxy.valid());
+  EXPECT_NE(static_cast<hash_t>(proxy.object_id()), 0u);
+
+  EXPECT_NO_THROW(c.destroy(std::move(proxy)));
+  c.disconnect();
+}
+
+TEST_F(RmiE2E, InstantiateWithoutNamespaceUsesGlobalOnly) {
+  auto proto = dynamic_ptr{"NsOnlyType"_key, {{"value"_key, int32_t{0}}}};
+  dynamic::addClass("math"_key, proto, 0U);
+
+  auto c = make_client();
+  c.connect();
+
+  EXPECT_THROW(c.instantiate(0U, "NsOnlyType"_key).get(), std::runtime_error);
+  c.disconnect();
+}
+
+TEST_F(RmiE2E, InstantiateWithExplicitNamespaceSucceeds) {
+  auto proto = dynamic_ptr{"NsType"_key, {{"value"_key, int32_t{0}}}};
+  dynamic::addClass("math"_key, proto, 0U);
+
+  auto c = make_client();
+  c.connect();
+
+  auto proxy = c.instantiate("math"_key, "NsType"_key, dynamic{}).get();
   EXPECT_TRUE(proxy.valid());
   EXPECT_NE(static_cast<hash_t>(proxy.object_id()), 0u);
 
@@ -411,12 +437,12 @@ TEST_F(RmiE2E, InstantiateAndDestroyRegisteredClass) {
 TEST_F(RmiE2E, SetAndGetField) {
   auto proto =
       dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Box"_key).get();
+  auto proxy = c.instantiate(0U, "Box"_key).get();
 
   // Set fields.
   dynamic fields;
@@ -443,12 +469,12 @@ TEST_F(RmiE2E, GetProjection) {
        {"top"_key, int32_t{0}},
        {"right"_key, int32_t{0}},
        {"bottom"_key, int32_t{0}}}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Rect"_key).get();
+  auto proxy = c.instantiate(0U, "Rect"_key).get();
 
   dynamic set_fields;
   set_fields["left"_key] = int32_t{10};
@@ -479,12 +505,12 @@ TEST_F(RmiE2E, GetProjection) {
 
 TEST_F(RmiE2E, ClearResetsFields) {
   auto proto = dynamic_ptr{"Slot"_key, {{"value"_key, int32_t{0}}}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Slot"_key).get();
+  auto proxy = c.instantiate(0U, "Slot"_key).get();
 
   dynamic f;
   f["value"_key] = int32_t{99};
@@ -520,12 +546,12 @@ TEST_F(RmiE2E, CallMethod) {
     ret["result"_key] = a + b;
     return ret;
   });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Calc"_key).get();
+  auto proxy = c.instantiate(0U, "Calc"_key).get();
 
   dynamic params;
   params["a"_key] = int32_t{10};
@@ -545,12 +571,12 @@ TEST_F(RmiE2E, OnewayCallResolvesImmediately) {
   proto->addMethod("noop"_key, [](dynamic& /*s*/, const dynamic& /*p*/) {
     return dynamic{};
   });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Sink"_key).get();
+  auto proxy = c.instantiate(0U, "Sink"_key).get();
 
   dynamic params;
   auto fut = proxy.call("noop"_key, std::move(params), true /* oneway */);
@@ -582,12 +608,12 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
         ++destruct_count;
         return dynamic{};
       });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Hooked"_key).get();
+  auto proxy = c.instantiate(0U, "Hooked"_key).get();
   EXPECT_EQ(construct_count.load(), 1);
 
   c.destroy(std::move(proxy));
@@ -611,12 +637,12 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
     }
     return out;
   });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Clamped"_key).get();
+  auto proxy = c.instantiate(0U, "Clamped"_key).get();
 
   dynamic f;
   f["v"_key] = int32_t{200}; // over the clamp limit
@@ -642,12 +668,12 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
     }
     return out;
   });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Doubled"_key).get();
+  auto proxy = c.instantiate(0U, "Doubled"_key).get();
 
   dynamic set_f;
   set_f["n"_key] = int32_t{5};
@@ -667,15 +693,15 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
 
 TEST_F(RmiE2E, TwoClientsAreIsolated) {
   auto proto = dynamic_ptr{"Isolated"_key, {{"v"_key, int32_t{0}}}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c1 = make_client();
   auto c2 = make_client();
   c1.connect();
   c2.connect();
 
-  auto p1 = c1.instantiate("Isolated"_key).get();
-  auto p2 = c2.instantiate("Isolated"_key).get();
+  auto p1 = c1.instantiate(0U, "Isolated"_key).get();
+  auto p2 = c2.instantiate(0U, "Isolated"_key).get();
 
   // Set different values in each client's object.
   dynamic f1;
@@ -726,7 +752,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
     }
     return dynamic{};
   });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   // Override instantiate so we can attach userdata with the emit callback.
   // We use a simpler approach: a class with a __construct that stashes the
@@ -811,12 +837,12 @@ TEST_F(RmiE2E, OnEventHandlerInvokedOnClientThread) {
   std::atomic<int> received_value{0};
 
   auto proto = dynamic_ptr{"EvtSource"_key, {}};
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("EvtSource"_key).get();
+  auto proxy = c.instantiate(0U, "EvtSource"_key).get();
   const bison_key_t oid = proxy.object_id();
 
   // Register an event handler.
@@ -864,13 +890,13 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
         ++destruct_count;
         return dynamic{};
       });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto p1 = c.instantiate("Ephemeral"_key).get();
-  auto p2 = c.instantiate("Ephemeral"_key).get();
+  auto p1 = c.instantiate(0U, "Ephemeral"_key).get();
+  auto p2 = c.instantiate(0U, "Ephemeral"_key).get();
 
   // Disconnect without explicitly destroying.
   c.disconnect();
@@ -890,12 +916,12 @@ TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   proto->addMethod("echo"_key, [](dynamic& /*self*/, const dynamic& params) {
     return dynamic{params.clone()};
   });
-  dynamic::addClass(0U, proto);
+  dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
   c.connect();
 
-  auto proxy = c.instantiate("Echo"_key).get();
+  auto proxy = c.instantiate(0U, "Echo"_key).get();
   constexpr int N = 10;
 
   // Launch N concurrent calls each carrying a unique id.
