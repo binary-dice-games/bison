@@ -530,27 +530,6 @@ class client {
   explicit client(rmi_client_handle h) noexcept : h_(h) {}
 };
 
-// ── future::get_proxy — defined after proxy and client ───────────────────
-
-/**
- * @brief Consume the future and return its proxy result.
- *
- * After this call the internal handle is null.
- *
- * @return Owning `proxy` wrapping the remote object.
- * @throws std::runtime_error on error.
- */
-inline proxy future_get_proxy(future& f) {
-  rmi_proxy_handle out = nullptr;
-  rmi_future_handle raw = f.get();
-  rmi_error err = rmi_future_get_proxy(&raw, &out);
-  // Sync the consumed handle back into the future wrapper.
-  // The future's internal handle has been set to null by rmi_future_get_proxy.
-  f = future{}; // discard; the C function already nulled the raw handle
-  detail::check(err, "rmi_future_get_proxy");
-  return proxy::own(out);
-}
-
 // ── proxy out-of-line definitions ─────────────────────────────────────────
 
 inline void proxy::clear(client& c, int64_t timeout_ms) {
