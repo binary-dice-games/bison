@@ -440,7 +440,7 @@ static inline rmi_error wait_future_bool(
 
 static inline std::future<dynamic> make_describe_future(
     rmi_client_handle h,
-    uint32_t klass) {
+    bison_hash klass) {
   if (auto* sa = standalone_deref(h))
     return sa->describe(bdg::bison::key_t{klass});
   return client_deref(h)->describe(bdg::bison::key_t{klass});
@@ -448,7 +448,7 @@ static inline std::future<dynamic> make_describe_future(
 
 static inline std::future<proxy::dynamic> make_instantiate_future(
     rmi_client_handle h,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
   if (auto* sa = standalone_deref(h))
@@ -478,7 +478,7 @@ static inline std::future<dynamic> make_proxy_get_future(
 
 static inline std::future<dynamic> make_proxy_call_future(
     proxy::dynamic* px,
-    uint32_t method,
+    bison_hash method,
     bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
   return px->call(bdg::bison::key_t{method}, std::move(dyn_params));
@@ -569,7 +569,7 @@ RMI_API rmi_error rmi_client_connect(rmi_client_handle h, bison_handle params) {
 
 RMI_API rmi_error rmi_client_describe(
     rmi_client_handle h,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle* out_desc) {
   if (!out_desc)
     return RMI_ERR_NULL;
@@ -588,7 +588,7 @@ RMI_API rmi_error rmi_client_describe(
 
 RMI_API rmi_error rmi_client_describe_async(
     rmi_client_handle h,
-    uint32_t klass,
+    bison_hash klass,
     rmi_future_handle* out_future) {
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
@@ -604,7 +604,7 @@ RMI_API rmi_error rmi_client_describe_async(
 
 RMI_API rmi_error rmi_client_instantiate(
     rmi_client_handle h,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle params,
     rmi_proxy_handle* out_proxy) {
   if (!out_proxy)
@@ -626,7 +626,7 @@ RMI_API rmi_error rmi_client_instantiate(
 
 RMI_API rmi_error rmi_client_instantiate_async(
     rmi_client_handle h,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle params,
     rmi_future_handle* out_future) {
   if (!client_handle_is_valid(h))
@@ -691,7 +691,7 @@ RMI_API void rmi_proxy_release(rmi_proxy_handle proxy) {
 
 RMI_API rmi_error rmi_proxy_on_event(
     rmi_proxy_handle proxy,
-    uint32_t event_name,
+    bison_hash event_name,
     rmi_proxy_event_fn handler,
     void* user) {
   proxy::dynamic* px = proxy_deref(proxy);
@@ -850,7 +850,7 @@ RMI_API rmi_error rmi_proxy_get_async(
 RMI_API rmi_error rmi_proxy_call(
     rmi_client_handle h,
     rmi_proxy_handle proxy,
-    uint32_t method,
+    bison_hash method,
     bison_handle params,
     bison_handle* out_result,
     int64_t timeout_ms) {
@@ -882,7 +882,7 @@ RMI_API rmi_error rmi_proxy_call(
 RMI_API rmi_error rmi_proxy_call_async(
     rmi_client_handle h,
     rmi_proxy_handle proxy,
-    uint32_t method,
+    bison_hash method,
     bison_handle params,
     rmi_future_handle* out_future) {
   if (!client_handle_is_valid(h))

@@ -236,7 +236,7 @@ class proxy {
    * Lambda captures are supported because the callback is stored inside the
    * proxy until the proxy itself is destroyed.
    */
-  void on_event(uint32_t event_name, event_callback callback) {
+  void on_event(bison_hash event_name, event_callback callback) {
     if (!callback) {
       throw std::invalid_argument("event callback must not be empty");
     }
@@ -262,7 +262,7 @@ class proxy {
    * @throws std::runtime_error on error.
    */
   void on_event(
-      uint32_t event_name,
+      bison_hash event_name,
       rmi_proxy_event_fn handler,
       void* user = nullptr) {
     detail::check(
@@ -349,7 +349,7 @@ class proxy {
    */
   dynamic call(
       client& c,
-      uint32_t method,
+      bison_hash method,
       const dynamic& params = dynamic{},
       int64_t timeout_ms = -1);
 
@@ -364,7 +364,7 @@ class proxy {
    * @throws std::runtime_error on submission failure.
    */
   future
-  call_async(client& c, uint32_t method, const dynamic& params = dynamic{});
+  call_async(client& c, bison_hash method, const dynamic& params = dynamic{});
 
  private:
   struct event_state {
@@ -464,7 +464,7 @@ class client {
    * @return Owning descriptor object.
    * @throws std::runtime_error on failure.
    */
-  dynamic describe(uint32_t klass = 0) const {
+  dynamic describe(bison_hash klass = 0) const {
     bison_handle out = nullptr;
     detail::check(rmi_client_describe(h_, klass, &out), "rmi_client_describe");
     return dynamic::own(out);
@@ -477,7 +477,7 @@ class client {
    * @return Future consumed with `future::get_dynamic()`.
    * @throws std::runtime_error on submission failure.
    */
-  future describe_async(uint32_t klass = 0) const {
+  future describe_async(bison_hash klass = 0) const {
     rmi_future_handle f = nullptr;
     detail::check(
         rmi_client_describe_async(h_, klass, &f), "rmi_client_describe_async");
@@ -493,7 +493,7 @@ class client {
    * @return Owning proxy for the remote object.
    * @throws std::runtime_error on failure.
    */
-  proxy instantiate(uint32_t klass, const dynamic& params = dynamic{}) {
+  proxy instantiate(bison_hash klass, const dynamic& params = dynamic{}) {
     rmi_proxy_handle p = nullptr;
     detail::check(
         rmi_client_instantiate(h_, klass, params.get(), &p),
@@ -512,7 +512,9 @@ class client {
    * @return Future consumed with `future::get_proxy()`.
    * @throws std::runtime_error on submission failure.
    */
-  future instantiate_async(uint32_t klass, const dynamic& params = dynamic{}) {
+  future instantiate_async(
+      bison_hash klass,
+      const dynamic& params = dynamic{}) {
     rmi_future_handle f = nullptr;
     detail::check(
         rmi_client_instantiate_async(h_, klass, params.get(), &f),
@@ -575,7 +577,7 @@ inline future proxy::get_async(client& c, const dynamic& projection) {
 
 inline dynamic proxy::call(
     client& c,
-    uint32_t method,
+    bison_hash method,
     const dynamic& params,
     int64_t timeout_ms) {
   bison_handle out = nullptr;
@@ -586,7 +588,7 @@ inline dynamic proxy::call(
 }
 
 inline future
-proxy::call_async(client& c, uint32_t method, const dynamic& params) {
+proxy::call_async(client& c, bison_hash method, const dynamic& params) {
   rmi_future_handle f = nullptr;
   detail::check(
       rmi_proxy_call_async(c.get(), p_, method, params.get(), &f),

@@ -227,7 +227,7 @@ rmi_client_connect(rmi_client_handle client, bison_handle params);
  */
 RMI_API rmi_error rmi_client_describe(
     rmi_client_handle client,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle* out_desc);
 
 /**
@@ -241,7 +241,7 @@ RMI_API rmi_error rmi_client_describe(
  */
 RMI_API rmi_error rmi_client_describe_async(
     rmi_client_handle client,
-    uint32_t klass,
+    bison_hash klass,
     rmi_future_handle* out_future);
 
 /**
@@ -256,7 +256,7 @@ RMI_API rmi_error rmi_client_describe_async(
  */
 RMI_API rmi_error rmi_client_instantiate(
     rmi_client_handle client,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle params,
     rmi_proxy_handle* out_proxy);
 
@@ -272,7 +272,7 @@ RMI_API rmi_error rmi_client_instantiate(
  */
 RMI_API rmi_error rmi_client_instantiate_async(
     rmi_client_handle client,
-    uint32_t klass,
+    bison_hash klass,
     bison_handle params,
     rmi_future_handle* out_future);
 
@@ -327,7 +327,7 @@ typedef void (*rmi_proxy_event_fn)(bison_handle params, void* user);
  */
 RMI_API rmi_error rmi_proxy_on_event(
     rmi_proxy_handle proxy,
-    uint32_t event_name,
+    bison_hash event_name,
     rmi_proxy_event_fn handler,
     void* user);
 
@@ -442,7 +442,7 @@ RMI_API rmi_error rmi_proxy_get_async(
 RMI_API rmi_error rmi_proxy_call(
     rmi_client_handle client,
     rmi_proxy_handle proxy,
-    uint32_t method,
+    bison_hash method,
     bison_handle params,
     bison_handle* out_result,
     int64_t timeout_ms);
@@ -461,7 +461,7 @@ RMI_API rmi_error rmi_proxy_call(
 RMI_API rmi_error rmi_proxy_call_async(
     rmi_client_handle client,
     rmi_proxy_handle proxy,
-    uint32_t method,
+    bison_hash method,
     bison_handle params,
     rmi_future_handle* out_future);
 
