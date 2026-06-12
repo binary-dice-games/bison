@@ -145,7 +145,7 @@ class dynamic {
    * @throws std::runtime_error on failure.
    */
   static dynamic instantiate(bison_hash klass_name) {
-    return instantiate_ns(static_cast<bison_hash>(0L), klass_name);
+    return instantiate(static_cast<bison_hash>(0L), klass_name);
   }
 
   /**
@@ -155,10 +155,10 @@ class dynamic {
    * @param klass_name  Hashed class name (use `key()`).
    * @throws std::runtime_error on failure.
    */
-  static dynamic instantiate_ns(bison_hash ns_name, bison_hash klass_name) {
-    bison_handle h = bison_instantiate_ns(ns_name, klass_name);
+  static dynamic instantiate(bison_hash ns_name, bison_hash klass_name) {
+    bison_handle h = bison_instantiate(ns_name, klass_name);
     if (!h)
-      throw std::runtime_error("bison_instantiate_ns failed");
+      throw std::runtime_error("bison_instantiate failed");
     return dynamic(h);
   }
 
@@ -278,7 +278,7 @@ class dynamic {
    * @throws std::runtime_error on null handle or duplicate class name.
    */
   static void add_class(bison_hash parent_name, const dynamic& klass) {
-    detail::check(bison_add_class(parent_name, klass.h_), "bison_add_class");
+    add_class(static_cast<bison_hash>(0L), klass, parent_name);
   }
 
   /**
@@ -289,13 +289,10 @@ class dynamic {
    * @param parent_name  Hashed parent class name; `0` for a root class.
    * @throws std::runtime_error on null handle or duplicate class name.
    */
-  static void add_class_ns(
-      bison_hash ns_name,
-      const dynamic& klass,
-      bison_hash parent_name) {
+  static void
+  add_class(bison_hash ns_name, const dynamic& klass, bison_hash parent_name) {
     detail::check(
-        bison_add_class_ns(ns_name, klass.h_, parent_name),
-        "bison_add_class_ns");
+        bison_add_class(ns_name, klass.h_, parent_name), "bison_add_class");
   }
 
   /**
@@ -306,7 +303,7 @@ class dynamic {
    *         not found.
    */
   static dynamic find_class(bison_hash klass_name) {
-    return find_class_ns(static_cast<bison_hash>(0L), klass_name);
+    return find_class(static_cast<bison_hash>(0L), klass_name);
   }
 
   /**
@@ -317,8 +314,8 @@ class dynamic {
    * @return An owning copy of the found prototype, or a null `dynamic` if
    *         not found.
    */
-  static dynamic find_class_ns(bison_hash ns_name, bison_hash klass_name) {
-    bison_handle found = bison_find_class_ns(ns_name, klass_name);
+  static dynamic find_class(bison_hash ns_name, bison_hash klass_name) {
+    bison_handle found = bison_find_class(ns_name, klass_name);
     if (!found)
       return dynamic{};
     // bison_find_class_ns returns a non-owning handle; add_ref to own it.
