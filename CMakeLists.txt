@@ -98,42 +98,25 @@ endif()
 
 target_include_directories(bison PRIVATE src/rmi)
 
-# ─── Shared library (pure-C ABI for core) ──────────────────────────────────
-add_library(bison_core SHARED
+# ─── Shared library (pure-C ABI) ───────────────────────────────────────────
+add_library(bison_abi SHARED
   include/bison_c.h
-  src/core/bison_c.cpp
-)
-
-# bison_core is a superset of bison; it needs the same dependencies.
-target_compile_definitions(bison_core PRIVATE BISON_BUILDING_DLL)
-target_include_directories(bison_core
-    PUBLIC
-  ${CMAKE_CURRENT_LIST_DIR}/include
-        ${CMAKE_CURRENT_LIST_DIR}
-)
-target_link_libraries(bison_core PRIVATE bison nlohmann_json::nlohmann_json yaml)
-if(MSVC)
-  target_compile_options(bison_core PRIVATE /FS)
-endif()
-
-# ─── Shared library (pure-C ABI for RMI) ───────────────────────────────────
-add_library(bison_rmi SHARED
   include/rmi_c.h
+  src/core/bison_c.cpp
   src/rmi/rmi_c.cpp
 )
 
-# bison_rmi depends on bison_core and bison (C++ static lib)
-target_compile_definitions(bison_rmi PRIVATE BISON_BUILDING_DLL)
-target_include_directories(bison_rmi
+target_compile_definitions(bison_abi PRIVATE BISON_BUILDING_DLL)
+target_include_directories(bison_abi
     PUBLIC
   ${CMAKE_CURRENT_LIST_DIR}/include
         ${CMAKE_CURRENT_LIST_DIR}
     PRIVATE
   src/rmi
 )
-target_link_libraries(bison_rmi PRIVATE bison bison_core)
+target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml)
 if(MSVC)
-  target_compile_options(bison_rmi PRIVATE /FS)
+  target_compile_options(bison_abi PRIVATE /FS)
 endif()
 
 if(PACKAGE_TESTS)
