@@ -164,6 +164,56 @@ obj.setUserdata(std::make_shared<MyContext>());
 auto ctx = std::dynamic_pointer_cast<MyContext>(obj.getUserdata());
 ```
 
+## RMI — Remote Method Invocation
+
+The RMI subsystem lets a client invoke methods and read/write fields on objects hosted by a server, over a transport of choice. The protocol is request/response with async futures; the server can also push events to connected clients.
+
+**Transports:** TCP socket (`socket_*_transport`), in-memory queues (`memory_*_transport`), and stdin/stdout (`stdio_*_transport`). The `standalone` class combines client and server in-process with no serialization overhead.
+
+**Server** — register classes, then listen:
+
+```cpp
+#include <rmi/server.hpp>
+using namespace bdg::bison;
+
+auto proto = dynamic_ptr{"Calculator"_key, {{"result"_key, int32_t{0}}}};
+proto->addMethod("add"_key, [](dynamic& self, const dynamic& p) -> dynamic {
+    self["result"_key] = p["a"_key].as<int32_t>() + p["b"_key].as<int32_t>();
+    return dynamic{};
+});
+dynamic::addClass(0U, proto);
+
+rmi::server srv{rmi::socket_server_transport{}};
+srv.listen(dynamic{});   // blocks until stopped
+```
+
+**Client** — connect, instantiate a remote object, call methods:
+
+```cpp
+#include <rmi/client.hpp>
+using namespace bdg::bison;
+
+rmi::client c{rmi::socket_client_transport{"localhost", 7777}};
+c.connect();
+
+auto proxy = c.instantiate(0U, "Calculator"_key, dynamic{}).get();
+
+dynamic args;
+args["a"_key] = int32_t{10};
+args["b"_key] = int32_t{3};
+proxy.call("add"_key, args).get();
+
+auto snapshot = proxy.get().get();   // retrieve all fields
+int32_t result = snapshot["result"_key].as<int32_t>();  // 13
+
+c.destroy(std::move(proxy));
+c.disconnect();
+```
+
+Key proxy operations: `set(fields)`, `get()`, `get(projection)`, `clear()`, `call(name, args)`, `onEvent(name, handler)`.
+
+See [docs/examples.md](docs/examples.md) for building and running the socket and stdio PTY example programs.
+
 ## API Reference
 
 Full Doxygen-style documentation is embedded in `src/core/bison.hpp`. Generate HTML docs with:
