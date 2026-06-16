@@ -1,9 +1,41 @@
 # Documentation & Project Files Maintenance
 
-- Keep `FORMAT.md` and `README.md` updated: the Claude agent must update these files to reflect changes it makes. Keep them concise — include only information necessary to understand project layout, build/test commands, and conventions. Avoid adding excessive detail that bloats the agent context.
-- Keep code documentation updated: maintain clear, concise documentation in code, especially for public APIs, classes, and module-level contracts. Prefer brief doc comments that explain intent, parameters, return values, and failure modes.
-- Startup reading: at the start of every new conversation, always read `FORMAT.md` and `README.md` to understand the project's structure and goals. When task-specific details are needed, read the in-code documentation and public API comments to obtain additional context.
-- Tests: always write automated tests validating any new or modified behavior. Maintain and update tests alongside code changes to ensure continued correctness; tests should be concise, deterministic, and focused on public behavior.
+## README.md — keep it concise
+
+`README.md` is the first file agents read each conversation. Its purpose is to give a quick project overview, core build commands, a quick-start snippet, and a summary of concepts — then link out to `docs/` for details. **Do not inline long how-to content into README.md.**
+
+Rules:
+- Keep `README.md` under ~200 lines. Prose should be tight; no padded explanations.
+- Detailed setup instructions belong in `docs/building.md`.
+- Example run instructions belong in `docs/examples.md`.
+- Language binding setup and usage belong in `docs/bindings.md`.
+- Benchmark details and optimization notes belong in `docs/performance.md`.
+- Wire format specification lives in `FORMAT.md` (already referenced from README).
+- When you add or change a feature, update the relevant section in `README.md` (or the relevant `docs/` file) to reflect the change. Do not leave stale content.
+- If you add a new `docs/` file, add a row for it in the "Further Documentation" table in `README.md`.
+
+## FORMAT.md — wire format spec
+
+Update `FORMAT.md` whenever the binary wire format, RMI envelope schema, or transport framing changes. Keep it precise and implementation-agnostic.
+
+## Code documentation
+
+Maintain clear, concise doc comments in code, especially for public APIs, classes, and module-level contracts. Prefer brief Doxygen comments that explain intent, parameters, return values, and failure modes.
+
+## DESIGN.md — directory architecture docs
+
+Some directories contain a `DESIGN.md` file that describes the architecture, key abstractions, and design decisions for the code in that directory. When working in a directory:
+- Read `DESIGN.md` if it exists before making changes, to understand the intended design.
+- After making changes that affect the architecture, public API surface, or key design decisions, update `DESIGN.md` to reflect those changes. Keep it accurate and concise — it should explain the *why* behind the structure, not restate what the code already says.
+- Do not create a `DESIGN.md` unless asked to. Only maintain existing ones.
+
+## Startup reading
+
+At the start of every new conversation, always read `README.md` to understand the project's structure and goals. Read `FORMAT.md` only when working on serialization, RMI, or transport. When task-specific details are needed, read the relevant `docs/` file and the in-code documentation.
+
+## Tests
+
+Always write automated tests validating any new or modified behavior. Maintain and update tests alongside code changes; tests should be concise, deterministic, and focused on public behavior.
 
 # Bison Coding Style Guide for Claude Code Assist
 
