@@ -49,6 +49,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <ostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -551,6 +552,126 @@ class dynamic {
     bison_handle result = nullptr;
     detail::check(bison_call(h_, name, params.h_, &result), "bison_call");
     return dynamic(result);
+  }
+
+  // ── Field accessor proxy ──────────────────────────────────────────────────
+
+  /**
+   * @brief Proxy returned by `operator[]` that dispatches reads and writes.
+   *
+   * Assigning to a `field` calls the matching `set()` overload on the
+   * parent `dynamic`; converting it to a concrete type calls the matching
+   * `get<T>()` overload.  This enables natural bracket-access syntax:
+   *
+   * @code{.cpp}
+   *   obj["name"_key] = "Alice";            // calls set(key, const char*)
+   *   obj["score"_key] = 42;                // calls set(key, int32_t)
+   *   obj["ratio"_key] = 0.5f;              // calls set(key, float)
+   *   obj["active"_key] = true;             // calls set(key, bool)
+   *   obj["child"_key] = other_dynamic;     // calls set(key, const dynamic&)
+   *
+   *   std::string name  = obj["name"_key];  // calls get<std::string>
+   *   int32_t     score = obj["score"_key]; // calls get<int32_t>
+   *   float       ratio = obj["ratio"_key]; // calls get<float>
+   *   bool        ok    = obj["active"_key];// calls get<bool>
+   *   dynamic     child = obj["child"_key]; // calls get<dynamic>
+   *
+   *   std::cout << obj["name"_key];         // streams via std::string
+   * @endcode
+   *
+   * @note The proxy holds a **non-owning reference** to its parent `dynamic`.
+   *       Do not store a `field` beyond the lifetime of its parent.
+   */
+  class field {
+   public:
+    field(dynamic& parent, bison_hash key) noexcept
+        : parent_(parent), key_(key) {}
+
+    // Prevent storage of temporaries accidentally.
+    field(const field&) = delete;
+    field& operator=(const field&) = delete;
+
+    // ── Setters (assignment) ───────────────────────────────────────────────
+
+    field& operator=(int32_t value) {
+      parent_.set(key_, value);
+      return *this;
+    }
+
+    field& operator=(float value) {
+      parent_.set(key_, value);
+      return *this;
+    }
+
+    field& operator=(bool value) {
+      parent_.set(key_, value);
+      return *this;
+    }
+
+    field& operator=(const char* value) {
+      parent_.set(key_, value);
+      return *this;
+    }
+
+    field& operator=(const std::string& value) {
+      parent_.set(key_, value);
+      return *this;
+    }
+
+    field& operator=(const dynamic& value) {
+      parent_.set(key_, value);
+      return *this;
+    }
+
+    // ── Getters (implicit conversions) ─────────────────────────────────────
+
+    operator int32_t() const {
+      return parent_.get<int32_t>(key_);
+    }
+
+    operator float() const {
+      return parent_.get<float>(key_);
+    }
+
+    operator bool() const {
+      return parent_.get<bool>(key_);
+    }
+
+    operator std::string() const {
+      return parent_.get<std::string>(key_);
+    }
+
+    operator dynamic() const {
+      return parent_.get<dynamic>(key_);
+    }
+
+    // ── Stream support ─────────────────────────────────────────────────────
+
+    /** @brief Stream the field as a string (calls `get<std::string>`). */
+    friend std::ostream& operator<<(std::ostream& os, const field& f) {
+      return os << static_cast<std::string>(f);
+    }
+
+   private:
+    dynamic& parent_;
+    bison_hash key_;
+  };
+
+  /**
+   * @brief Return a proxy that enables bracket-access reads and writes.
+   *
+   * @param name  Hashed field name (use the `""_key` literal operator).
+   * @return A `field` proxy bound to this object and @p name.
+   *
+   * @code{.cpp}
+   *   auto obj = dynamic::create("Player"_key);
+   *   obj["name"_key]  = "John";
+   *   obj["score"_key] = 100;
+   *   std::cout << obj["name"_key];   // prints "John"
+   * @endcode
+   */
+  field operator[](bison_hash name) {
+    return field(*this, name);
   }
 
  private:
