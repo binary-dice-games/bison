@@ -261,6 +261,13 @@ bison_add_class(bison_hash ns_name, bison_handle klass, bison_hash parent_name);
 BISON_API bison_handle
 bison_find_class(bison_hash ns_name, bison_hash klass_name);
 
+/**
+ * @brief Clear the entire class registry.
+ *
+ * Removes all registered classes from the registry.
+ */
+BISON_API void bison_clear_registry(void);
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar setters
  * ═════════════════════════════════════════════════════════════════════════ */

@@ -235,7 +235,7 @@ TEST(ImportTests, FromYamlInvalidReturnsNull) {
 // We clear the class registry using the C++ API to avoid state leakage.
 #include "src/core/bison.hpp"
 static void clearClasses() {
-  bdg::bison::dynamic::getRegistry().wlock()->clear();
+  bison_clear_registry();
 }
 
 class ClassRegistryTests : public ::testing::Test {

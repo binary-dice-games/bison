@@ -161,6 +161,10 @@ bison_find_class(bison_hash ns_name, bison_hash klass_name) {
   }
 }
 
+BISON_API void bison_clear_registry(void) {
+  bdg::bison::dynamic::getRegistry().wlock()->clear();
+}
+
 // ─── Setters ────────────────────────────────────────────────────────────────
 
 BISON_API bison_error
