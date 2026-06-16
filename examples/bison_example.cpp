@@ -53,6 +53,13 @@ static void example_hashing() {
   // numeric array indices (0, 1, 2, …).
   std::cout << "High bit set on named key: " << std::boolalpha
             << bool(k3.id & 0x80000000u) << "\n";
+
+  // key_t can also be constructed at runtime from a std::string or const char*,
+  // producing the same hash as the compile-time _key literal.
+  std::string field_name = "position";
+  key_t k4{field_name};
+  std::cout << "key_t from string matches _key: " << std::boolalpha
+            << (k4.id == "position"_key.id) << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,11 +90,6 @@ static void example_field() {
   std::cout << "int value via as<> : " << n << "\n";
   std::cout << "int value implicit : " << m << "\n";
 
-  // as<T>() on an empty field initialises it to the default value.
-  f_empty.as<float>(9.9f);
-  std::cout << "lazy-init empty field to float 9.9: " << f_empty.as<float>()
-            << "\n";
-
   // ── Type-safe assignment ──────────────────────────────────────────────────
   f_int = int32_t{99}; // OK – same type
   try {
@@ -113,6 +115,32 @@ static void example_field() {
   if (auto* r = f_attr.findAttribute<Range>()) {
     std::cout << "Range: [" << r->lo << ", " << r->hi << "]\n";
   }
+
+  // ── key_t and hash_t as stored field values (tags 2 and 1) ───────────
+  // These are first-class field_base alternatives, used internally for
+  // __class, __parent, and __namespace; also usable in application fields.
+  field f_key{key_t{"color"_key}};
+  field f_hash{hash_t{0xDEADBEEFu}};
+  std::cout << "key field matches 'color': "
+            << (f_key.as<key_t>().id == "color"_key.id) << "\n";
+  std::cout << "hash field (hex): 0x" << std::hex << f_hash.as<hash_t>()
+            << std::dec << "\n";
+
+  // ── vector<uint8_t> – raw byte blob (tag 11) ──────────────────────────
+  field f_bytes{std::vector<uint8_t>{0x00, 0xFF, 0x42}};
+  const auto& blob = f_bytes.as<std::vector<uint8_t>>();
+  std::cout << "blob size: " << blob.size()
+            << "  blob[1]: 0x" << std::hex << static_cast<int>(blob[1])
+            << std::dec << "\n";
+
+  // ── Null dynamic_ptr (tag 6, presence=0) – distinct from monostate ────
+  // A null dynamic_ptr is a field that holds a pointer-to-absent-object,
+  // not an unset field.  It serializes and deserializes correctly.
+  field f_null_obj{std::shared_ptr<dynamic>{}};
+  std::cout << "null obj is dynamic_ptr: " << f_null_obj.is<dynamic_ptr>()
+            << "\n";
+  std::cout << "null obj is monostate  : "
+            << f_null_obj.is<std::monostate>() << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,6 +161,10 @@ static void example_dynamic_basics() {
   std::cout << "name   : " << obj["name"_key].as<std::string>() << "\n";
   std::cout << "age    : " << obj["age"_key].as<int32_t>() << "\n";
   std::cout << "active : " << obj["active"_key].as<bool>() << "\n";
+
+  // obj.as<T>(key) is shorthand for obj[key].as<T>() – same result.
+  std::cout << "name (as shorthand): " << obj.as<std::string>("name"_key)
+            << "\n";
 
   // ── Numeric (array-like) fields ───────────────────────────────────────────
   // Use a size_t index to store ordered sequences inside the same object.
@@ -588,6 +620,107 @@ static void example_namespaces() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Example 12: Buffer serialization
+//
+// buffer_serializer / buffer_deserializer operate on an in-memory
+// std::vector<uint8_t> with no virtual-dispatch overhead through std::ostream
+// or std::istream.  Use these when serializing into a byte buffer that will
+// be sent over a socket, stored in a file, or embedded as a payload.
+// Both standard and schema-driven modes have buffer overloads.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_buffer_serialization() {
+  section("Buffer serialization - zero-stream-overhead in-memory path");
+
+  // ── Standard mode ─────────────────────────────────────────────────────
+  dynamic src;
+  src["x"_key] = float{1.0f};
+  src["y"_key] = float{2.0f};
+  src["label"_key] = std::string{"origin"};
+
+  buffer_serializer bser;
+  src.serialize(bser);
+  bdg::bison::buffer bytes = bser.release(); // std::vector<uint8_t>
+  std::cout << "Standard buffer size: " << bytes.size() << " bytes\n";
+
+  buffer_deserializer bdes{bytes};
+  auto dst = dynamic::deserialize(bdes);
+  std::cout << "x=" << dst["x"_key].as<float>()
+            << " label=" << dst["label"_key].as<std::string>() << "\n";
+
+  // ── Schema-driven (compact) mode ──────────────────────────────────────
+  dynamic::getRegistry().wlock()->clear();
+  dynamic::addClass(
+      0U,
+      dynamic_ptr{"Point2D"_key,
+                  {{"x"_key, float{0}}, {"y"_key, float{0}}}});
+
+  dynamic pt = dynamic::instantiate("Point2D"_key);
+  pt["x"_key] = float{3.0f};
+  pt["y"_key] = float{4.0f};
+
+  buffer_serializer bser2;
+  pt.serializeWithSchema(bser2);
+  bdg::bison::buffer bytes2 = bser2.release();
+  std::cout << "Schema buffer size: " << bytes2.size() << " bytes"
+            << " (no field keys on wire)\n";
+
+  buffer_deserializer bdes2{bytes2};
+  auto pt2 = dynamic::deserializeWithSchema(bdes2);
+  std::cout << "x=" << pt2["x"_key].as<float>()
+            << " y=" << pt2["y"_key].as<float>() << "\n";
+
+  dynamic::getRegistry().wlock()->clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 13: Field iteration, erase, and empty
+//
+// forEach visits every field (numeric + named) in ascending key order.
+// erase(pos) removes a single numeric-index entry.
+// clear() removes all numeric-index entries; named fields survive.
+// empty() returns true only when the internal field map is completely empty.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_iteration() {
+  section("Field iteration, erase, and empty");
+
+  dynamic obj;
+  obj[0] = std::string{"alpha"};
+  obj[1] = std::string{"beta"};
+  obj[2] = std::string{"gamma"};
+  obj["count"_key] = int32_t{3};
+  obj["ratio"_key] = float{0.5f};
+
+  // ── forEach iterates every (key, field) pair in key order ─────────────
+  // Numeric indices (0, 1, 2, …) sort before named keys (MSB set).
+  // Skip key_t fields to avoid printing internal __class / __namespace.
+  std::cout << "All non-metadata fields:\n";
+  obj.forEach([](key_t k, const field& f) {
+    if (f.is<key_t>())
+      return;
+    if (k.id < 0x80000000u) {
+      std::cout << "  [" << k.id << "] string = "
+                << f.as<std::string>() << "\n";
+    } else if (f.is<int32_t>()) {
+      std::cout << "  [named] int32  = " << f.as<int32_t>() << "\n";
+    } else if (f.is<float>()) {
+      std::cout << "  [named] float  = " << f.as<float>() << "\n";
+    }
+  });
+
+  // ── erase removes a single numeric-index entry ────────────────────────
+  bool removed = obj.erase(1);
+  std::cout << "erase(1) succeeded: " << removed << "\n";
+  std::cout << "size after erase  : " << obj.size() << "\n"; // 3: size = last_index+1
+
+  // ── clear removes all numeric-index entries; named fields survive ──────
+  obj.clear();
+  std::cout << "size after clear  : " << obj.size() << "\n"; // 0
+  std::cout << "empty after clear : " << obj.empty() << "\n"; // false
+  std::cout << "count still present: "
+            << obj["count"_key].as<int32_t>() << "\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
 int main() {
@@ -602,6 +735,8 @@ int main() {
   example_json();
   example_yaml();
   example_namespaces();
+  example_buffer_serialization();
+  example_iteration();
 
   std::cout << "\nAll examples completed successfully.\n";
   return 0;
