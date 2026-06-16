@@ -188,36 +188,35 @@ TEST(ErrorHandlingTests, InstantiateNullClientReturnsError) {
   EXPECT_EQ(proxy, nullptr);
 }
 
-TEST(ErrorHandlingTests, CallNullClientReturnsError) {
+TEST(ErrorHandlingTests, CallNullProxyReturnsError) {
   ScopedProxyHandle proxy{nullptr};
   bison_handle result = nullptr;
-  rmi_error err =
-      rmi_proxy_call(nullptr, proxy, H("method"), nullptr, &result, 1000);
+  rmi_error err = rmi_proxy_call(proxy, H("method"), nullptr, &result, 1000);
   EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
-TEST(ErrorHandlingTests, ClearNullClientReturnsError) {
+TEST(ErrorHandlingTests, ClearNullProxyReturnsError) {
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err = rmi_proxy_clear(nullptr, proxy, 1000);
+  rmi_error err = rmi_proxy_clear(proxy, 1000);
   EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
-TEST(ErrorHandlingTests, SetNullClientReturnsError) {
+TEST(ErrorHandlingTests, SetNullProxyReturnsError) {
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err = rmi_proxy_set(nullptr, proxy, nullptr, 1000);
+  rmi_error err = rmi_proxy_set(proxy, nullptr, 1000);
   EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
-TEST(ErrorHandlingTests, GetNullClientReturnsError) {
+TEST(ErrorHandlingTests, GetNullProxyReturnsError) {
   ScopedProxyHandle proxy{nullptr};
   bison_handle result = nullptr;
-  rmi_error err = rmi_proxy_get(nullptr, proxy, nullptr, &result, 1000);
+  rmi_error err = rmi_proxy_get(proxy, nullptr, &result, 1000);
   EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
 TEST(ErrorHandlingTests, GetNullOutputReturnsError) {
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err = rmi_proxy_get(nullptr, proxy, nullptr, nullptr, 1000);
+  rmi_error err = rmi_proxy_get(proxy, nullptr, nullptr, 1000);
   EXPECT_EQ(err, RMI_ERR_NULL);
 }
 
@@ -255,35 +254,34 @@ TEST(ErrorHandlingTests, InstantiateAsyncNullClientReturnsError) {
   EXPECT_EQ(fut, nullptr);
 }
 
-TEST(ErrorHandlingTests, ClearAsyncNullClientReturnsError) {
+TEST(ErrorHandlingTests, ClearAsyncNullProxyReturnsError) {
   rmi_future_handle fut = nullptr;
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err = rmi_proxy_clear_async(nullptr, proxy, &fut);
+  rmi_error err = rmi_proxy_clear_async(proxy, &fut);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(fut, nullptr);
 }
 
-TEST(ErrorHandlingTests, SetAsyncNullClientReturnsError) {
+TEST(ErrorHandlingTests, SetAsyncNullProxyReturnsError) {
   rmi_future_handle fut = nullptr;
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err = rmi_proxy_set_async(nullptr, proxy, nullptr, &fut);
+  rmi_error err = rmi_proxy_set_async(proxy, nullptr, &fut);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(fut, nullptr);
 }
 
-TEST(ErrorHandlingTests, GetAsyncNullClientReturnsError) {
+TEST(ErrorHandlingTests, GetAsyncNullProxyReturnsError) {
   rmi_future_handle fut = nullptr;
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err = rmi_proxy_get_async(nullptr, proxy, nullptr, &fut);
+  rmi_error err = rmi_proxy_get_async(proxy, nullptr, &fut);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(fut, nullptr);
 }
 
-TEST(ErrorHandlingTests, CallAsyncNullClientReturnsError) {
+TEST(ErrorHandlingTests, CallAsyncNullProxyReturnsError) {
   rmi_future_handle fut = nullptr;
   ScopedProxyHandle proxy{nullptr};
-  rmi_error err =
-      rmi_proxy_call_async(nullptr, proxy, H("method"), nullptr, &fut);
+  rmi_error err = rmi_proxy_call_async(proxy, H("method"), nullptr, &fut);
   EXPECT_EQ(err, RMI_ERR_NULL);
   EXPECT_EQ(fut, nullptr);
 }
@@ -393,9 +391,8 @@ TEST(TimeoutTests, ProxyCallWithTimeoutMs) {
   bison_handle dummy_result = nullptr;
   int64_t timeout_vals[] = {-1, 0, 1000, 5000};
   for (int64_t tv : timeout_vals) {
-    // With null client/proxy, should fail with RMI_ERR_NULL, not timeout.
-    rmi_error err =
-        rmi_proxy_call(nullptr, nullptr, H("m"), nullptr, &dummy_result, tv);
+    // With null proxy, should fail with RMI_ERR_NULL, not timeout.
+    rmi_error err = rmi_proxy_call(nullptr, H("m"), nullptr, &dummy_result, tv);
     EXPECT_EQ(err, RMI_ERR_NULL);
   }
 }
@@ -403,7 +400,7 @@ TEST(TimeoutTests, ProxyCallWithTimeoutMs) {
 TEST(TimeoutTests, ProxyClearWithTimeoutMs) {
   int64_t timeout_vals[] = {-1, 0, 1000, 5000};
   for (int64_t tv : timeout_vals) {
-    rmi_error err = rmi_proxy_clear(nullptr, nullptr, tv);
+    rmi_error err = rmi_proxy_clear(nullptr, tv);
     EXPECT_EQ(err, RMI_ERR_NULL);
   }
 }
@@ -411,7 +408,7 @@ TEST(TimeoutTests, ProxyClearWithTimeoutMs) {
 TEST(TimeoutTests, ProxySetWithTimeoutMs) {
   int64_t timeout_vals[] = {-1, 0, 1000, 5000};
   for (int64_t tv : timeout_vals) {
-    rmi_error err = rmi_proxy_set(nullptr, nullptr, nullptr, tv);
+    rmi_error err = rmi_proxy_set(nullptr, nullptr, tv);
     EXPECT_EQ(err, RMI_ERR_NULL);
   }
 }
@@ -420,7 +417,7 @@ TEST(TimeoutTests, ProxyGetWithTimeoutMs) {
   bison_handle dummy_result = nullptr;
   int64_t timeout_vals[] = {-1, 0, 1000, 5000};
   for (int64_t tv : timeout_vals) {
-    rmi_error err = rmi_proxy_get(nullptr, nullptr, nullptr, &dummy_result, tv);
+    rmi_error err = rmi_proxy_get(nullptr, nullptr, &dummy_result, tv);
     EXPECT_EQ(err, RMI_ERR_NULL);
   }
 }
@@ -496,7 +493,7 @@ TEST_F(StandaloneAbiTests, InstantiateAndProxyGetField) {
   ASSERT_NE(proxy, nullptr);
 
   bison_handle snap = nullptr;
-  ASSERT_EQ(rmi_proxy_get(sa, proxy, nullptr, &snap, -1), RMI_OK);
+  ASSERT_EQ(rmi_proxy_get(proxy, nullptr, &snap, -1), RMI_OK);
   ASSERT_NE(snap, nullptr);
 
   int32_t value = 0;
@@ -524,11 +521,11 @@ TEST_F(StandaloneAbiTests, ProxySetAndGet) {
   ScopedBisonHandle fields{bison_create(0)};
   ASSERT_NE(fields.h, nullptr);
   ASSERT_EQ(bison_set_int(fields, bison_key("value"), 42), BISON_OK);
-  EXPECT_EQ(rmi_proxy_set(sa, proxy, fields, -1), RMI_OK);
+  EXPECT_EQ(rmi_proxy_set(proxy, fields, -1), RMI_OK);
 
   // Read it back.
   bison_handle snap = nullptr;
-  ASSERT_EQ(rmi_proxy_get(sa, proxy, nullptr, &snap, -1), RMI_OK);
+  ASSERT_EQ(rmi_proxy_get(proxy, nullptr, &snap, -1), RMI_OK);
   ASSERT_NE(snap, nullptr);
 
   int32_t value = 0;
@@ -553,12 +550,12 @@ TEST_F(StandaloneAbiTests, ProxyClearResetsField) {
 
   ScopedBisonHandle fields{bison_create(0)};
   bison_set_int(fields, bison_key("value"), 99);
-  EXPECT_EQ(rmi_proxy_set(sa, proxy, fields, -1), RMI_OK);
+  EXPECT_EQ(rmi_proxy_set(proxy, fields, -1), RMI_OK);
 
-  EXPECT_EQ(rmi_proxy_clear(sa, proxy, -1), RMI_OK);
+  EXPECT_EQ(rmi_proxy_clear(proxy, -1), RMI_OK);
 
   bison_handle snap = nullptr;
-  ASSERT_EQ(rmi_proxy_get(sa, proxy, nullptr, &snap, -1), RMI_OK);
+  ASSERT_EQ(rmi_proxy_get(proxy, nullptr, &snap, -1), RMI_OK);
   int32_t value = -1;
   bison_get_int(snap, bison_key("value"), &value);
   EXPECT_EQ(value, 0);

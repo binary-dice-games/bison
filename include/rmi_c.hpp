@@ -31,7 +31,7 @@
  * c.connect();
  * proxy p = c.instantiate(bison_c::object::key("MyClass"));
  * bison_c::object result =
- *     p.call(c, bison_c::object::key("greet"), bison_c::object::create());
+ *     p.call(bison_c::object::key("greet"), bison_c::object::create());
  * @endcode
  */
 
@@ -160,9 +160,6 @@ class future {
   explicit future(rmi_future_handle f) noexcept : f_(f) {}
 };
 
-// Forward declaration needed by proxy methods.
-class client;
-
 // ────────────────────────────────────────────────────────────────────────────
 // proxy — RAII wrapper for rmi_proxy_handle
 // ────────────────────────────────────────────────────────────────────────────
@@ -173,9 +170,9 @@ class client;
  * Move-only.  Sends a destroy request to the server via `rmi_proxy_release`
  * on destruction.
  *
- * Proxy operations that require a live client connection (`clear`, `set`,
- * `get`, `call`, and their async variants) accept a `client&` parameter so
- * the dependency is explicit and the client lifetime is caller-managed.
+ * The proxy carries its own connection context internally.  Operations
+ * (`clear`, `set`, `get`, `call`, and their async variants) dispatch
+ * directly through the proxy without requiring a client handle.
  */
 class proxy {
  public:
@@ -270,51 +267,46 @@ class proxy {
         "rmi_proxy_on_event");
   }
 
-  // ── Client-bound operations (defined after `client`) ─────────────────────
+  // ── Proxy operations ──────────────────────────────────────────────────────
 
   /**
    * @brief Clear explicitly set fields on the remote object (synchronous).
    *
-   * @param c           Connected client that owns this proxy's session.
    * @param timeout_ms  Timeout in milliseconds; `-1` for the default.
    * @throws std::runtime_error on error.
    */
-  void clear(client& c, int64_t timeout_ms = -1);
+  void clear(int64_t timeout_ms = -1);
 
   /**
    * @brief Clear explicitly set fields on the remote object (asynchronous).
    *
-   * @param c           Connected client that owns this proxy's session.
    * @return Future waited on with `future::wait()` and released on
    *         destruction.
    * @throws std::runtime_error on submission failure.
    */
-  future clear_async(client& c);
+  future clear_async();
 
   /**
    * @brief Apply a partial field update to the remote object (synchronous).
    *
-   * @param c           Connected client that owns this proxy's session.
    * @param fields      Object containing the fields to apply.
    * @param timeout_ms  Timeout in milliseconds; `-1` for the default.
    * @throws std::runtime_error on error.
    */
-  void set(client& c, const dynamic& fields, int64_t timeout_ms = -1);
+  void set(const dynamic& fields, int64_t timeout_ms = -1);
 
   /**
    * @brief Apply a partial field update asynchronously.
    *
-   * @param c       Connected client that owns this proxy's session.
    * @param fields  Object containing the fields to apply.
    * @return Future waited on with `future::wait()`.
    * @throws std::runtime_error on submission failure.
    */
-  future set_async(client& c, const dynamic& fields);
+  future set_async(const dynamic& fields);
 
   /**
    * @brief Retrieve fields from the remote object (synchronous).
    *
-   * @param c           Connected client that owns this proxy's session.
    * @param projection  Optional projection template; pass a
    *                    default-constructed `object` for a full snapshot.
    * @param timeout_ms  Timeout in milliseconds; `-1` for the default.
@@ -322,24 +314,21 @@ class proxy {
    * @throws std::runtime_error on error.
    */
   dynamic get(
-      client& c,
       const dynamic& projection = dynamic{},
       int64_t timeout_ms = -1);
 
   /**
    * @brief Retrieve fields from the remote object asynchronously.
    *
-   * @param c           Connected client that owns this proxy's session.
    * @param projection  Optional projection template.
    * @return Future consumed with `future::get_dynamic()`.
    * @throws std::runtime_error on submission failure.
    */
-  future get_async(client& c, const dynamic& projection = dynamic{});
+  future get_async(const dynamic& projection = dynamic{});
 
   /**
    * @brief Call a method on the remote object (synchronous).
    *
-   * @param c           Connected client that owns this proxy's session.
    * @param method      Method name hash (use `object::key()`).
    * @param params      Method arguments; pass a default-constructed `object`
    *                    for none.
@@ -348,7 +337,6 @@ class proxy {
    * @throws std::runtime_error on error.
    */
   dynamic call(
-      client& c,
       bison_hash method,
       const dynamic& params = dynamic{},
       int64_t timeout_ms = -1);
@@ -356,15 +344,13 @@ class proxy {
   /**
    * @brief Call a method on the remote object asynchronously.
    *
-   * @param c       Connected client that owns this proxy's session.
    * @param method  Method name hash (use `object::key()`).
    * @param params  Method arguments; pass a default-constructed `object`
    *                for none.
    * @return Future consumed with `future::get_dynamic()`.
    * @throws std::runtime_error on submission failure.
    */
-  future
-  call_async(client& c, bison_hash method, const dynamic& params = dynamic{});
+  future call_async(bison_hash method, const dynamic& params = dynamic{});
 
  private:
   struct event_state {
@@ -574,65 +560,56 @@ class client {
 
 // ── proxy out-of-line definitions ─────────────────────────────────────────
 
-inline void proxy::clear(client& c, int64_t timeout_ms) {
-  detail::check(rmi_proxy_clear(c.get(), p_, timeout_ms), "rmi_proxy_clear");
+inline void proxy::clear(int64_t timeout_ms) {
+  detail::check(rmi_proxy_clear(p_, timeout_ms), "rmi_proxy_clear");
 }
 
-inline future proxy::clear_async(client& c) {
+inline future proxy::clear_async() {
   rmi_future_handle f = nullptr;
-  detail::check(
-      rmi_proxy_clear_async(c.get(), p_, &f), "rmi_proxy_clear_async");
+  detail::check(rmi_proxy_clear_async(p_, &f), "rmi_proxy_clear_async");
   return future::own(f);
 }
 
-inline void proxy::set(client& c, const dynamic& fields, int64_t timeout_ms) {
+inline void proxy::set(const dynamic& fields, int64_t timeout_ms) {
   detail::check(
-      rmi_proxy_set(c.get(), p_, fields.get(), timeout_ms), "rmi_proxy_set");
+      rmi_proxy_set(p_, fields.get(), timeout_ms), "rmi_proxy_set");
 }
 
-inline future proxy::set_async(client& c, const dynamic& fields) {
+inline future proxy::set_async(const dynamic& fields) {
   rmi_future_handle f = nullptr;
-  detail::check(
-      rmi_proxy_set_async(c.get(), p_, fields.get(), &f),
-      "rmi_proxy_set_async");
+  detail::check(rmi_proxy_set_async(p_, fields.get(), &f), "rmi_proxy_set_async");
   return future::own(f);
 }
 
-inline dynamic
-proxy::get(client& c, const dynamic& projection, int64_t timeout_ms) {
+inline dynamic proxy::get(const dynamic& projection, int64_t timeout_ms) {
   bison_handle out = nullptr;
   detail::check(
-      rmi_proxy_get(c.get(), p_, projection.get(), &out, timeout_ms),
-      "rmi_proxy_get");
+      rmi_proxy_get(p_, projection.get(), &out, timeout_ms), "rmi_proxy_get");
   return dynamic::own(out);
 }
 
-inline future proxy::get_async(client& c, const dynamic& projection) {
+inline future proxy::get_async(const dynamic& projection) {
   rmi_future_handle f = nullptr;
   detail::check(
-      rmi_proxy_get_async(c.get(), p_, projection.get(), &f),
-      "rmi_proxy_get_async");
+      rmi_proxy_get_async(p_, projection.get(), &f), "rmi_proxy_get_async");
   return future::own(f);
 }
 
 inline dynamic proxy::call(
-    client& c,
     bison_hash method,
     const dynamic& params,
     int64_t timeout_ms) {
   bison_handle out = nullptr;
   detail::check(
-      rmi_proxy_call(c.get(), p_, method, params.get(), &out, timeout_ms),
+      rmi_proxy_call(p_, method, params.get(), &out, timeout_ms),
       "rmi_proxy_call");
   return dynamic::own(out);
 }
 
-inline future
-proxy::call_async(client& c, bison_hash method, const dynamic& params) {
+inline future proxy::call_async(bison_hash method, const dynamic& params) {
   rmi_future_handle f = nullptr;
   detail::check(
-      rmi_proxy_call_async(c.get(), p_, method, params.get(), &f),
-      "rmi_proxy_call_async");
+      rmi_proxy_call_async(p_, method, params.get(), &f), "rmi_proxy_call_async");
   return future::own(f);
 }
 

@@ -341,20 +341,17 @@ RMI_API rmi_error rmi_proxy_on_event(
 /**
  * @brief Clear explicitly set fields on a remote object.
  *
- * @param client     Valid connected client handle.
  * @param proxy      Valid proxy handle.
  * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
  * @return `RMI_OK` on success, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_clear(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     int64_t timeout_ms);
 
 /**
  * @brief Clear explicitly set fields on a remote object asynchronously.
  *
- * @param client      Valid connected client handle.
  * @param proxy       Valid proxy handle.
  * @param out_future  Output async future waited on with
  *                    `rmi_future_wait()` and released with
@@ -362,21 +359,18 @@ RMI_API rmi_error rmi_proxy_clear(
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_clear_async(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     rmi_future_handle* out_future);
 
 /**
  * @brief Apply a partial field update to a remote object.
  *
- * @param client     Valid connected client handle.
  * @param proxy      Valid proxy handle.
  * @param fields     Field patch object as a `bison_handle`, or `NULL`.
  * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
  * @return `RMI_OK` on success, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_set(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     bison_handle fields,
     int64_t timeout_ms);
@@ -384,7 +378,6 @@ RMI_API rmi_error rmi_proxy_set(
 /**
  * @brief Apply a partial field update to a remote object asynchronously.
  *
- * @param client      Valid connected client handle.
  * @param proxy       Valid proxy handle.
  * @param fields      Field patch object as a `bison_handle`, or `NULL`.
  * @param out_future  Output async future waited on with
@@ -393,7 +386,6 @@ RMI_API rmi_error rmi_proxy_set(
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_set_async(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     bison_handle fields,
     rmi_future_handle* out_future);
@@ -401,7 +393,6 @@ RMI_API rmi_error rmi_proxy_set_async(
 /**
  * @brief Retrieve fields from a remote object.
  *
- * @param client      Valid connected client handle.
  * @param proxy       Valid proxy handle.
  * @param projection  Optional projection object as a `bison_handle`, or
  *                    `NULL` for a full snapshot.
@@ -411,7 +402,6 @@ RMI_API rmi_error rmi_proxy_set_async(
  * @return `RMI_OK` on success, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_get(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     bison_handle projection,
     bison_handle* out_result,
@@ -420,7 +410,6 @@ RMI_API rmi_error rmi_proxy_get(
 /**
  * @brief Retrieve fields from a remote object asynchronously.
  *
- * @param client      Valid connected client handle.
  * @param proxy       Valid proxy handle.
  * @param projection  Optional projection object as a `bison_handle`, or
  *                    `NULL` for a full snapshot.
@@ -429,7 +418,6 @@ RMI_API rmi_error rmi_proxy_get(
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_get_async(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     bison_handle projection,
     rmi_future_handle* out_future);
@@ -437,17 +425,15 @@ RMI_API rmi_error rmi_proxy_get_async(
 /**
  * @brief Call a method on a remote object.
  *
- * @param client    Valid connected client handle.
- * @param proxy     Valid proxy handle.
- * @param method    Method name hash (use `bison_key()` to compute).
- * @param params    Method arguments as a `bison_handle` object, or `NULL`.
+ * @param proxy      Valid proxy handle.
+ * @param method     Method name hash (use `bison_key()` to compute).
+ * @param params     Method arguments as a `bison_handle` object, or `NULL`.
  * @param out_result Output result object; caller must release with
  * `bison_release()`, or `NULL` to ignore the result.
  * @param timeout_ms Timeout in milliseconds, or -1 for no timeout.
  * @return `RMI_OK` on success, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_call(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     bison_hash method,
     bison_handle params,
@@ -457,7 +443,6 @@ RMI_API rmi_error rmi_proxy_call(
 /**
  * @brief Call a method on a remote object asynchronously.
  *
- * @param client      Valid connected client handle.
  * @param proxy       Valid proxy handle.
  * @param method      Method name hash.
  * @param params      Method arguments as a `bison_handle`, or `NULL`.
@@ -466,7 +451,6 @@ RMI_API rmi_error rmi_proxy_call(
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
 RMI_API rmi_error rmi_proxy_call_async(
-    rmi_client_handle client,
     rmi_proxy_handle proxy,
     bison_hash method,
     bison_handle params,

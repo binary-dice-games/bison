@@ -722,11 +722,8 @@ RMI_API rmi_error rmi_proxy_on_event(
 }
 
 RMI_API rmi_error rmi_proxy_clear(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     int64_t timeout_ms) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -742,11 +739,8 @@ RMI_API rmi_error rmi_proxy_clear(
 }
 
 RMI_API rmi_error rmi_proxy_clear_async(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     rmi_future_handle* out_future) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -762,12 +756,9 @@ RMI_API rmi_error rmi_proxy_clear_async(
 }
 
 RMI_API rmi_error rmi_proxy_set(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     bison_handle fields,
     int64_t timeout_ms) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -783,12 +774,9 @@ RMI_API rmi_error rmi_proxy_set(
 }
 
 RMI_API rmi_error rmi_proxy_set_async(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     bison_handle fields,
     rmi_future_handle* out_future) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -804,14 +792,11 @@ RMI_API rmi_error rmi_proxy_set_async(
 }
 
 RMI_API rmi_error rmi_proxy_get(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     bison_handle projection,
     bison_handle* out_result,
     int64_t timeout_ms) {
   if (!out_result)
-    return RMI_ERR_NULL;
-  if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
@@ -835,12 +820,9 @@ RMI_API rmi_error rmi_proxy_get(
 }
 
 RMI_API rmi_error rmi_proxy_get_async(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     bison_handle projection,
     rmi_future_handle* out_future) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -856,14 +838,11 @@ RMI_API rmi_error rmi_proxy_get_async(
 }
 
 RMI_API rmi_error rmi_proxy_call(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     bison_hash method,
     bison_handle params,
     bison_handle* out_result,
     int64_t timeout_ms) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -888,13 +867,10 @@ RMI_API rmi_error rmi_proxy_call(
 }
 
 RMI_API rmi_error rmi_proxy_call_async(
-    rmi_client_handle h,
     rmi_proxy_handle proxy,
     bison_hash method,
     bison_handle params,
     rmi_future_handle* out_future) {
-  if (!client_handle_is_valid(h))
-    return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
