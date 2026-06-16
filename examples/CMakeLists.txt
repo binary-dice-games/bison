@@ -26,6 +26,10 @@ set(BISON_PTY_SERVER_EXAMPLE_PRIVATE_SOURCES
 	pty_server_example.cpp
 )
 
+set(BISON_RMI_STANDALONE_EXAMPLE_PRIVATE_SOURCES
+	rmi_standalone_example.cpp
+)
+
 set(BISON_PTY_CLIENT_EXAMPLE_PRIVATE_SOURCES
 	pty_client_example.cpp
 )
@@ -42,6 +46,10 @@ add_executable(
 	rmi_stdio_client_example
 	${BISON_RMI_STDIO_CLIENT_EXAMPLE_PRIVATE_SOURCES}
 )
+add_executable(
+	rmi_standalone_example
+	${BISON_RMI_STANDALONE_EXAMPLE_PRIVATE_SOURCES}
+)
 add_executable(pty_server_example ${BISON_PTY_SERVER_EXAMPLE_PRIVATE_SOURCES})
 add_executable(pty_client_example ${BISON_PTY_CLIENT_EXAMPLE_PRIVATE_SOURCES})
 
@@ -51,6 +59,7 @@ target_include_directories(rmi_server_example PRIVATE ${PROJECT_SOURCE_DIR})
 target_include_directories(rmi_client_example PRIVATE ${PROJECT_SOURCE_DIR})
 target_include_directories(rmi_stdio_server_example PRIVATE ${PROJECT_SOURCE_DIR})
 target_include_directories(rmi_stdio_client_example PRIVATE ${PROJECT_SOURCE_DIR})
+target_include_directories(rmi_standalone_example PRIVATE ${PROJECT_SOURCE_DIR})
 target_include_directories(pty_server_example PRIVATE ${PROJECT_SOURCE_DIR})
 target_include_directories(pty_client_example PRIVATE ${PROJECT_SOURCE_DIR})
 
@@ -60,6 +69,7 @@ target_link_libraries(rmi_server_example PRIVATE bison)
 target_link_libraries(rmi_client_example PRIVATE bison)
 target_link_libraries(rmi_stdio_server_example PRIVATE bison)
 target_link_libraries(rmi_stdio_client_example PRIVATE bison)
+target_link_libraries(rmi_standalone_example PRIVATE bison)
 target_link_libraries(pty_server_example PRIVATE bison)
 target_link_libraries(pty_client_example PRIVATE bison)
 

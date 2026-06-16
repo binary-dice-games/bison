@@ -100,7 +100,7 @@ static void run_client(memory_server_transport& transport, int client_id) {
   c.connect();
 
   // Instantiate a Calculator on the server.
-  auto calc = c.instantiate(0U, "Calculator"_key);
+  auto calc = c.instantiate(0U, "Calculator"_key).get();
 
   println("[Client ", client_id, "] connected, object id=", calc.object_id());
 
