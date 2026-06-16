@@ -257,7 +257,7 @@ internal static class Native
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl,
                EntryPoint = "bison_add_method")]
     internal static extern int bison_add_method(IntPtr h, uint name,
-        MethodDelegate fn, IntPtr user, IntPtr deleter);
+        MethodDelegate fn, IntPtr user);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl,
                EntryPoint = "bison_call")]
