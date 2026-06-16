@@ -238,7 +238,8 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
 
     # Methods
     lib.bison_add_method.restype  = _Error
-    lib.bison_add_method.argtypes = [_Handle, ctypes.c_uint32, _MethodFnType, ctypes.c_void_p]
+    lib.bison_add_method.argtypes = [_Handle, ctypes.c_uint32, _MethodFnType,
+                                     ctypes.c_void_p, ctypes.c_void_p]
 
     lib.bison_call.restype  = _Error
     lib.bison_call.argtypes = [_Handle, ctypes.c_uint32, _Handle, ctypes.POINTER(_Handle)]
@@ -542,7 +543,7 @@ class Dynamic:
         # Keep Python reference alive.
         self._callbacks.append(c_fn)
 
-        rc = lib.bison_add_method(self._handle, key(name), c_fn, None)
+        rc = lib.bison_add_method(self._handle, key(name), c_fn, None, None)
         _check(rc, f"add_method({name!r})")
 
     def call(self, name: str, params: "Dynamic") -> "Dynamic":

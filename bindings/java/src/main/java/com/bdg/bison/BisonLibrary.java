@@ -190,13 +190,15 @@ public interface BisonLibrary extends Library {
     /**
      * Register a C callback as a named method on {@code h}.
      *
-     * @param h    target object handle.
-     * @param name method name hash.
-     * @param fn   callback implementing the method.
-     * @param user arbitrary user context (may be {@code null}).
+     * @param h       target object handle.
+     * @param name    method name hash.
+     * @param fn      callback implementing the method.
+     * @param user    arbitrary user context (may be {@code null}).
+     * @param deleter called with {@code user} on teardown (may be {@code null}).
      * @return {@code BISON_OK} or an error code.
      */
-    int bison_add_method(Pointer h, int name, MethodCallback fn, Pointer user);
+    int bison_add_method(Pointer h, int name, MethodCallback fn, Pointer user,
+                         Pointer deleter);
 
     /**
      * Invoke a named method on {@code h}.

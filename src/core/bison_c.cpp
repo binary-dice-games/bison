@@ -388,12 +388,32 @@ BISON_API bison_error bison_add_method(
     bison_handle h,
     bison_hash name,
     bison_method_fn fn,
-    void* user) {
+    void* user,
+    bison_method_deleter_fn deleter) {
   if (!h || !fn)
     return BISON_ERR_NULL;
   try {
+    struct closure_t {
+      bison_method_fn fn;
+      void* user;
+      bison_method_deleter_fn deleter;
+
+      closure_t(bison_method_fn f, void* u, bison_method_deleter_fn d)
+          : fn(f), user(u), deleter(d) {}
+      closure_t(const closure_t&) = delete;
+      closure_t& operator=(const closure_t&) = delete;
+
+      ~closure_t() {
+        if (deleter)
+          deleter(user);
+      }
+    };
+    // make_shared constructs closure_t in-place — no temporary, so the
+    // destructor fires exactly once when the last method reference is dropped.
+    auto cl = std::make_shared<closure_t>(fn, user, deleter);
+
     bdg::bison::method wrapped =
-        [fn, user](
+        [cl](
             bdg::bison::dynamic& self,
             const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
       // Create a non-owning handle for self using a no-op deleter.
@@ -409,7 +429,7 @@ BISON_API bison_error bison_add_method(
       auto result_dyn = std::make_shared<bdg::bison::dynamic>();
       auto* res_sp = new sp_dyn(result_dyn);
 
-      fn(as_handle(self_sp), as_handle(param_sp), as_handle(res_sp), user);
+      cl->fn(as_handle(self_sp), as_handle(param_sp), as_handle(res_sp), cl->user);
 
       bdg::bison::dynamic result = std::move(*result_dyn);
 

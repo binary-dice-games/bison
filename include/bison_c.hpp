@@ -48,11 +48,9 @@
 
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <ostream>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace bdg::bison::abi {
 
@@ -209,23 +207,17 @@ class dynamic {
   }
 
   /** @brief Copy: increments the reference count via `bison_add_ref`. */
-  dynamic(const dynamic& o) noexcept
-      : h_(bison_add_ref(o.h_)), method_state_(o.method_state_) {}
+  dynamic(const dynamic& o) noexcept : h_(bison_add_ref(o.h_)) {}
 
   /** @brief Move: takes the handle; source becomes null. */
-  dynamic(dynamic&& o) noexcept
-      : h_(o.h_), method_state_(std::move(o.method_state_)) {
+  dynamic(dynamic&& o) noexcept : h_(o.h_) {
     o.h_ = nullptr;
-    if (!o.method_state_) {
-      o.method_state_ = std::make_shared<method_state>();
-    }
   }
 
   dynamic& operator=(const dynamic& o) noexcept {
     if (this != &o) {
       reset();
       h_ = bison_add_ref(o.h_);
-      method_state_ = o.method_state_;
     }
     return *this;
   }
@@ -235,10 +227,6 @@ class dynamic {
       reset();
       h_ = o.h_;
       o.h_ = nullptr;
-      method_state_ = std::move(o.method_state_);
-      if (!o.method_state_) {
-        o.method_state_ = std::make_shared<method_state>();
-      }
     }
     return *this;
   }
@@ -247,14 +235,12 @@ class dynamic {
   void reset() noexcept {
     bison_release(h_);
     h_ = nullptr;
-    method_state_ = std::make_shared<method_state>();
   }
 
   /** @brief Release the current handle and take ownership of @p h. */
   void reset(bison_handle h) noexcept {
     bison_release(h_);
     h_ = h;
-    method_state_ = std::make_shared<method_state>();
   }
 
   /** @brief Return the raw handle without transferring ownership. */
@@ -304,13 +290,6 @@ class dynamic {
   add_class(bison_hash ns_name, const dynamic& klass, bison_hash parent_name) {
     detail::check(
         bison_add_class(ns_name, klass.h_, parent_name), "bison_add_class");
-    // Keep a copy of klass so the shared method_state_ (and its MethodCallback
-    // objects) outlives the caller's local wrapper.  The DLL class registry
-    // holds the underlying object; this static table holds the C++ side.
-    static std::mutex s_mtx;
-    static std::vector<dynamic> s_registered;
-    std::lock_guard<std::mutex> lk(s_mtx);
-    s_registered.push_back(klass);
   }
 
   /**
@@ -539,12 +518,12 @@ class dynamic {
   void add_method(
       bison_hash name,
       std::function<void(dynamic&, const dynamic&, dynamic&)> fn) {
-    auto callback = std::make_unique<detail::MethodCallback>(std::move(fn));
-    auto* callback_ptr = callback.get();
+    auto* callback = new detail::MethodCallback(std::move(fn));
     detail::check(
-        bison_add_method(h_, name, detail::adapter_wrapper, callback_ptr),
+        bison_add_method(
+            h_, name, detail::adapter_wrapper, callback,
+            [](void* p) { delete static_cast<detail::MethodCallback*>(p); }),
         "bison_add_method");
-    method_state_->add_callback(std::move(callback));
   }
 
   /**
@@ -682,19 +661,7 @@ class dynamic {
   }
 
  private:
-  struct method_state {
-    void add_callback(std::unique_ptr<detail::MethodCallback> callback) {
-      std::lock_guard<std::mutex> lock(mutex);
-      callbacks.push_back(std::move(callback));
-    }
-
-    std::mutex mutex;
-    std::vector<std::unique_ptr<detail::MethodCallback>> callbacks;
-  };
-
   bison_handle h_ = nullptr;
-  std::shared_ptr<method_state> method_state_ =
-      std::make_shared<method_state>();
 
   explicit dynamic(bison_handle h) noexcept : h_(h) {}
 };

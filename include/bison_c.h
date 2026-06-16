@@ -133,6 +133,13 @@ typedef void (*bison_method_fn)(
     bison_handle result,
     void* user);
 
+/**
+ * @brief Optional destructor for the @p user pointer passed to
+ * `bison_add_method`.  Called exactly once when the method is removed or the
+ * object is destroyed.  May be `NULL`.
+ */
+typedef void (*bison_method_deleter_fn)(void* user);
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Lifecycle
  * ═════════════════════════════════════════════════════════════════════════ */
@@ -479,22 +486,24 @@ BISON_API size_t bison_size(bison_handle h);
 /**
  * @brief Register a C callback as a named method on @p h.
  *
- * The callback @p fn is wrapped in a lambda and stored as a
- * `bdg::bison::method`. The @p user pointer is passed through to every
- * invocation without any lifetime management; callers must ensure it remains
- * valid for as long as the method is reachable.
+ * The callback @p fn is invoked whenever the method is called.  If @p deleter
+ * is non-`NULL`, the library calls `deleter(user)` exactly once when the method
+ * is removed or the object is destroyed, allowing callers to manage the
+ * lifetime of heap-allocated @p user data.
  *
- * @param h     Target object handle.
- * @param name  Method name hash (use `bison_key()`).
- * @param fn    Function pointer implementing the method.
- * @param user  Arbitrary user context (may be `NULL`).
+ * @param h        Target object handle.
+ * @param name     Method name hash (use `bison_key()`).
+ * @param fn       Function pointer implementing the method.
+ * @param user     Arbitrary user context (may be `NULL`).
+ * @param deleter  Called with @p user on method teardown (may be `NULL`).
  * @return `BISON_OK`, `BISON_ERR_DUPLICATE`, or `BISON_ERR_NULL`.
  */
 BISON_API bison_error bison_add_method(
     bison_handle h,
     bison_hash name,
     bison_method_fn fn,
-    void* user);
+    void* user,
+    bison_method_deleter_fn deleter);
 
 /**
  * @brief Invoke a named method on @p h.
