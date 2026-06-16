@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <cstring>
+#include <sstream>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -518,4 +519,294 @@ TEST_F(CxxWrapperTests, MissingMethodThrowsRuntimeError) {
   auto params = dynamic::create();
   EXPECT_THROW(
       (void)h.call(dynamic::key("does_not_exist"), params), std::runtime_error);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 10. field_ref / operator[] — bracket-access interface
+// ═════════════════════════════════════════════════════════════════════════════
+
+class FieldRefTests : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClasses();
+  }
+  void TearDown() override {
+    clearClasses();
+  }
+};
+
+// ── Setters ──────────────────────────────────────────────────────────────────
+
+TEST_F(FieldRefTests, SetIntViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj["score"_key] = static_cast<int32_t>(99);
+
+  EXPECT_EQ(obj.get<int32_t>("score"_key), 99);
+}
+
+TEST_F(FieldRefTests, SetFloatViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["ratio"_key] = 3.14f;
+
+  EXPECT_NEAR(obj.get<float>("ratio"_key), 3.14f, 1e-4f);
+}
+
+TEST_F(FieldRefTests, SetBoolViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["active"_key] = true;
+
+  EXPECT_TRUE(obj.get<bool>("active"_key));
+}
+
+TEST_F(FieldRefTests, SetBoolFalseViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["active"_key] = false;
+
+  EXPECT_FALSE(obj.get<bool>("active"_key));
+}
+
+TEST_F(FieldRefTests, SetCStringViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj["name"_key] = "Carlos";
+
+  EXPECT_EQ(obj.get<std::string>("name"_key), "Carlos");
+}
+
+TEST_F(FieldRefTests, SetStdStringViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  std::string tag = "champion";
+  obj["tag"_key] = tag;
+
+  EXPECT_EQ(obj.get<std::string>("tag"_key), "champion");
+}
+
+TEST_F(FieldRefTests, SetNestedDynamicViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto child = dynamic::create();
+  child.set(dynamic::key("hp"), 100);
+
+  auto parent = dynamic::create("Player"_key);
+  parent["stats"_key] = child;
+
+  dynamic retrieved = parent.get<dynamic>("stats"_key);
+  EXPECT_EQ(retrieved.get<int32_t>(dynamic::key("hp")), 100);
+}
+
+// ── Getters ───────────────────────────────────────────────────────────────────
+
+TEST_F(FieldRefTests, GetIntViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj.set(dynamic::key("lives"), 3);
+
+  int32_t v = obj["lives"_key];
+  EXPECT_EQ(v, 3);
+}
+
+TEST_F(FieldRefTests, GetFloatViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj.set(dynamic::key("speed"), 9.8f);
+
+  float v = obj["speed"_key];
+  EXPECT_NEAR(v, 9.8f, 1e-4f);
+}
+
+TEST_F(FieldRefTests, GetBoolViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj.set(dynamic::key("ready"), true);
+
+  bool v = obj["ready"_key];
+  EXPECT_TRUE(v);
+}
+
+TEST_F(FieldRefTests, GetStringViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj.set(dynamic::key("name"), "Alice");
+
+  std::string s = obj["name"_key];
+  EXPECT_EQ(s, "Alice");
+}
+
+TEST_F(FieldRefTests, GetNestedDynamicViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto child = dynamic::create();
+  child.set(dynamic::key("mp"), 50);
+
+  auto parent = dynamic::create();
+  parent.set(dynamic::key("stats"), child);
+
+  dynamic retrieved = parent["stats"_key];
+  EXPECT_EQ(retrieved.get<int32_t>(dynamic::key("mp")), 50);
+}
+
+// ── Round-trips (write then read back through []) ─────────────────────────────
+
+TEST_F(FieldRefTests, IntRoundTripFullyViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj["score"_key] = static_cast<int32_t>(42);
+
+  int32_t v = obj["score"_key];
+  EXPECT_EQ(v, 42);
+}
+
+TEST_F(FieldRefTests, FloatRoundTripFullyViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["ratio"_key] = 1.5f;
+
+  float v = obj["ratio"_key];
+  EXPECT_NEAR(v, 1.5f, 1e-4f);
+}
+
+TEST_F(FieldRefTests, StringRoundTripFullyViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj["name"_key] = "Carlos";
+
+  std::string s = obj["name"_key];
+  EXPECT_EQ(s, "Carlos");
+}
+
+TEST_F(FieldRefTests, BoolRoundTripFullyViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["alive"_key] = true;
+
+  bool v = obj["alive"_key];
+  EXPECT_TRUE(v);
+}
+
+// ── Overwrite ─────────────────────────────────────────────────────────────────
+
+TEST_F(FieldRefTests, OverwriteFieldViaSubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["score"_key] = static_cast<int32_t>(10);
+  obj["score"_key] = static_cast<int32_t>(99);
+
+  int32_t v = obj["score"_key];
+  EXPECT_EQ(v, 99);
+}
+
+// ── Stream output ─────────────────────────────────────────────────────────────
+
+TEST_F(FieldRefTests, StreamOutputWritesStringField) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj["name"_key] = "Carlos";
+
+  std::ostringstream oss;
+  oss << obj["name"_key];
+  EXPECT_EQ(oss.str(), "Carlos");
+}
+
+// ── Error handling ────────────────────────────────────────────────────────────
+
+TEST_F(FieldRefTests, GetMissingFieldThrows) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  EXPECT_THROW(
+      { int32_t v = obj["missing"_key]; (void)v; },
+      std::runtime_error);
+}
+
+TEST_F(FieldRefTests, GetWrongTypeThrows) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["n"_key] = static_cast<int32_t>(7);
+
+  EXPECT_THROW(
+      { float v = obj["n"_key]; (void)v; },
+      std::runtime_error);
+}
+
+// ── Interaction with existing set/get API ────────────────────────────────────
+
+TEST_F(FieldRefTests, SubscriptWriteIsReadableByGetMethod) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj["xp"_key] = static_cast<int32_t>(500);
+
+  EXPECT_EQ(obj.get<int32_t>(dynamic::key("xp")), 500);
+}
+
+TEST_F(FieldRefTests, SetMethodWriteIsReadableBySubscript) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create();
+  obj.set(dynamic::key("level"), 7);
+
+  int32_t v = obj["level"_key];
+  EXPECT_EQ(v, 7);
+}
+
+// ── Multiple fields on one object ─────────────────────────────────────────────
+
+TEST_F(FieldRefTests, MultipleFieldsSetAndReadIndependently) {
+  using bdg::bison::abi::dynamic;
+  using bdg::bison::abi::operator""_key;
+
+  auto obj = dynamic::create("Player"_key);
+  obj["name"_key]  = "Bob";
+  obj["score"_key] = static_cast<int32_t>(1000);
+  obj["ratio"_key] = 0.75f;
+  obj["alive"_key] = true;
+
+  EXPECT_EQ(static_cast<std::string>(obj["name"_key]),  "Bob");
+  EXPECT_EQ(static_cast<int32_t>(obj["score"_key]),     1000);
+  EXPECT_NEAR(static_cast<float>(obj["ratio"_key]),     0.75f, 1e-4f);
+  EXPECT_TRUE(static_cast<bool>(obj["alive"_key]));
 }

@@ -181,7 +181,7 @@ class field : public field_base {
   T& as(T def = T{}) {
     if (std::holds_alternative<std::monostate>(
             static_cast<const field_base&>(*this))) {
-      *this = def;
+      throw std::runtime_error("Null type");
     } else if (!std::holds_alternative<T>(
                    static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
@@ -523,17 +523,15 @@ class dynamic {
    * under `(ns, class_name)`.  Returns `false` if a class with the same name
    * is already registered in @p ns, or if registering would create a
    * circular inheritance chain within @p ns.
-  *
-  * @param ns      Hash of the namespace to register in; `0U` for the global
-  *                (default) namespace.
-  * @param klass   Prototype object; its `CLASS` field must be set.
-  * @param parent  Hash of the parent class name (`0U` for a root class).
+   *
+   * @param ns      Hash of the namespace to register in; `0U` for the global
+   *                (default) namespace.
+   * @param klass   Prototype object; its `CLASS` field must be set.
+   * @param parent  Hash of the parent class name (`0U` for a root class).
    * @return `true` on success, `false` on duplicate or cycle.
    */
-  static bool addClass(
-    const key_t ns,
-    dynamic_ptr klass,
-    const key_t parent = key_t{0U}) {
+  static bool
+  addClass(const key_t ns, dynamic_ptr klass, const key_t parent = key_t{0U}) {
     auto name = klass->as<key_t>(CLASS);
     (*klass)[PARENT] = parent;
     (*klass)[NAMESPACE] = ns;
