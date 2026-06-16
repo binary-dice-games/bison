@@ -1,11 +1,11 @@
 # Documentation & Project Files Maintenance
 
-- Keep `FORMAT.md` and `README.md` updated: the Gemini agent must update these files to reflect changes it makes. Keep them concise — include only information necessary to understand project layout, build/test commands, and conventions. Avoid adding excessive detail that bloats the agent context.
+- Keep `FORMAT.md` and `README.md` updated: the Claude agent must update these files to reflect changes it makes. Keep them concise — include only information necessary to understand project layout, build/test commands, and conventions. Avoid adding excessive detail that bloats the agent context.
 - Keep code documentation updated: maintain clear, concise documentation in code, especially for public APIs, classes, and module-level contracts. Prefer brief doc comments that explain intent, parameters, return values, and failure modes.
 - Startup reading: at the start of every new conversation, always read `FORMAT.md` and `README.md` to understand the project's structure and goals. When task-specific details are needed, read the in-code documentation and public API comments to obtain additional context.
 - Tests: always write automated tests validating any new or modified behavior. Maintain and update tests alongside code changes to ensure continued correctness; tests should be concise, deterministic, and focused on public behavior.
 
-# Bison Coding Style Guide for Gemini Code Assist
+# Bison Coding Style Guide for Claude Code Assist
 
 Use this guide when generating or editing code in this repository.
 
@@ -74,7 +74,7 @@ Use this guide when generating or editing code in this repository.
 - Maintain consistent formatting and naming (snake_case for Python, PascalCase for C#/Java).
 - Ensure public APIs have clear documentation (docstrings or XML comments).
 
-## Gemini Code Assist Behavioral Rules for This Repo
+## Claude Code Assist Behavioral Rules for This Repo
 
 - Do not introduce broad stylistic rewrites.
 - Do not change naming conventions in existing APIs.
