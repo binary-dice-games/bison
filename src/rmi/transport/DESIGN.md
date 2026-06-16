@@ -51,7 +51,8 @@ The new transport follows existing transport naming and signatures.
 Behavior notes:
 
 - Accept returns a single connection once started.
-- Additional accepts after the first active connection return nullopt.
+- Additional accepts after the first connection block on a condition variable
+  until stop() is called or the timeout elapses; they do not busy-wait.
 - Stop closes the active connection and causes blocked receive calls to wake.
 
 ## 5. Framing Strategy
@@ -74,8 +75,8 @@ Other type values:
 
 - HELLO: readiness signal from server transport after startup
 - END: graceful session termination request
-- ACK: optional control acknowledgement
-- ERR: framing-level errors (not RMI protocol errors)
+
+Note: ACK and ERR frame types are reserved but not currently used.
 
 ### 5.2 Why DCS
 
@@ -92,9 +93,11 @@ Where body is the same key-value payload as above.
 
 Mode negotiation:
 
-1. Server emits HELLO in DCS mode and line mode during startup window.
-2. Client accepts either and replies in detected mode.
-3. Session mode is fixed after first successful control frame exchange.
+1. Server emits HELLO in DCS mode and line mode during startup (in auto_detect
+   mode, both are emitted; otherwise only the configured mode is used).
+2. Client opens() and waits for any HELLO; the first recognized HELLO fixes the
+   session framing mode.
+3. Mode is fixed for the lifetime of the session after the first HELLO exchange.
 
 ## 6. Message Chunking
 
@@ -109,16 +112,17 @@ chunks before base64 wrapping.
 Reassembly rules:
 
 - Chunks must have consistent id and total.
-- Duplicate seq is rejected.
+- Duplicate seq is ignored.
 - Reassembly completes when all seq values [0, total-1] arrive.
 - Chunks received after timeout are dropped.
 
 Default constraints:
 
-- max_decoded_frame_bytes = 8 MiB
-- max_chunk_b64_bytes = 2048
-- max_inflight_messages = 32
+- max_frame_bytes = 8 MiB
+- max_chunk_bytes = 1536 bytes (chunk payload before base64 expansion)
 - reassembly_timeout_ms = 5000
+
+Note: there is no limit on the number of concurrent in-flight messages.
 
 ## 7. Runtime Architecture
 
@@ -127,6 +131,10 @@ Default constraints:
 Each endpoint owns a parser thread that continuously reads stdin bytes,
 extracts framed control envelopes, and pushes decoded DATA bytes into an
 internal queue.
+
+The reader thread cannot be safely interrupted during a blocking syscall read,
+so shutdown() and stop() detach the thread rather than joining it. This makes
+each transport instance single-use: it cannot be reopened after shutdown.
 
 Non-protocol text handling:
 
@@ -142,6 +150,9 @@ send(frame) performs:
 3. Emit wrapped control frame to stdout.
 4. Flush stdout after each chunk.
 
+Empty frames are sent as a single DATA message with total=1 and an empty b64
+field, so the receiver can deliver a zero-byte payload.
+
 ### 7.3 Blocking receive
 
 receive(out, timeout) waits on queue condition variable and returns:
@@ -156,14 +167,15 @@ receive(out, timeout) waits on queue condition variable and returns:
 Server:
 
 1. start() initializes parser and writer state.
-2. Emits HELLO control frame.
+2. Emits HELLO control frame (both carriers in auto_detect mode).
 3. accept() returns one stdio_server_connection once running.
 
 Client:
 
 1. open() initializes parser and writer state.
 2. Waits for HELLO up to handshake_timeout_ms.
-3. Marks transport open.
+3. Locks the session mode from the first recognized HELLO carrier.
+4. Marks transport open.
 
 ### 8.2 Normal traffic
 
@@ -187,14 +199,17 @@ Server behavior on END:
 ## 9. Concurrency Model
 
 - One reader thread per endpoint.
-- send() protected by a mutex for frame atomicity.
-- Shared state protected by mutex + condition_variable.
-- close flag uses atomic bool.
+- send() protected by write_mtx for frame atomicity.
+- Inbox and reassembly state protected by read_mtx + read_cv.
+- close and stop flags use atomic bools.
+- negotiated_mode uses atomic int so it can be set from the reader thread and
+  read from the write thread without a lock.
 
 Locking goals:
 
 - Keep lock scope narrow.
-- Never hold parser lock while writing stdout.
+- Never hold read_mtx while writing stdout.
+- Release read_mtx before notifying read_cv (wake first caller, not all).
 
 ## 10. Error Handling
 
@@ -211,26 +226,22 @@ Examples:
 
 Behavior policy:
 
-- Parser errors on one malformed frame do not crash transport.
+- Parser errors on one malformed frame do not crash the transport.
 - Fatal stream errors transition transport to closed state.
 
 ## 11. Parameters
 
-Initial dynamic params accepted by open/start:
+Parameters accepted by open/start (plain and __-prefixed forms both work):
 
-- mode: auto | dcs | line
-- handshake_timeout_ms: int32
-- receive_timeout_ms: int32 (default used by receive)
-- reassembly_timeout_ms: int32
-- max_frame_bytes: int32
-- max_chunk_b64_bytes: int32
-- mirror_plaintext_to_stderr: bool
+- mode: auto | dcs | line (default: dcs for client, auto for server)
+- handshake_timeout_ms: int32 (default: 5000)
+- reassembly_timeout_ms: int32 (default: 5000)
+- max_frame_bytes: int32 (default: 8388608, minimum 1024)
+- max_chunk_b64_bytes: int32 (default: 1536, minimum 64)
+- mirror_plaintext_to_stderr: bool (default: false)
 
-Transport should read both plain and internal names, matching current style:
-
-- mode and __mode
-- handshake_timeout_ms and __handshake_timeout_ms
-- etc.
+Note: receive_timeout_ms is not stored in shared_state; the caller passes a
+timeout directly to each receive() call.
 
 ## 12. Platform Notes
 
@@ -244,6 +255,8 @@ Transport should read both plain and internal names, matching current style:
 
 - Works on pipes and PTY links.
 - If terminal driver rewrites control bytes, fallback line mode remains usable.
+- On Linux, the server transport switches the controlling terminal to raw,
+  no-echo mode when reading from std::cin on a TTY and restores it on stop().
 
 ## 13. Security and Safety Considerations
 
@@ -283,9 +296,32 @@ Transport should read both plain and internal names, matching current style:
 4. Add stdio client/server examples.
 5. Document usage patterns for ssh and adb workflows.
 
-## 16. Open Questions For Review
+## 16. Design Decisions
 
-- Should server emit HELLO continuously until first client DATA frame, or once?
-- Should END be transport-level only, or also require RMI disconnect first?
-- Should plaintext passthrough be ignored, mirrored, or callback-driven?
-- Should line fallback always be enabled, or opt-in for stricter channels?
+This section records design questions that arose during implementation and
+the choices made.
+
+**Should the server emit HELLO continuously until the first client DATA frame,
+or only once at startup?**
+
+Once at startup. In auto_detect mode, HELLO is emitted in both DCS and line
+format during start() so both carriers are covered. Repeated emission would
+consume bandwidth and complicate the state machine.
+
+**Should END be transport-level only, or also require RMI disconnect first?**
+
+Transport-level only. The client sends END after completing the RMI-level
+disconnect, but the transport does not enforce ordering. Receiving END
+immediately closes the connection from the transport's perspective.
+
+**Should plaintext passthrough be ignored, mirrored, or callback-driven?**
+
+Mirrored to stderr when mirror_plaintext_to_stderr is true (default off).
+Callback-driven mirroring adds API surface without a clear use case; the
+stderr option covers diagnostics and keeps the API simple.
+
+**Should line fallback always be enabled, or opt-in for stricter channels?**
+
+The reader loop always recognises both DCS and line frames simultaneously, so
+either carrier works regardless of the configured send mode. This costs nothing
+and avoids requiring the user to know the channel type in advance.
