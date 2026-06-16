@@ -66,15 +66,19 @@ inline void check(bison_error err, const char* msg) {
   }
 }
 
-template <size_t N>
-consteval bison_hash hash_literal(const char (&name)[N]) {
+constexpr bison_hash hash_compute(const char* name, size_t size) {
   // 32-bit FNV-1a with the MSB forced to 1 to match bison_key semantics.
   bison_hash value = 0x811c9dc5u;
-  for (size_t i = 0; i + 1 < N; ++i) {
+  for (size_t i = 0; i < size; ++i) {
     value ^= static_cast<unsigned char>(name[i]);
     value *= 0x01000193u;
   }
   return value | 0x80000000u;
+}
+
+template <size_t N>
+consteval bison_hash hash_literal(const char (&name)[N]) {
+  return hash_compute(name, N - 1);
 }
 
 using MethodCallback =
@@ -87,6 +91,12 @@ inline void adapter_wrapper(
     void* user);
 
 } // namespace detail
+
+constexpr bison_hash operator""_key(
+    const char* name,
+    std::size_t size) noexcept {
+  return detail::hash_compute(name, size);
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // dynamic — RAII wrapper for bison_handle
