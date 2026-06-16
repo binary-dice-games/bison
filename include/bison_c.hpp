@@ -304,6 +304,13 @@ class dynamic {
   add_class(bison_hash ns_name, const dynamic& klass, bison_hash parent_name) {
     detail::check(
         bison_add_class(ns_name, klass.h_, parent_name), "bison_add_class");
+    // Keep a copy of klass so the shared method_state_ (and its MethodCallback
+    // objects) outlives the caller's local wrapper.  The DLL class registry
+    // holds the underlying object; this static table holds the C++ side.
+    static std::mutex s_mtx;
+    static std::vector<dynamic> s_registered;
+    std::lock_guard<std::mutex> lk(s_mtx);
+    s_registered.push_back(klass);
   }
 
   /**
