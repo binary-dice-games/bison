@@ -123,6 +123,32 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
   }
 }
 
+// ─── Pretty-print ────────────────────────────────────────────────────────────
+
+BISON_API bison_error bison_print(
+    bison_handle h, const bison_print_options* opts, char** out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    bdg::bison::print_options cpp_opts;
+    if (opts) {
+      cpp_opts.multiline = opts->multiline != 0;
+      if (opts->indent)
+        cpp_opts.indent = opts->indent;
+    }
+    const std::string result = bdg::bison::print(*dyn(h), cpp_opts);
+    *out = new char[result.size() + 1];
+    std::memcpy(*out, result.c_str(), result.size() + 1);
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API void bison_free_string(char* s) {
+  delete[] s;
+}
+
 // ─── Class registry ─────────────────────────────────────────────────────────
 
 // Build a bison attribute vector from a C bison_attributes struct.

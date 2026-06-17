@@ -224,6 +224,42 @@ BISON_API bison_handle bison_from_json(const char* json);
 BISON_API bison_handle bison_from_yaml(const char* yaml);
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * Pretty-print
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Options controlling the output format of `bison_print`.
+ *
+ * Pass `NULL` to `bison_print` to use the defaults shown below.
+ */
+typedef struct bison_print_options {
+  /** @brief Non-zero = multiline with indentation (default); 0 = single line. */
+  int multiline;
+  /** @brief Per-level indentation string in multiline mode.  `NULL` = `"  "`. */
+  const char* indent;
+} bison_print_options;
+
+/**
+ * @brief Convert @p h to a human-readable string.
+ *
+ * The returned string is heap-allocated; release it with `bison_free_string`.
+ *
+ * @param h     Source object handle.
+ * @param opts  Format options, or `NULL` for defaults (multiline, 2-space indent).
+ * @param out   Receives a pointer to the allocated string.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_print(
+    bison_handle h, const bison_print_options* opts, char** out);
+
+/**
+ * @brief Release a string returned by `bison_print`.
+ *
+ * @param s  Pointer returned by `bison_print`.  `NULL` is a no-op.
+ */
+BISON_API void bison_free_string(char* s);
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Class registry
  * ═════════════════════════════════════════════════════════════════════════ */
 

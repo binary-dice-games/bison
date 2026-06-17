@@ -1360,3 +1360,107 @@ TEST_F(InheritanceTest, SingleClassOperatorBracket) {
   dynamic w = dynamic::instantiate("Widget43"_key);
   EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// N. Pretty-print
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(PrintTest, MultilineContainsFieldValues) {
+  dynamic obj;
+  obj["name"_key] = field{std::string{"Alice"}, attr<DisplayName>("name")};
+  obj["age"_key]  = field{int32_t{30},          attr<DisplayName>("age")};
+  obj["active"_key] = field{bool{true},          attr<DisplayName>("active")};
+
+  const std::string out = print(obj);
+  EXPECT_NE(out.find("\"Alice\""), std::string::npos);
+  EXPECT_NE(out.find("30"),        std::string::npos);
+  EXPECT_NE(out.find("true"),      std::string::npos);
+  // DisplayName attributes cause fields to print with their names.
+  EXPECT_NE(out.find("name"),   std::string::npos);
+  EXPECT_NE(out.find("age"),    std::string::npos);
+  EXPECT_NE(out.find("active"), std::string::npos);
+}
+
+TEST(PrintTest, MultilineIsIndented) {
+  dynamic obj;
+  obj["x"_key] = field{int32_t{1}, attr<DisplayName>("x")};
+
+  const std::string out = print(obj);
+  // Multiline output should contain a newline and indent.
+  EXPECT_NE(out.find('\n'), std::string::npos);
+  EXPECT_NE(out.find("  x"), std::string::npos);
+}
+
+TEST(PrintTest, SingleLineHasNoBrokenLines) {
+  dynamic obj;
+  obj["score"_key] = field{float{9.5f}, attr<DisplayName>("score")};
+
+  print_options opts;
+  opts.multiline = false;
+  const std::string out = print(obj, opts);
+  EXPECT_EQ(out.find('\n'), std::string::npos);
+  EXPECT_NE(out.find("9.5"), std::string::npos);
+  EXPECT_NE(out.find('{'),   std::string::npos);
+  EXPECT_NE(out.find('}'),   std::string::npos);
+}
+
+TEST(PrintTest, CustomIndentIsHonoured) {
+  dynamic obj;
+  obj["v"_key] = field{int32_t{42}, attr<DisplayName>("v")};
+
+  print_options opts;
+  opts.multiline = true;
+  opts.indent    = "\t";
+  const std::string out = print(obj, opts);
+  EXPECT_NE(out.find("\tv"), std::string::npos);
+}
+
+TEST(PrintTest, NestedObjectPrintsRecursively) {
+  dynamic inner;
+  inner["city"_key] = field{std::string{"Springfield"}, attr<DisplayName>("city")};
+
+  dynamic outer;
+  outer["addr"_key] = field{
+      dynamic_ptr{std::make_shared<dynamic>(std::move(inner))},
+      attr<DisplayName>("addr")};
+
+  const std::string out = print(outer);
+  EXPECT_NE(out.find("\"Springfield\""), std::string::npos);
+  EXPECT_NE(out.find("city"),            std::string::npos);
+  EXPECT_NE(out.find("addr"),            std::string::npos);
+}
+
+TEST(PrintTest, ArrayFieldsAppearInOutput) {
+  dynamic obj;
+  field scores{std::vector<int32_t>{10, 20, 30}};
+  obj["scores"_key] = std::move(scores);
+
+  print_options opts;
+  opts.multiline = false;
+  const std::string out = print(obj, opts);
+  EXPECT_NE(out.find("10"), std::string::npos);
+  EXPECT_NE(out.find("20"), std::string::npos);
+  EXPECT_NE(out.find("30"), std::string::npos);
+}
+
+TEST(PrintTest, MethodsAppearsInOutput) {
+  dynamic obj;
+  obj["value"_key] = field{int32_t{0}, attr<DisplayName>("value")};
+  obj.addMethod(
+      "reset"_key,
+      [](dynamic&, const dynamic&) -> dynamic { return {}; },
+      {attr<DisplayName>("Reset"), attr<Description>("Resets to zero")});
+  obj.addMethod(
+      "noop"_key,
+      [](dynamic&, const dynamic&) -> dynamic { return {}; });
+
+  const std::string out = print(obj);
+  // Method with DisplayName uses that name as the key.
+  EXPECT_NE(out.find("Reset"),           std::string::npos);
+  // Method attrs summary appears in value.
+  EXPECT_NE(out.find("displayName"),     std::string::npos);
+  // Method without DisplayName falls back to hash key format.
+  EXPECT_NE(out.find("<method>"),        std::string::npos);
+  // Field is still present.
+  EXPECT_NE(out.find("value"),           std::string::npos);
+}
