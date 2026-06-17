@@ -549,16 +549,12 @@ typedef struct rmi_pty_client_callbacks {
 } rmi_pty_client_callbacks;
 
 /**
- * @brief Run the PTY/pipe stdio RMI client application.
+ * @brief Run the PTY stdio RMI client application.
  *
- * This wraps the C++ `apps::pty_client_application` run loop.
+ * This wraps the C++ `bdg::bison::pty::pty_client_app` run loop.
  *
- * On Linux, usage is:
- * - `--pty <command> [args...]`
- * - `--pipe <command> [args...]`
- *
- * On non-Linux platforms, this returns an error because PTY mode is not
- * supported by the underlying implementation.
+ * On non-Linux platforms, this returns `RMI_ERR_INVALID_STATE` because PTY
+ * mode is not supported.
  *
  * @param argc       Argument count.
  * @param argv       Argument vector.
@@ -596,12 +592,15 @@ typedef struct rmi_pty_server_callbacks {
 } rmi_pty_server_callbacks;
 
 /**
- * @brief Run the stdio RMI server application.
+ * @brief Run the PTY stdio RMI server application.
  *
- * This wraps the C++ `apps::pty_server_application` run loop.
+ * This wraps the C++ `bdg::bison::pty::pty_server_app` run loop.
  *
- * @param argc       Argument count (currently ignored).
- * @param argv       Argument vector (currently ignored).
+ * On non-Linux platforms, this returns `RMI_ERR_INVALID_STATE` because PTY
+ * mode is not supported.
+ *
+ * @param argc       Argument count.
+ * @param argv       Argument vector.
  * @param callbacks  Required callbacks. `callbacks->register_classes` must
  *                   be set.
  * @return `RMI_OK` on success, or a negative error code.

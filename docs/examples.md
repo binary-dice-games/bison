@@ -59,23 +59,27 @@ Expected output:
 
 ### PTY library API
 
-The PTY flow is available as reusable base classes:
+The PTY flow is available as reusable base classes (Linux only):
 
 ```cpp
-class MyClientApp : public bdg::bison::rmi::apps::pty_client_application {
+// Server: owns a bash subprocess via forkpty; serves objects over DCS-framed bison
+class MyServerApp : public bdg::bison::pty::pty_server_app {
  protected:
-    int on_session(bdg::bison::rmi::client& c, const run_context& ctx) override {
+    void register_classes() override { /* register server-side classes */ }
+    void on_client_connected() const override { /* optional hook */ }
+    void on_session_ended() const override { /* optional hook */ }
+};
+
+// Client: runs inside the bash session (e.g. after ssh into the server host)
+class MyClientApp : public bdg::bison::pty::pty_client_app {
+ protected:
+    int on_session(bdg::bison::rmi::client& c) override {
         return 0;
     }
 };
 
-class MyServerApp : public bdg::bison::rmi::apps::pty_server_application {
- protected:
-    void register_classes() override { /* register server-side classes */ }
-};
-
 int main(int argc, char** argv) {
-    MyClientApp app;  // or MyServerApp
+    MyServerApp app;  // or MyClientApp
     return app.run(argc, argv);
 }
 ```

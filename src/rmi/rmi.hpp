@@ -12,9 +12,7 @@
 
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/client/proxy.hpp"
-#include "src/rmi/client/pty_client_app.hpp"
 #include "src/rmi/server/context.hpp"
-#include "src/rmi/server/pty_server_app.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/envelope.hpp"
@@ -23,5 +21,4 @@
 #include "src/rmi/standalone/standalone.hpp"
 #include "src/rmi/transport/memory_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-#include "src/rmi/transport/stdio_transport.hpp"
 #include "src/rmi/transport/transport_iface.hpp"

@@ -11,6 +11,11 @@
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
 
+#if defined(__linux__)
+#include "src/pty/pty_client_app.hpp"
+#include "src/pty/pty_server_app.hpp"
+#endif
+
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -234,15 +239,17 @@ static inline rmi_error map_app_exit_code(int exit_code) {
   return exit_code == 0 ? RMI_OK : RMI_ERR_INVALID_STATE;
 }
 
+#if defined(__linux__)
+
 class c_pty_client_application_with_callbacks final
-    : public apps::pty_client_application {
+    : public pty::pty_client_app {
  public:
   explicit c_pty_client_application_with_callbacks(
       const rmi_pty_client_callbacks* callbacks)
       : callbacks_(callbacks) {}
 
  protected:
-  int on_session(client& rmi_client, const run_context&) override {
+  int on_session(client& rmi_client) override {
     rmi_client_handle callback_client = make_borrowed_client_handle(rmi_client);
     int result = 1;
     try {
@@ -260,7 +267,7 @@ class c_pty_client_application_with_callbacks final
       callbacks_->on_error(message.c_str(), callbacks_->user);
       return;
     }
-    apps::pty_client_application::on_error(message);
+    pty::pty_client_app::on_error(message);
   }
 
  private:
@@ -268,7 +275,7 @@ class c_pty_client_application_with_callbacks final
 };
 
 class c_pty_server_application_with_callbacks final
-    : public apps::pty_server_application {
+    : public pty::pty_server_app {
  public:
   explicit c_pty_server_application_with_callbacks(
       const rmi_pty_server_callbacks* callbacks)
@@ -284,12 +291,14 @@ class c_pty_server_application_with_callbacks final
       callbacks_->on_error(message.c_str(), callbacks_->user);
       return;
     }
-    apps::pty_server_application::on_error(message);
+    pty::pty_server_app::on_error(message);
   }
 
  private:
   const rmi_pty_server_callbacks* callbacks_ = nullptr;
 };
+
+#endif // defined(__linux__)
 
 template <typename T>
 static inline rmi_error wait_future_ready(
@@ -526,15 +535,6 @@ rmi_client_tcp_create(const char* host, uint16_t port) {
     return make_owned_client_handle(
         std::make_unique<client>(
             std::make_unique<socket_client_transport>(host, port)));
-  } catch (...) {
-    return nullptr;
-  }
-}
-
-RMI_API rmi_client_handle rmi_client_stdio_create(void) {
-  try {
-    return make_owned_client_handle(
-        std::make_unique<client>(std::make_unique<stdio_client_transport>()));
   } catch (...) {
     return nullptr;
   }
@@ -901,16 +901,6 @@ rmi_server_tcp_create(const char* host, uint16_t port) {
   }
 }
 
-RMI_API rmi_server_handle rmi_server_stdio_create(void) {
-  try {
-    auto* sp = new server_ptr(
-        std::make_unique<server>(std::make_unique<stdio_server_transport>()));
-    return as_server_handle(sp);
-  } catch (...) {
-    return nullptr;
-  }
-}
-
 RMI_API rmi_error rmi_server_listen(rmi_server_handle h, bison_handle params) {
   server* s = server_deref(h);
   if (!s)
@@ -954,6 +944,7 @@ RMI_API rmi_error rmi_pty_client_run(
     int argc,
     char** argv,
     const rmi_pty_client_callbacks* callbacks) {
+#if defined(__linux__)
   if (argc > 0 && !argv)
     return RMI_ERR_NULL;
   if (!callbacks || !callbacks->on_session)
@@ -967,12 +958,19 @@ RMI_API rmi_error rmi_pty_client_run(
   } catch (...) {
     return RMI_ERR_EXCEPTION;
   }
+#else
+  (void)argc;
+  (void)argv;
+  (void)callbacks;
+  return RMI_ERR_INVALID_STATE;
+#endif
 }
 
 RMI_API rmi_error rmi_pty_server_run(
     int argc,
     char** argv,
     const rmi_pty_server_callbacks* callbacks) {
+#if defined(__linux__)
   if (argc > 0 && !argv)
     return RMI_ERR_NULL;
   if (!callbacks || !callbacks->register_classes)
@@ -986,4 +984,10 @@ RMI_API rmi_error rmi_pty_server_run(
   } catch (...) {
     return RMI_ERR_EXCEPTION;
   }
+#else
+  (void)argc;
+  (void)argv;
+  (void)callbacks;
+  return RMI_ERR_INVALID_STATE;
+#endif
 }

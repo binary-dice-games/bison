@@ -27,8 +27,8 @@ namespace bdg::bison::pty {
  * class handles transport construction, handshake, and disconnect.
  *
  * Typical lifecycle:
- * 1. `connect()` via `stdio_client_transport(stdin, stdout)` — waits for the
- *    server's HELLO frame that was pre-emitted by `pty_server_transport`.
+ * 1. `connect()` via `pty_client_transport` (uses process stdin/stdout) —
+ *    sends HELLO to the server, waits for the server's HELLO response.
  * 2. `on_connected()` hook (default: no-op).
  * 3. `on_session(rmi_client)` — application logic.
  * 4. `disconnect()`.

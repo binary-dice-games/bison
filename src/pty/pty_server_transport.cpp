@@ -3,8 +3,8 @@
  * @file pty_server_transport.cpp
  * @brief PTY-owning server transport implementation.
  *
- * Reimplements the DCS byte-level state machine from `stdio_transport` with
- * PTY-specific routing: plaintext bytes go to `stdout` (so the user sees the
+ * DCS byte-level state machine with PTY-specific routing: plaintext bytes go
+ * to `stdout` (so the user sees the
  * shell), while DCS frames are queued for the bison RMI layer.  All writes to
  * the PTY master fd are serialised by `pty_shared_state::write_mtx` so the
  * input-relay thread and `pty_server_connection::send()` never interleave.

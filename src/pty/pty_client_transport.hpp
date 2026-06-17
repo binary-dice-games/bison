@@ -3,9 +3,8 @@
  * @file pty_client_transport.hpp
  * @brief PTY client transport: uses process stdin/stdout as the DCS bison channel.
  *
- * Unlike `stdio_client_transport`, which waits for the server to send HELLO
- * first, `pty_client_transport` initiates the handshake — it emits HELLO on
- * `open()` and then waits for the server's HELLO response.  This matches
+ * `pty_client_transport` initiates the handshake — it emits HELLO on `open()`
+ * and then waits for the server's HELLO response.  This matches
  * `pty_server_transport::accept()`, which waits for the client's HELLO before
  * responding with its own.
  *

@@ -1,19 +1,24 @@
 // MIT License © 2025 Binary Dice Games
 // examples/rmi_stdio_client_example.cpp
 //
-// Standalone RMI client example built on reusable PTY client app scaffolding.
+// RMI client example using pty_client_app: runs inside the bash session opened
+// by rmi_stdio_server_example and calls Calculator methods over DCS-framed
+// bison transported through the terminal channel.
+//
+// Linux only.
 
-#include "src/rmi/rmi.hpp"
+#if defined(__linux__)
+
+#include "src/pty/pty_client_app.hpp"
 
 #include <iostream>
 
 using namespace bdg::bison;
-using namespace bdg::bison::rmi;
 
-class calculator_pty_client_app final : public apps::pty_client_application {
+class calculator_stdio_client final : public pty::pty_client_app {
  protected:
-  int on_session(client& rmi_client, const run_context& /*ctx*/) override {
-    auto calc = rmi_client.instantiate(0U, "Calculator"_key).get();
+  int on_session(rmi::client& c) override {
+    auto calc = c.instantiate(0U, "Calculator"_key).get();
     std::cerr << "[Client] instantiated Calculator, id=" << calc.object_id()
               << '\n';
 
@@ -35,13 +40,24 @@ class calculator_pty_client_app final : public apps::pty_client_application {
                 << '\n';
     }
 
-    rmi_client.destroy(std::move(calc));
+    c.destroy(std::move(calc));
     std::cerr << "[Client] done.\n";
     return 0;
   }
 };
 
 int main(int argc, char** argv) {
-  calculator_pty_client_app app;
+  calculator_stdio_client app;
   return app.run(argc, argv);
 }
+
+#else
+
+#include <iostream>
+
+int main() {
+  std::cerr << "rmi_stdio_client_example is only supported on Linux.\n";
+  return 1;
+}
+
+#endif // defined(__linux__)

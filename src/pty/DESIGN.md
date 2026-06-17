@@ -11,7 +11,6 @@ own stdin/stdout as the bison transport.
 
 This directory does NOT implement:
 
-- The core stdio transport framing — that lives in `src/rmi/transport/stdio_transport`.
 - The generic RMI server/client runtime — that lives in `src/rmi/server` and `src/rmi/client`.
 
 Source files owned by this directory:
@@ -236,8 +235,8 @@ virtual void on_error(const std::string& msg) const
 int run(int argc, char** argv)
 ```
 
-Creates `stdio_client_transport()` (default constructor — uses process
-`stdin`/`stdout`), calls `connect()`, calls `on_session()`, calls
+Creates `pty_client_transport()` (uses process `stdin`/`stdout`), sends the
+client HELLO handshake, calls `connect()`, calls `on_session()`, calls
 `disconnect()`. Returns the value from `on_session()`, or 1 on error.
 
 Protected virtual hooks:
@@ -272,14 +271,11 @@ class, and optionally overrides `on_session()`. The client subclasses
 remote calculator object.
 
 **Single reader thread across sessions.**
-`stdio_server_transport` detaches its reader thread on `stop()` (because it
-may be blocked in a `read` syscall) and cannot be restarted. For the PTY case
-the PTY master fd persists across sessions, so the reader must keep running.
+The PTY master fd persists across sessions, so the reader must keep running.
 `pty_server_transport` never stops the reader between sessions; it only resets
 inbox state. The reader is detached only during the final `stop()`.
 
 **Plaintext relay to stdout, not stderr.**
-`stdio_server_transport` optionally mirrors non-frame bytes to `stderr`.
 For PTY use, plaintext must go to `stdout` so the user sees the terminal
 normally. The reader loop in `pty_server_transport` writes non-DCS bytes
 directly to `stdout` at byte granularity rather than line-buffered.
