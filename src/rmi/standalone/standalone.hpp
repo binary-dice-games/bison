@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 #include "src/rmi/client/proxy.hpp"
 #include "src/rmi/server/context.hpp"
 

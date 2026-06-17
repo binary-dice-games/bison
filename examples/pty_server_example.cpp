@@ -1,37 +1,95 @@
 // MIT License © 2025 Binary Dice Games
 // examples/pty_server_example.cpp
 //
-// PTY RMI server example using reusable pty_server_application.
+// RMI server example using pty_server_app: owns a bash subprocess via forkpty,
+// serves a Calculator over DCS-framed bison to any client that connects via SSH
+// and runs pty_client_example in the resulting terminal.
+//
+// Linux only.
 
-#include "src/rmi/rmi.hpp"
+#if defined(__linux__)
+
+#include "src/app/pty/pty_server_app.hpp"
+
+#include <iostream>
 
 using namespace bdg::bison;
-using namespace bdg::bison::rmi;
 
-class pty_test_server_app final : public apps::pty_server_application {
+class calculator_pty_server final : public app::pty_server_app {
  protected:
   void register_classes() override {
-    auto proto = dynamic_ptr{"PtyTestService"_key, {}};
+    auto proto = dynamic_ptr{"Calculator"_key, {}};
 
     proto->addMethod(
-        "ping"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        "add"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+          float a = params["a"_key];
+          float b = params["b"_key];
           dynamic result;
+          result["result"_key] = a + b;
+          return result;
+        });
 
-          std::string message = "pong";
-          if (const auto* msg = params.findField("message"_key);
-              msg != nullptr && msg->is<std::string>()) {
-            message = msg->as<std::string>();
+    proto->addMethod(
+        "subtract"_key,
+        [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+          float a = params["a"_key];
+          float b = params["b"_key];
+          dynamic result;
+          result["result"_key] = a - b;
+          return result;
+        });
+
+    proto->addMethod(
+        "multiply"_key,
+        [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+          float a = params["a"_key];
+          float b = params["b"_key];
+          dynamic result;
+          result["result"_key] = a * b;
+          return result;
+        });
+
+    proto->addMethod(
+        "divide"_key,
+        [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+          float a = params["a"_key];
+          float b = params["b"_key];
+          dynamic result;
+          if (b == 0.0f) {
+            result["error"_key] = std::string{"division by zero"};
+            result["result"_key] = 0.0f;
+          } else {
+            result["result"_key] = a / b;
           }
-
-          result["reply"_key] = std::string{"pong: "} + message;
           return result;
         });
 
     dynamic::addClass(0U, proto, 0U);
   }
+
+  void on_client_connected() const override {
+    std::cerr << "[Server] bison client connected — serving Calculator.\n";
+  }
+
+  void on_session_ended() const override {
+    std::cerr << "[Server] session ended — waiting for next client.\n";
+  }
 };
 
 int main(int argc, char** argv) {
-  pty_test_server_app app;
+  std::cerr << "[Server] starting PTY server (bash subprocess via forkpty).\n";
+  std::cerr << "[Server] SSH in and run pty_client_example to connect.\n";
+  calculator_pty_server app;
   return app.run(argc, argv);
 }
+
+#else
+
+#include <iostream>
+
+int main() {
+  std::cerr << "rmi_pty_server_example is only supported on Linux.\n";
+  return 1;
+}
+
+#endif // defined(__linux__)

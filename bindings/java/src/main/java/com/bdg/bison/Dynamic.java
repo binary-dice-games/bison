@@ -440,7 +440,7 @@ public class Dynamic implements AutoCloseable {
             }
         };
         callbacks.add(cb);  // keep alive
-        check(LIB.bison_add_method(handle, key(name), cb, null, null),
+        check(LIB.bison_add_method(handle, key(name), cb, null),
               "addMethod(" + name + ")");
     }
 

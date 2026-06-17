@@ -42,7 +42,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 using namespace bdg::bison;
 using json = nlohmann::json;

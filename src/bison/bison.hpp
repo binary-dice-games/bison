@@ -14,7 +14,7 @@
 
 #pragma once
 
-#include "src/core/bison_common.hpp"
-#include "src/core/bison_object.hpp"
-#include "src/core/bison_serialization.hpp"
-#include "src/core/bison_sync.hpp"
+#include "src/bison/bison_common.hpp"
+#include "src/bison/bison_object.hpp"
+#include "src/bison/bison_serialization.hpp"
+#include "src/bison/bison_sync.hpp"

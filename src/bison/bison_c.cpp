@@ -388,29 +388,19 @@ BISON_API bison_error bison_add_method(
     bison_handle h,
     bison_hash name,
     bison_method_fn fn,
-    void* user,
-    bison_method_deleter_fn deleter) {
+    void* user) {
   if (!h || !fn)
     return BISON_ERR_NULL;
   try {
     struct closure_t {
       bison_method_fn fn;
       void* user;
-      bison_method_deleter_fn deleter;
 
-      closure_t(bison_method_fn f, void* u, bison_method_deleter_fn d)
-          : fn(f), user(u), deleter(d) {}
+      closure_t(bison_method_fn f, void* u) : fn(f), user(u) {}
       closure_t(const closure_t&) = delete;
       closure_t& operator=(const closure_t&) = delete;
-
-      ~closure_t() {
-        if (deleter)
-          deleter(user);
-      }
     };
-    // make_shared constructs closure_t in-place — no temporary, so the
-    // destructor fires exactly once when the last method reference is dropped.
-    auto cl = std::make_shared<closure_t>(fn, user, deleter);
+    auto cl = std::make_shared<closure_t>(fn, user);
 
     bdg::bison::method wrapped =
         [cl](

@@ -216,7 +216,7 @@ See [docs/examples.md](docs/examples.md) for building and running the socket and
 
 ## API Reference
 
-Full Doxygen-style documentation is embedded in `src/core/bison.hpp`. Generate HTML docs with:
+Full Doxygen-style documentation is embedded in `src/bison/bison.hpp`. Generate HTML docs with:
 
 ```bash
 doxygen Doxyfile

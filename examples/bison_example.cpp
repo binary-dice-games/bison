@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 using namespace bdg::bison;
 
@@ -57,7 +57,7 @@ static void example_hashing() {
   // key_t can also be constructed at runtime from a std::string or const char*,
   // producing the same hash as the compile-time _key literal.
   std::string field_name = "position";
-  key_t k4{field_name};
+  bdg::bison::key_t k4{field_name};
   std::cout << "key_t from string matches _key: " << std::boolalpha
             << (k4.id == "position"_key.id) << "\n";
 }
@@ -119,10 +119,10 @@ static void example_field() {
   // ── key_t and hash_t as stored field values (tags 2 and 1) ───────────
   // These are first-class field_base alternatives, used internally for
   // __class, __parent, and __namespace; also usable in application fields.
-  field f_key{key_t{"color"_key}};
+  field f_key{bdg::bison::key_t{"color"_key}};
   field f_hash{hash_t{0xDEADBEEFu}};
   std::cout << "key field matches 'color': "
-            << (f_key.as<key_t>().id == "color"_key.id) << "\n";
+            << (f_key.as<bdg::bison::key_t>().id == "color"_key.id) << "\n";
   std::cout << "hash field (hex): 0x" << std::hex << f_hash.as<hash_t>()
             << std::dec << "\n";
 
@@ -694,8 +694,8 @@ static void example_iteration() {
   // Numeric indices (0, 1, 2, …) sort before named keys (MSB set).
   // Skip key_t fields to avoid printing internal __class / __namespace.
   std::cout << "All non-metadata fields:\n";
-  obj.forEach([](key_t k, const field& f) {
-    if (f.is<key_t>())
+  obj.forEach([](bdg::bison::key_t k, const field& f) {
+    if (f.is<bdg::bison::key_t>())
       return;
     if (k.id < 0x80000000u) {
       std::cout << "  [" << k.id << "] string = "

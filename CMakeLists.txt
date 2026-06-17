@@ -13,15 +13,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(BISON_PUBLIC_HEADERS
-  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison.hpp"
-  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_common.hpp"
-  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_sync.hpp"
-  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_serialization.hpp"
-  "${CMAKE_CURRENT_LIST_DIR}/src/core/bison_object.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_common.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_sync.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_serialization.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_object.hpp"
 )
 
 set(BISON_PRIVATE_SOURCES
-  src/core/bison.cpp
+  src/bison/bison.cpp
 )
 
 add_library(asio_headers INTERFACE)
@@ -65,7 +65,7 @@ add_library(bison STATIC
 
 target_include_directories(bison
     PRIVATE
-    src/core
+    src/bison
     PUBLIC
         include
 )
@@ -83,13 +83,14 @@ target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
   src/rmi/transport/socket_transport.cpp
-  src/rmi/transport/stdio_transport.cpp
   src/rmi/client/client.cpp
-  src/rmi/client/pty_client_app.cpp
   src/rmi/client/proxy.cpp
-  src/rmi/server/pty_server_app.cpp
   src/rmi/server/server.cpp
   src/rmi/standalone/standalone.cpp
+  src/app/pty/pty_server_transport.cpp
+  src/app/pty/pty_client_transport.cpp
+  src/app/pty/pty_server_app.cpp
+  src/app/pty/pty_client_app.cpp
 )
 
 if(WIN32)
@@ -102,8 +103,10 @@ target_include_directories(bison PRIVATE src/rmi)
 add_library(bison_abi SHARED
   include/bison_c.h
   include/rmi_c.h
-  src/core/bison_c.cpp
+  include/pty_c.h
+  src/bison/bison_c.cpp
   src/rmi/rmi_c.cpp
+  src/app/pty/pty_c.cpp
 )
 
 target_compile_definitions(bison_abi PRIVATE BISON_BUILDING_DLL)
@@ -115,6 +118,9 @@ target_include_directories(bison_abi
   src/rmi
 )
 target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_link_libraries(bison_abi PRIVATE util)
+endif()
 if(MSVC)
   target_compile_options(bison_abi PRIVATE /FS)
 endif()
