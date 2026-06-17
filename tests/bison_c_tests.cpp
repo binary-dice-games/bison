@@ -251,21 +251,21 @@ TEST_F(ClassRegistryTests, AddClassSucceeds) {
   uint32_t key = bison_key("Shape");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, H("sides"), 3);
-  EXPECT_EQ(bison_add_class(0, proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(ClassRegistryTests, AddDuplicateClassFails) {
   uint32_t key = bison_key("Widget");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class(0, p1, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(0, p2, 0), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class(0, p1, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, p2, 0, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
   uint32_t key = bison_key("Gadget");
   ScopedHandle proto{bison_create(key)};
-  bison_add_class(0, proto, 0);
+  bison_add_class(0, proto, 0, nullptr);
 
   bison_handle found = bison_find_class(0, key);
   EXPECT_NE(found, nullptr);
@@ -276,7 +276,7 @@ TEST_F(ClassRegistryTests, FindClassFromInstantiatedObjectReturnsHandle) {
   uint32_t key = bison_key("WidgetInst");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, H("v"), 1);
-  ASSERT_EQ(bison_add_class(0, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
 
   bison_handle found = bison_find_class(0, key);
   EXPECT_NE(found, nullptr);
@@ -289,7 +289,7 @@ TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
 }
 
 TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class(0, nullptr, 0), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class(0, nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -387,15 +387,15 @@ TEST_F(CApiNamespaceTest, AddClassNsSucceeds) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("rows"), 5);
-  EXPECT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, SameNameInDifferentNamespacesSucceeds) {
   bison_hash key = bison_key("table");
   ScopedHandle math_proto{bison_create(key)};
   ScopedHandle ikea_proto{bison_create(key)};
-  EXPECT_EQ(bison_add_class(bison_key("math"), math_proto, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(bison_key("ikea"), ikea_proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(bison_key("math"), math_proto, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(bison_key("ikea"), ikea_proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
@@ -403,12 +403,12 @@ TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
   bison_hash ns = bison_key("ikea");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class(ns, p1, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(ns, p2, 0), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class(ns, p1, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(ns, p2, 0, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(CApiNamespaceTest, AddClassNsNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class(bison_key("ns"), nullptr, 0), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class(bison_key("ns"), nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
@@ -416,7 +416,7 @@ TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("x"), 0);
-  ASSERT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 
   ScopedHandle inst{bison_instantiate(ns, key)};
   ASSERT_NE(inst.h, nullptr);
@@ -431,7 +431,7 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
   bison_hash key = bison_key("Sofa");
   bison_hash ns = bison_key("ikea");
   ScopedHandle proto{bison_create(key)};
-  ASSERT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 
   bison_handle found = bison_find_class(ns, key);
   EXPECT_NE(found, nullptr);

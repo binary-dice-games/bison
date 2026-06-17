@@ -123,7 +123,7 @@ public interface BisonLibrary extends Library {
      * @param klass      handle whose {@code __class} field has already been set.
      * @return {@code BISON_OK} on success, negative error code on failure.
      */
-    int bison_add_class(int parentName, Pointer klass);
+    int bison_add_class(int nsName, Pointer klass, int parentName, Pointer meta);
 
     /**
      * Look up a class in the global namespace.

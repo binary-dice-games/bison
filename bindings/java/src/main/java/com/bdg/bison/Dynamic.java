@@ -473,7 +473,7 @@ public class Dynamic implements AutoCloseable {
     public void addClass(String parentName) {
         int parentKey = (parentName == null || parentName.isEmpty())
                         ? 0 : BisonKey.of(parentName);
-        check(LIB.bison_add_class(parentKey, handle), "addClass");
+        check(LIB.bison_add_class(0, handle, parentKey, null), "addClass");
     }
 
     /**

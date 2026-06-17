@@ -992,14 +992,14 @@ TEST_F(StandaloneTests, DescribeSpecificClassReturnsDescriptor) {
   dynamic::addClass(0U, proto);
 
   standalone sa;
-  dynamic result = sa.describe("Item"_key).get();
+  dynamic result = sa.describe(0U, "Item"_key).get();
   bison_key_t k = result[FIELD_KLASS];
   EXPECT_EQ(static_cast<hash_t>(k), static_cast<hash_t>("Item"_key));
 }
 
 TEST_F(StandaloneTests, DescribeUnknownClassThrows) {
   standalone sa;
-  EXPECT_THROW(sa.describe("NoSuchClass"_key).get(), std::runtime_error);
+  EXPECT_THROW(sa.describe(0U, "NoSuchClass"_key).get(), std::runtime_error);
 }
 
 TEST_F(StandaloneTests, InstantiateUnregisteredClassFails) {
@@ -1176,4 +1176,162 @@ TEST_F(StandaloneTests, TwoProxiesAreIsolated) {
 
   sa.destroy(std::move(p1));
   sa.destroy(std::move(p2));
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 17. Describe with attribute metadata — standalone
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST_F(StandaloneTests, DescribeAllIncludesClassAttributes) {
+  auto proto = dynamic_ptr{"AnnotatedWidget"_key,
+                           {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("Annotated Widget"),
+       attr<Description>("A widget with metadata"),
+       attr<Category>("UI")});
+
+  standalone sa;
+  dynamic result = sa.describe().get();
+
+  bool found = false;
+  for (size_t i = 0; i < result.size(); ++i) {
+    auto ptr = result[i].as<dynamic_ptr>();
+    if (!ptr)
+      continue;
+    bison_key_t k = (*ptr)[FIELD_KLASS];
+    if (static_cast<hash_t>(k) != static_cast<hash_t>("AnnotatedWidget"_key))
+      continue;
+    found = true;
+    EXPECT_EQ((*ptr).as<std::string>(FIELD_DISPLAY_NAME), "Annotated Widget");
+    EXPECT_EQ((*ptr).as<std::string>(FIELD_DESCRIPTION), "A widget with metadata");
+    EXPECT_EQ((*ptr).as<std::string>(FIELD_CATEGORY), "UI");
+  }
+  EXPECT_TRUE(found);
+}
+
+TEST_F(StandaloneTests, DescribeSpecificClassIncludesClassAndFieldAttributes) {
+  field width_field{int32_t{0}, attr<DisplayName>("Width"), attr<Description>("Pixel width"),
+                    attr<Required>()};
+  field height_field{int32_t{0}, attr<DisplayName>("Height"), attr<Obsolete>("Use size instead")};
+
+  auto proto = dynamic_ptr{"MetaBox"_key};
+  proto->addField("width"_key, std::move(width_field));
+  proto->addField("height"_key, std::move(height_field));
+
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("Meta Box"), attr<Description>("A box with rich metadata"),
+       attr<Category>("Geometry"), attr<Obsolete>()});
+
+  standalone sa;
+  dynamic result = sa.describe(0U, "MetaBox"_key).get();
+
+  // Class-level attributes.
+  EXPECT_EQ(result.as<std::string>(FIELD_DISPLAY_NAME), "Meta Box");
+  EXPECT_EQ(result.as<std::string>(FIELD_DESCRIPTION), "A box with rich metadata");
+  EXPECT_EQ(result.as<std::string>(FIELD_CATEGORY), "Geometry");
+  EXPECT_TRUE(static_cast<bool>(result[FIELD_OBSOLETE]));
+
+  // Field-level metadata is in FIELD_FIELDS.
+  auto fields_ptr = result[FIELD_FIELDS].as<dynamic_ptr>();
+  ASSERT_NE(fields_ptr, nullptr);
+
+  auto width_meta = (*fields_ptr)["width"_key].as<dynamic_ptr>();
+  ASSERT_NE(width_meta, nullptr);
+  EXPECT_EQ((*width_meta).as<std::string>(FIELD_DISPLAY_NAME), "Width");
+  EXPECT_EQ((*width_meta).as<std::string>(FIELD_DESCRIPTION), "Pixel width");
+  EXPECT_TRUE(static_cast<bool>((*width_meta)[FIELD_REQUIRED]));
+
+  auto height_meta = (*fields_ptr)["height"_key].as<dynamic_ptr>();
+  ASSERT_NE(height_meta, nullptr);
+  EXPECT_EQ((*height_meta).as<std::string>(FIELD_DISPLAY_NAME), "Height");
+  EXPECT_TRUE(static_cast<bool>((*height_meta)[FIELD_OBSOLETE]));
+  EXPECT_EQ((*height_meta).as<std::string>(FIELD_OBSOLETE_MESSAGE), "Use size instead");
+}
+
+TEST_F(StandaloneTests, DescribeClassWithNoAttributesHasNoMetaFields) {
+  auto proto = dynamic_ptr{"PlainClass"_key, {{"x"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  dynamic result = sa.describe(0U, "PlainClass"_key).get();
+
+  EXPECT_EQ(result.findField(FIELD_DISPLAY_NAME), nullptr);
+  EXPECT_EQ(result.findField(FIELD_DESCRIPTION), nullptr);
+  EXPECT_EQ(result.findField(FIELD_FIELDS), nullptr);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 18. Describe with attribute metadata — server/client (E2E)
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST_F(RmiE2E, DescribeAllIncludesClassAttributes) {
+  field score_field{int32_t{0}, attr<DisplayName>("Score"), attr<Required>()};
+  auto proto = dynamic_ptr{"RankedPlayer"_key};
+  proto->addField("score"_key, std::move(score_field));
+
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("Ranked Player"), attr<Category>("Gameplay")});
+
+  auto c = make_client();
+  c.connect();
+
+  dynamic result = c.describe().get();
+
+  bool found = false;
+  for (size_t i = 0; i < result.size(); ++i) {
+    auto ptr = result[i].as<dynamic_ptr>();
+    if (!ptr)
+      continue;
+    bison_key_t k = (*ptr)[FIELD_KLASS];
+    if (static_cast<hash_t>(k) != static_cast<hash_t>("RankedPlayer"_key))
+      continue;
+    found = true;
+    EXPECT_EQ((*ptr).as<std::string>(FIELD_DISPLAY_NAME), "Ranked Player");
+    EXPECT_EQ((*ptr).as<std::string>(FIELD_CATEGORY), "Gameplay");
+  }
+  EXPECT_TRUE(found);
+  c.disconnect();
+}
+
+TEST_F(RmiE2E, DescribeSpecificClassIncludesFieldAttributes) {
+  field name_field{std::string{}, attr<DisplayName>("Player Name"),
+                   attr<Description>("Full display name"), attr<Required>()};
+  field rank_field{int32_t{0}, attr<DisplayName>("Rank"),
+                   attr<Obsolete>("Use tier instead")};
+
+  auto proto = dynamic_ptr{"PlayerCard"_key};
+  proto->addField("name"_key, std::move(name_field));
+  proto->addField("rank"_key, std::move(rank_field));
+
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("Player Card"), attr<Description>("A player identity card")});
+
+  auto c = make_client();
+  c.connect();
+
+  dynamic result = c.describe(0U, "PlayerCard"_key).get();
+
+  EXPECT_EQ(result.as<std::string>(FIELD_DISPLAY_NAME), "Player Card");
+  EXPECT_EQ(result.as<std::string>(FIELD_DESCRIPTION), "A player identity card");
+
+  auto fields_ptr = result[FIELD_FIELDS].as<dynamic_ptr>();
+  ASSERT_NE(fields_ptr, nullptr);
+
+  auto name_meta = (*fields_ptr)["name"_key].as<dynamic_ptr>();
+  ASSERT_NE(name_meta, nullptr);
+  EXPECT_EQ((*name_meta).as<std::string>(FIELD_DISPLAY_NAME), "Player Name");
+  EXPECT_EQ((*name_meta).as<std::string>(FIELD_DESCRIPTION), "Full display name");
+  EXPECT_TRUE(static_cast<bool>((*name_meta)[FIELD_REQUIRED]));
+
+  auto rank_meta = (*fields_ptr)["rank"_key].as<dynamic_ptr>();
+  ASSERT_NE(rank_meta, nullptr);
+  EXPECT_EQ((*rank_meta).as<std::string>(FIELD_DISPLAY_NAME), "Rank");
+  EXPECT_TRUE(static_cast<bool>((*rank_meta)[FIELD_OBSOLETE]));
+  EXPECT_EQ((*rank_meta).as<std::string>(FIELD_OBSOLETE_MESSAGE), "Use tier instead");
+
+  c.disconnect();
 }

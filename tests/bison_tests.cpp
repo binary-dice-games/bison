@@ -512,7 +512,7 @@ TEST(FieldTests, ImplicitConversionWrongTypeThrows) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Custom attribute types used in attribute tests
 // ─────────────────────────────────────────────────────────────────────────────
-class Required : public attribute {};
+class TestRequired : public attribute {};
 class MaxLength : public attribute {
  public:
   explicit MaxLength(size_t n) : max(n) {}
@@ -520,8 +520,8 @@ class MaxLength : public attribute {
 };
 
 TEST(FieldTests, AttributeAttachAndFind) {
-  field f{std::string{"hi"}, attr<Required>(), attr<MaxLength>(10)};
-  EXPECT_NE(f.findAttribute<Required>(), nullptr);
+  field f{std::string{"hi"}, attr<TestRequired>(), attr<MaxLength>(10)};
+  EXPECT_NE(f.findAttribute<TestRequired>(), nullptr);
   const MaxLength* ml = f.findAttribute<MaxLength>();
   ASSERT_NE(ml, nullptr);
   EXPECT_EQ(ml->max, 10u);
@@ -529,13 +529,13 @@ TEST(FieldTests, AttributeAttachAndFind) {
 
 TEST(FieldTests, AttributeNotFoundReturnsNullptr) {
   field f{int32_t{1}};
-  EXPECT_EQ(f.findAttribute<Required>(), nullptr);
+  EXPECT_EQ(f.findAttribute<TestRequired>(), nullptr);
 }
 
 TEST(FieldTests, AttributesSurviveCloneViaField) {
-  field f{true, attr<Required>()};
+  field f{true, attr<TestRequired>()};
   field g = f; // copy
-  EXPECT_NE(g.findAttribute<Required>(), nullptr);
+  EXPECT_NE(g.findAttribute<TestRequired>(), nullptr);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

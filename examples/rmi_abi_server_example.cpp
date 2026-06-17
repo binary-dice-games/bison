@@ -72,7 +72,7 @@ static void register_calculator(void) {
   bison_add_method(proto, bison_key("subtract"), method_subtract, NULL);
   bison_add_method(proto, bison_key("multiply"), method_multiply, NULL);
   bison_add_method(proto, bison_key("divide"),   method_divide,   NULL);
-  bison_add_class(0, proto, 0);
+  bison_add_class(0, proto, 0, NULL);
   bison_release(proto);
 }
 

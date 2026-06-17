@@ -341,7 +341,7 @@ public sealed class Dynamic : IDisposable
     {
         uint parentKey = string.IsNullOrEmpty(parentName)
                          ? 0u : BisonKey.Of(parentName);
-        Check(Native.bison_add_class(parentKey, _handle), "AddClass");
+        Check(Native.bison_add_class(0u, _handle, parentKey, IntPtr.Zero), "AddClass");
     }
 
     // ── Factory methods ───────────────────────────────────────────────────────

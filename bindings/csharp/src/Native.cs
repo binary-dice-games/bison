@@ -162,7 +162,8 @@ internal static class Native
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl,
                EntryPoint = "bison_add_class")]
-    internal static extern int bison_add_class(uint parentName, IntPtr klass);
+    internal static extern int bison_add_class(
+        uint nsName, IntPtr klass, uint parentName, IntPtr meta);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl,
                EntryPoint = "bison_find_class")]

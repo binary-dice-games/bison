@@ -13,6 +13,7 @@
 
 // We clear the class registry using the C++ API to avoid state leakage.
 #include "src/bison/bison.hpp"
+
 static void rmi_c_clear_registry() {
   bdg::bison::dynamic::getRegistry().wlock()->clear();
 }
@@ -396,7 +397,7 @@ class StandaloneAbiTests : public ::testing::Test {
     if (!proto)
       return false;
     bison_set_int(proto, bison_key("value"), 0);
-    bool ok = bison_add_class(0, proto, 0) == BISON_OK;
+    bool ok = bison_add_class(0, proto, 0, nullptr) == BISON_OK;
     bison_release(proto);
     return ok;
   }
@@ -525,4 +526,206 @@ TEST_F(StandaloneAbiTests, InstantiateUnregisteredClassFails) {
       rmi_client_instantiate(sa, 0, bison_key("NoSuchClass"), nullptr, &proxy);
   EXPECT_NE(err, RMI_OK);
   EXPECT_EQ(proxy, nullptr);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8. Describe attribute metadata via pure C ABI
+// ═════════════════════════════════════════════════════════════════════════════
+
+class DescribeAbiTests : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    rmi_c_clear_registry();
+  }
+
+  void TearDown() override {
+    rmi_c_clear_registry();
+  }
+};
+
+// Helper: copy a bison_get_string result into a std::string.
+static std::string read_string(bison_handle h, bison_hash name) {
+  size_t len = 0;
+  if (bison_get_string(h, name, nullptr, 0, &len) != BISON_OK)
+    return {};
+  std::string s(len + 1, '\0');
+  bison_get_string(h, name, s.data(), s.size(), nullptr);
+  s.resize(len);
+  return s;
+}
+
+TEST_F(DescribeAbiTests, DescribeSpecificClassIncludesClassAttributes) {
+  // Register a class with class-level attributes using the pure C ABI.
+  ScopedBisonHandle proto{bison_create(bison_key("CWidgetClass"))};
+  ASSERT_NE(proto.h, nullptr);
+  bison_set_int(proto, bison_key("x"), 0);
+  bison_set_int(proto, bison_key("y"), 0);
+
+  bison_attributes meta{};
+  meta.display_name = "C Widget";
+  meta.description  = "A C-facing widget class";
+  meta.category     = "C UI";
+  ASSERT_EQ(bison_add_class(0, proto, 0, &meta), BISON_OK);
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle desc = nullptr;
+  ASSERT_EQ(rmi_client_describe(sa, 0, bison_key("CWidgetClass"), &desc), RMI_OK);
+  ASSERT_NE(desc, nullptr);
+
+  EXPECT_EQ(read_string(desc, bison_key("__displayName")), "C Widget");
+  EXPECT_EQ(read_string(desc, bison_key("__description")), "A C-facing widget class");
+  EXPECT_EQ(read_string(desc, bison_key("__category")), "C UI");
+
+  bison_release(desc);
+}
+
+TEST_F(DescribeAbiTests, DescribeSpecificClassIncludesObsoleteFlag) {
+  ScopedBisonHandle proto{bison_create(bison_key("LegacyClass"))};
+  ASSERT_NE(proto.h, nullptr);
+  bison_set_int(proto, bison_key("v"), 0);
+
+  bison_attributes meta{};
+  meta.obsolete         = 1;
+  meta.obsolete_message = "Use NewClass instead";
+  ASSERT_EQ(bison_add_class(0, proto, 0, &meta), BISON_OK);
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle desc = nullptr;
+  ASSERT_EQ(rmi_client_describe(sa, 0, bison_key("LegacyClass"), &desc), RMI_OK);
+  ASSERT_NE(desc, nullptr);
+
+  int obsolete_flag = 0;
+  EXPECT_EQ(bison_get_bool(desc, bison_key("__obsolete"), &obsolete_flag), BISON_OK);
+  EXPECT_NE(obsolete_flag, 0);
+  EXPECT_EQ(read_string(desc, bison_key("__obsoleteMessage")), "Use NewClass instead");
+
+  bison_release(desc);
+}
+
+TEST_F(DescribeAbiTests, DescribeSpecificClassFieldMetadataInFieldsObject) {
+  ScopedBisonHandle proto{bison_create(bison_key("CPlayerClass"))};
+  ASSERT_NE(proto.h, nullptr);
+
+  bison_attributes name_meta{};
+  name_meta.display_name = "Player Name";
+  name_meta.description  = "Full name";
+  name_meta.required     = 1;
+  ASSERT_EQ(bison_add_field_string(proto, bison_key("name"), "", &name_meta),
+            BISON_OK);
+
+  bison_attributes score_meta{};
+  score_meta.display_name     = "Score";
+  score_meta.obsolete         = 1;
+  score_meta.obsolete_message = "Use rating instead";
+  ASSERT_EQ(bison_add_field_int(proto, bison_key("score"), 0, &score_meta),
+            BISON_OK);
+
+  bison_attributes class_meta{};
+  class_meta.display_name = "C Player";
+  class_meta.category     = "Gameplay";
+  ASSERT_EQ(bison_add_class(0, proto, 0, &class_meta), BISON_OK);
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle desc = nullptr;
+  ASSERT_EQ(rmi_client_describe(sa, 0, bison_key("CPlayerClass"), &desc), RMI_OK);
+  ASSERT_NE(desc, nullptr);
+
+  // Class-level attrs.
+  EXPECT_EQ(read_string(desc, bison_key("__displayName")), "C Player");
+  EXPECT_EQ(read_string(desc, bison_key("__category")), "Gameplay");
+
+  // Get the __fields map.
+  bison_handle fields_map = nullptr;
+  ASSERT_EQ(bison_get_object(desc, bison_key("__fields"), &fields_map), BISON_OK);
+  ASSERT_NE(fields_map, nullptr);
+
+  // name field metadata.
+  bison_handle name_desc = nullptr;
+  ASSERT_EQ(bison_get_object(fields_map, bison_key("name"), &name_desc), BISON_OK);
+  ASSERT_NE(name_desc, nullptr);
+  EXPECT_EQ(read_string(name_desc, bison_key("__displayName")), "Player Name");
+  EXPECT_EQ(read_string(name_desc, bison_key("__description")), "Full name");
+  int required_flag = 0;
+  EXPECT_EQ(bison_get_bool(name_desc, bison_key("__required"), &required_flag), BISON_OK);
+  EXPECT_NE(required_flag, 0);
+  bison_release(name_desc);
+
+  // score field metadata.
+  bison_handle score_desc = nullptr;
+  ASSERT_EQ(bison_get_object(fields_map, bison_key("score"), &score_desc), BISON_OK);
+  ASSERT_NE(score_desc, nullptr);
+  EXPECT_EQ(read_string(score_desc, bison_key("__displayName")), "Score");
+  int obs_flag = 0;
+  EXPECT_EQ(bison_get_bool(score_desc, bison_key("__obsolete"), &obs_flag), BISON_OK);
+  EXPECT_NE(obs_flag, 0);
+  EXPECT_EQ(read_string(score_desc, bison_key("__obsoleteMessage")), "Use rating instead");
+  bison_release(score_desc);
+
+  bison_release(fields_map);
+  bison_release(desc);
+}
+
+TEST_F(DescribeAbiTests, DescribeAllReturnsNonEmptyResult) {
+  ScopedBisonHandle proto{bison_create(bison_key("AnnotatedCClass"))};
+  ASSERT_NE(proto.h, nullptr);
+  bison_set_int(proto, bison_key("v"), 0);
+
+  bison_attributes meta{};
+  meta.display_name = "Annotated C Class";
+  meta.category     = "Testing";
+  ASSERT_EQ(bison_add_class(0, proto, 0, &meta), BISON_OK);
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle all_desc = nullptr;
+  ASSERT_EQ(rmi_client_describe(sa, 0, 0, &all_desc), RMI_OK);
+  ASSERT_NE(all_desc, nullptr);
+
+  // The result is an indexed array; at least one entry must be present.
+  EXPECT_GT(bison_size(all_desc), 0u);
+
+  bison_release(all_desc);
+}
+
+TEST_F(DescribeAbiTests, AddFieldWithRequiredAttributeAppearsInDescribe) {
+  ScopedBisonHandle proto{bison_create(bison_key("CharacterStats"))};
+  ASSERT_NE(proto.h, nullptr);
+
+  bison_attributes fmeta{};
+  fmeta.display_name = "Health";
+  fmeta.required     = 1;
+  ASSERT_EQ(bison_add_field_int(proto, bison_key("health"), 0, &fmeta),
+            BISON_OK);
+
+  ASSERT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle desc = nullptr;
+  ASSERT_EQ(rmi_client_describe(sa, 0, bison_key("CharacterStats"), &desc), RMI_OK);
+  ASSERT_NE(desc, nullptr);
+
+  bison_handle fields_map = nullptr;
+  ASSERT_EQ(bison_get_object(desc, bison_key("__fields"), &fields_map), BISON_OK);
+  ASSERT_NE(fields_map, nullptr);
+
+  bison_handle health_meta = nullptr;
+  ASSERT_EQ(bison_get_object(fields_map, bison_key("health"), &health_meta), BISON_OK);
+  ASSERT_NE(health_meta, nullptr);
+  EXPECT_EQ(read_string(health_meta, bison_key("__displayName")), "Health");
+  int req = 0;
+  EXPECT_EQ(bison_get_bool(health_meta, bison_key("__required"), &req), BISON_OK);
+  EXPECT_NE(req, 0);
+
+  bison_release(health_meta);
+  bison_release(fields_map);
+  bison_release(desc);
 }

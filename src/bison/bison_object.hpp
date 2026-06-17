@@ -54,6 +54,57 @@ std::shared_ptr<const attribute> attr(Args&&... args) {
   return std::make_shared<T>(std::forward<Args>(args)...);
 }
 
+// ── Built-in attribute types ──────────────────────────────────────────────────
+
+/** @brief Human-readable display name for a field or class. */
+class DisplayName : public attribute {
+ public:
+  explicit DisplayName(std::string name) : name_(std::move(name)) {}
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
+};
+
+/** @brief Human-readable description for a field or class. */
+class Description : public attribute {
+ public:
+  explicit Description(std::string text) : text_(std::move(text)) {}
+  const std::string& text() const { return text_; }
+
+ private:
+  std::string text_;
+};
+
+/** @brief Logical category grouping for a field or class. */
+class Category : public attribute {
+ public:
+  explicit Category(std::string name) : name_(std::move(name)) {}
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
+};
+
+/**
+ * @brief Marks a field or class as obsolete with an optional explanatory
+ *        message.
+ */
+class Obsolete : public attribute {
+ public:
+  explicit Obsolete(std::string message = {}) : message_(std::move(message)) {}
+  const std::string& message() const { return message_; }
+
+ private:
+  std::string message_;
+};
+
+/** @brief Marks a field as required (must hold a non-empty value). */
+class Required : public attribute {
+ public:
+  Required() = default;
+};
+
 /**
  * @brief A typed variant value with optional metadata attributes.
  *
@@ -260,6 +311,11 @@ class field : public field_base {
       }
     }
     return nullptr;
+  }
+
+  /** @brief Attach an additional attribute to this field. */
+  void addAttribute(std::shared_ptr<const attribute> a) {
+    attributes_.push_back(std::move(a));
   }
 
   inline void serialize(stream_serializer& out) const;
@@ -530,6 +586,29 @@ class dynamic {
    * @param parent  Hash of the parent class name (`0U` for a root class).
    * @return `true` on success, `false` on duplicate or cycle.
    */
+  /**
+   * @brief Register a class prototype with class-level attribute annotations.
+   *
+   * Attaches each attribute in @p class_attrs to the `CLASS` field of @p klass
+   * before delegating to the base `addClass` overload.  The attributes are
+   * surfaced by `handle_describe` as class-level metadata.
+   *
+   * @param ns          Namespace to register in; `0U` for the global namespace.
+   * @param klass       Prototype object; its `CLASS` field must be set.
+   * @param parent      Hash of the parent class name (`0U` for a root class).
+   * @param class_attrs Attributes to attach to the class (e.g. `DisplayName`).
+   * @return `true` on success, `false` on duplicate or cycle.
+   */
+  static bool addClass(
+      const key_t ns,
+      dynamic_ptr klass,
+      const key_t parent,
+      std::vector<std::shared_ptr<const attribute>> class_attrs) {
+    for (auto& a : class_attrs)
+      (*klass)[CLASS].addAttribute(std::move(a));
+    return addClass(ns, std::move(klass), parent);
+  }
+
   static bool
   addClass(const key_t ns, dynamic_ptr klass, const key_t parent = key_t{0U}) {
     auto name = klass->as<key_t>(CLASS);
