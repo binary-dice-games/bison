@@ -20,7 +20,7 @@
 
 #pragma once
 
-#include "src/core/bison_common.hpp"
+#include "src/bison/bison_common.hpp"
 
 namespace bdg::bison {
 

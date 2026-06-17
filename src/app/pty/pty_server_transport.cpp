@@ -9,7 +9,7 @@
  * the PTY master fd are serialised by `pty_shared_state::write_mtx` so the
  * input-relay thread and `pty_server_connection::send()` never interleave.
  */
-#include "src/pty/pty_server_transport.hpp"
+#include "src/app/pty/pty_server_transport.hpp"
 
 #if defined(__linux__)
 
@@ -35,7 +35,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 namespace {
 
@@ -812,6 +812,6 @@ bool pty_server_transport::wait_until_closed(
   });
 }
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

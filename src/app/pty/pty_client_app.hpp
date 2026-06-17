@@ -7,12 +7,12 @@
 
 #if defined(__linux__)
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 #include "src/rmi/client/client.hpp"
 
 #include <string>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 /**
  * @brief Extensible base class for processes that connect to a `pty_server_app`.
@@ -82,6 +82,6 @@ class pty_client_app {
   virtual void on_connect_params(bison::dynamic& params) const;
 };
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

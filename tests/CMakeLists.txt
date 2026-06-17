@@ -24,6 +24,12 @@ package_add_test(bison_test bison_tests.cpp)
 # RMI framework tests (header-only, no extra link deps beyond bison)
 package_add_test(rmi_test rmi_tests.cpp)
 
+# PTY transport and app scaffold tests (Linux only; links util for forkpty)
+package_add_test(pty_test pty_tests.cpp)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(pty_test util)
+endif()
+
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})

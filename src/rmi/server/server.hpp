@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/transport/transport_iface.hpp"

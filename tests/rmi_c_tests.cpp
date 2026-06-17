@@ -3,6 +3,7 @@
 
 #include "bison_c.h"
 #include "rmi_c.h"
+#include "pty_c.h"
 
 #include <gtest/gtest.h>
 
@@ -12,7 +13,7 @@
 #include <thread>
 
 // We clear the class registry using the C++ API to avoid state leakage.
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 static void rmi_c_clear_registry() {
   bdg::bison::dynamic::getRegistry().wlock()->clear();
 }

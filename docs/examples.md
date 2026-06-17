@@ -63,7 +63,7 @@ The PTY flow is available as reusable base classes (Linux only):
 
 ```cpp
 // Server: owns a bash subprocess via forkpty; serves objects over DCS-framed bison
-class MyServerApp : public bdg::bison::pty::pty_server_app {
+class MyServerApp : public bdg::bison::app::pty_server_app {
  protected:
     void register_classes() override { /* register server-side classes */ }
     void on_client_connected() const override { /* optional hook */ }
@@ -71,7 +71,7 @@ class MyServerApp : public bdg::bison::pty::pty_server_app {
 };
 
 // Client: runs inside the bash session (e.g. after ssh into the server host)
-class MyClientApp : public bdg::bison::pty::pty_client_app {
+class MyClientApp : public bdg::bison::app::pty_client_app {
  protected:
     int on_session(bdg::bison::rmi::client& c) override {
         return 0;

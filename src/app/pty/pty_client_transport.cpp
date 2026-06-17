@@ -7,7 +7,7 @@
  * bison transport.  The client initiates the handshake: it emits HELLO first,
  * then waits for the server's HELLO response.
  */
-#include "src/pty/pty_client_transport.hpp"
+#include "src/app/pty/pty_client_transport.hpp"
 
 #if defined(__linux__)
 
@@ -31,7 +31,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 namespace {
 
@@ -559,6 +559,6 @@ void pty_client_transport::shutdown() {
   impl_->opened = false;
 }
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

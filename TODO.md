@@ -1,1 +1,0 @@
-- Define name and description attributes for fields and use them to implement the describe function

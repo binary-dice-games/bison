@@ -11,11 +11,6 @@
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
 
-#if defined(__linux__)
-#include "src/pty/pty_client_app.hpp"
-#include "src/pty/pty_server_app.hpp"
-#endif
-
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -26,33 +21,17 @@ using namespace bdg::bison::rmi::transport;
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
 
-/**
- * @brief Unified client handle state supporting both transport-backed clients
- *        and standalone in-process sessions.
- *
- * Exactly one of `client_owner`, `standalone_owner`, or `borrowed_client` is
- * active at a time:
- * - `client_owner` — owns a transport-backed `client` created by
- *   `rmi_client_tcp_create`.
- * - `standalone_owner` — owns a `standalone` instance created by
- *   `rmi_standalone_create`.
- * - `borrowed_client` — non-owning pointer to a `client` supplied by a
- *   callback context (PTY client app).
- */
+using bison_dynamic_ptr = std::shared_ptr<dynamic>;
+
 struct client_state {
   std::unique_ptr<client> client_owner;
   std::unique_ptr<standalone> standalone_owner;
   client* borrowed_client = nullptr;
-  bool owns_resource =
-      true; /**< True when this state owns the underlying object. */
+  bool owns_resource = true;
   bool released = false;
 
-  /** @brief True when this state wraps a standalone session. */
-  bool is_standalone() const {
-    return standalone_owner != nullptr;
-  }
+  bool is_standalone() const { return standalone_owner != nullptr; }
 
-  /** @brief True when this handle is valid and not yet released. */
   bool is_valid() const {
     if (released)
       return false;
@@ -62,14 +41,37 @@ struct client_state {
   }
 };
 
-/** Cast to client_state* */
 static inline client_state* as_client_state(rmi_client_handle h) {
   return reinterpret_cast<client_state*>(h);
 }
 
-/** Cast from client_state* */
 static inline rmi_client_handle as_client_handle(client_state* p) {
   return reinterpret_cast<rmi_client_handle>(p);
+}
+
+static inline bison_dynamic_ptr* as_dynamic_ptr(bison_handle h) {
+  return reinterpret_cast<bison_dynamic_ptr*>(h);
+}
+
+static inline bison_handle as_bison_handle(bison_dynamic_ptr* p) {
+  return reinterpret_cast<bison_handle>(p);
+}
+
+static inline dynamic bison_handle_to_dynamic(bison_handle h) {
+  if (!h)
+    return dynamic{};
+  bison_dynamic_ptr* p = as_dynamic_ptr(h);
+  if (!*p)
+    return dynamic{};
+  return dynamic(**p);
+}
+
+static inline rmi_error map_runtime_error(const std::runtime_error& e) {
+  std::string msg = e.what();
+  if (msg.find("remote") != std::string::npos ||
+      msg.find("server") != std::string::npos)
+    return RMI_ERR_REMOTE_EXCEPTION;
+  return RMI_ERR_INVALID_STATE;
 }
 
 /** Create an owning transport-backed client handle. */
@@ -78,15 +80,6 @@ static inline rmi_client_handle make_owned_client_handle(
   auto* state = new client_state{};
   state->client_owner = std::move(owned_client);
   state->owns_resource = true;
-  state->released = false;
-  return as_client_handle(state);
-}
-
-/** Create a non-owning callback-scoped client handle. */
-static inline rmi_client_handle make_borrowed_client_handle(client& borrowed) {
-  auto* state = new client_state{};
-  state->borrowed_client = &borrowed;
-  state->owns_resource = false;
   state->released = false;
   return as_client_handle(state);
 }
@@ -185,20 +178,7 @@ static inline proxy::dynamic* proxy_deref(rmi_proxy_handle h) {
   return as_proxy_ptr(h)->get();
 }
 
-// For bison value: wrapper around heap-allocated std::shared_ptr<dynamic>
-using bison_dynamic_ptr = std::shared_ptr<dynamic>;
-
 struct future_state_base;
-
-/** Cast to bison_dynamic_ptr* */
-static inline bison_dynamic_ptr* as_dynamic_ptr(bison_handle h) {
-  return reinterpret_cast<bison_dynamic_ptr*>(h);
-}
-
-/** Cast from bison_dynamic_ptr* */
-static inline bison_handle as_bison_handle(bison_dynamic_ptr* p) {
-  return reinterpret_cast<bison_handle>(p);
-}
 
 /** Cast to future_state_base* */
 static inline future_state_base* as_future_state(rmi_future_handle h) {
@@ -215,90 +195,6 @@ static inline bison_handle dynamic_to_bison_handle(dynamic val) {
   auto* p = new bison_dynamic_ptr(std::make_shared<dynamic>(std::move(val)));
   return as_bison_handle(p);
 }
-
-/** Extract a dynamic value from a bison_handle; returns empty dynamic if null
- */
-static inline dynamic bison_handle_to_dynamic(bison_handle h) {
-  if (!h)
-    return dynamic{};
-  bison_dynamic_ptr* p = as_dynamic_ptr(h);
-  if (!*p)
-    return dynamic{};
-  return dynamic(**p);
-}
-
-static inline rmi_error map_runtime_error(const std::runtime_error& e) {
-  std::string msg = e.what();
-  if (msg.find("remote") != std::string::npos ||
-      msg.find("server") != std::string::npos)
-    return RMI_ERR_REMOTE_EXCEPTION;
-  return RMI_ERR_INVALID_STATE;
-}
-
-static inline rmi_error map_app_exit_code(int exit_code) {
-  return exit_code == 0 ? RMI_OK : RMI_ERR_INVALID_STATE;
-}
-
-#if defined(__linux__)
-
-class c_pty_client_application_with_callbacks final
-    : public pty::pty_client_app {
- public:
-  explicit c_pty_client_application_with_callbacks(
-      const rmi_pty_client_callbacks* callbacks)
-      : callbacks_(callbacks) {}
-
- protected:
-  int on_session(client& rmi_client) override {
-    rmi_client_handle callback_client = make_borrowed_client_handle(rmi_client);
-    int result = 1;
-    try {
-      result = callbacks_->on_session(callback_client, callbacks_->user);
-    } catch (...) {
-      result = 1;
-    }
-
-    delete as_client_state(callback_client);
-    return result;
-  }
-
-  void on_error(const std::string& message) const override {
-    if (callbacks_ && callbacks_->on_error) {
-      callbacks_->on_error(message.c_str(), callbacks_->user);
-      return;
-    }
-    pty::pty_client_app::on_error(message);
-  }
-
- private:
-  const rmi_pty_client_callbacks* callbacks_ = nullptr;
-};
-
-class c_pty_server_application_with_callbacks final
-    : public pty::pty_server_app {
- public:
-  explicit c_pty_server_application_with_callbacks(
-      const rmi_pty_server_callbacks* callbacks)
-      : callbacks_(callbacks) {}
-
- protected:
-  void register_classes() override {
-    callbacks_->register_classes(callbacks_->user);
-  }
-
-  void on_error(const std::string& message) const override {
-    if (callbacks_ && callbacks_->on_error) {
-      callbacks_->on_error(message.c_str(), callbacks_->user);
-      return;
-    }
-    pty::pty_server_app::on_error(message);
-  }
-
- private:
-  const rmi_pty_server_callbacks* callbacks_ = nullptr;
-};
-
-#endif // defined(__linux__)
 
 template <typename T>
 static inline rmi_error wait_future_ready(
@@ -940,54 +836,3 @@ RMI_API void rmi_server_release(rmi_server_handle h) {
   delete as_server_ptr(h);
 }
 
-RMI_API rmi_error rmi_pty_client_run(
-    int argc,
-    char** argv,
-    const rmi_pty_client_callbacks* callbacks) {
-#if defined(__linux__)
-  if (argc > 0 && !argv)
-    return RMI_ERR_NULL;
-  if (!callbacks || !callbacks->on_session)
-    return RMI_ERR_NULL;
-
-  try {
-    c_pty_client_application_with_callbacks app(callbacks);
-    return map_app_exit_code(app.run(argc, argv));
-  } catch (const std::runtime_error& e) {
-    return map_runtime_error(e);
-  } catch (...) {
-    return RMI_ERR_EXCEPTION;
-  }
-#else
-  (void)argc;
-  (void)argv;
-  (void)callbacks;
-  return RMI_ERR_INVALID_STATE;
-#endif
-}
-
-RMI_API rmi_error rmi_pty_server_run(
-    int argc,
-    char** argv,
-    const rmi_pty_server_callbacks* callbacks) {
-#if defined(__linux__)
-  if (argc > 0 && !argv)
-    return RMI_ERR_NULL;
-  if (!callbacks || !callbacks->register_classes)
-    return RMI_ERR_NULL;
-
-  try {
-    c_pty_server_application_with_callbacks app(callbacks);
-    return map_app_exit_code(app.run(argc, argv));
-  } catch (const std::runtime_error& e) {
-    return map_runtime_error(e);
-  } catch (...) {
-    return RMI_ERR_EXCEPTION;
-  }
-#else
-  (void)argc;
-  (void)argv;
-  (void)callbacks;
-  return RMI_ERR_INVALID_STATE;
-#endif
-}

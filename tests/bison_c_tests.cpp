@@ -232,7 +232,7 @@ TEST(ImportTests, FromYamlInvalidReturnsNull) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // We clear the class registry using the C++ API to avoid state leakage.
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 static void clearClasses() {
   bison_clear_registry();
 }

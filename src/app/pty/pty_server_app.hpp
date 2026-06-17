@@ -7,11 +7,11 @@
 
 #if defined(__linux__)
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 #include <string>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 /**
  * @brief Extensible base class for multi-session PTY server applications.
@@ -89,6 +89,6 @@ class pty_server_app {
   virtual void on_error(const std::string& msg) const;
 };
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

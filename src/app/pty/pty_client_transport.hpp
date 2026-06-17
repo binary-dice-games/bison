@@ -14,13 +14,13 @@
 
 #if defined(__linux__)
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
 #include <memory>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 /**
  * @brief Client-side transport for processes running inside a PTY channel.
@@ -93,6 +93,6 @@ class pty_client_transport : public rmi::transport::client_transport_iface {
   std::unique_ptr<impl> impl_;
 };
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

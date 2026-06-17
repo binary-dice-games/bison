@@ -3,11 +3,11 @@
  * @file pty_server_app.cpp
  * @brief Multi-session PTY server application scaffold implementation.
  */
-#include "src/pty/pty_server_app.hpp"
+#include "src/app/pty/pty_server_app.hpp"
 
 #if defined(__linux__)
 
-#include "src/pty/pty_server_transport.hpp"
+#include "src/app/pty/pty_server_transport.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
@@ -17,7 +17,7 @@
 #include <mutex>
 #include <thread>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 namespace {
 
@@ -153,6 +153,6 @@ int pty_server_app::run(int argc, char** argv) {
   }
 }
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

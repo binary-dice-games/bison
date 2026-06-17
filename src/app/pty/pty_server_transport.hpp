@@ -7,14 +7,14 @@
 
 #if defined(__linux__)
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
 #include <memory>
 #include <string>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 /**
  * @brief Per-session server connection backed by the PTY master fd.
@@ -153,6 +153,6 @@ class pty_server_transport : public rmi::transport::server_transport_iface {
   std::unique_ptr<impl> impl_;
 };
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

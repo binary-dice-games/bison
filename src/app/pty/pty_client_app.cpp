@@ -3,15 +3,15 @@
  * @file pty_client_app.cpp
  * @brief Remote PTY client application scaffold implementation.
  */
-#include "src/pty/pty_client_app.hpp"
+#include "src/app/pty/pty_client_app.hpp"
 
 #if defined(__linux__)
 
-#include "src/pty/pty_client_transport.hpp"
+#include "src/app/pty/pty_client_transport.hpp"
 
 #include <iostream>
 
-namespace bdg::bison::pty {
+namespace bdg::bison::app {
 
 // ── Default hook implementations ──────────────────────────────────────────
 
@@ -57,6 +57,6 @@ int pty_client_app::run(int argc, char** argv) {
   }
 }
 
-} // namespace bdg::bison::pty
+} // namespace bdg::bison::app
 
 #endif // defined(__linux__)

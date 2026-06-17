@@ -9,13 +9,13 @@
 
 #if defined(__linux__)
 
-#include "src/pty/pty_server_app.hpp"
+#include "src/app/pty/pty_server_app.hpp"
 
 #include <iostream>
 
 using namespace bdg::bison;
 
-class calculator_pty_server final : public pty::pty_server_app {
+class calculator_pty_server final : public app::pty_server_app {
  protected:
   void register_classes() override {
     auto proto = dynamic_ptr{"Calculator"_key, {}};

@@ -330,7 +330,7 @@ Depends on:
 - `src/rmi/server/server` — `pty_server_app` creates an `rmi::server` per
   session.
 - `src/rmi/client/client` — `pty_client_app` creates an `rmi::client`.
-- `src/core/bison.hpp` — `bison::dynamic` for params and class registration.
+- `src/bison/bison.hpp` — `bison::dynamic` for params and class registration.
 
 Depended on by:
 

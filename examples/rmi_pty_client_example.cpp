@@ -12,13 +12,13 @@
 
 #if defined(__linux__)
 
-#include "src/pty/pty_client_app.hpp"
+#include "src/app/pty/pty_client_app.hpp"
 
 #include <iostream>
 
 using namespace bdg::bison;
 
-class calculator_pty_client final : public pty::pty_client_app {
+class calculator_pty_client final : public app::pty_client_app {
  protected:
   void on_connected() const override {
     std::cerr << "[Client] handshake complete — connected to Calculator server.\n";
