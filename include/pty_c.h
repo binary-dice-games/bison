@@ -25,9 +25,9 @@
  * }
  *
  * int main(int argc, char** argv) {
- *     rmi_pty_client_callbacks cb = {0};
+ *     pty_client_callbacks cb = {0};
  *     cb.on_session = my_session;
- *     return rmi_pty_client_run(argc, argv, &cb) == RMI_OK ? 0 : 1;
+ *     return pty_client_run(argc, argv, &cb) == RMI_OK ? 0 : 1;
  * }
  * @endcode
  */
@@ -51,27 +51,27 @@ extern "C" {
  * server.  Do not retain or release this handle.
  *
  * @param client  Connected client handle (callback lifetime only).
- * @param user    User context pointer from `rmi_pty_client_callbacks`.
+ * @param user    User context pointer from `pty_client_callbacks`.
  * @return Exit code: `0` maps to `RMI_OK`; non-zero maps to an error.
  */
-typedef int (*rmi_pty_client_on_session_fn)(
+typedef int (*pty_client_on_session_fn)(
     rmi_client_handle client,
     void* user);
 
 /**
  * @brief Invoked immediately after the handshake succeeds, before `on_session`.
  *
- * @param user  User context pointer from `rmi_pty_client_callbacks`.
+ * @param user  User context pointer from `pty_client_callbacks`.
  */
-typedef void (*rmi_pty_client_on_connected_fn)(void* user);
+typedef void (*pty_client_on_connected_fn)(void* user);
 
 /**
  * @brief Invoked when the PTY client catches a transport or session error.
  *
  * @param message  Error description, valid only during the callback.
- * @param user     User context pointer from `rmi_pty_client_callbacks`.
+ * @param user     User context pointer from `pty_client_callbacks`.
  */
-typedef void (*rmi_pty_client_on_error_fn)(const char* message, void* user);
+typedef void (*pty_client_on_error_fn)(const char* message, void* user);
 
 /**
  * @brief Invoked before `connect()` to populate transport parameters.
@@ -82,32 +82,32 @@ typedef void (*rmi_pty_client_on_error_fn)(const char* message, void* user);
  * `handshake_timeout_ms=300000`.
  *
  * @param params  Mutable parameter map (borrowed, callback lifetime only).
- * @param user    User context pointer from `rmi_pty_client_callbacks`.
+ * @param user    User context pointer from `pty_client_callbacks`.
  */
-typedef void (*rmi_pty_client_on_connect_params_fn)(
+typedef void (*pty_client_on_connect_params_fn)(
     bison_handle params,
     void* user);
 
 /**
- * @brief Callbacks for `rmi_pty_client_run()`.
+ * @brief Callbacks for `pty_client_run()`.
  *
  * Zero-initialise this struct and set at minimum `on_session`.  Unused
  * optional fields (NULL) fall back to the base-class default behaviour.
  *
  * @code{.c}
- * rmi_pty_client_callbacks cb = {0};
+ * pty_client_callbacks cb = {0};
  * cb.on_session = my_session_fn;
  * cb.user       = my_context;
- * rmi_pty_client_run(argc, argv, &cb);
+ * pty_client_run(argc, argv, &cb);
  * @endcode
  */
-typedef struct rmi_pty_client_callbacks {
-  rmi_pty_client_on_session_fn on_session;               /**< Required. */
-  rmi_pty_client_on_connected_fn on_connected;           /**< Optional. */
-  rmi_pty_client_on_error_fn on_error;                   /**< Optional. */
-  rmi_pty_client_on_connect_params_fn on_connect_params; /**< Optional. */
+typedef struct pty_client_callbacks {
+  pty_client_on_session_fn on_session;               /**< Required. */
+  pty_client_on_connected_fn on_connected;           /**< Optional. */
+  pty_client_on_error_fn on_error;                   /**< Optional. */
+  pty_client_on_connect_params_fn on_connect_params; /**< Optional. */
   void* user;
-} rmi_pty_client_callbacks;
+} pty_client_callbacks;
 
 /**
  * @brief Run the PTY RMI client application.
@@ -120,19 +120,19 @@ typedef struct rmi_pty_client_callbacks {
  * @param callbacks  Callback table; `on_session` must be non-NULL.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_pty_client_run(
+RMI_API rmi_error pty_client_run(
     int argc,
     char** argv,
-    const rmi_pty_client_callbacks* callbacks);
+    const pty_client_callbacks* callbacks);
 
 /* ── PTY server callbacks ─────────────────────────────────────────────────── */
 
 /**
  * @brief Invoked once before the session loop to register domain classes.
  *
- * @param user  User context pointer from `rmi_pty_server_callbacks`.
+ * @param user  User context pointer from `pty_server_callbacks`.
  */
-typedef void (*rmi_pty_server_register_classes_fn)(void* user);
+typedef void (*pty_server_register_classes_fn)(void* user);
 
 /**
  * @brief Invoked to obtain the shell command launched via `forkpty`.
@@ -141,10 +141,10 @@ typedef void (*rmi_pty_server_register_classes_fn)(void* user);
  * must remain valid for the duration of the callback.  Return `NULL` to use
  * the default (`"bash"`).
  *
- * @param user  User context pointer from `rmi_pty_server_callbacks`.
+ * @param user  User context pointer from `pty_server_callbacks`.
  * @return Shell command string, or `NULL` for the default.
  */
-typedef const char* (*rmi_pty_server_shell_command_fn)(void* user);
+typedef const char* (*pty_server_shell_command_fn)(void* user);
 
 /**
  * @brief Invoked to obtain transport parameters passed to `start()`.
@@ -153,55 +153,55 @@ typedef const char* (*rmi_pty_server_shell_command_fn)(void* user);
  * The runtime releases the returned handle after extracting the values.
  * Return `NULL` to use the default (`mode=dcs`).
  *
- * @param user  User context pointer from `rmi_pty_server_callbacks`.
+ * @param user  User context pointer from `pty_server_callbacks`.
  * @return Owned bison handle with parameters, or `NULL` for the default.
  */
-typedef bison_handle (*rmi_pty_server_listen_params_fn)(void* user);
+typedef bison_handle (*pty_server_listen_params_fn)(void* user);
 
 /**
  * @brief Invoked once after a client connects and the session server is ready.
  *
- * @param user  User context pointer from `rmi_pty_server_callbacks`.
+ * @param user  User context pointer from `pty_server_callbacks`.
  */
-typedef void (*rmi_pty_server_on_client_connected_fn)(void* user);
+typedef void (*pty_server_on_client_connected_fn)(void* user);
 
 /**
  * @brief Invoked after each session ends and the session server is destroyed.
  *
- * @param user  User context pointer from `rmi_pty_server_callbacks`.
+ * @param user  User context pointer from `pty_server_callbacks`.
  */
-typedef void (*rmi_pty_server_on_session_ended_fn)(void* user);
+typedef void (*pty_server_on_session_ended_fn)(void* user);
 
 /**
  * @brief Invoked when the PTY server catches a transport-level error.
  *
  * @param message  Error description, valid only during the callback.
- * @param user     User context pointer from `rmi_pty_server_callbacks`.
+ * @param user     User context pointer from `pty_server_callbacks`.
  */
-typedef void (*rmi_pty_server_on_error_fn)(const char* message, void* user);
+typedef void (*pty_server_on_error_fn)(const char* message, void* user);
 
 /**
- * @brief Callbacks for `rmi_pty_server_run()`.
+ * @brief Callbacks for `pty_server_run()`.
  *
  * Zero-initialise this struct and set at minimum `register_classes`.  Unused
  * optional fields (NULL) fall back to the base-class default behaviour.
  *
  * @code{.c}
- * rmi_pty_server_callbacks cb = {0};
+ * pty_server_callbacks cb = {0};
  * cb.register_classes = my_register_fn;
  * cb.user             = my_context;
- * rmi_pty_server_run(argc, argv, &cb);
+ * pty_server_run(argc, argv, &cb);
  * @endcode
  */
-typedef struct rmi_pty_server_callbacks {
-  rmi_pty_server_register_classes_fn register_classes;       /**< Required. */
-  rmi_pty_server_shell_command_fn shell_command;             /**< Optional. */
-  rmi_pty_server_listen_params_fn listen_params;             /**< Optional. */
-  rmi_pty_server_on_client_connected_fn on_client_connected; /**< Optional. */
-  rmi_pty_server_on_session_ended_fn on_session_ended;       /**< Optional. */
-  rmi_pty_server_on_error_fn on_error;                       /**< Optional. */
+typedef struct pty_server_callbacks {
+  pty_server_register_classes_fn register_classes;       /**< Required. */
+  pty_server_shell_command_fn shell_command;             /**< Optional. */
+  pty_server_listen_params_fn listen_params;             /**< Optional. */
+  pty_server_on_client_connected_fn on_client_connected; /**< Optional. */
+  pty_server_on_session_ended_fn on_session_ended;       /**< Optional. */
+  pty_server_on_error_fn on_error;                       /**< Optional. */
   void* user;
-} rmi_pty_server_callbacks;
+} pty_server_callbacks;
 
 /**
  * @brief Run the PTY RMI server application.
@@ -215,10 +215,10 @@ typedef struct rmi_pty_server_callbacks {
  * @param callbacks  Callback table; `register_classes` must be non-NULL.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_pty_server_run(
+RMI_API rmi_error pty_server_run(
     int argc,
     char** argv,
-    const rmi_pty_server_callbacks* callbacks);
+    const pty_server_callbacks* callbacks);
 
 #ifdef __cplusplus
 } // extern "C"

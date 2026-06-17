@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
-// examples/rmi_pty_client_example.cpp
+// examples/pty_client_example.cpp
 //
-// RMI client example using pty_client_app: connects to rmi_pty_server_example
+// RMI client example using pty_client_app: connects to pty_server_example
 // running on the same host via SSH.  This process uses its own stdin/stdout
 // (the SSH channel through the server's pty) as the bison DCS transport.
 //

@@ -30,6 +30,22 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(pty_test util)
 endif()
 
+# PTY C API tests — link bison_abi shared library
+add_executable(pty_c_test pty_c_tests.cpp)
+target_include_directories(pty_c_test PRIVATE ${PROJECT_SOURCE_DIR})
+target_link_libraries(pty_c_test bison_abi bison gtest gmock gtest_main)
+if(MSVC)
+    target_compile_options(pty_c_test PRIVATE /FS)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(pty_c_test util)
+endif()
+gtest_discover_tests(pty_c_test
+    WORKING_DIRECTORY ${PROJECT_DIR}
+    PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
+)
+set_target_properties(pty_c_test PROPERTIES FOLDER tests)
+
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})

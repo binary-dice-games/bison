@@ -99,7 +99,7 @@ class c_pty_client_application_with_callbacks final
     : public app::pty_client_app {
  public:
   explicit c_pty_client_application_with_callbacks(
-      const rmi_pty_client_callbacks* callbacks)
+      const pty_client_callbacks* callbacks)
       : callbacks_(callbacks) {}
 
  protected:
@@ -142,7 +142,7 @@ class c_pty_client_application_with_callbacks final
   }
 
  private:
-  const rmi_pty_client_callbacks* callbacks_ = nullptr;
+  const pty_client_callbacks* callbacks_ = nullptr;
 };
 
 // ── Server wrapper ────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ class c_pty_server_application_with_callbacks final
     : public app::pty_server_app {
  public:
   explicit c_pty_server_application_with_callbacks(
-      const rmi_pty_server_callbacks* callbacks)
+      const pty_server_callbacks* callbacks)
       : callbacks_(callbacks) {}
 
  protected:
@@ -196,17 +196,17 @@ class c_pty_server_application_with_callbacks final
   }
 
  private:
-  const rmi_pty_server_callbacks* callbacks_ = nullptr;
+  const pty_server_callbacks* callbacks_ = nullptr;
 };
 
 #endif // defined(__linux__)
 
 // ─── C API ───────────────────────────────────────────────────────────────────
 
-RMI_API rmi_error rmi_pty_client_run(
+RMI_API rmi_error pty_client_run(
     int argc,
     char** argv,
-    const rmi_pty_client_callbacks* callbacks) {
+    const pty_client_callbacks* callbacks) {
 #if defined(__linux__)
   if (argc > 0 && !argv)
     return RMI_ERR_NULL;
@@ -229,10 +229,10 @@ RMI_API rmi_error rmi_pty_client_run(
 #endif
 }
 
-RMI_API rmi_error rmi_pty_server_run(
+RMI_API rmi_error pty_server_run(
     int argc,
     char** argv,
-    const rmi_pty_server_callbacks* callbacks) {
+    const pty_server_callbacks* callbacks) {
 #if defined(__linux__)
   if (argc > 0 && !argv)
     return RMI_ERR_NULL;

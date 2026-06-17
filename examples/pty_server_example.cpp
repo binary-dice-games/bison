@@ -1,9 +1,9 @@
 // MIT License © 2025 Binary Dice Games
-// examples/rmi_pty_server_example.cpp
+// examples/pty_server_example.cpp
 //
 // RMI server example using pty_server_app: owns a bash subprocess via forkpty,
 // serves a Calculator over DCS-framed bison to any client that connects via SSH
-// and runs rmi_pty_client_example in the resulting terminal.
+// and runs pty_client_example in the resulting terminal.
 //
 // Linux only.
 
@@ -78,7 +78,7 @@ class calculator_pty_server final : public app::pty_server_app {
 
 int main(int argc, char** argv) {
   std::cerr << "[Server] starting PTY server (bash subprocess via forkpty).\n";
-  std::cerr << "[Server] SSH in and run rmi_pty_client_example to connect.\n";
+  std::cerr << "[Server] SSH in and run pty_client_example to connect.\n";
   calculator_pty_server app;
   return app.run(argc, argv);
 }
