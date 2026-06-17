@@ -217,7 +217,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
  * (`self`) and a read-only `dynamic` containing call arguments (`params`),
  * and return a `dynamic` result.
  */
-using method =
+using method_fn =
     std::function<dynamic(dynamic& /*self*/, const dynamic& /*params*/)>;
 
 /**

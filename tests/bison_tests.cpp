@@ -850,7 +850,7 @@ TEST(DynamicMethodTests, CallNonexistentMethodThrows) {
 
 TEST(DynamicMethodTests, AddMethodReturnsFalseOnDuplicate) {
   dynamic obj;
-  method fn = [](dynamic&, const dynamic&) -> dynamic { return {}; };
+  method_fn fn = [](dynamic&, const dynamic&) -> dynamic { return {}; };
   EXPECT_TRUE(obj.addMethod("fn"_key, fn));
   EXPECT_FALSE(obj.addMethod("fn"_key, fn));
 }

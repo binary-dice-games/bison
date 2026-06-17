@@ -1260,6 +1260,46 @@ TEST_F(StandaloneTests, DescribeClassWithNoAttributesHasNoMetaFields) {
   EXPECT_EQ(result.findField(FIELD_DISPLAY_NAME), nullptr);
   EXPECT_EQ(result.findField(FIELD_DESCRIPTION), nullptr);
   EXPECT_EQ(result.findField(FIELD_FIELDS), nullptr);
+  EXPECT_EQ(result.findField(FIELD_METHODS), nullptr);
+}
+
+TEST_F(StandaloneTests, DescribeSpecificClassIncludesMethodList) {
+  auto proto = dynamic_ptr{"ServiceClass"_key};
+  proto->addMethod(
+      "start"_key,
+      [](dynamic&, const dynamic&) -> dynamic { return {}; },
+      {attr<DisplayName>("Start Service"), attr<Description>("Starts the service")});
+  proto->addMethod(
+      "stop"_key,
+      [](dynamic&, const dynamic&) -> dynamic { return {}; },
+      {attr<DisplayName>("Stop Service"), attr<Obsolete>("Use shutdown instead")});
+  proto->addMethod(
+      "ping"_key,
+      [](dynamic&, const dynamic&) -> dynamic { return {}; });
+
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  dynamic result = sa.describe(0U, "ServiceClass"_key).get();
+
+  auto methods_ptr = result[FIELD_METHODS].as<dynamic_ptr>();
+  ASSERT_NE(methods_ptr, nullptr);
+
+  // "start" — has display name and description.
+  auto start_meta = (*methods_ptr)["start"_key].as<dynamic_ptr>();
+  ASSERT_NE(start_meta, nullptr);
+  EXPECT_EQ((*start_meta).as<std::string>(FIELD_DISPLAY_NAME), "Start Service");
+  EXPECT_EQ((*start_meta).as<std::string>(FIELD_DESCRIPTION), "Starts the service");
+
+  // "stop" — obsolete with a message.
+  auto stop_meta = (*methods_ptr)["stop"_key].as<dynamic_ptr>();
+  ASSERT_NE(stop_meta, nullptr);
+  EXPECT_TRUE(static_cast<bool>((*stop_meta)[FIELD_OBSOLETE]));
+  EXPECT_EQ((*stop_meta).as<std::string>(FIELD_OBSOLETE_MESSAGE), "Use shutdown instead");
+
+  // "ping" — no attributes, but still listed.
+  auto ping_meta = (*methods_ptr)["ping"_key].as<dynamic_ptr>();
+  ASSERT_NE(ping_meta, nullptr);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1332,6 +1372,48 @@ TEST_F(RmiE2E, DescribeSpecificClassIncludesFieldAttributes) {
   EXPECT_EQ((*rank_meta).as<std::string>(FIELD_DISPLAY_NAME), "Rank");
   EXPECT_TRUE(static_cast<bool>((*rank_meta)[FIELD_OBSOLETE]));
   EXPECT_EQ((*rank_meta).as<std::string>(FIELD_OBSOLETE_MESSAGE), "Use tier instead");
+
+  c.disconnect();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 19. Method metadata in describe responses
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST_F(RmiE2E, DescribeSpecificClassIncludesMethodAttributes) {
+  auto proto = dynamic_ptr{"RemoteCalc"_key};
+  proto->addMethod(
+      "add"_key,
+      [](dynamic& /*self*/, const dynamic& p) -> dynamic {
+        dynamic r;
+        r["result"_key] = p.as<int32_t>("a"_key) + p.as<int32_t>("b"_key);
+        return r;
+      },
+      {attr<DisplayName>("Add"), attr<Description>("Returns the sum of a and b")});
+  proto->addMethod(
+      "reset"_key,
+      [](dynamic&, const dynamic&) -> dynamic { return {}; },
+      {attr<Obsolete>("Use clear instead")});
+
+  dynamic::addClass(0U, proto);
+
+  auto c = make_client();
+  c.connect();
+
+  dynamic result = c.describe(0U, "RemoteCalc"_key).get();
+
+  auto methods_ptr = result[FIELD_METHODS].as<dynamic_ptr>();
+  ASSERT_NE(methods_ptr, nullptr);
+
+  auto add_meta = (*methods_ptr)["add"_key].as<dynamic_ptr>();
+  ASSERT_NE(add_meta, nullptr);
+  EXPECT_EQ((*add_meta).as<std::string>(FIELD_DISPLAY_NAME), "Add");
+  EXPECT_EQ((*add_meta).as<std::string>(FIELD_DESCRIPTION), "Returns the sum of a and b");
+
+  auto reset_meta = (*methods_ptr)["reset"_key].as<dynamic_ptr>();
+  ASSERT_NE(reset_meta, nullptr);
+  EXPECT_TRUE(static_cast<bool>((*reset_meta)[FIELD_OBSOLETE]));
+  EXPECT_EQ((*reset_meta).as<std::string>(FIELD_OBSOLETE_MESSAGE), "Use clear instead");
 
   c.disconnect();
 }

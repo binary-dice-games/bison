@@ -196,7 +196,7 @@ public interface BisonLibrary extends Library {
      * @param user    arbitrary user context (may be {@code null}).
      * @return {@code BISON_OK} or an error code.
      */
-    int bison_add_method(Pointer h, int name, MethodCallback fn, Pointer user);
+    int bison_add_method(Pointer h, int name, MethodCallback fn, Pointer user, Pointer meta);
 
     /**
      * Invoke a named method on {@code h}.

@@ -226,8 +226,8 @@ static void example_methods(void) {
   bison_handle calc = bison_create(bison_key("Calculator"));
   bison_set_int(calc, bison_key("total"), 0);
 
-  bison_add_method(calc, bison_key("add"), method_add, NULL);
-  bison_add_method(calc, bison_key("accumulate"), method_accumulate, NULL);
+  bison_add_method(calc, bison_key("add"), method_add, NULL, NULL);
+  bison_add_method(calc, bison_key("accumulate"), method_accumulate, NULL, NULL);
 
   // Call "add".
   bison_handle args = bison_create(0);
@@ -306,14 +306,14 @@ static void example_inheritance(void) {
   // ── Register the base "Shape" class ───────────────────────────────────────
   bison_handle shape = bison_create(bison_key("Shape"));
   bison_set_string(shape, bison_key("color"), "black");
-  bison_add_method(shape, bison_key("describe"), method_describe, NULL);
+  bison_add_method(shape, bison_key("describe"), method_describe, NULL, NULL);
   bison_add_class(0, shape, 0, NULL);
   bison_release(shape);
 
   // ── Register the child "Circle" class ─────────────────────────────────────
   bison_handle circle = bison_create(bison_key("Circle"));
   bison_set_float(circle, bison_key("radius"), 1.0f);
-  bison_add_method(circle, bison_key("area"), method_area, NULL);
+  bison_add_method(circle, bison_key("area"), method_area, NULL, NULL);
   bison_add_class(0, circle, bison_key("Shape"), NULL);
   bison_release(circle);
 

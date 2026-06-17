@@ -319,6 +319,20 @@ BISON_API bison_error bison_get_class_attributes(
 BISON_API bison_error bison_get_field_attributes(
     bison_handle h, bison_hash field_key, bison_attributes* out);
 
+/**
+ * @brief Read the attributes of a named method on an object handle.
+ *
+ * The returned strings point into the handle's storage and are valid only
+ * while the handle is alive and the method's attributes are not modified.
+ *
+ * @param h           Source object handle.
+ * @param method_key  Method name hash (use `bison_key()`).
+ * @param out         Receives the method attribute metadata.
+ * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_method_attributes(
+    bison_handle h, bison_hash method_key, bison_attributes* out);
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar setters
  * ═════════════════════════════════════════════════════════════════════════ */
@@ -536,13 +550,15 @@ BISON_API size_t bison_size(bison_handle h);
  * @param name     Method name hash (use `bison_key()`).
  * @param fn       Function pointer implementing the method.
  * @param user     Arbitrary user context (may be `NULL`).
+ * @param meta     Optional attribute annotations; pass `NULL` for none.
  * @return `BISON_OK`, `BISON_ERR_DUPLICATE`, or `BISON_ERR_NULL`.
  */
 BISON_API bison_error bison_add_method(
     bison_handle h,
     bison_hash name,
     bison_method_fn fn,
-    void* user);
+    void* user,
+    const bison_attributes* meta);
 
 /**
  * @brief Invoke a named method on @p h.

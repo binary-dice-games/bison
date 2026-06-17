@@ -311,7 +311,7 @@ TEST(MethodTests, AddAndCallMethod) {
   ScopedHandle h{bison_create(0)};
   bison_set_int(h, H("n"), 5);
   EXPECT_EQ(
-      bison_add_method(h, H("double"), double_counter_fn, nullptr),
+      bison_add_method(h, H("double"), double_counter_fn, nullptr, nullptr),
       BISON_OK);
 
   ScopedHandle params{bison_create(0)};
@@ -335,10 +335,10 @@ TEST(MethodTests, CallMissingMethodReturnsNotFound) {
 TEST(MethodTests, AddDuplicateMethodFails) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(
-      bison_add_method(h, H("fn"), double_counter_fn, nullptr),
+      bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr),
       BISON_OK);
   EXPECT_EQ(
-      bison_add_method(h, H("fn"), double_counter_fn, nullptr),
+      bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr),
       BISON_ERR_DUPLICATE);
 }
 

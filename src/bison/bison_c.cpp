@@ -249,6 +249,35 @@ BISON_API bison_error bison_get_field_attributes(
   }
 }
 
+BISON_API bison_error bison_get_method_attributes(
+    bison_handle h, bison_hash method_key, bison_attributes* out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    const auto* e =
+        dyn(h)->findMethod(bdg::bison::key_t{method_key});
+    if (!e)
+      return BISON_ERR_NOT_FOUND;
+    *out = bison_attributes{};
+    if (auto* dn = e->findAttribute<bdg::bison::DisplayName>())
+      out->display_name = dn->name().c_str();
+    if (auto* d = e->findAttribute<bdg::bison::Description>())
+      out->description = d->text().c_str();
+    if (auto* c = e->findAttribute<bdg::bison::Category>())
+      out->category = c->name().c_str();
+    if (auto* o = e->findAttribute<bdg::bison::Obsolete>()) {
+      out->obsolete = 1;
+      out->obsolete_message =
+          o->message().empty() ? nullptr : o->message().c_str();
+    }
+    if (e->findAttribute<bdg::bison::Required>())
+      out->required = 1;
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
 // ─── Field registration ──────────────────────────────────────────────────────
 
 static bison_error add_field_impl(
@@ -526,7 +555,8 @@ BISON_API bison_error bison_add_method(
     bison_handle h,
     bison_hash name,
     bison_method_fn fn,
-    void* user) {
+    void* user,
+    const bison_attributes* meta) {
   if (!h || !fn)
     return BISON_ERR_NULL;
   try {
@@ -540,7 +570,7 @@ BISON_API bison_error bison_add_method(
     };
     auto cl = std::make_shared<closure_t>(fn, user);
 
-    bdg::bison::method wrapped =
+    bdg::bison::method_fn wrapped =
         [cl](
             bdg::bison::dynamic& self,
             const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
@@ -568,7 +598,8 @@ BISON_API bison_error bison_add_method(
       return result;
     };
 
-    bool ok = dyn(h)->addMethod(bdg::bison::key_t{name}, wrapped);
+    bool ok = dyn(h)->addMethod(
+        bdg::bison::key_t{name}, std::move(wrapped), attrs_from_meta(meta));
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;

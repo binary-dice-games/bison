@@ -504,15 +504,54 @@ class dynamic {
   }
 
   /**
+   * @brief A registered method: callable implementation plus optional
+   *        attribute annotations, parallel to `field` for named properties.
+   */
+  class method {
+   public:
+    method_fn fn;
+    std::vector<std::shared_ptr<const attribute>> attrs;
+
+    void addAttribute(std::shared_ptr<const attribute> a) {
+      attrs.push_back(std::move(a));
+    }
+    template <typename T>
+    const T* findAttribute() const {
+      for (const auto& a : attrs)
+        if (const T* p = dynamic_cast<const T*>(a.get()))
+          return p;
+      return nullptr;
+    }
+  };
+
+  /**
    * @brief Register a callable method on this object.
    *
    * @param name  Hash key for the method.
-   * @param fn    Method implementation (see `method` typedef).
+   * @param fn    Method implementation callable.
+   * @param attrs Optional attribute annotations.
    * @return `true` if the method was registered; `false` if the key was
    *         already taken.
    */
-  inline bool addMethod(key_t name, method fn) {
-    return methods_.emplace(std::make_pair(name, fn)).second;
+  inline bool addMethod(
+      key_t name,
+      method_fn fn,
+      std::vector<std::shared_ptr<const attribute>> attrs = {}) {
+    return methods_.emplace(name, method{std::move(fn), std::move(attrs)})
+        .second;
+  }
+
+  /**
+   * @brief Iterate over all methods registered directly on this object.
+   *
+   * @tparam F  Callable with signature `void(key_t, const method&)`.
+   * @param  fn  Visitor invoked for each `(key, method)` pair.
+   */
+  template <typename F>
+  void forEachMethod(F&& fn) const {
+    for (const auto& kv : methods_) {
+      fn(kv.first, kv.second);
+    }
   }
 
   /** @brief Attach or replace the userdata payload on this object. */
@@ -536,11 +575,11 @@ class dynamic {
    * @throws std::runtime_error if no method with @p name is found.
    */
   inline dynamic call(key_t name, const dynamic& params) {
-    auto fn = findMethod(name);
-    if (fn == nullptr) {
+    auto* m = findMethod(name);
+    if (m == nullptr) {
       throw std::runtime_error("Method not found");
     }
-    return (*fn)(*this, params);
+    return m->fn(*this, params);
   }
 
   /**
@@ -682,6 +721,16 @@ class dynamic {
    * @brief Find a method on this instance or its class prototype chain.
    *
    * Returns a pointer to the callable (caching into `methods_` on first
+   * inherited hit), or `nullptr` if not found anywhere in the chain.
+   * The correct namespace collection is resolved via `resolveNamespace`.
+   *
+   * @param name  Hash key to look up.
+   * @return Pointer to the resolved method, or `nullptr`.
+   */
+  /**
+   * @brief Find a method on this instance or its class prototype chain.
+   *
+   * Returns a pointer to the method (caching into `methods_` on first
    * inherited hit), or `nullptr` if not found anywhere in the chain.
    * The correct namespace collection is resolved via `resolveNamespace`.
    *

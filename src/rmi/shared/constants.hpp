@@ -140,6 +140,8 @@ inline const bison::key_t FIELD_OBSOLETE_MESSAGE = "__obsoleteMessage"_key;
 inline const bison::key_t FIELD_REQUIRED = "__required"_key;
 /** @brief Descriptor field holding a map of field-key → per-field metadata. */
 inline const bison::key_t FIELD_FIELDS = "__fields"_key;
+/** @brief Descriptor field holding a map of method-key → per-method metadata. */
+inline const bison::key_t FIELD_METHODS = "__methods"_key;
 
 // ── Protocol version ─────────────────────────────────────────────────────────
 /** @brief Current wire protocol version expected by client and server. */

@@ -75,6 +75,36 @@ static bool apply_attrs(bison::dynamic& desc, const bison::field& f) {
   return applied;
 }
 
+/** @brief Apply attributes from a method_entry to @p desc.
+ *  @return `true` if at least one attribute was written. */
+static bool apply_method_attrs(
+    bison::dynamic& desc,
+    const bison::dynamic::method& e) {
+  using namespace bison;
+  bool applied = false;
+  if (auto* dn = e.findAttribute<DisplayName>()) {
+    desc[FIELD_DISPLAY_NAME] = dn->name();
+    applied = true;
+  }
+  if (auto* d = e.findAttribute<Description>()) {
+    desc[FIELD_DESCRIPTION] = d->text();
+    applied = true;
+  }
+  if (auto* c = e.findAttribute<Category>()) {
+    desc[FIELD_CATEGORY] = c->name();
+    applied = true;
+  }
+  if (auto* o = e.findAttribute<Obsolete>()) {
+    desc[FIELD_OBSOLETE] = bool{true};
+    if (!o->message().empty())
+      desc[FIELD_OBSOLETE_MESSAGE] = o->message();
+    applied = true;
+  }
+  if (e.findAttribute<Required>())
+    desc[FIELD_REQUIRED] = bool{true};
+  return applied;
+}
+
 } // namespace
 
 // ── Lifecycle
@@ -391,6 +421,17 @@ void server::handle_describe(
       });
       if (has_field_meta)
         resp[FIELD_FIELDS] = bison::dynamic_ptr{std::move(fields_meta)};
+      // Collect per-method metadata (always emitted when methods are present).
+      bison::dynamic methods_meta;
+      bool has_methods = false;
+      proto->forEachMethod([&](bison::key_t k, const bison::dynamic::method& e) {
+        bison::dynamic mmeta;
+        apply_method_attrs(mmeta, e);
+        methods_meta[k] = bison::dynamic_ptr{std::move(mmeta)};
+        has_methods = true;
+      });
+      if (has_methods)
+        resp[FIELD_METHODS] = bison::dynamic_ptr{std::move(methods_meta)};
     }
   }
 

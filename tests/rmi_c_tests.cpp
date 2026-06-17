@@ -729,3 +729,95 @@ TEST_F(DescribeAbiTests, AddFieldWithRequiredAttributeAppearsInDescribe) {
   bison_release(fields_map);
   bison_release(desc);
 }
+
+static void noop_method(
+    bison_handle /*self*/,
+    bison_handle /*params*/,
+    bison_handle /*result*/,
+    void* /*user*/) {}
+
+TEST_F(DescribeAbiTests, DescribeSpecificClassIncludesMethodMetadata) {
+  ScopedBisonHandle proto{bison_create(bison_key("ServiceApi"))};
+  ASSERT_NE(proto.h, nullptr);
+
+  bison_attributes start_meta{};
+  start_meta.display_name = "Start Service";
+  start_meta.description  = "Starts the background service";
+  ASSERT_EQ(
+      bison_add_method(proto, bison_key("start"), noop_method, nullptr, &start_meta),
+      BISON_OK);
+
+  bison_attributes stop_meta{};
+  stop_meta.obsolete         = 1;
+  stop_meta.obsolete_message = "Use shutdown instead";
+  ASSERT_EQ(
+      bison_add_method(proto, bison_key("stop"), noop_method, nullptr, &stop_meta),
+      BISON_OK);
+
+  // "ping" — registered without attributes, must still appear in __methods.
+  ASSERT_EQ(
+      bison_add_method(proto, bison_key("ping"), noop_method, nullptr, nullptr),
+      BISON_OK);
+
+  ASSERT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
+
+  ScopedClientHandle sa{rmi_standalone_create()};
+  ASSERT_NE(sa.h, nullptr);
+
+  bison_handle desc = nullptr;
+  ASSERT_EQ(rmi_client_describe(sa, 0, bison_key("ServiceApi"), &desc), RMI_OK);
+  ASSERT_NE(desc, nullptr);
+
+  bison_handle methods_map = nullptr;
+  ASSERT_EQ(bison_get_object(desc, bison_key("__methods"), &methods_map), BISON_OK);
+  ASSERT_NE(methods_map, nullptr);
+
+  // "start" — display name and description.
+  bison_handle start_desc = nullptr;
+  ASSERT_EQ(bison_get_object(methods_map, bison_key("start"), &start_desc), BISON_OK);
+  ASSERT_NE(start_desc, nullptr);
+  EXPECT_EQ(read_string(start_desc, bison_key("__displayName")), "Start Service");
+  EXPECT_EQ(read_string(start_desc, bison_key("__description")), "Starts the background service");
+  bison_release(start_desc);
+
+  // "stop" — obsolete.
+  bison_handle stop_desc = nullptr;
+  ASSERT_EQ(bison_get_object(methods_map, bison_key("stop"), &stop_desc), BISON_OK);
+  ASSERT_NE(stop_desc, nullptr);
+  int obs = 0;
+  EXPECT_EQ(bison_get_bool(stop_desc, bison_key("__obsolete"), &obs), BISON_OK);
+  EXPECT_NE(obs, 0);
+  EXPECT_EQ(read_string(stop_desc, bison_key("__obsoleteMessage")), "Use shutdown instead");
+  bison_release(stop_desc);
+
+  // "ping" — no attributes, still listed under __methods.
+  bison_handle ping_desc = nullptr;
+  ASSERT_EQ(bison_get_object(methods_map, bison_key("ping"), &ping_desc), BISON_OK);
+  EXPECT_NE(ping_desc, nullptr);
+  bison_release(ping_desc);
+
+  bison_release(methods_map);
+  bison_release(desc);
+}
+
+TEST_F(DescribeAbiTests, GetMethodAttributesReturnsCorrectMeta) {
+  ScopedBisonHandle proto{bison_create(bison_key("AttrCheckClass"))};
+  ASSERT_NE(proto.h, nullptr);
+
+  bison_attributes in{};
+  in.display_name = "Compute";
+  in.category     = "Math";
+  in.required     = 1;
+  ASSERT_EQ(
+      bison_add_method(proto, bison_key("compute"), noop_method, nullptr, &in),
+      BISON_OK);
+
+  bison_attributes out{};
+  ASSERT_EQ(bison_get_method_attributes(proto, bison_key("compute"), &out), BISON_OK);
+  EXPECT_STREQ(out.display_name, "Compute");
+  EXPECT_STREQ(out.category, "Math");
+  EXPECT_EQ(out.required, 1);
+
+  EXPECT_EQ(bison_get_method_attributes(proto, bison_key("missing"), &out),
+            BISON_ERR_NOT_FOUND);
+}

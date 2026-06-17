@@ -306,7 +306,7 @@ public sealed class Dynamic : IDisposable
             catch { /* Swallow .NET exceptions – cannot propagate across C ABI. */ }
         };
         _callbacks.Add(cb);  // keep alive
-        Check(Native.bison_add_method(_handle, Key(name), cb, IntPtr.Zero),
+        Check(Native.bison_add_method(_handle, Key(name), cb, IntPtr.Zero, IntPtr.Zero),
               $"AddMethod({name})");
     }
 
