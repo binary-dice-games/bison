@@ -106,7 +106,7 @@ foreach(_abi_target bison_abi_examples rmi_abi_server_example rmi_abi_client_exa
 	add_custom_command(TARGET ${_abi_target} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 			$<TARGET_FILE:bison_abi>
-			$<TARGET_FILE_DIR:${_abi_target}>
+			$<TARGET_FILE_DIR:${_abi_target}>/$<TARGET_FILE_NAME:bison_abi>
 		COMMENT "Copying bison_abi DLL next to ${_abi_target}"
 	)
 endforeach()

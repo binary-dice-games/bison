@@ -12,7 +12,9 @@
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
+#include <condition_variable>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 namespace bdg::bison::pty {
