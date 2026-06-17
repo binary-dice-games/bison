@@ -21,37 +21,37 @@ class calculator_pty_server final : public app::pty_server_app {
     auto proto = dynamic_ptr{"Calculator"_key, {}};
 
     proto->addMethod(
-        "add"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        "add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
           float a = params["a"_key];
           float b = params["b"_key];
           dynamic result;
           result["result"_key] = a + b;
           return result;
-        });
+        }});
 
     proto->addMethod(
         "subtract"_key,
-        [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
           float a = params["a"_key];
           float b = params["b"_key];
           dynamic result;
           result["result"_key] = a - b;
           return result;
-        });
+        }});
 
     proto->addMethod(
         "multiply"_key,
-        [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
           float a = params["a"_key];
           float b = params["b"_key];
           dynamic result;
           result["result"_key] = a * b;
           return result;
-        });
+        }});
 
     proto->addMethod(
         "divide"_key,
-        [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+        method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
           float a = params["a"_key];
           float b = params["b"_key];
           dynamic result;
@@ -62,7 +62,7 @@ class calculator_pty_server final : public app::pty_server_app {
             result["result"_key] = a / b;
           }
           return result;
-        });
+        }});
 
     dynamic::addClass(0U, proto, 0U);
   }

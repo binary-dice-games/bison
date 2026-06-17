@@ -512,7 +512,7 @@ TEST(FieldTests, ImplicitConversionWrongTypeThrows) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Custom attribute types used in attribute tests
 // ─────────────────────────────────────────────────────────────────────────────
-class Required : public attribute {};
+class TestRequired : public attribute {};
 class MaxLength : public attribute {
  public:
   explicit MaxLength(size_t n) : max(n) {}
@@ -520,8 +520,8 @@ class MaxLength : public attribute {
 };
 
 TEST(FieldTests, AttributeAttachAndFind) {
-  field f{std::string{"hi"}, attr<Required>(), attr<MaxLength>(10)};
-  EXPECT_NE(f.findAttribute<Required>(), nullptr);
+  field f{std::string{"hi"}, attr<TestRequired>(), attr<MaxLength>(10)};
+  EXPECT_NE(f.findAttribute<TestRequired>(), nullptr);
   const MaxLength* ml = f.findAttribute<MaxLength>();
   ASSERT_NE(ml, nullptr);
   EXPECT_EQ(ml->max, 10u);
@@ -529,13 +529,13 @@ TEST(FieldTests, AttributeAttachAndFind) {
 
 TEST(FieldTests, AttributeNotFoundReturnsNullptr) {
   field f{int32_t{1}};
-  EXPECT_EQ(f.findAttribute<Required>(), nullptr);
+  EXPECT_EQ(f.findAttribute<TestRequired>(), nullptr);
 }
 
 TEST(FieldTests, AttributesSurviveCloneViaField) {
-  field f{true, attr<Required>()};
+  field f{true, attr<TestRequired>()};
   field g = f; // copy
-  EXPECT_NE(g.findAttribute<Required>(), nullptr);
+  EXPECT_NE(g.findAttribute<TestRequired>(), nullptr);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -805,24 +805,24 @@ TEST(DynamicSerializationTests, NullNestedPointer) {
 TEST(DynamicMethodTests, AddAndCallMethod) {
   dynamic obj;
   obj.addMethod(
-      "greet"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "greet"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         dynamic result;
         result["msg"_key] = std::string{"hello"};
         return result;
-      });
+      }});
   dynamic result = obj.call("greet"_key, dynamic{});
   EXPECT_EQ(result["msg"_key].as<std::string>(), "hello");
 }
 
 TEST(DynamicMethodTests, MethodReceivesParams) {
   dynamic obj;
-  obj.addMethod("add"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+  obj.addMethod("add"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
     int32_t a = params["a"_key].as<int32_t>();
     int32_t b = params["b"_key].as<int32_t>();
     dynamic result;
     result["sum"_key] = a + b;
     return result;
-  });
+  }});
 
   dynamic args;
   args["a"_key] = int32_t{3};
@@ -834,10 +834,10 @@ TEST(DynamicMethodTests, MethodReceivesParams) {
 TEST(DynamicMethodTests, MethodCanMutateSelf) {
   dynamic obj;
   obj["counter"_key] = int32_t{0};
-  obj.addMethod("inc"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+  obj.addMethod("inc"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
     self["counter"_key] = int32_t{self["counter"_key].as<int32_t>() + 1};
     return dynamic{};
-  });
+  }});
   obj.call("inc"_key, dynamic{});
   obj.call("inc"_key, dynamic{});
   EXPECT_EQ(obj["counter"_key].as<int32_t>(), 2);
@@ -850,9 +850,9 @@ TEST(DynamicMethodTests, CallNonexistentMethodThrows) {
 
 TEST(DynamicMethodTests, AddMethodReturnsFalseOnDuplicate) {
   dynamic obj;
-  method fn = [](dynamic&, const dynamic&) -> dynamic { return {}; };
-  EXPECT_TRUE(obj.addMethod("fn"_key, fn));
-  EXPECT_FALSE(obj.addMethod("fn"_key, fn));
+  method_fn fn = [](dynamic&, const dynamic&) -> dynamic { return {}; };
+  EXPECT_TRUE(obj.addMethod("fn"_key, method{fn}));
+  EXPECT_FALSE(obj.addMethod("fn"_key, method{fn}));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -913,11 +913,11 @@ TEST_F(InheritanceTest, FieldInheritedFromParent) {
 TEST_F(InheritanceTest, MethodInheritedFromParent) {
   auto base = dynamic_ptr{"Animal2"_key};
   base->addMethod(
-      "speak"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "speak"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         dynamic r;
         r["sound"_key] = std::string{"..."};
         return r;
-      });
+      }});
   dynamic::addClass(0U, base, 0U);
 
   auto child = dynamic_ptr{"Dog"_key};
@@ -1359,4 +1359,109 @@ TEST_F(InheritanceTest, SingleClassOperatorBracket) {
   dynamic::addClass(0U, dynamic_ptr{"Widget43"_key, {{"size"_key, int32_t{1}}}}, 0U);
   dynamic w = dynamic::instantiate("Widget43"_key);
   EXPECT_EQ(w["size"_key].as<int32_t>(), 1);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// N. Pretty-print
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(PrintTest, MultilineContainsFieldValues) {
+  dynamic obj;
+  obj["name"_key] = field{std::string{"Alice"}, attr<DisplayName>("name")};
+  obj["age"_key]  = field{int32_t{30},          attr<DisplayName>("age")};
+  obj["active"_key] = field{bool{true},          attr<DisplayName>("active")};
+
+  const std::string out = print(obj);
+  EXPECT_NE(out.find("\"Alice\""), std::string::npos);
+  EXPECT_NE(out.find("30"),        std::string::npos);
+  EXPECT_NE(out.find("true"),      std::string::npos);
+  // DisplayName attributes cause fields to print with their names.
+  EXPECT_NE(out.find("name"),   std::string::npos);
+  EXPECT_NE(out.find("age"),    std::string::npos);
+  EXPECT_NE(out.find("active"), std::string::npos);
+}
+
+TEST(PrintTest, MultilineIsIndented) {
+  dynamic obj;
+  obj["x"_key] = field{int32_t{1}, attr<DisplayName>("x")};
+
+  const std::string out = print(obj);
+  // Multiline output should contain a newline and indent.
+  EXPECT_NE(out.find('\n'), std::string::npos);
+  EXPECT_NE(out.find("  x"), std::string::npos);
+}
+
+TEST(PrintTest, SingleLineHasNoBrokenLines) {
+  dynamic obj;
+  obj["score"_key] = field{float{9.5f}, attr<DisplayName>("score")};
+
+  print_options opts;
+  opts.multiline = false;
+  const std::string out = print(obj, opts);
+  EXPECT_EQ(out.find('\n'), std::string::npos);
+  EXPECT_NE(out.find("9.5"), std::string::npos);
+  EXPECT_NE(out.find('{'),   std::string::npos);
+  EXPECT_NE(out.find('}'),   std::string::npos);
+}
+
+TEST(PrintTest, CustomIndentIsHonoured) {
+  dynamic obj;
+  obj["v"_key] = field{int32_t{42}, attr<DisplayName>("v")};
+
+  print_options opts;
+  opts.multiline = true;
+  opts.indent    = "\t";
+  const std::string out = print(obj, opts);
+  EXPECT_NE(out.find("\tv"), std::string::npos);
+}
+
+TEST(PrintTest, NestedObjectPrintsRecursively) {
+  dynamic inner;
+  inner["city"_key] = field{std::string{"Springfield"}, attr<DisplayName>("city")};
+
+  dynamic outer;
+  outer["addr"_key] = field{
+      dynamic_ptr{std::make_shared<dynamic>(std::move(inner))},
+      attr<DisplayName>("addr")};
+
+  const std::string out = print(outer);
+  EXPECT_NE(out.find("\"Springfield\""), std::string::npos);
+  EXPECT_NE(out.find("city"),            std::string::npos);
+  EXPECT_NE(out.find("addr"),            std::string::npos);
+}
+
+TEST(PrintTest, ArrayFieldsAppearInOutput) {
+  dynamic obj;
+  field scores{std::vector<int32_t>{10, 20, 30}};
+  obj["scores"_key] = std::move(scores);
+
+  print_options opts;
+  opts.multiline = false;
+  const std::string out = print(obj, opts);
+  EXPECT_NE(out.find("10"), std::string::npos);
+  EXPECT_NE(out.find("20"), std::string::npos);
+  EXPECT_NE(out.find("30"), std::string::npos);
+}
+
+TEST(PrintTest, MethodsAppearsInOutput) {
+  dynamic obj;
+  obj["value"_key] = field{int32_t{0}, attr<DisplayName>("value")};
+  obj.addMethod(
+      "reset"_key,
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          attr<DisplayName>("Reset"), attr<Description>("Resets to zero")});
+  obj.addMethod(
+      "noop"_key,
+      method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
+
+  const std::string out = print(obj);
+  // Method with DisplayName uses that name as the key.
+  EXPECT_NE(out.find("Reset"),           std::string::npos);
+  // Method attrs summary appears in value.
+  EXPECT_NE(out.find("displayName"),     std::string::npos);
+  // Method without DisplayName falls back to hash key format.
+  EXPECT_NE(out.find("<method>"),        std::string::npos);
+  // Field is still present.
+  EXPECT_NE(out.find("value"),           std::string::npos);
 }

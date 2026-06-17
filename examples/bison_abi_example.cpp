@@ -226,8 +226,8 @@ static void example_methods(void) {
   bison_handle calc = bison_create(bison_key("Calculator"));
   bison_set_int(calc, bison_key("total"), 0);
 
-  bison_add_method(calc, bison_key("add"), method_add, NULL);
-  bison_add_method(calc, bison_key("accumulate"), method_accumulate, NULL);
+  bison_add_method(calc, bison_key("add"), method_add, NULL, NULL);
+  bison_add_method(calc, bison_key("accumulate"), method_accumulate, NULL, NULL);
 
   // Call "add".
   bison_handle args = bison_create(0);
@@ -306,15 +306,15 @@ static void example_inheritance(void) {
   // ── Register the base "Shape" class ───────────────────────────────────────
   bison_handle shape = bison_create(bison_key("Shape"));
   bison_set_string(shape, bison_key("color"), "black");
-  bison_add_method(shape, bison_key("describe"), method_describe, NULL);
-  bison_add_class(0, shape, 0);
+  bison_add_method(shape, bison_key("describe"), method_describe, NULL, NULL);
+  bison_add_class(0, shape, 0, NULL);
   bison_release(shape);
 
   // ── Register the child "Circle" class ─────────────────────────────────────
   bison_handle circle = bison_create(bison_key("Circle"));
   bison_set_float(circle, bison_key("radius"), 1.0f);
-  bison_add_method(circle, bison_key("area"), method_area, NULL);
-  bison_add_class(0, circle, bison_key("Shape"));
+  bison_add_method(circle, bison_key("area"), method_area, NULL, NULL);
+  bison_add_class(0, circle, bison_key("Shape"), NULL);
   bison_release(circle);
 
   // ── Instantiate and use ───────────────────────────────────────────────────
@@ -350,7 +350,7 @@ static void example_inheritance(void) {
 
   // Duplicate registration is rejected (BISON_ERR_DUPLICATE).
   bison_handle dup = bison_create(bison_key("Shape"));
-  bison_error dup_err = bison_add_class(0, dup, 0);
+  bison_error dup_err = bison_add_class(0, dup, 0, NULL);
   printf("Duplicate addClass rejected: %s\n",
          (dup_err == BISON_ERR_DUPLICATE) ? "true" : "false");
   bison_release(dup);
@@ -380,14 +380,14 @@ static void example_namespaces(void) {
   bison_handle math_table = bison_create(bison_key("table"));
   bison_set_int(math_table, bison_key("rows"), 0);
   bison_set_int(math_table, bison_key("cols"), 0);
-  bison_add_class(bison_key("math"), math_table, 0);
+  bison_add_class(bison_key("math"), math_table, 0, NULL);
   bison_release(math_table);
 
   // "ikea" namespace: table is a piece of furniture.
   bison_handle ikea_table = bison_create(bison_key("table"));
   bison_set_int(ikea_table, bison_key("legs"), 4);
   bison_set_string(ikea_table, bison_key("material"), "wood");
-  bison_add_class(bison_key("ikea"), ikea_table, 0);
+  bison_add_class(bison_key("ikea"), ikea_table, 0, NULL);
   bison_release(ikea_table);
 
   printf("Registered 'table' in both 'math' and 'ikea' namespaces\n");
@@ -414,12 +414,12 @@ static void example_namespaces(void) {
   // Inheritance within a namespace.
   bison_handle furniture = bison_create(bison_key("Furniture"));
   bison_set_int(furniture, bison_key("warranty"), 5);
-  bison_add_class(bison_key("ikea"), furniture, 0);
+  bison_add_class(bison_key("ikea"), furniture, 0, NULL);
   bison_release(furniture);
 
   bison_handle sofa = bison_create(bison_key("Sofa"));
   bison_set_int(sofa, bison_key("seats"), 3);
-  bison_add_class(bison_key("ikea"), sofa, bison_key("Furniture"));
+  bison_add_class(bison_key("ikea"), sofa, bison_key("Furniture"), NULL);
   bison_release(sofa);
 
   bison_handle s = bison_instantiate(bison_key("ikea"), bison_key("Sofa"));

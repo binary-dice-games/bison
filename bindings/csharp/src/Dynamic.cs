@@ -306,7 +306,7 @@ public sealed class Dynamic : IDisposable
             catch { /* Swallow .NET exceptions – cannot propagate across C ABI. */ }
         };
         _callbacks.Add(cb);  // keep alive
-        Check(Native.bison_add_method(_handle, Key(name), cb, IntPtr.Zero),
+        Check(Native.bison_add_method(_handle, Key(name), cb, IntPtr.Zero, IntPtr.Zero),
               $"AddMethod({name})");
     }
 
@@ -341,7 +341,7 @@ public sealed class Dynamic : IDisposable
     {
         uint parentKey = string.IsNullOrEmpty(parentName)
                          ? 0u : BisonKey.Of(parentName);
-        Check(Native.bison_add_class(parentKey, _handle), "AddClass");
+        Check(Native.bison_add_class(0u, _handle, parentKey, IntPtr.Zero), "AddClass");
     }
 
     // ── Factory methods ───────────────────────────────────────────────────────

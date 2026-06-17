@@ -323,25 +323,25 @@ static void example_methods() {
 
   // Register an "add" method.
   calc.addMethod(
-      "add"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "add"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         int32_t a = params["a"_key].as<int32_t>();
         int32_t b = params["b"_key].as<int32_t>();
         dynamic result;
         result["value"_key] = a + b;
         return result;
-      });
+      }});
 
   // Register an "accumulate" method that mutates internal state via self.
   calc["total"_key] = int32_t{0};
   calc.addMethod(
-      "accumulate"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "accumulate"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         int32_t n = params["n"_key].as<int32_t>();
         int32_t total = self["total"_key].as<int32_t>() + n;
         self["total"_key] = total;
         dynamic result;
         result["total"_key] = total;
         return result;
-      });
+      }});
 
   // Call "add".
   dynamic args;
@@ -383,23 +383,23 @@ static void example_inheritance() {
   // ── Register a base class ─────────────────────────────────────────────────
   auto shape = dynamic_ptr{"Shape"_key, {{"color"_key, std::string{"black"}}}};
   shape->addMethod(
-      "describe"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "describe"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         dynamic result;
         result["text"_key] = self["color"_key].as<std::string>() + " shape";
         return result;
-      });
+      }});
   dynamic::addClass(0U, shape, 0U);
 
   // ── Register a child class ────────────────────────────────────────────────
   auto circle = dynamic_ptr{"Circle"_key, {{"radius"_key, float{1.0f}}}};
   circle->addMethod(
-      "area"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "area"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         const float pi = 3.14159265f;
         float r = self["radius"_key].as<float>();
         dynamic result;
         result["area"_key] = pi * r * r;
         return result;
-      });
+      }});
   dynamic::addClass(0U, circle, "Shape"_key);
 
   // ── Instantiate and use ───────────────────────────────────────────────────

@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -251,21 +252,21 @@ TEST_F(ClassRegistryTests, AddClassSucceeds) {
   uint32_t key = bison_key("Shape");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, H("sides"), 3);
-  EXPECT_EQ(bison_add_class(0, proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(ClassRegistryTests, AddDuplicateClassFails) {
   uint32_t key = bison_key("Widget");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class(0, p1, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(0, p2, 0), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class(0, p1, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, p2, 0, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
   uint32_t key = bison_key("Gadget");
   ScopedHandle proto{bison_create(key)};
-  bison_add_class(0, proto, 0);
+  bison_add_class(0, proto, 0, nullptr);
 
   bison_handle found = bison_find_class(0, key);
   EXPECT_NE(found, nullptr);
@@ -276,7 +277,7 @@ TEST_F(ClassRegistryTests, FindClassFromInstantiatedObjectReturnsHandle) {
   uint32_t key = bison_key("WidgetInst");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, H("v"), 1);
-  ASSERT_EQ(bison_add_class(0, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
 
   bison_handle found = bison_find_class(0, key);
   EXPECT_NE(found, nullptr);
@@ -289,7 +290,7 @@ TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
 }
 
 TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class(0, nullptr, 0), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class(0, nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -311,7 +312,7 @@ TEST(MethodTests, AddAndCallMethod) {
   ScopedHandle h{bison_create(0)};
   bison_set_int(h, H("n"), 5);
   EXPECT_EQ(
-      bison_add_method(h, H("double"), double_counter_fn, nullptr),
+      bison_add_method(h, H("double"), double_counter_fn, nullptr, nullptr),
       BISON_OK);
 
   ScopedHandle params{bison_create(0)};
@@ -335,10 +336,10 @@ TEST(MethodTests, CallMissingMethodReturnsNotFound) {
 TEST(MethodTests, AddDuplicateMethodFails) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(
-      bison_add_method(h, H("fn"), double_counter_fn, nullptr),
+      bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr),
       BISON_OK);
   EXPECT_EQ(
-      bison_add_method(h, H("fn"), double_counter_fn, nullptr),
+      bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr),
       BISON_ERR_DUPLICATE);
 }
 
@@ -387,15 +388,15 @@ TEST_F(CApiNamespaceTest, AddClassNsSucceeds) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("rows"), 5);
-  EXPECT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, SameNameInDifferentNamespacesSucceeds) {
   bison_hash key = bison_key("table");
   ScopedHandle math_proto{bison_create(key)};
   ScopedHandle ikea_proto{bison_create(key)};
-  EXPECT_EQ(bison_add_class(bison_key("math"), math_proto, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(bison_key("ikea"), ikea_proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(bison_key("math"), math_proto, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(bison_key("ikea"), ikea_proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
@@ -403,12 +404,12 @@ TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
   bison_hash ns = bison_key("ikea");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class(ns, p1, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(ns, p2, 0), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class(ns, p1, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(ns, p2, 0, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(CApiNamespaceTest, AddClassNsNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class(bison_key("ns"), nullptr, 0), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class(bison_key("ns"), nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
@@ -416,7 +417,7 @@ TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("x"), 0);
-  ASSERT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 
   ScopedHandle inst{bison_instantiate(ns, key)};
   ASSERT_NE(inst.h, nullptr);
@@ -431,10 +432,129 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
   bison_hash key = bison_key("Sofa");
   bison_hash ns = bison_key("ikea");
   ScopedHandle proto{bison_create(key)};
-  ASSERT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 
   bison_handle found = bison_find_class(ns, key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PrintTests — bison_print / bison_free_string
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void free_and_null(char** s) {
+  bison_free_string(*s);
+  *s = nullptr;
+}
+
+TEST(PrintTests, DefaultOptionsProducesMultilineOutput) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_string(h, bison_key("name"), "Alice");
+  bison_set_int(h, bison_key("age"), 30);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  const std::string s{out};
+  // Default is multiline — must contain newlines and braces.
+  EXPECT_NE(s.find('\n'), std::string::npos);
+  EXPECT_NE(s.find('{'),  std::string::npos);
+  EXPECT_NE(s.find('}'),  std::string::npos);
+  // Values appear in the output.
+  EXPECT_NE(s.find("\"Alice\""), std::string::npos);
+  EXPECT_NE(s.find("30"),        std::string::npos);
+
+  free_and_null(&out);
+}
+
+TEST(PrintTests, SingleLineOptionProducesNoNewlines) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_float(h, bison_key("score"), 7.5f);
+
+  bison_print_options opts{0, nullptr};  // single-line, default indent
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, &opts, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  const std::string s{out};
+  EXPECT_EQ(s.find('\n'), std::string::npos);
+  EXPECT_NE(s.find("7.5"), std::string::npos);
+
+  free_and_null(&out);
+}
+
+TEST(PrintTests, CustomIndentAppearsInOutput) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, bison_key("x"), 1);
+
+  bison_print_options opts{1, "----"};
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, &opts, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  const std::string s{out};
+  EXPECT_NE(s.find("----"), std::string::npos);
+
+  free_and_null(&out);
+}
+
+TEST(PrintTests, DisplayNameAttributeUsedAsFieldKey) {
+  ScopedHandle h{bison_create(0)};
+  bison_attributes meta{};
+  meta.display_name = "Player Name";
+  ASSERT_EQ(bison_add_field_string(h, bison_key("name"), "Bob", &meta), BISON_OK);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  // DisplayName replaces the hash key in the output.
+  EXPECT_NE(std::string{out}.find("Player Name"), std::string::npos);
+  EXPECT_NE(std::string{out}.find("\"Bob\""),      std::string::npos);
+
+  free_and_null(&out);
+}
+
+TEST(PrintTests, MethodsAppearsWithDisplayName) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, bison_key("value"), 0);
+
+  bison_attributes m_meta{};
+  m_meta.display_name = "Reset";
+  m_meta.description  = "Resets value to zero";
+  ASSERT_EQ(
+      bison_add_method(h, bison_key("reset"), double_counter_fn, nullptr, &m_meta),
+      BISON_OK);
+  // Method without attributes.
+  ASSERT_EQ(
+      bison_add_method(h, bison_key("ping"), double_counter_fn, nullptr, nullptr),
+      BISON_OK);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  const std::string s{out};
+  // Named method key via DisplayName.
+  EXPECT_NE(s.find("Reset"),       std::string::npos);
+  // Attribute summary in method value.
+  EXPECT_NE(s.find("displayName"), std::string::npos);
+  // Method without attrs uses sentinel.
+  EXPECT_NE(s.find("<method>"),    std::string::npos);
+
+  free_and_null(&out);
+}
+
+TEST(PrintTests, NullHandleReturnsNullError) {
+  char* out = nullptr;
+  EXPECT_EQ(bison_print(nullptr, nullptr, &out), BISON_ERR_NULL);
+  EXPECT_EQ(out, nullptr);
+}
+
+TEST(PrintTests, NullOutPointerReturnsNullError) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_print(h, nullptr, nullptr), BISON_ERR_NULL);
 }
 
