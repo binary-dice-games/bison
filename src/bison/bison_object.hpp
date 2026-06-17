@@ -232,7 +232,7 @@ class field : public field_base {
   T& as(T def = T{}) {
     if (std::holds_alternative<std::monostate>(
             static_cast<const field_base&>(*this))) {
-      throw std::runtime_error("Null type");
+      static_cast<field_base&>(*this) = std::move(def);
     } else if (!std::holds_alternative<T>(
                    static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");

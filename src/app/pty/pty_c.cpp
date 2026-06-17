@@ -207,12 +207,11 @@ RMI_API rmi_error pty_client_run(
     int argc,
     char** argv,
     const pty_client_callbacks* callbacks) {
-#if defined(__linux__)
   if (argc > 0 && !argv)
     return RMI_ERR_NULL;
   if (!callbacks || !callbacks->on_session)
     return RMI_ERR_NULL;
-
+#if defined(__linux__)
   try {
     c_pty_client_application_with_callbacks app(callbacks);
     return map_app_exit_code(app.run(argc, argv));
@@ -224,7 +223,6 @@ RMI_API rmi_error pty_client_run(
 #else
   (void)argc;
   (void)argv;
-  (void)callbacks;
   return RMI_ERR_INVALID_STATE;
 #endif
 }
@@ -233,12 +231,11 @@ RMI_API rmi_error pty_server_run(
     int argc,
     char** argv,
     const pty_server_callbacks* callbacks) {
-#if defined(__linux__)
   if (argc > 0 && !argv)
     return RMI_ERR_NULL;
   if (!callbacks || !callbacks->register_classes)
     return RMI_ERR_NULL;
-
+#if defined(__linux__)
   try {
     c_pty_server_application_with_callbacks app(callbacks);
     return map_app_exit_code(app.run(argc, argv));
@@ -250,7 +247,6 @@ RMI_API rmi_error pty_server_run(
 #else
   (void)argc;
   (void)argv;
-  (void)callbacks;
   return RMI_ERR_INVALID_STATE;
 #endif
 }
