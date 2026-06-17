@@ -17,6 +17,7 @@ This directory does NOT implement:
 Source files owned by this directory:
 
 - `pty_server_transport.hpp` / `pty_server_transport.cpp` — PTY-owning server transport.
+- `pty_client_transport.hpp` / `pty_client_transport.cpp` — stdin/stdout client transport with client-initiated handshake.
 - `pty_server_app.hpp` / `pty_server_app.cpp` — multi-session server application scaffold.
 - `pty_client_app.hpp` / `pty_client_app.cpp` — remote client application scaffold.
 
@@ -83,10 +84,12 @@ class handles:
 ### pty_client_app
 
 An extensible base class for processes running on the remote machine. It uses
-the process's own `stdin`/`stdout` as the bison transport — no subprocess is
-launched. Concrete applications override `on_session()` to interact with the
-server's remote objects (instantiate, call, get/set, etc.). The base class
-handles transport construction, handshake, and disconnect.
+`pty_client_transport` (which reads/writes the process's own `stdin`/`stdout`)
+as the bison transport — no subprocess is launched. The transport initiates the
+handshake (sends HELLO first, waits for the server's HELLO response). Concrete
+applications override `on_session()` to interact with the server's remote objects
+(instantiate, call, get/set, etc.). The base class handles transport construction,
+handshake, and disconnect.
 
 ## 4. Data Flow and Architecture
 
@@ -126,8 +129,10 @@ IDLE ──start()──→ WAITING ──HELLO from client──→ CONNECTED
 WAITING/CONNECTED ──stop()──→ STOPPED
 ```
 
-In `WAITING`, the transport has already emitted a HELLO frame into the PTY so
-any client that connects can complete the handshake.
+In `WAITING`, the transport is listening for the client's HELLO frame.  The
+client (`pty_client_transport::open()`) initiates the handshake by sending its
+HELLO first; the server detects it and responds with the server's HELLO so the
+client's `open()` call unblocks.
 
 In `CONNECTED`, the `rmi::server` owns the connection. When the connection
 closes (END frame received, or the client disappears), the caller destroys
@@ -150,9 +155,9 @@ void start(bison::dynamic params) override
 ```
 
 Forks the shell via `forkpty`, sets the caller's terminal to raw/no-echo
-mode, starts the reader thread and input-relay thread, emits a HELLO frame.
-Throws `std::runtime_error` if `forkpty` fails or the transport was already
-started.
+mode, starts the reader thread and input-relay thread.  Does NOT emit a HELLO
+— the client initiates the handshake.  Throws `std::runtime_error` if
+`forkpty` fails or the transport was already started.
 
 ```
 std::unique_ptr<server_connection_iface> accept(milliseconds timeout) override
@@ -175,10 +180,11 @@ single-use after `stop()` — do not call `start()` again on the same instance.
 void restart_session()
 ```
 
-Clears the inbox, resets the `hello_seen` and `closed` atomics, resets the
-accepted flag so `accept()` can return a new connection, and re-emits a HELLO
-frame. Does not touch the reader or input-relay threads. Must only be called
-between sessions (after the previous `rmi::server` has been destroyed).
+Clears the inbox, resets the `hello_seen` and `closed` atomics, and resets the
+accepted flag so `accept()` can return a new connection.  Does not touch the
+reader or input-relay threads.  Does not emit a HELLO — the next client will
+initiate.  Must only be called between sessions (after the previous
+`rmi::server` has been destroyed).
 
 ```
 bool is_shell_running() const
@@ -291,11 +297,12 @@ guarantee that all previous-session objects are destroyed: destroying the
 (before the session loop) through the global bison class registry, so they
 persist across sessions.
 
-**Server emits HELLO on `start()` and after each `restart_session()`.**
-The client waits for HELLO before connecting (matching
-`stdio_client_transport` handshake behavior). Emitting HELLO at the start of
-the wait window means any client that appears can complete the handshake
-without the server polling or emitting periodically.
+**Client-initiated handshake.**
+`pty_client_transport::open()` sends HELLO first, then waits for the server's
+HELLO response.  `pty_server_transport::accept()` waits for the client's HELLO
+and responds with its own before returning the connection.  This avoids writing
+DCS escape sequences to the shell's stdin before any client has connected,
+which would corrupt interactive input (e.g., confuse bash's readline).
 
 ## 7. Constraints and Invariants
 
@@ -319,11 +326,11 @@ without the server polling or emitting periodically.
 
 Depends on:
 
-- `src/rmi/transport/stdio_transport` — `stdio_client_transport` is used by
-  `pty_client_app`. The DCS framing constants and base64 codec in
-  `stdio_transport.cpp` are not reused directly; `pty_server_transport`
-  reimplements the DCS byte-level state machine to gain control over plaintext
-  routing.
+- `src/rmi/transport/transport_iface` — `pty_server_transport` implements
+  `server_transport_iface`; `pty_client_transport` implements
+  `client_transport_iface`.  Both reimplement the DCS byte-level state machine
+  locally so each side can control exactly how non-DCS bytes are routed (server
+  relays them to `stdout`; client discards them).
 - `src/rmi/server/server` — `pty_server_app` creates an `rmi::server` per
   session.
 - `src/rmi/client/client` — `pty_client_app` creates an `rmi::client`.

@@ -443,6 +443,30 @@ void reader_loop(std::shared_ptr<pty_shared_state> state) {
   };
 
   while (!state->stop_requested.load()) {
+    // Poll with a short timeout so buffered plaintext is flushed when the
+    // shell is idle (e.g., waiting at a prompt between bursts of output).
+    pollfd pfd{};
+    pfd.fd     = state->master_fd;
+    pfd.events = POLLIN;
+    const int rc = ::poll(&pfd, 1, 10);
+    if (rc == 0) {
+      flush_plain();
+      continue;
+    }
+    if (rc < 0) {
+      if (errno == EINTR) continue;
+      flush_plain();
+      state->shell_running.store(false);
+      close_and_notify(*state);
+      return;
+    }
+    if ((pfd.revents & POLLERR) != 0) {
+      flush_plain();
+      state->shell_running.store(false);
+      close_and_notify(*state);
+      return;
+    }
+
     uint8_t c = 0;
     const ssize_t n = ::read(state->master_fd, &c, 1);
     if (n == 0 || (n < 0 && errno != EINTR)) {
@@ -679,11 +703,9 @@ void pty_server_transport::start(bison::dynamic params) {
     }
   }
 
-  // Start reader thread first so it can process any early client bytes.
+  // Start reader thread before relay so early client frames are not lost.
   impl_->reader_thread_ = std::thread(reader_loop, impl_->state_);
-  // Then emit HELLO so any waiting client can start the handshake.
-  emit_dcs(*impl_->state_, std::string{kProtoVersion} + ";type=HELLO");
-  // Start input relay last — user input should not race the HELLO.
+  // Start input relay last — user input should not race reader startup.
   impl_->input_relay_thread_ = std::thread(input_relay_loop, impl_->state_);
 }
 
@@ -712,6 +734,9 @@ pty_server_transport::accept(std::chrono::milliseconds timeout) {
       return nullptr;
     }
   }
+
+  // Respond to the client's HELLO so the client's open() handshake completes.
+  emit_dcs(*impl_->state_, std::string{kProtoVersion} + ";type=HELLO");
 
   return std::make_unique<pty_server_connection>(
       std::make_unique<pty_server_connection::impl>(impl_->state_));
@@ -770,9 +795,8 @@ void pty_server_transport::restart_session() {
   st.closed.store(false);
   st.hello_seen.store(false);
   impl_->accepted_.store(false);
-
-  // Re-emit HELLO so the next client can start the handshake immediately.
-  emit_dcs(st, std::string{kProtoVersion} + ";type=HELLO");
+  // No HELLO emission here — the next client initiates by sending its own
+  // HELLO, and accept() responds when it arrives.
 }
 
 bool pty_server_transport::is_shell_running() const {

@@ -7,7 +7,7 @@
 
 #if defined(__linux__)
 
-#include "src/rmi/transport/stdio_transport.hpp"
+#include "src/pty/pty_client_transport.hpp"
 
 #include <iostream>
 
@@ -22,10 +22,9 @@ void pty_client_app::on_error(const std::string& msg) const {
 }
 
 void pty_client_app::on_connect_params(bison::dynamic& params) const {
-  params["mode"_key]                  = std::string{"dcs"};
-  // Five minutes: gives the user time to SSH and start the client process
-  // before the server's HELLO window expires.
-  params["handshake_timeout_ms"_key]  = int32_t{300000};
+  // Five minutes: gives the user time to start the client process
+  // inside the server's terminal before the handshake times out.
+  params["handshake_timeout_ms"_key] = int32_t{300000};
 }
 
 // ── run() ─────────────────────────────────────────────────────────────────
@@ -35,8 +34,9 @@ int pty_client_app::run(int argc, char** argv) {
   (void)argv;
 
   try {
-    // The client is a remote process whose stdin/stdout are the SSH channel.
-    rmi::transport::stdio_client_transport transport;
+    // Use the PTY-aware client transport: it sends HELLO first, then waits
+    // for the server's HELLO response (client-initiated handshake).
+    pty_client_transport transport;
     rmi::client c{std::move(transport)};
 
     bison::dynamic params;

@@ -92,9 +92,10 @@ class pty_server_transport : public rmi::transport::server_transport_iface {
   pty_server_transport& operator=(const pty_server_transport&) = delete;
 
   /**
-   * @brief Fork the shell, start background threads, and emit a HELLO frame.
+   * @brief Fork the shell and start the reader and input-relay threads.
    *
    * Idempotent — subsequent calls while the shell is running are no-ops.
+   * Does NOT emit a HELLO frame; the client initiates the handshake.
    *
    * @param params Optional transport configuration; mode=dcs is forced.
    * @throws std::runtime_error if `forkpty` fails.
@@ -102,12 +103,15 @@ class pty_server_transport : public rmi::transport::server_transport_iface {
   void start(bison::dynamic params) override;
 
   /**
-   * @brief Wait for a client HELLO and return the session connection.
+   * @brief Wait for the client's HELLO, respond, and return the connection.
    *
-   * Blocks until the bison client sends a HELLO frame through the PTY channel,
-   * or until @p timeout elapses or the shell exits.  After returning a
-   * non-null connection, subsequent calls return `nullptr` until
-   * `restart_session()` resets the state.
+   * Blocks until `pty_client_transport::open()` on the remote side sends a
+   * HELLO frame through the PTY channel, or until @p timeout elapses or the
+   * shell exits.  On success, responds with the server's own HELLO so the
+   * client's `open()` call unblocks, then returns the connection.
+   *
+   * After returning a non-null connection, subsequent calls return `nullptr`
+   * until `restart_session()` resets the state.
    *
    * @param timeout Maximum wait duration.
    * @return Live connection on success; `nullptr` on timeout or shell exit.
@@ -126,9 +130,9 @@ class pty_server_transport : public rmi::transport::server_transport_iface {
   /**
    * @brief Prepare for the next client session without restarting the shell.
    *
-   * Clears the inbox, resets session atomics, and re-emits a HELLO frame so
-   * the next client can complete the handshake.  Must only be called after the
-   * previous session's `rmi::server` has been destroyed.
+   * Clears the inbox and resets session atomics so `accept()` will wait for
+   * the next client HELLO.  Must only be called after the previous session's
+   * `rmi::server` has been destroyed.
    */
   void restart_session();
 
