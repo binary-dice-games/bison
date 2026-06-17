@@ -1,411 +1,611 @@
 // MIT License © 2025 Binary Dice Games
 // examples/bison_abi_example.cpp
 //
-// Exercises the Bison C ABI (bison_abi.dll / bison_c.h) through the C++ RAII
-// wrapper (include/bison_c.hpp, namespace bdg::bison::abi).  Every operation
-// goes through the stable C boundary; no C++ internals are shared with the DLL.
+// Detailed, runnable examples demonstrating every major feature of the Bison
+// C ABI (bison_c.h / bison_abi.dll).  Each example is a self-contained
+// function.  Run the executable to see the output.
 //
-// Coverage mirrors bison_example.cpp where the C ABI provides equivalent
-// functionality.  Features with no C-ABI counterpart are noted in comments:
-//   - Binary serialization (standard, schema-driven, buffer) — not in C ABI.
-//   - Field attributes and monostate / hash_t / key_t field types — not in C ABI.
-//   - Per-object clear, erase, clone, forEach — not in C ABI.
-//   - Userdata — not in C ABI.
+// This file intentionally uses only the stable C ABI — no C++ templates or
+// internal headers.  Include only "bison_c.h".
 
-#include <iostream>
-#include <stdexcept>
-#include <string>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
-#include "include/bison_c.hpp"
-
-using namespace bdg::bison::abi;
+#include "bison_c.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Helper
+// Helper: print a separator line for readability
 // ─────────────────────────────────────────────────────────────────────────────
 static void section(const char* title) {
   static int index = 0;
-  std::cout << "\n==========================================\n";
-  std::cout << "  " << ++index << ". " << title << "\n";
-  std::cout << "==========================================\n";
+  printf("\n==========================================\n");
+  printf("  %d. %s\n", ++index, title);
+  printf("==========================================\n");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: read a string field into a stack buffer and print it
+// ─────────────────────────────────────────────────────────────────────────────
+static void print_string_field(bison_handle h, const char* field_name) {
+  bison_hash key = bison_key(field_name);
+  size_t len = 0;
+  bison_get_string(h, key, NULL, 0, &len);
+  char buf[256] = {0};
+  bison_get_string(h, key, buf, sizeof(buf), NULL);
+  printf("%s\n", buf);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Example 1: Hashing and keys
 //
-// bison_key() and the ""_key literal (defined in bison_c.hpp) both compute the
-// same 32-bit FNV-1a hash with MSB forced to 1.
+// bison_key() computes the same FNV-1a hash as the C++ "name"_key literal.
+// Pass the returned bison_hash to every field/class/method API.
 // ─────────────────────────────────────────────────────────────────────────────
-static void example_hashing() {
+static void example_hashing(void) {
   section("Hashing and keys");
 
-  // Compile-time hash via the _key literal.
-  constexpr bison_hash k1 = "velocity"_key;
-
-  // Runtime hash via bison_key() — same value.
+  bison_hash k1 = bison_key("velocity");
   bison_hash k2 = bison_key("velocity");
-  std::cout << "\"velocity\"_key == bison_key(\"velocity\"): "
-            << std::boolalpha << (k1 == k2) << "\n";
 
-  // Named keys always have the high bit set so they cannot collide with small
-  // numeric array indices.
-  std::cout << "High bit set on named key: "
-            << std::boolalpha << bool(k1 & 0x80000000u) << "\n";
+  printf("bison_key(\"velocity\") is stable: %s\n",
+         (k1 == k2) ? "true" : "false");
 
-  // dynamic::key() is the wrapper's runtime equivalent of bison_key().
-  bison_hash k3 = dynamic::key("score");
-  std::cout << "dynamic::key(\"score\") == \"score\"_key: "
-            << std::boolalpha << (k3 == "score"_key) << "\n";
+  // Named keys have the high bit set so they never collide with numeric
+  // array indices (0, 1, 2, …).
+  printf("High bit set on named key: %s\n",
+         (k1 & 0x80000000u) ? "true" : "false");
+
+  // Different names produce different hashes.
+  bison_hash kscore = bison_key("score");
+  printf("\"velocity\" != \"score\": %s\n",
+         (k1 != kscore) ? "true" : "false");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Example 2: Field type access and type errors
+// Example 2: Scalar field get / set
 //
-// The C ABI exposes typed setters/getters; requesting the wrong type returns
-// BISON_ERR_TYPE (the C++ wrapper converts this to std::runtime_error).
-//
-// Not tested here (no C-ABI equivalent): field attributes, monostate checks,
-// hash_t / key_t as stored field values.
+// bison_set_*(h, name, value) stores typed values on any dynamic object.
+// bison_get_*(h, name, &out)  retrieves them; returns BISON_ERR_TYPE on
+// mismatch.
 // ─────────────────────────────────────────────────────────────────────────────
-static void example_field_types() {
-  section("Field type access and type errors");
+static void example_scalar_fields(void) {
+  section("Scalar field get / set");
 
-  auto obj = dynamic::create();
-  obj.set("score"_key,  int32_t{42});
-  obj.set("label"_key,  "hello");
-  obj.set("ratio"_key,  1.5f);
-  obj.set("active"_key, true);
+  bison_handle h = bison_create(bison_key("Person"));
 
-  std::cout << "int   : " << obj.get<int32_t>("score"_key) << "\n";
-  std::cout << "string: " << obj.get<std::string>("label"_key) << "\n";
-  std::cout << "float : " << obj.get<float>("ratio"_key) << "\n";
-  std::cout << "bool  : " << std::boolalpha
-            << obj.get<bool>("active"_key) << "\n";
+  bison_set_string(h, bison_key("name"), "Alice");
+  bison_set_int(h, bison_key("age"), 30);
+  bison_set_float(h, bison_key("score"), 9.5f);
+  bison_set_bool(h, bison_key("active"), 1);
 
-  // Requesting the wrong type raises BISON_ERR_TYPE → std::runtime_error.
-  try {
-    obj.get<float>("score"_key);  // score holds int32_t, not float
-  } catch (const std::runtime_error& e) {
-    std::cout << "Expected type error: " << e.what() << "\n";
-  }
+  // ── Getters ───────────────────────────────────────────────────────────────
+  char name[64] = {0};
+  bison_get_string(h, bison_key("name"), name, sizeof(name), NULL);
+  printf("name   : %s\n", name);
 
-  // A null dynamic reference is a valid field value distinct from "no field".
-  obj.set("child"_key, dynamic{});  // null handle → null dynamic ref
-  auto child = obj.get<dynamic>("child"_key);
-  std::cout << "Null object field (valid, handle is null): "
-            << !child << "\n";
+  int32_t age = 0;
+  bison_get_int(h, bison_key("age"), &age);
+  printf("age    : %d\n", age);
+
+  float score = 0.f;
+  bison_get_float(h, bison_key("score"), &score);
+  printf("score  : %.1f\n", score);
+
+  int active = 0;
+  bison_get_bool(h, bison_key("active"), &active);
+  printf("active : %s\n", active ? "true" : "false");
+
+  // ── Type mismatch returns BISON_ERR_TYPE ──────────────────────────────────
+  int32_t wrong = 0;
+  bison_error err = bison_get_int(h, bison_key("score"), &wrong);
+  printf("type mismatch error: %s\n",
+         (err == BISON_ERR_TYPE) ? "BISON_ERR_TYPE (expected)" : "unexpected");
+
+  bison_release(h);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Example 3: dynamic — named fields, indexed fields, nested objects
+// Example 3: Nested objects
 //
-// Not tested here (no C-ABI equivalent): addField duplicate rejection, clone,
-// per-object clear, forEach / erase / empty.
+// bison_set_object() stores a child handle inside a parent.  The library
+// increments the child's ref-count, so both the caller and the parent share
+// the same underlying object.  Release every handle you own.
 // ─────────────────────────────────────────────────────────────────────────────
-static void example_dynamic_basics() {
-  section("dynamic - named fields, indexed fields, nested objects");
+static void example_nested_objects(void) {
+  section("Nested objects");
 
-  // ── Named fields ──────────────────────────────────────────────────────────
-  auto obj = dynamic::create("Person"_key);
-  obj["name"_key]   = "Alice";
-  obj["age"_key]    = int32_t{30};
-  obj["active"_key] = true;
+  bison_handle person = bison_create(bison_key("Person"));
+  bison_set_string(person, bison_key("name"), "Alice");
 
-  std::cout << "name  : " << obj.get<std::string>("name"_key) << "\n";
-  std::cout << "age   : " << obj.get<int32_t>("age"_key) << "\n";
-  std::cout << "active: " << std::boolalpha
-            << obj.get<bool>("active"_key) << "\n";
+  bison_handle address = bison_create(0);
+  bison_set_string(address, bison_key("street"), "123 Main St");
+  bison_set_string(address, bison_key("city"), "Springfield");
 
-  // operator[] proxy implicit conversion also works for reading.
-  std::string name_str = obj["name"_key];
-  std::cout << "name (operator[]): " << name_str << "\n";
+  // Embed address inside person.
+  bison_set_object(person, bison_key("address"), address);
 
-  // ── Numeric (array-like) fields ───────────────────────────────────────────
-  auto list = dynamic::create();
-  list.set(size_t{0}, "red");
-  list.set(size_t{1}, "green");
-  list.set(size_t{2}, "blue");
+  // bison_set_object incremented address's ref-count; we can release our copy.
+  bison_release(address);
 
-  std::cout << "list size : " << list.size() << "\n";
-  std::cout << "list[1]   : " << list.get<std::string>(size_t{1}) << "\n";
+  // Retrieve the nested object.
+  bison_handle addr_out = NULL;
+  bison_get_object(person, bison_key("address"), &addr_out);
 
-  // ── Nested dynamic objects ────────────────────────────────────────────────
-  auto address = dynamic::create();
-  address.set("street"_key, "123 Main St");
-  address.set("city"_key,   "Springfield");
+  char city[64] = {0};
+  bison_get_string(addr_out, bison_key("city"), city, sizeof(city), NULL);
+  printf("city: %s\n", city);
 
-  obj.set("address"_key, address);
-
-  auto addr_back = obj.get<dynamic>("address"_key);
-  std::cout << "city: " << addr_back.get<std::string>("city"_key) << "\n";
+  bison_release(addr_out);
+  bison_release(person);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Serialization (standard, schema-driven, buffer) — not exposed by the C ABI.
-// Use the C++ bison.hpp API directly for bison_serialize / bison_deserialize.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Example 4: Methods
+// Example 4: Numeric (array-like) indexing
 //
-// Methods registered via the C++ wrapper store the lambda in a heap-allocated
-// MethodCallback; the C ABI is given a plain function pointer + void* user
-// context that dispatches to the lambda.
+// Use bison_set_*_at / bison_get_*_at with a size_t index to store ordered
+// sequences inside a dynamic object.  bison_size() returns the count of
+// numeric-index entries (= last_index + 1).
 // ─────────────────────────────────────────────────────────────────────────────
-static void example_methods() {
-  section("Methods");
+static void example_numeric_indexing(void) {
+  section("Numeric (array-like) indexing");
 
-  auto calc = dynamic::create("Calculator"_key);
-  calc.set("total"_key, int32_t{0});
+  bison_handle list = bison_create(0);
+  bison_set_string_at(list, 0, "red");
+  bison_set_string_at(list, 1, "green");
+  bison_set_string_at(list, 2, "blue");
 
-  // "add" — reads two params and writes the sum into result.
-  calc.add_method(
-      "add"_key,
-      [](dynamic& /*self*/, const dynamic& params, dynamic& result) {
-        int32_t a = params.get<int32_t>("a"_key);
-        int32_t b = params.get<int32_t>("b"_key);
-        result.set("value"_key, a + b);
-      });
+  printf("list size : %zu\n", bison_size(list));
 
-  // "accumulate" — mutates self and writes the running total into result.
-  calc.add_method(
-      "accumulate"_key,
-      [](dynamic& self, const dynamic& params, dynamic& result) {
-        int32_t n     = params.get<int32_t>("n"_key);
-        int32_t total = self.get<int32_t>("total"_key) + n;
-        self.set("total"_key, total);
-        result.set("total"_key, total);
-      });
+  char item[64] = {0};
+  bison_get_string_at(list, 1, item, sizeof(item), NULL);
+  printf("list[1]   : %s\n", item);
+
+  // Float-typed array-like storage in a separate object.
+  bison_handle scores = bison_create(0);
+  bison_set_int_at(scores, 0, 10);
+  bison_set_int_at(scores, 1, 20);
+  bison_set_int_at(scores, 2, 30);
+
+  int32_t s = 0;
+  bison_get_int_at(scores, 2, &s);
+  printf("scores[2] : %d\n", s);
+
+  // Fields are type-locked: assigning float to an int slot returns BISON_ERR_TYPE.
+  bison_error type_err = bison_set_float_at(scores, 0, 1.1f);
+  printf("type mismatch at[0]: %s\n",
+         (type_err == BISON_ERR_TYPE) ? "BISON_ERR_TYPE (expected)" : "unexpected");
+
+  // Use a separate object for float-typed indices.
+  bison_handle fscores = bison_create(0);
+  bison_set_float_at(fscores, 0, 1.1f);
+  bison_set_float_at(fscores, 1, 2.2f);
+  float f0 = 0.f;
+  bison_get_float_at(fscores, 0, &f0);
+  printf("fscores[0]: %.1f\n", f0);
+  bison_release(fscores);
+
+  bison_release(scores);
+  bison_release(list);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 5: Methods – attaching behaviour to objects
+//
+// bison_add_method() registers a C callback on an object.  bison_call()
+// invokes it.  The callback receives self, params (arguments), result (output
+// object), and an optional user context pointer.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Method implementations are plain C functions (or static C++ functions).
+static void method_add(
+    bison_handle self, bison_handle params, bison_handle result, void* user) {
+  (void)self;
+  (void)user;
+  int32_t a = 0, b = 0;
+  bison_get_int(params, bison_key("a"), &a);
+  bison_get_int(params, bison_key("b"), &b);
+  bison_set_int(result, bison_key("value"), a + b);
+}
+
+static void method_accumulate(
+    bison_handle self, bison_handle params, bison_handle result, void* user) {
+  (void)user;
+  int32_t n = 0;
+  bison_get_int(params, bison_key("n"), &n);
+  int32_t total = 0;
+  bison_get_int(self, bison_key("total"), &total);
+  total += n;
+  bison_set_int(self, bison_key("total"), total);
+  bison_set_int(result, bison_key("total"), total);
+}
+
+static void example_methods(void) {
+  section("Methods - attaching behaviour to objects");
+
+  bison_handle calc = bison_create(bison_key("Calculator"));
+  bison_set_int(calc, bison_key("total"), 0);
+
+  bison_add_method(calc, bison_key("add"), method_add, NULL, NULL);
+  bison_add_method(calc, bison_key("accumulate"), method_accumulate, NULL, NULL);
 
   // Call "add".
-  auto args = dynamic::create();
-  args.set("a"_key, int32_t{10});
-  args.set("b"_key, int32_t{32});
-  auto sum = calc.call("add"_key, args);
-  std::cout << "10 + 32 = " << sum.get<int32_t>("value"_key) << "\n";
+  bison_handle args = bison_create(0);
+  bison_set_int(args, bison_key("a"), 10);
+  bison_set_int(args, bison_key("b"), 32);
 
-  // Call "accumulate" several times.
+  bison_handle sum = NULL;
+  bison_call(calc, bison_key("add"), args, &sum);
+
+  int32_t value = 0;
+  bison_get_int(sum, bison_key("value"), &value);
+  printf("10 + 32 = %d\n", value);
+
+  bison_release(sum);
+  bison_release(args);
+
+  // Call "accumulate" five times.
   for (int i = 1; i <= 5; ++i) {
-    auto p = dynamic::create();
-    p.set("n"_key, int32_t{i});
-    calc.call("accumulate"_key, p);
+    bison_handle p = bison_create(0);
+    bison_set_int(p, bison_key("n"), i);
+    bison_handle res = NULL;
+    bison_call(calc, bison_key("accumulate"), p, &res);
+    bison_release(res);
+    bison_release(p);
   }
-  std::cout << "accumulated total (1+2+3+4+5): "
-            << calc.get<int32_t>("total"_key) << "\n";
 
-  // Calling a non-existent method returns BISON_ERR_NOT_FOUND → throws.
-  try {
-    auto empty = dynamic::create();
-    calc.call("sqrt"_key, empty);
-  } catch (const std::runtime_error& e) {
-    std::cout << "Expected error: " << e.what() << "\n";
-  }
+  int32_t total = 0;
+  bison_get_int(calc, bison_key("total"), &total);
+  printf("accumulated total (1+2+3+4+5): %d\n", total);
+
+  // Calling a non-existent method returns BISON_ERR_NOT_FOUND.
+  bison_handle dummy_params = bison_create(0);
+  bison_handle dummy_result = NULL;
+  bison_error err = bison_call(calc, bison_key("sqrt"), dummy_params, &dummy_result);
+  printf("call unknown method: %s\n",
+         (err == BISON_ERR_NOT_FOUND) ? "BISON_ERR_NOT_FOUND (expected)"
+                                      : "unexpected");
+  bison_release(dummy_params);
+
+  bison_release(calc);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Example 5: Class hierarchy and inheritance
+// Example 6: Class hierarchy and inheritance
+//
+// bison_add_class() registers a prototype in the global registry.
+// bison_instantiate() creates a new instance that inherits the prototype's
+// fields and methods.  Pass a parent_name hash to establish inheritance.
 // ─────────────────────────────────────────────────────────────────────────────
-static void example_inheritance() {
+
+static void method_describe(
+    bison_handle self, bison_handle params, bison_handle result, void* user) {
+  (void)params;
+  (void)user;
+  char color[64] = {0};
+  bison_get_string(self, bison_key("color"), color, sizeof(color), NULL);
+  char text[80] = {0};
+  snprintf(text, sizeof(text), "%s shape", color);
+  bison_set_string(result, bison_key("text"), text);
+}
+
+static void method_area(
+    bison_handle self, bison_handle params, bison_handle result, void* user) {
+  (void)params;
+  (void)user;
+  float r = 0.f;
+  bison_get_float(self, bison_key("radius"), &r);
+  bison_set_float(result, bison_key("area"), 3.14159265f * r * r);
+}
+
+static void example_inheritance(void) {
   section("Class hierarchy and inheritance");
 
   bison_clear_registry();
 
-  // Register a base class (global namespace, no parent).
-  auto shape = dynamic::create("Shape"_key);
-  shape.set("color"_key, "black");
-  shape.add_method(
-      "describe"_key,
-      [](dynamic& self, const dynamic& /*params*/, dynamic& result) {
-        std::string text = self.get<std::string>("color"_key) + " shape";
-        result.set("text"_key, text.c_str());
-      });
-  dynamic::add_class(bison_hash{0}, shape);  // parent=0 → root class
+  // ── Register the base "Shape" class ───────────────────────────────────────
+  bison_handle shape = bison_create(bison_key("Shape"));
+  bison_set_string(shape, bison_key("color"), "black");
+  bison_add_method(shape, bison_key("describe"), method_describe, NULL, NULL);
+  bison_add_class(0, shape, 0, NULL);
+  bison_release(shape);
 
-  // Register a child class (global namespace, parent = Shape).
-  auto circle = dynamic::create("Circle"_key);
-  circle.set("radius"_key, 1.0f);
-  circle.add_method(
-      "area"_key,
-      [](dynamic& self, const dynamic& /*params*/, dynamic& result) {
-        const float pi = 3.14159265f;
-        float r        = self.get<float>("radius"_key);
-        result.set("area"_key, pi * r * r);
-      });
-  dynamic::add_class("Shape"_key, circle);  // parent = Shape
+  // ── Register the child "Circle" class ─────────────────────────────────────
+  bison_handle circle = bison_create(bison_key("Circle"));
+  bison_set_float(circle, bison_key("radius"), 1.0f);
+  bison_add_method(circle, bison_key("area"), method_area, NULL, NULL);
+  bison_add_class(0, circle, bison_key("Shape"), NULL);
+  bison_release(circle);
 
-  // Instantiate and use.
-  auto c = dynamic::instantiate("Circle"_key);
-  c.set("radius"_key, 5.0f);
-  c.set("color"_key, "red");  // field defined on the Shape prototype
+  // ── Instantiate and use ───────────────────────────────────────────────────
+  bison_handle c = bison_instantiate(0, bison_key("Circle"));
+  bison_set_float(c, bison_key("radius"), 5.0f);
+  bison_set_string(c, bison_key("color"), "red"); // inherited from Shape
 
-  auto area_args = dynamic::create();
-  auto area      = c.call("area"_key, area_args);
-  std::cout << "Circle area (r=5): " << area.get<float>("area"_key) << "\n";
+  // Call own method.
+  bison_handle area_result = NULL;
+  bison_handle empty_params = bison_create(0);
+  bison_call(c, bison_key("area"), empty_params, &area_result);
+  float area = 0.f;
+  bison_get_float(area_result, bison_key("area"), &area);
+  printf("Circle area (r=5): %.4f\n", area);
+  bison_release(area_result);
 
-  auto desc_args = dynamic::create();
-  auto desc      = c.call("describe"_key, desc_args);  // method from Shape
-  std::cout << "Description: " << desc.get<std::string>("text"_key) << "\n";
+  // Call inherited method from Shape.
+  bison_handle desc_result = NULL;
+  bison_call(c, bison_key("describe"), empty_params, &desc_result);
+  char text[128] = {0};
+  bison_get_string(desc_result, bison_key("text"), text, sizeof(text), NULL);
+  printf("Description: %s\n", text);
+  bison_release(desc_result);
+  bison_release(empty_params);
 
-  // A fresh instance inherits the default color from the Shape prototype.
-  auto c2 = dynamic::instantiate("Circle"_key);
-  std::cout << "Inherited color: " << c2.get<std::string>("color"_key) << "\n";
+  // Inherited field from Shape available on a fresh instance.
+  bison_handle c2 = bison_instantiate(0, bison_key("Circle"));
+  char inherited_color[64] = {0};
+  bison_get_string(c2, bison_key("color"), inherited_color,
+                   sizeof(inherited_color), NULL);
+  printf("Inherited color: %s\n", inherited_color);
+  bison_release(c2);
 
-  // find_class returns the registered prototype.
-  auto found = dynamic::find_class("Shape"_key);
-  std::cout << "find_class(Shape) found: "
-            << std::boolalpha << static_cast<bool>(found) << "\n";
+  // Duplicate registration is rejected (BISON_ERR_DUPLICATE).
+  bison_handle dup = bison_create(bison_key("Shape"));
+  bison_error dup_err = bison_add_class(0, dup, 0, NULL);
+  printf("Duplicate addClass rejected: %s\n",
+         (dup_err == BISON_ERR_DUPLICATE) ? "true" : "false");
+  bison_release(dup);
 
+  // bison_find_class looks up the prototype in the registry.
+  bison_handle found = bison_find_class(0, bison_key("Shape"));
+  printf("Shape found in registry: %s\n", (found != NULL) ? "true" : "false");
+  // found is a non-owning view — do NOT release it.
+
+  bison_release(c);
   bison_clear_registry();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Userdata — not exposed by the C ABI.
+// Example 7: Namespaces – isolating classes by unit
+//
+// Pass a non-zero ns_name hash to bison_add_class / bison_instantiate to
+// register and instantiate classes in a named namespace.  Classes in different
+// namespaces may share the same name without collision.  Pass 0 for global.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Example 6: JSON import
-// ─────────────────────────────────────────────────────────────────────────────
-static void example_json() {
-  section("JSON import (bison_from_json)");
-
-  auto obj = dynamic::from_json(R"({
-    "name":    "Alice",
-    "age":     30,
-    "score":   9.5,
-    "active":  true,
-    "tags":    ["c++", "bison", "serialization"],
-    "address": {
-      "city":  "Springfield",
-      "zip":   12345
-    }
-  })");
-
-  std::cout << "name   : " << obj.get<std::string>("name"_key) << "\n";
-  std::cout << "age    : " << obj.get<int32_t>("age"_key) << "\n";
-  std::cout << "active : " << std::boolalpha
-            << obj.get<bool>("active"_key) << "\n";
-  std::cout << "score  : " << obj.get<float>("score"_key) << "\n";
-
-  // Nested object.
-  auto addr = obj.get<dynamic>("address"_key);
-  std::cout << "city   : " << addr.get<std::string>("city"_key) << "\n";
-
-  // JSON array is stored as a numeric-indexed dynamic.
-  auto tags = obj.get<dynamic>("tags"_key);
-  std::cout << "tags[0]: " << tags.get<std::string>(size_t{0}) << "\n";
-  std::cout << "tags[2]: " << tags.get<std::string>(size_t{2}) << "\n";
-  std::cout << "tag count: " << tags.size() << "\n";
-
-  // Mutation after import.
-  obj.set("name"_key, "Bob");
-  std::cout << "updated name: " << obj.get<std::string>("name"_key) << "\n";
-
-  // A bad JSON string returns NULL → from_json throws.
-  try {
-    dynamic::from_json("{bad json}");
-  } catch (const std::runtime_error& e) {
-    std::cout << "Expected parse error: " << e.what() << "\n";
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Example 7: YAML import
-// ─────────────────────────────────────────────────────────────────────────────
-static void example_yaml() {
-  section("YAML import (bison_from_yaml)");
-
-  auto obj = dynamic::from_yaml(R"(
-server:
-  host: localhost
-  port: 8080
-debug: true
-threshold: 0.75
-tags:
-  - yaml
-  - bison
-  - example
-)");
-
-  auto server = obj.get<dynamic>("server"_key);
-  std::cout << "host      : " << server.get<std::string>("host"_key) << "\n";
-  std::cout << "port      : " << server.get<int32_t>("port"_key) << "\n";
-  std::cout << "debug     : " << std::boolalpha
-            << obj.get<bool>("debug"_key) << "\n";
-  std::cout << "threshold : " << obj.get<float>("threshold"_key) << "\n";
-
-  auto tags = obj.get<dynamic>("tags"_key);
-  std::cout << "tags[0]   : " << tags.get<std::string>(size_t{0}) << "\n";
-  std::cout << "tags[2]   : " << tags.get<std::string>(size_t{2}) << "\n";
-  std::cout << "tag count : " << tags.size() << "\n";
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Example 8: Namespaces — class isolation by unit
-// ─────────────────────────────────────────────────────────────────────────────
-static void example_namespaces() {
+static void example_namespaces(void) {
   section("Namespaces - class isolation by unit");
 
   bison_clear_registry();
 
-  // Register the same class name in two different namespaces.
-  auto math_table = dynamic::create("table"_key);
-  math_table.set("rows"_key, int32_t{0});
-  math_table.set("cols"_key, int32_t{0});
-  dynamic::add_class("math"_key, math_table, bison_hash{0});  // no parent
+  // "math" namespace: table is a data structure.
+  bison_handle math_table = bison_create(bison_key("table"));
+  bison_set_int(math_table, bison_key("rows"), 0);
+  bison_set_int(math_table, bison_key("cols"), 0);
+  bison_add_class(bison_key("math"), math_table, 0, NULL);
+  bison_release(math_table);
 
-  auto ikea_table = dynamic::create("table"_key);
-  ikea_table.set("legs"_key,     int32_t{4});
-  ikea_table.set("material"_key, "wood");
-  dynamic::add_class("ikea"_key, ikea_table, bison_hash{0});  // no parent
+  // "ikea" namespace: table is a piece of furniture.
+  bison_handle ikea_table = bison_create(bison_key("table"));
+  bison_set_int(ikea_table, bison_key("legs"), 4);
+  bison_set_string(ikea_table, bison_key("material"), "wood");
+  bison_add_class(bison_key("ikea"), ikea_table, 0, NULL);
+  bison_release(ikea_table);
 
-  // Instantiate from each namespace.
-  auto mt = dynamic::instantiate("math"_key, "table"_key);
-  mt.set("rows"_key, int32_t{10});
-  mt.set("cols"_key, int32_t{5});
+  printf("Registered 'table' in both 'math' and 'ikea' namespaces\n");
 
-  auto it = dynamic::instantiate("ikea"_key, "table"_key);
-  it.set("legs"_key,     int32_t{4});
-  it.set("material"_key, "oak");
+  bison_handle mt = bison_instantiate(bison_key("math"), bison_key("table"));
+  bison_set_int(mt, bison_key("rows"), 10);
+  bison_set_int(mt, bison_key("cols"), 5);
 
-  std::cout << "math::table rows=" << mt.get<int32_t>("rows"_key)
-            << " cols="            << mt.get<int32_t>("cols"_key) << "\n";
-  std::cout << "ikea::table legs=" << it.get<int32_t>("legs"_key)
-            << " material="        << it.get<std::string>("material"_key) << "\n";
+  bison_handle it = bison_instantiate(bison_key("ikea"), bison_key("table"));
+  bison_set_int(it, bison_key("legs"), 4);
+  bison_set_string(it, bison_key("material"), "oak");
+
+  int32_t rows = 0, cols = 0;
+  bison_get_int(mt, bison_key("rows"), &rows);
+  bison_get_int(mt, bison_key("cols"), &cols);
+  printf("math::table rows=%d cols=%d\n", rows, cols);
+
+  int32_t legs = 0;
+  char material[64] = {0};
+  bison_get_int(it, bison_key("legs"), &legs);
+  bison_get_string(it, bison_key("material"), material, sizeof(material), NULL);
+  printf("ikea::table legs=%d material=%s\n", legs, material);
 
   // Inheritance within a namespace.
-  auto base = dynamic::create("Furniture"_key);
-  base.set("warranty"_key, int32_t{5});
-  dynamic::add_class("ikea"_key, base, bison_hash{0});
+  bison_handle furniture = bison_create(bison_key("Furniture"));
+  bison_set_int(furniture, bison_key("warranty"), 5);
+  bison_add_class(bison_key("ikea"), furniture, 0, NULL);
+  bison_release(furniture);
 
-  auto sofa_proto = dynamic::create("Sofa"_key);
-  sofa_proto.set("seats"_key, int32_t{3});
-  dynamic::add_class("ikea"_key, sofa_proto, "Furniture"_key);
+  bison_handle sofa = bison_create(bison_key("Sofa"));
+  bison_set_int(sofa, bison_key("seats"), 3);
+  bison_add_class(bison_key("ikea"), sofa, bison_key("Furniture"), NULL);
+  bison_release(sofa);
 
-  auto sofa = dynamic::instantiate("ikea"_key, "Sofa"_key);
-  std::cout << "ikea::Sofa seats="   << sofa.get<int32_t>("seats"_key)
-            << " warranty="          << sofa.get<int32_t>("warranty"_key) << "\n";
+  bison_handle s = bison_instantiate(bison_key("ikea"), bison_key("Sofa"));
+  int32_t seats = 0, warranty = 0;
+  bison_get_int(s, bison_key("seats"), &seats);
+  bison_get_int(s, bison_key("warranty"), &warranty);
+  printf("ikea::Sofa seats=%d warranty=%d\n", seats, warranty);
 
+  bison_release(s);
+  bison_release(mt);
+  bison_release(it);
   bison_clear_registry();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 8: JSON import
+//
+// bison_from_json() parses a JSON string and returns a handle to the root
+// object.  Types are mapped the same way as extensions::from_json in C++:
+// int→int32_t, float→float, string→string, bool→bool,
+// object→nested dynamic, array→numeric-indexed dynamic.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_json(void) {
+  section("JSON import");
+
+  bison_handle obj = bison_from_json(
+      "{"
+      "\"name\":   \"Alice\","
+      "\"age\":    30,"
+      "\"score\":  9.5,"
+      "\"active\": true,"
+      "\"tags\":   [\"c++\", \"bison\", \"serialization\"],"
+      "\"address\": {"
+      "  \"city\": \"Springfield\","
+      "  \"zip\":  12345"
+      "}"
+      "}");
+
+  char name[64] = {0};
+  bison_get_string(obj, bison_key("name"), name, sizeof(name), NULL);
+  printf("name   : %s\n", name);
+
+  int32_t age = 0;
+  bison_get_int(obj, bison_key("age"), &age);
+  printf("age    : %d\n", age);
+
+  int active = 0;
+  bison_get_bool(obj, bison_key("active"), &active);
+  printf("active : %s\n", active ? "true" : "false");
+
+  float score = 0.f;
+  bison_get_float(obj, bison_key("score"), &score);
+  printf("score  : %.1f\n", score);
+
+  // Nested object.
+  bison_handle addr = NULL;
+  bison_get_object(obj, bison_key("address"), &addr);
+  char city[64] = {0};
+  bison_get_string(addr, bison_key("city"), city, sizeof(city), NULL);
+  printf("city   : %s\n", city);
+  bison_release(addr);
+
+  // Array stored as numeric-indexed dynamic.
+  bison_handle tags = NULL;
+  bison_get_object(obj, bison_key("tags"), &tags);
+  char tag0[64] = {0}, tag2[64] = {0};
+  bison_get_string_at(tags, 0, tag0, sizeof(tag0), NULL);
+  bison_get_string_at(tags, 2, tag2, sizeof(tag2), NULL);
+  printf("tags[0]: %s\n", tag0);
+  printf("tags[2]: %s\n", tag2);
+  printf("tag count: %zu\n", bison_size(tags));
+  bison_release(tags);
+
+  // Fields can be modified after import.
+  bison_set_string(obj, bison_key("name"), "Bob");
+  bison_get_string(obj, bison_key("name"), name, sizeof(name), NULL);
+  printf("updated name: %s\n", name);
+
+  bison_release(obj);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 9: YAML import
+//
+// bison_from_yaml() parses a YAML document and returns a handle to the root
+// object.  The type-coercion rules mirror extensions::from_yaml in C++.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_yaml(void) {
+  section("YAML import");
+
+  bison_handle obj = bison_from_yaml(
+      "server:\n"
+      "  host: localhost\n"
+      "  port: 8080\n"
+      "debug: true\n"
+      "threshold: 0.75\n"
+      "tags:\n"
+      "  - yaml\n"
+      "  - bison\n"
+      "  - example\n");
+
+  // Nested mapping.
+  bison_handle server = NULL;
+  bison_get_object(obj, bison_key("server"), &server);
+  char host[64] = {0};
+  bison_get_string(server, bison_key("host"), host, sizeof(host), NULL);
+  printf("host      : %s\n", host);
+  int32_t port = 0;
+  bison_get_int(server, bison_key("port"), &port);
+  printf("port      : %d\n", port);
+  bison_release(server);
+
+  int debug = 0;
+  bison_get_bool(obj, bison_key("debug"), &debug);
+  printf("debug     : %s\n", debug ? "true" : "false");
+
+  float threshold = 0.f;
+  bison_get_float(obj, bison_key("threshold"), &threshold);
+  printf("threshold : %.2f\n", threshold);
+
+  bison_handle tags = NULL;
+  bison_get_object(obj, bison_key("tags"), &tags);
+  char tag0[64] = {0}, tag2[64] = {0};
+  bison_get_string_at(tags, 0, tag0, sizeof(tag0), NULL);
+  bison_get_string_at(tags, 2, tag2, sizeof(tag2), NULL);
+  printf("tags[0]   : %s\n", tag0);
+  printf("tags[2]   : %s\n", tag2);
+  printf("tag count : %zu\n", bison_size(tags));
+  bison_release(tags);
+
+  bison_release(obj);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Example 10: Reference counting and bison_add_ref
+//
+// Every creation function returns a handle with ref-count 1.  bison_add_ref()
+// creates an additional alias to the same underlying object.  The object is
+// destroyed only when all handles have been released.
+// ─────────────────────────────────────────────────────────────────────────────
+static void example_ref_counting(void) {
+  section("Reference counting and bison_add_ref");
+
+  bison_handle h = bison_create(0);
+  bison_set_int(h, bison_key("x"), 42);
+
+  // Take a second reference.
+  bison_handle alias = bison_add_ref(h);
+
+  // Both handles share the same data.
+  int32_t v = 0;
+  bison_get_int(alias, bison_key("x"), &v);
+  printf("alias sees x = %d\n", v);
+
+  // Mutate through the alias; the original reflects the change.
+  bison_set_int(alias, bison_key("x"), 99);
+  bison_get_int(h, bison_key("x"), &v);
+  printf("original after alias mutate: x = %d\n", v);
+
+  // Release the alias; object survives because h still holds a reference.
+  bison_release(alias);
+
+  // Still accessible through h.
+  bison_get_int(h, bison_key("x"), &v);
+  printf("original after alias release: x = %d\n", v);
+
+  bison_release(h);
+  // Object is now destroyed.
+  printf("Both handles released\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // main
 // ─────────────────────────────────────────────────────────────────────────────
-int main() {
-  try {
-    example_hashing();
-    example_field_types();
-    example_dynamic_basics();
-    example_methods();
-    example_inheritance();
-    example_json();
-    example_yaml();
-    example_namespaces();
+int main(void) {
+  example_hashing();
+  example_scalar_fields();
+  example_nested_objects();
+  example_numeric_indexing();
+  example_methods();
+  example_inheritance();
+  example_namespaces();
+  example_json();
+  example_yaml();
+  example_ref_counting();
 
-    std::cout << "\nAll ABI examples completed successfully.\n";
-    return 0;
-  } catch (const std::exception& e) {
-    std::cerr << "FATAL: " << e.what() << "\n";
-    return 1;
-  }
+  printf("\nAll examples completed successfully.\n");
+  return 0;
 }

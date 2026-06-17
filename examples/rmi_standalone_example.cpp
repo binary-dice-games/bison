@@ -45,37 +45,37 @@ static void register_calculator() {
 
   // add(a, b) → result
   proto->addMethod(
-      "add"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+      "add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
         float a = params["a"_key];
         float b = params["b"_key];
         dynamic result;
         result["result"_key] = a + b;
         return result;
-      });
+      }});
 
   // subtract(a, b) → result
   proto->addMethod(
-      "subtract"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+      "subtract"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
         float a = params["a"_key];
         float b = params["b"_key];
         dynamic result;
         result["result"_key] = a - b;
         return result;
-      });
+      }});
 
   // multiply(a, b) → result
   proto->addMethod(
-      "multiply"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+      "multiply"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
         float a = params["a"_key];
         float b = params["b"_key];
         dynamic result;
         result["result"_key] = a * b;
         return result;
-      });
+      }});
 
   // divide(a, b) → result  (returns 0 and logs error on division by zero)
   proto->addMethod(
-      "divide"_key, [](dynamic& /*self*/, const dynamic& params) -> dynamic {
+      "divide"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
         float a = params["a"_key];
         float b = params["b"_key];
         dynamic result;
@@ -86,7 +86,7 @@ static void register_calculator() {
           result["result"_key] = a / b;
         }
         return result;
-      });
+      }});
 
   dynamic::addClass(0U, proto, 0U);
 }

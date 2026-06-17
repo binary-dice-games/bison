@@ -42,7 +42,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 using namespace bdg::bison;
 using json = nlohmann::json;
@@ -375,7 +375,7 @@ std::int32_t json_compute(json& obj, const json& params) {
 dynamic make_dynamic_method_record(std::size_t iteration) {
   dynamic obj = make_dynamic_record(iteration);
   obj.addMethod(
-      "compute"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "compute"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         const float score =
             self[KEY_SCORE].as<float>() + params[KEY_DELTA].as<float>();
         const std::int32_t level = self[KEY_LEVEL].as<std::int32_t>() +
@@ -394,7 +394,7 @@ dynamic make_dynamic_method_record(std::size_t iteration) {
             static_cast<std::int32_t>(self[KEY_NAME].as<std::string>().size()) +
             (active ? 1 : 0);
         return result;
-      });
+      }});
   return obj;
 }
 

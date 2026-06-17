@@ -2,12 +2,11 @@
 // Google Test suite for the pure-C Bison shared-library API.
 
 #include "bison_c.h"
-#include "bison_c.hpp"
 
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <cstring>
-#include <sstream>
+#include <string>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -234,7 +233,7 @@ TEST(ImportTests, FromYamlInvalidReturnsNull) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // We clear the class registry using the C++ API to avoid state leakage.
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 static void clearClasses() {
   bison_clear_registry();
 }
@@ -253,21 +252,21 @@ TEST_F(ClassRegistryTests, AddClassSucceeds) {
   uint32_t key = bison_key("Shape");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, H("sides"), 3);
-  EXPECT_EQ(bison_add_class(0, proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(ClassRegistryTests, AddDuplicateClassFails) {
   uint32_t key = bison_key("Widget");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class(0, p1, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(0, p2, 0), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class(0, p1, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(0, p2, 0, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(ClassRegistryTests, FindClassReturnsHandle) {
   uint32_t key = bison_key("Gadget");
   ScopedHandle proto{bison_create(key)};
-  bison_add_class(0, proto, 0);
+  bison_add_class(0, proto, 0, nullptr);
 
   bison_handle found = bison_find_class(0, key);
   EXPECT_NE(found, nullptr);
@@ -278,7 +277,7 @@ TEST_F(ClassRegistryTests, FindClassFromInstantiatedObjectReturnsHandle) {
   uint32_t key = bison_key("WidgetInst");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, H("v"), 1);
-  ASSERT_EQ(bison_add_class(0, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(0, proto, 0, nullptr), BISON_OK);
 
   bison_handle found = bison_find_class(0, key);
   EXPECT_NE(found, nullptr);
@@ -291,7 +290,7 @@ TEST_F(ClassRegistryTests, FindMissingClassReturnsNull) {
 }
 
 TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class(0, nullptr, 0), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class(0, nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -389,15 +388,15 @@ TEST_F(CApiNamespaceTest, AddClassNsSucceeds) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("rows"), 5);
-  EXPECT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, SameNameInDifferentNamespacesSucceeds) {
   bison_hash key = bison_key("table");
   ScopedHandle math_proto{bison_create(key)};
   ScopedHandle ikea_proto{bison_create(key)};
-  EXPECT_EQ(bison_add_class(bison_key("math"), math_proto, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(bison_key("ikea"), ikea_proto, 0), BISON_OK);
+  EXPECT_EQ(bison_add_class(bison_key("math"), math_proto, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(bison_key("ikea"), ikea_proto, 0, nullptr), BISON_OK);
 }
 
 TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
@@ -405,12 +404,12 @@ TEST_F(CApiNamespaceTest, DuplicateInSameNamespaceFails) {
   bison_hash ns = bison_key("ikea");
   ScopedHandle p1{bison_create(key)};
   ScopedHandle p2{bison_create(key)};
-  EXPECT_EQ(bison_add_class(ns, p1, 0), BISON_OK);
-  EXPECT_EQ(bison_add_class(ns, p2, 0), BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_class(ns, p1, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_class(ns, p2, 0, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST_F(CApiNamespaceTest, AddClassNsNullHandleReturnsNull) {
-  EXPECT_EQ(bison_add_class(bison_key("ns"), nullptr, 0), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_class(bison_key("ns"), nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
@@ -418,7 +417,7 @@ TEST_F(CApiNamespaceTest, InstantiateNsCreatesObjectInNamespace) {
   bison_hash ns = bison_key("math");
   ScopedHandle proto{bison_create(key)};
   bison_set_int(proto, bison_key("x"), 0);
-  ASSERT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 
   ScopedHandle inst{bison_instantiate(ns, key)};
   ASSERT_NE(inst.h, nullptr);
@@ -433,383 +432,129 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
   bison_hash key = bison_key("Sofa");
   bison_hash ns = bison_key("ikea");
   ScopedHandle proto{bison_create(key)};
-  ASSERT_EQ(bison_add_class(ns, proto, 0), BISON_OK);
+  ASSERT_EQ(bison_add_class(ns, proto, 0, nullptr), BISON_OK);
 
   bison_handle found = bison_find_class(ns, key);
   EXPECT_NE(found, nullptr);
   bison_release(found);
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// 9. C++ RAII wrapper coverage
-// ═════════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────────────
+// PrintTests — bison_print / bison_free_string
+// ─────────────────────────────────────────────────────────────────────────────
 
-class CxxWrapperTests : public ::testing::Test {
- protected:
-  void SetUp() override {
-    clearClasses();
-  }
-  void TearDown() override {
-    clearClasses();
-  }
-};
-
-TEST_F(CxxWrapperTests, SetGetSupportsChainingAndTypedAccess) {
-  using bdg::bison::abi::dynamic;
-
-  auto h = dynamic::create();
-  h.set(dynamic::key("score"), 42)
-      .set(dynamic::key("ratio"), 2.5f)
-      .set(dynamic::key("name"), "alice")
-      .set(0u, 100)
-      .set(1u, 200);
-
-  EXPECT_EQ(h.get<int32_t>(dynamic::key("score")), 42);
-  EXPECT_NEAR(h.get<float>(dynamic::key("ratio")), 2.5f, 1e-4f);
-  EXPECT_EQ(h.get<std::string>(dynamic::key("name")), "alice");
-  EXPECT_EQ(h.get<int32_t>(0u), 100);
-  EXPECT_EQ(h.get<int32_t>(1u), 200);
-  EXPECT_EQ(h.size(), 2u);
+static void free_and_null(char** s) {
+  bison_free_string(*s);
+  *s = nullptr;
 }
 
-TEST_F(CxxWrapperTests, FindClassNamespaceStaticApisWork) {
-  using bdg::bison::abi::dynamic;
+TEST(PrintTests, DefaultOptionsProducesMultilineOutput) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_string(h, bison_key("name"), "Alice");
+  bison_set_int(h, bison_key("age"), 30);
 
-  bison_hash ns = dynamic::key("math");
-  bison_hash klass = dynamic::key("Vec2");
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
 
-  auto proto = dynamic::create(klass);
-  proto.set(dynamic::key("x"), 7);
-  dynamic::add_class(ns, proto, 0);
+  const std::string s{out};
+  // Default is multiline — must contain newlines and braces.
+  EXPECT_NE(s.find('\n'), std::string::npos);
+  EXPECT_NE(s.find('{'),  std::string::npos);
+  EXPECT_NE(s.find('}'),  std::string::npos);
+  // Values appear in the output.
+  EXPECT_NE(s.find("\"Alice\""), std::string::npos);
+  EXPECT_NE(s.find("30"),        std::string::npos);
 
-  auto found_ns = dynamic::find_class(ns, klass);
-  ASSERT_TRUE(static_cast<bool>(found_ns));
-  EXPECT_EQ(found_ns.get<int32_t>(dynamic::key("x")), 7);
-
-  auto found_global = dynamic::find_class(klass);
-  EXPECT_FALSE(static_cast<bool>(found_global));
+  free_and_null(&out);
 }
 
-TEST_F(CxxWrapperTests, AddMethodWithCapturedLambdaWorksAndPersistsAcrossCopy) {
-  using bdg::bison::abi::dynamic;
+TEST(PrintTests, SingleLineOptionProducesNoNewlines) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_float(h, bison_key("score"), 7.5f);
 
-  auto h = dynamic::create();
-  h.set(dynamic::key("n"), 3);
+  bison_print_options opts{0, nullptr};  // single-line, default indent
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, &opts, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
 
-  int calls = 0;
-  int factor = 4;
-  h.add_method(
-      dynamic::key("mul"),
-      [&calls, factor](dynamic& self, const dynamic&, dynamic& result) {
-        ++calls;
-        int32_t n = self.get<int32_t>(dynamic::key("n"));
-        result.set(dynamic::key("value"), n * factor);
-      });
+  const std::string s{out};
+  EXPECT_EQ(s.find('\n'), std::string::npos);
+  EXPECT_NE(s.find("7.5"), std::string::npos);
 
-  // Copy should keep method callback state alive.
-  dynamic h2 = h;
-  auto params = dynamic::create();
-  auto result = h2.call(dynamic::key("mul"), params);
-
-  EXPECT_EQ(result.get<int32_t>(dynamic::key("value")), 12);
-  EXPECT_EQ(calls, 1);
+  free_and_null(&out);
 }
 
-TEST_F(CxxWrapperTests, MissingMethodThrowsRuntimeError) {
-  using bdg::bison::abi::dynamic;
+TEST(PrintTests, CustomIndentAppearsInOutput) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, bison_key("x"), 1);
 
-  auto h = dynamic::create();
-  auto params = dynamic::create();
-  EXPECT_THROW(
-      (void)h.call(dynamic::key("does_not_exist"), params), std::runtime_error);
+  bison_print_options opts{1, "----"};
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, &opts, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  const std::string s{out};
+  EXPECT_NE(s.find("----"), std::string::npos);
+
+  free_and_null(&out);
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
-// 10. field_ref / operator[] — bracket-access interface
-// ═════════════════════════════════════════════════════════════════════════════
+TEST(PrintTests, DisplayNameAttributeUsedAsFieldKey) {
+  ScopedHandle h{bison_create(0)};
+  bison_attributes meta{};
+  meta.display_name = "Player Name";
+  ASSERT_EQ(bison_add_field_string(h, bison_key("name"), "Bob", &meta), BISON_OK);
 
-class FieldRefTests : public ::testing::Test {
- protected:
-  void SetUp() override {
-    clearClasses();
-  }
-  void TearDown() override {
-    clearClasses();
-  }
-};
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
 
-// ── Setters ──────────────────────────────────────────────────────────────────
+  // DisplayName replaces the hash key in the output.
+  EXPECT_NE(std::string{out}.find("Player Name"), std::string::npos);
+  EXPECT_NE(std::string{out}.find("\"Bob\""),      std::string::npos);
 
-TEST_F(FieldRefTests, SetIntViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj["score"_key] = static_cast<int32_t>(99);
-
-  EXPECT_EQ(obj.get<int32_t>("score"_key), 99);
+  free_and_null(&out);
 }
 
-TEST_F(FieldRefTests, SetFloatViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
+TEST(PrintTests, MethodsAppearsWithDisplayName) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, bison_key("value"), 0);
 
-  auto obj = dynamic::create();
-  obj["ratio"_key] = 3.14f;
+  bison_attributes m_meta{};
+  m_meta.display_name = "Reset";
+  m_meta.description  = "Resets value to zero";
+  ASSERT_EQ(
+      bison_add_method(h, bison_key("reset"), double_counter_fn, nullptr, &m_meta),
+      BISON_OK);
+  // Method without attributes.
+  ASSERT_EQ(
+      bison_add_method(h, bison_key("ping"), double_counter_fn, nullptr, nullptr),
+      BISON_OK);
 
-  EXPECT_NEAR(obj.get<float>("ratio"_key), 3.14f, 1e-4f);
+  char* out = nullptr;
+  ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+
+  const std::string s{out};
+  // Named method key via DisplayName.
+  EXPECT_NE(s.find("Reset"),       std::string::npos);
+  // Attribute summary in method value.
+  EXPECT_NE(s.find("displayName"), std::string::npos);
+  // Method without attrs uses sentinel.
+  EXPECT_NE(s.find("<method>"),    std::string::npos);
+
+  free_and_null(&out);
 }
 
-TEST_F(FieldRefTests, SetBoolViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["active"_key] = true;
-
-  EXPECT_TRUE(obj.get<bool>("active"_key));
+TEST(PrintTests, NullHandleReturnsNullError) {
+  char* out = nullptr;
+  EXPECT_EQ(bison_print(nullptr, nullptr, &out), BISON_ERR_NULL);
+  EXPECT_EQ(out, nullptr);
 }
 
-TEST_F(FieldRefTests, SetBoolFalseViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["active"_key] = false;
-
-  EXPECT_FALSE(obj.get<bool>("active"_key));
+TEST(PrintTests, NullOutPointerReturnsNullError) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_print(h, nullptr, nullptr), BISON_ERR_NULL);
 }
 
-TEST_F(FieldRefTests, SetCStringViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj["name"_key] = "Carlos";
-
-  EXPECT_EQ(obj.get<std::string>("name"_key), "Carlos");
-}
-
-TEST_F(FieldRefTests, SetStdStringViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  std::string tag = "champion";
-  obj["tag"_key] = tag;
-
-  EXPECT_EQ(obj.get<std::string>("tag"_key), "champion");
-}
-
-TEST_F(FieldRefTests, SetNestedDynamicViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto child = dynamic::create();
-  child.set(dynamic::key("hp"), 100);
-
-  auto parent = dynamic::create("Player"_key);
-  parent["stats"_key] = child;
-
-  dynamic retrieved = parent.get<dynamic>("stats"_key);
-  EXPECT_EQ(retrieved.get<int32_t>(dynamic::key("hp")), 100);
-}
-
-// ── Getters ───────────────────────────────────────────────────────────────────
-
-TEST_F(FieldRefTests, GetIntViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj.set(dynamic::key("lives"), 3);
-
-  int32_t v = obj["lives"_key];
-  EXPECT_EQ(v, 3);
-}
-
-TEST_F(FieldRefTests, GetFloatViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj.set(dynamic::key("speed"), 9.8f);
-
-  float v = obj["speed"_key];
-  EXPECT_NEAR(v, 9.8f, 1e-4f);
-}
-
-TEST_F(FieldRefTests, GetBoolViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj.set(dynamic::key("ready"), true);
-
-  bool v = obj["ready"_key];
-  EXPECT_TRUE(v);
-}
-
-TEST_F(FieldRefTests, GetStringViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj.set(dynamic::key("name"), "Alice");
-
-  std::string s = obj["name"_key];
-  EXPECT_EQ(s, "Alice");
-}
-
-TEST_F(FieldRefTests, GetNestedDynamicViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto child = dynamic::create();
-  child.set(dynamic::key("mp"), 50);
-
-  auto parent = dynamic::create();
-  parent.set(dynamic::key("stats"), child);
-
-  dynamic retrieved = parent["stats"_key];
-  EXPECT_EQ(retrieved.get<int32_t>(dynamic::key("mp")), 50);
-}
-
-// ── Round-trips (write then read back through []) ─────────────────────────────
-
-TEST_F(FieldRefTests, IntRoundTripFullyViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj["score"_key] = static_cast<int32_t>(42);
-
-  int32_t v = obj["score"_key];
-  EXPECT_EQ(v, 42);
-}
-
-TEST_F(FieldRefTests, FloatRoundTripFullyViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["ratio"_key] = 1.5f;
-
-  float v = obj["ratio"_key];
-  EXPECT_NEAR(v, 1.5f, 1e-4f);
-}
-
-TEST_F(FieldRefTests, StringRoundTripFullyViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj["name"_key] = "Carlos";
-
-  std::string s = obj["name"_key];
-  EXPECT_EQ(s, "Carlos");
-}
-
-TEST_F(FieldRefTests, BoolRoundTripFullyViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["alive"_key] = true;
-
-  bool v = obj["alive"_key];
-  EXPECT_TRUE(v);
-}
-
-// ── Overwrite ─────────────────────────────────────────────────────────────────
-
-TEST_F(FieldRefTests, OverwriteFieldViaSubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["score"_key] = static_cast<int32_t>(10);
-  obj["score"_key] = static_cast<int32_t>(99);
-
-  int32_t v = obj["score"_key];
-  EXPECT_EQ(v, 99);
-}
-
-// ── Stream output ─────────────────────────────────────────────────────────────
-
-TEST_F(FieldRefTests, StreamOutputWritesStringField) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj["name"_key] = "Carlos";
-
-  std::ostringstream oss;
-  oss << obj["name"_key];
-  EXPECT_EQ(oss.str(), "Carlos");
-}
-
-// ── Error handling ────────────────────────────────────────────────────────────
-
-TEST_F(FieldRefTests, GetMissingFieldThrows) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  EXPECT_THROW(
-      { int32_t v = obj["missing"_key]; (void)v; },
-      std::runtime_error);
-}
-
-TEST_F(FieldRefTests, GetWrongTypeThrows) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["n"_key] = static_cast<int32_t>(7);
-
-  EXPECT_THROW(
-      { float v = obj["n"_key]; (void)v; },
-      std::runtime_error);
-}
-
-// ── Interaction with existing set/get API ────────────────────────────────────
-
-TEST_F(FieldRefTests, SubscriptWriteIsReadableByGetMethod) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj["xp"_key] = static_cast<int32_t>(500);
-
-  EXPECT_EQ(obj.get<int32_t>(dynamic::key("xp")), 500);
-}
-
-TEST_F(FieldRefTests, SetMethodWriteIsReadableBySubscript) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create();
-  obj.set(dynamic::key("level"), 7);
-
-  int32_t v = obj["level"_key];
-  EXPECT_EQ(v, 7);
-}
-
-// ── Multiple fields on one object ─────────────────────────────────────────────
-
-TEST_F(FieldRefTests, MultipleFieldsSetAndReadIndependently) {
-  using bdg::bison::abi::dynamic;
-  using bdg::bison::abi::operator""_key;
-
-  auto obj = dynamic::create("Player"_key);
-  obj["name"_key]  = "Bob";
-  obj["score"_key] = static_cast<int32_t>(1000);
-  obj["ratio"_key] = 0.75f;
-  obj["alive"_key] = true;
-
-  EXPECT_EQ(static_cast<std::string>(obj["name"_key]),  "Bob");
-  EXPECT_EQ(static_cast<int32_t>(obj["score"_key]),     1000);
-  EXPECT_NEAR(static_cast<float>(obj["ratio"_key]),     0.75f, 1e-4f);
-  EXPECT_TRUE(static_cast<bool>(obj["alive"_key]));
-}

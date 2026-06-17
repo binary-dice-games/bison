@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include "src/core/bison_common.hpp"
-#include "src/core/bison_serialization.hpp"
-#include "src/core/bison_sync.hpp"
+#include "src/bison/bison_common.hpp"
+#include "src/bison/bison_serialization.hpp"
+#include "src/bison/bison_sync.hpp"
 
 namespace bdg::bison {
 
@@ -53,6 +53,57 @@ std::shared_ptr<const attribute> attr(Args&&... args) {
       std::is_base_of_v<attribute, T>, "T must derive from attribute");
   return std::make_shared<T>(std::forward<Args>(args)...);
 }
+
+// ── Built-in attribute types ──────────────────────────────────────────────────
+
+/** @brief Human-readable display name for a field or class. */
+class DisplayName : public attribute {
+ public:
+  explicit DisplayName(std::string name) : name_(std::move(name)) {}
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
+};
+
+/** @brief Human-readable description for a field or class. */
+class Description : public attribute {
+ public:
+  explicit Description(std::string text) : text_(std::move(text)) {}
+  const std::string& text() const { return text_; }
+
+ private:
+  std::string text_;
+};
+
+/** @brief Logical category grouping for a field or class. */
+class Category : public attribute {
+ public:
+  explicit Category(std::string name) : name_(std::move(name)) {}
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
+};
+
+/**
+ * @brief Marks a field or class as obsolete with an optional explanatory
+ *        message.
+ */
+class Obsolete : public attribute {
+ public:
+  explicit Obsolete(std::string message = {}) : message_(std::move(message)) {}
+  const std::string& message() const { return message_; }
+
+ private:
+  std::string message_;
+};
+
+/** @brief Marks a field as required (must hold a non-empty value). */
+class Required : public attribute {
+ public:
+  Required() = default;
+};
 
 /**
  * @brief A typed variant value with optional metadata attributes.
@@ -181,7 +232,7 @@ class field : public field_base {
   T& as(T def = T{}) {
     if (std::holds_alternative<std::monostate>(
             static_cast<const field_base&>(*this))) {
-      throw std::runtime_error("Null type");
+      static_cast<field_base&>(*this) = std::move(def);
     } else if (!std::holds_alternative<T>(
                    static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
@@ -262,6 +313,11 @@ class field : public field_base {
     return nullptr;
   }
 
+  /** @brief Attach an additional attribute to this field. */
+  void addAttribute(std::shared_ptr<const attribute> a) {
+    attributes_.push_back(std::move(a));
+  }
+
   inline void serialize(stream_serializer& out) const;
   inline void serialize(buffer_serializer& out) const;
   inline static field deserialize(stream_deserializer& in);
@@ -269,6 +325,76 @@ class field : public field_base {
 
  private:
   mutable std::vector<std::shared_ptr<const attribute>> attributes_;
+};
+
+/**
+ * @brief A callable method with optional attribute annotations.
+ *
+ * Parallel to `field` for named callable members on a `dynamic` object.
+ * Holds a `method_fn` plus zero or more `attribute` tags that describe
+ * the method's purpose, category, and lifecycle state.
+ *
+ * `call()` is declared here and defined after `dynamic` to avoid a
+ * forward-declaration issue with the return type.
+ */
+class method {
+ public:
+  friend class dynamic;
+
+  /**
+   * @brief Construct a method with a callable and zero or more attribute args.
+   *
+   * @tparam Attrs  Zero or more `std::shared_ptr<const attribute>` values.
+   * @param  fn     Method implementation callable.
+   * @param  attrs  Attribute annotations forwarded into the internal vector.
+   */
+  template <typename... Attrs>
+  explicit method(method_fn fn, Attrs&&... attrs)
+      : fn_(std::move(fn)), attrs_{std::forward<Attrs>(attrs)...} {}
+
+  /**
+   * @brief Construct a method with a callable and a pre-built attribute vector.
+   *
+   * @param fn     Method implementation callable.
+   * @param attrs  Attribute vector (moved in).
+   */
+  method(method_fn fn, std::vector<std::shared_ptr<const attribute>> attrs)
+      : fn_(std::move(fn)), attrs_(std::move(attrs)) {}
+
+  /**
+   * @brief Invoke this method.
+   *
+   * @param self    Mutable reference to the calling object.
+   * @param params  Read-only argument object.
+   * @return The `dynamic` value returned by the implementation.
+   */
+  dynamic call(dynamic& self, const dynamic& params) const;
+
+  /**
+   * @brief Find and return a pointer to the first attached attribute of type
+   *        @p T, or `nullptr` if none is present.
+   *
+   * @tparam T  A type derived from `attribute`.
+   * @return Const pointer to the attribute, or `nullptr`.
+   */
+  template <typename T>
+  const T* findAttribute() const {
+    static_assert(
+        std::is_base_of_v<attribute, T>, "T must derive from attribute");
+    for (const auto& a : attrs_)
+      if (const T* p = dynamic_cast<const T*>(a.get()))
+        return p;
+    return nullptr;
+  }
+
+  /** @brief Attach an additional attribute to this method. */
+  void addAttribute(std::shared_ptr<const attribute> a) {
+    attrs_.push_back(std::move(a));
+  }
+
+ private:
+  method_fn fn_;
+  std::vector<std::shared_ptr<const attribute>> attrs_;
 };
 
 /**
@@ -451,12 +577,25 @@ class dynamic {
    * @brief Register a callable method on this object.
    *
    * @param name  Hash key for the method.
-   * @param fn    Method implementation (see `method` typedef).
+   * @param m     Method instance (implementation + optional attributes).
    * @return `true` if the method was registered; `false` if the key was
    *         already taken.
    */
-  inline bool addMethod(key_t name, method fn) {
-    return methods_.emplace(std::make_pair(name, fn)).second;
+  inline bool addMethod(key_t name, method m) {
+    return methods_.emplace(name, std::move(m)).second;
+  }
+
+  /**
+   * @brief Iterate over all methods registered directly on this object.
+   *
+   * @tparam F  Callable with signature `void(key_t, const method&)`.
+   * @param  fn  Visitor invoked for each `(key, method)` pair.
+   */
+  template <typename F>
+  void forEachMethod(F&& fn) const {
+    for (const auto& kv : methods_) {
+      fn(kv.first, kv.second);
+    }
   }
 
   /** @brief Attach or replace the userdata payload on this object. */
@@ -480,11 +619,11 @@ class dynamic {
    * @throws std::runtime_error if no method with @p name is found.
    */
   inline dynamic call(key_t name, const dynamic& params) {
-    auto fn = findMethod(name);
-    if (fn == nullptr) {
+    auto* m = findMethod(name);
+    if (m == nullptr) {
       throw std::runtime_error("Method not found");
     }
-    return (*fn)(*this, params);
+    return m->call(*this, params);
   }
 
   /**
@@ -530,6 +669,29 @@ class dynamic {
    * @param parent  Hash of the parent class name (`0U` for a root class).
    * @return `true` on success, `false` on duplicate or cycle.
    */
+  /**
+   * @brief Register a class prototype with class-level attribute annotations.
+   *
+   * Attaches each attribute in @p class_attrs to the `CLASS` field of @p klass
+   * before delegating to the base `addClass` overload.  The attributes are
+   * surfaced by `handle_describe` as class-level metadata.
+   *
+   * @param ns          Namespace to register in; `0U` for the global namespace.
+   * @param klass       Prototype object; its `CLASS` field must be set.
+   * @param parent      Hash of the parent class name (`0U` for a root class).
+   * @param class_attrs Attributes to attach to the class (e.g. `DisplayName`).
+   * @return `true` on success, `false` on duplicate or cycle.
+   */
+  static bool addClass(
+      const key_t ns,
+      dynamic_ptr klass,
+      const key_t parent,
+      std::vector<std::shared_ptr<const attribute>> class_attrs) {
+    for (auto& a : class_attrs)
+      (*klass)[CLASS].addAttribute(std::move(a));
+    return addClass(ns, std::move(klass), parent);
+  }
+
   static bool
   addClass(const key_t ns, dynamic_ptr klass, const key_t parent = key_t{0U}) {
     auto name = klass->as<key_t>(CLASS);
@@ -603,6 +765,16 @@ class dynamic {
    * @brief Find a method on this instance or its class prototype chain.
    *
    * Returns a pointer to the callable (caching into `methods_` on first
+   * inherited hit), or `nullptr` if not found anywhere in the chain.
+   * The correct namespace collection is resolved via `resolveNamespace`.
+   *
+   * @param name  Hash key to look up.
+   * @return Pointer to the resolved method, or `nullptr`.
+   */
+  /**
+   * @brief Find a method on this instance or its class prototype chain.
+   *
+   * Returns a pointer to the method (caching into `methods_` on first
    * inherited hit), or `nullptr` if not found anywhere in the chain.
    * The correct namespace collection is resolved via `resolveNamespace`.
    *
@@ -723,6 +895,10 @@ class dynamic {
     return key_t{0U};
   }
 };
+
+inline dynamic method::call(dynamic& self, const dynamic& params) const {
+  return fn_(self, params);
+}
 
 inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that)
     : std::shared_ptr<dynamic>(that) {}

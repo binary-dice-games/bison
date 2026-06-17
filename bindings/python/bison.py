@@ -239,7 +239,7 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     # Methods
     lib.bison_add_method.restype  = _Error
     lib.bison_add_method.argtypes = [_Handle, ctypes.c_uint32, _MethodFnType,
-                                     ctypes.c_void_p, ctypes.c_void_p]
+                                     ctypes.c_void_p]
 
     lib.bison_call.restype  = _Error
     lib.bison_call.argtypes = [_Handle, ctypes.c_uint32, _Handle, ctypes.POINTER(_Handle)]
@@ -672,5 +672,5 @@ def add_class(parent_name: str, prototype: Dynamic) -> None:
     >>> car.release()
     """
     parent_key = key(parent_name) if parent_name else 0
-    rc = _get_lib().bison_add_class(parent_key, prototype._handle)
+    rc = _get_lib().bison_add_class(0, prototype._handle, parent_key, None)
     _check(rc, f"add_class(parent={parent_name!r})")

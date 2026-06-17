@@ -2,7 +2,7 @@
 
 ## 1. Scope
 
-This document describes the design of the core Bison library implemented in src/core. It covers:
+This document describes the design of the core Bison library implemented in src/bison. It covers:
 
 - Runtime object model in C++ (dynamic, field, dynamic_ptr)
 - Binary serialization and deserialization format

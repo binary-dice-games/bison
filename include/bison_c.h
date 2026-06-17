@@ -77,7 +77,7 @@ extern "C" {
 #define BISON_API
 #endif
 
-/* ─── Opaque handle ──────────────────────────────────────────────────────── */
+/* ─── Opaque handles ─────────────────────────────────────────────────────── */
 
 /**
  * @brief Opaque handle that represents a reference-counted `dynamic` object.
@@ -133,12 +133,6 @@ typedef void (*bison_method_fn)(
     bison_handle result,
     void* user);
 
-/**
- * @brief Optional destructor for the @p user pointer passed to
- * `bison_add_method`.  Called exactly once when the method is removed or the
- * object is destroyed.  May be `NULL`.
- */
-typedef void (*bison_method_deleter_fn)(void* user);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Lifecycle
@@ -230,8 +224,60 @@ BISON_API bison_handle bison_from_json(const char* json);
 BISON_API bison_handle bison_from_yaml(const char* yaml);
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * Pretty-print
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Options controlling the output format of `bison_print`.
+ *
+ * Pass `NULL` to `bison_print` to use the defaults shown below.
+ */
+typedef struct bison_print_options {
+  /** @brief Non-zero = multiline with indentation (default); 0 = single line. */
+  int multiline;
+  /** @brief Per-level indentation string in multiline mode.  `NULL` = `"  "`. */
+  const char* indent;
+} bison_print_options;
+
+/**
+ * @brief Convert @p h to a human-readable string.
+ *
+ * The returned string is heap-allocated; release it with `bison_free_string`.
+ *
+ * @param h     Source object handle.
+ * @param opts  Format options, or `NULL` for defaults (multiline, 2-space indent).
+ * @param out   Receives a pointer to the allocated string.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_print(
+    bison_handle h, const bison_print_options* opts, char** out);
+
+/**
+ * @brief Release a string returned by `bison_print`.
+ *
+ * @param s  Pointer returned by `bison_print`.  `NULL` is a no-op.
+ */
+BISON_API void bison_free_string(char* s);
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Class registry
  * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Attribute metadata for a class or a field.
+ *
+ * Used by `bison_add_class` and `bison_add_field_*`.
+ * Any `NULL` string pointer means the corresponding attribute is not set.
+ * Pass `NULL` for the whole struct to register without any attributes.
+ */
+typedef struct bison_attributes {
+  const char* display_name;     /**< Human-readable name, or `NULL`. */
+  const char* description;      /**< Human-readable description, or `NULL`. */
+  const char* category;         /**< Category group name, or `NULL`. */
+  int         obsolete;         /**< Non-zero if deprecated. */
+  const char* obsolete_message; /**< Deprecation message, or `NULL`. */
+  int         required;         /**< Non-zero if required. */
+} bison_attributes;
 
 /**
  * @brief Register @p klass as a class prototype in a namespace.
@@ -246,12 +292,16 @@ BISON_API bison_handle bison_from_yaml(const char* yaml);
  *                     The library **does not** take ownership of @p klass.
  * @param parent_name  Hash of the parent class name (use `bison_key()`); pass
  *                     `0` for a root class.
+ * @param meta         Optional attribute metadata; pass `NULL` for none.
  * @return `BISON_OK` on success, `BISON_ERR_DUPLICATE` if a class with the
  *         same name is already registered in @p ns_name, or `BISON_ERR_NULL`
  *         if @p klass is `NULL`.
  */
-BISON_API bison_error
-bison_add_class(bison_hash ns_name, bison_handle klass, bison_hash parent_name);
+BISON_API bison_error bison_add_class(
+    bison_hash ns_name,
+    bison_handle klass,
+    bison_hash parent_name,
+    const bison_attributes* meta);
 
 /**
  * @brief Look up a class in a namespace.
@@ -274,6 +324,50 @@ bison_find_class(bison_hash ns_name, bison_hash klass_name);
  * Removes all registered classes from the registry.
  */
 BISON_API void bison_clear_registry(void);
+
+/**
+ * @brief Read the class-level attributes from a registered class prototype.
+ *
+ * Looks up @p klass_name in @p ns_name and fills @p out with its attribute
+ * metadata.  String pointers in @p out are **owned by the library** and remain
+ * valid as long as the class is registered; do not free them.
+ *
+ * @param ns_name    Namespace hash (`0` = global).
+ * @param klass_name Class name hash (use `bison_key()`).
+ * @param out        Receives the class attribute metadata.
+ * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_class_attributes(
+    bison_hash ns_name, bison_hash klass_name, bison_attributes* out);
+
+/**
+ * @brief Read the attributes of a named field on an object handle.
+ *
+ * Fills @p out with the attribute metadata for the field at @p field_key.
+ * String pointers in @p out are **owned by the object** and remain valid as
+ * long as @p h is alive; do not free them.
+ *
+ * @param h          Source object handle.
+ * @param field_key  Field name hash (use `bison_key()`).
+ * @param out        Receives the field attribute metadata.
+ * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_field_attributes(
+    bison_handle h, bison_hash field_key, bison_attributes* out);
+
+/**
+ * @brief Read the attributes of a named method on an object handle.
+ *
+ * The returned strings point into the handle's storage and are valid only
+ * while the handle is alive and the method's attributes are not modified.
+ *
+ * @param h           Source object handle.
+ * @param method_key  Method name hash (use `bison_key()`).
+ * @param out         Receives the method attribute metadata.
+ * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_method_attributes(
+    bison_handle h, bison_hash method_key, bison_attributes* out);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar setters
@@ -486,16 +580,13 @@ BISON_API size_t bison_size(bison_handle h);
 /**
  * @brief Register a C callback as a named method on @p h.
  *
- * The callback @p fn is invoked whenever the method is called.  If @p deleter
- * is non-`NULL`, the library calls `deleter(user)` exactly once when the method
- * is removed or the object is destroyed, allowing callers to manage the
- * lifetime of heap-allocated @p user data.
+ * The callback @p fn is invoked whenever the method is called.
  *
  * @param h        Target object handle.
  * @param name     Method name hash (use `bison_key()`).
  * @param fn       Function pointer implementing the method.
  * @param user     Arbitrary user context (may be `NULL`).
- * @param deleter  Called with @p user on method teardown (may be `NULL`).
+ * @param meta     Optional attribute annotations; pass `NULL` for none.
  * @return `BISON_OK`, `BISON_ERR_DUPLICATE`, or `BISON_ERR_NULL`.
  */
 BISON_API bison_error bison_add_method(
@@ -503,7 +594,7 @@ BISON_API bison_error bison_add_method(
     bison_hash name,
     bison_method_fn fn,
     void* user,
-    bison_method_deleter_fn deleter);
+    const bison_attributes* meta);
 
 /**
  * @brief Invoke a named method on @p h.
@@ -520,6 +611,66 @@ BISON_API bison_error bison_call(
     bison_hash name,
     bison_handle params,
     bison_handle* result);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Field registration with optional attribute metadata
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Add an `int32_t` field to @p obj with optional attribute metadata.
+ *
+ * @param obj   Target object handle.
+ * @param key   Field name hash (use `bison_key()`).
+ * @param value Initial integer value.
+ * @param meta  Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_int(
+    bison_handle obj, bison_hash key, int32_t value,
+    const bison_attributes* meta);
+
+/**
+ * @brief Add a `float` field to @p obj with optional attribute metadata.
+ *
+ * @param obj   Target object handle.
+ * @param key   Field name hash (use `bison_key()`).
+ * @param value Initial float value.
+ * @param meta  Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_float(
+    bison_handle obj, bison_hash key, float value,
+    const bison_attributes* meta);
+
+/**
+ * @brief Add a `bool` field to @p obj with optional attribute metadata.
+ *
+ * @param obj   Target object handle.
+ * @param key   Field name hash (use `bison_key()`).
+ * @param value Non-zero for `true`, zero for `false`.
+ * @param meta  Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_bool(
+    bison_handle obj, bison_hash key, int value,
+    const bison_attributes* meta);
+
+/**
+ * @brief Add a `string` field to @p obj with optional attribute metadata.
+ *
+ * @param obj   Target object handle.
+ * @param key   Field name hash (use `bison_key()`).
+ * @param value Null-terminated initial string value.
+ * @param meta  Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_string(
+    bison_handle obj, bison_hash key, const char* value,
+    const bison_attributes* meta);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility

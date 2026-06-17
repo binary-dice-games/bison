@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 namespace bdg::bison::rmi::shared {
 

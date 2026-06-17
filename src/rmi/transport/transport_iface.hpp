@@ -12,7 +12,7 @@
  */
 #pragma once
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 #include <chrono>
 #include <memory>

@@ -34,8 +34,7 @@
  * ## Transport selection
  *
  * Socket (TCP) transport is exposed via the regular client/server C API.
- * PTY/stdio application entry points are exposed via `rmi_pty_client_run()`
- * and `rmi_pty_server_run()` using callback structures.
+ * PTY application entry points are exposed via `pty_c.h`.
  * In-memory transport is available only through C++.
  */
 
@@ -512,104 +511,6 @@ RMI_API void rmi_server_stop(rmi_server_handle server);
  * ignored.
  */
 RMI_API void rmi_server_release(rmi_server_handle server);
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * PTY/Stdio Apps
- * ═════════════════════════════════════════════════════════════════════════ */
-
-/**
- * @brief Callback invoked during the PTY client `on_session` phase.
- *
- * The provided @p client is a non-owning handle valid only for the duration
- * of the callback. Use it to call `rmi_client_*` and `rmi_proxy_*` APIs.
- * Do not retain or release this handle.
- *
- * @param client  Connected client handle (callback lifetime only).
- * @param user    User context pointer from `rmi_pty_client_callbacks`.
- * @return Session exit code. `0` maps to `RMI_OK`; non-zero maps to an error.
- */
-typedef int (
-    *rmi_pty_client_on_session_fn)(rmi_client_handle client, void* user);
-
-/**
- * @brief Callback invoked when the PTY client reports an error.
- *
- * @param message Error message text valid during the callback call.
- * @param user    User context pointer from `rmi_pty_client_callbacks`.
- */
-typedef void (*rmi_pty_client_on_error_fn)(const char* message, void* user);
-
-/**
- * @brief Required callbacks for `rmi_pty_client_run()`.
- */
-typedef struct rmi_pty_client_callbacks {
-  rmi_pty_client_on_session_fn on_session; /**< Required. */
-  rmi_pty_client_on_error_fn on_error;
-  void* user;
-} rmi_pty_client_callbacks;
-
-/**
- * @brief Run the PTY/pipe stdio RMI client application.
- *
- * This wraps the C++ `apps::pty_client_application` run loop.
- *
- * On Linux, usage is:
- * - `--pty <command> [args...]`
- * - `--pipe <command> [args...]`
- *
- * On non-Linux platforms, this returns an error because PTY mode is not
- * supported by the underlying implementation.
- *
- * @param argc       Argument count.
- * @param argv       Argument vector.
- * @param callbacks  Required callbacks. `callbacks->on_session` must be set.
- * @return `RMI_OK` on success, or a negative error code.
- */
-RMI_API rmi_error rmi_pty_client_run(
-    int argc,
-    char** argv,
-    const rmi_pty_client_callbacks* callbacks);
-
-/**
- * @brief Required callback to register classes for `rmi_pty_server_run()`.
- *
- * The callback should call class registration APIs before the server starts
- * listening.
- */
-typedef void (*rmi_pty_server_register_classes_fn)(void* user);
-
-/**
- * @brief Callback invoked when the PTY server reports an error.
- *
- * @param message Error message text valid during callback execution.
- * @param user    User context pointer from `rmi_pty_server_callbacks`.
- */
-typedef void (*rmi_pty_server_on_error_fn)(const char* message, void* user);
-
-/**
- * @brief Required callbacks for `rmi_pty_server_run()`.
- */
-typedef struct rmi_pty_server_callbacks {
-  rmi_pty_server_register_classes_fn register_classes; /**< Required. */
-  rmi_pty_server_on_error_fn on_error;
-  void* user;
-} rmi_pty_server_callbacks;
-
-/**
- * @brief Run the stdio RMI server application.
- *
- * This wraps the C++ `apps::pty_server_application` run loop.
- *
- * @param argc       Argument count (currently ignored).
- * @param argv       Argument vector (currently ignored).
- * @param callbacks  Required callbacks. `callbacks->register_classes` must
- *                   be set.
- * @return `RMI_OK` on success, or a negative error code.
- */
-RMI_API rmi_error rmi_pty_server_run(
-    int argc,
-    char** argv,
-    const rmi_pty_server_callbacks* callbacks);
 
 #ifdef __cplusplus
 } // extern "C"

@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#include "src/core/bison.hpp"
+#include "src/bison/bison.hpp"
 
 namespace bdg::bison::rmi::shared::constants {
 
@@ -120,6 +120,28 @@ inline const bison::key_t FIELD_NAMESPACE = "__namespace"_key;
 inline const bison::key_t FIELD_PARAMS = "__params"_key;
 /** @brief Operation payload key for method or event name token. */
 inline const bison::key_t FIELD_NAME = "__name"_key;
+
+// ── Describe response metadata field keys
+// ─────────────────────────────────────────
+/** @brief Descriptor field for `DisplayName` attribute value. */
+inline const bison::key_t FIELD_DISPLAY_NAME = "__displayName"_key;
+/** @brief Descriptor field for `Description` attribute value. */
+inline const bison::key_t FIELD_DESCRIPTION = "__description"_key;
+/** @brief Descriptor field for `Category` attribute value. */
+inline const bison::key_t FIELD_CATEGORY = "__category"_key;
+/** @brief Descriptor field set to `true` when `Obsolete` attribute is present.
+ */
+inline const bison::key_t FIELD_OBSOLETE = "__obsolete"_key;
+/** @brief Descriptor field for the `Obsolete` message string (omitted when
+ *         empty). */
+inline const bison::key_t FIELD_OBSOLETE_MESSAGE = "__obsoleteMessage"_key;
+/** @brief Descriptor field set to `true` when `Required` attribute is present.
+ */
+inline const bison::key_t FIELD_REQUIRED = "__required"_key;
+/** @brief Descriptor field holding a map of field-key → per-field metadata. */
+inline const bison::key_t FIELD_FIELDS = "__fields"_key;
+/** @brief Descriptor field holding a map of method-key → per-method metadata. */
+inline const bison::key_t FIELD_METHODS = "__methods"_key;
 
 // ── Protocol version ─────────────────────────────────────────────────────────
 /** @brief Current wire protocol version expected by client and server. */

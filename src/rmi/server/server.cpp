@@ -42,6 +42,69 @@ bison::key_t read_key_token(
   throw std::runtime_error("Invalid key token type");
 }
 
+/**
+ * @brief Apply `DisplayName`, `Description`, `Category`, `Obsolete`, and
+ *        `Required` attributes from @p f to @p desc.
+ * @return `true` if at least one attribute was written to @p desc.
+ */
+static bool apply_attrs(bison::dynamic& desc, const bison::field& f) {
+  using namespace bison;
+  bool applied = false;
+  if (auto* dn = f.findAttribute<DisplayName>()) {
+    desc[FIELD_DISPLAY_NAME] = dn->name();
+    applied = true;
+  }
+  if (auto* d = f.findAttribute<Description>()) {
+    desc[FIELD_DESCRIPTION] = d->text();
+    applied = true;
+  }
+  if (auto* c = f.findAttribute<Category>()) {
+    desc[FIELD_CATEGORY] = c->name();
+    applied = true;
+  }
+  if (auto* o = f.findAttribute<Obsolete>()) {
+    desc[FIELD_OBSOLETE] = bool{true};
+    if (!o->message().empty())
+      desc[FIELD_OBSOLETE_MESSAGE] = o->message();
+    applied = true;
+  }
+  if (f.findAttribute<Required>()) {
+    desc[FIELD_REQUIRED] = bool{true};
+    applied = true;
+  }
+  return applied;
+}
+
+/** @brief Apply attributes from a method_entry to @p desc.
+ *  @return `true` if at least one attribute was written. */
+static bool apply_method_attrs(
+    bison::dynamic& desc,
+    const bison::method& e) {
+  using namespace bison;
+  bool applied = false;
+  if (auto* dn = e.findAttribute<DisplayName>()) {
+    desc[FIELD_DISPLAY_NAME] = dn->name();
+    applied = true;
+  }
+  if (auto* d = e.findAttribute<Description>()) {
+    desc[FIELD_DESCRIPTION] = d->text();
+    applied = true;
+  }
+  if (auto* c = e.findAttribute<Category>()) {
+    desc[FIELD_CATEGORY] = c->name();
+    applied = true;
+  }
+  if (auto* o = e.findAttribute<Obsolete>()) {
+    desc[FIELD_OBSOLETE] = bool{true};
+    if (!o->message().empty())
+      desc[FIELD_OBSOLETE_MESSAGE] = o->message();
+    applied = true;
+  }
+  if (e.findAttribute<Required>())
+    desc[FIELD_REQUIRED] = bool{true};
+  return applied;
+}
+
 } // namespace
 
 // ── Lifecycle
@@ -313,6 +376,10 @@ void server::handle_describe(
             continue;
           bison::dynamic desc;
           desc[FIELD_KLASS] = klass;
+          // Attach class-level attribute metadata from the CLASS field.
+          const auto* class_field = proto->findField(bison::dynamic::CLASS);
+          if (class_field)
+            apply_attrs(desc, *class_field);
           resp[idx++] = bison::dynamic_ptr{std::move(desc)};
         }
       }
@@ -333,8 +400,38 @@ void server::handle_describe(
         return;
       }
       resp[FIELD_KLASS] = requested;
-      proto->forEach(
-          [&resp](bison::key_t k, const bison::field& v) { resp[k] = v; });
+      // Attach class-level attribute metadata from the CLASS field.
+      const auto* class_field = proto->findField(bison::dynamic::CLASS);
+      if (class_field)
+        apply_attrs(resp, *class_field);
+      // Copy prototype field values and collect per-field metadata.
+      bison::dynamic fields_meta;
+      bool has_field_meta = false;
+      proto->forEach([&](bison::key_t k, const bison::field& v) {
+        resp[k] = v;
+        // Skip reserved internal fields in the per-field metadata map.
+        if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT ||
+            k == bison::dynamic::NAMESPACE)
+          return;
+        bison::dynamic fmeta;
+        if (apply_attrs(fmeta, v)) {
+          fields_meta[k] = bison::dynamic_ptr{std::move(fmeta)};
+          has_field_meta = true;
+        }
+      });
+      if (has_field_meta)
+        resp[FIELD_FIELDS] = bison::dynamic_ptr{std::move(fields_meta)};
+      // Collect per-method metadata (always emitted when methods are present).
+      bison::dynamic methods_meta;
+      bool has_methods = false;
+      proto->forEachMethod([&](bison::key_t k, const bison::method& e) {
+        bison::dynamic mmeta;
+        apply_method_attrs(mmeta, e);
+        methods_meta[k] = bison::dynamic_ptr{std::move(mmeta)};
+        has_methods = true;
+      });
+      if (has_methods)
+        resp[FIELD_METHODS] = bison::dynamic_ptr{std::move(methods_meta)};
     }
   }
 

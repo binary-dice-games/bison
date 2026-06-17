@@ -123,21 +123,73 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
   }
 }
 
+// ─── Pretty-print ────────────────────────────────────────────────────────────
+
+BISON_API bison_error bison_print(
+    bison_handle h, const bison_print_options* opts, char** out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    bdg::bison::print_options cpp_opts;
+    if (opts) {
+      cpp_opts.multiline = opts->multiline != 0;
+      if (opts->indent)
+        cpp_opts.indent = opts->indent;
+    }
+    const std::string result = bdg::bison::print(*dyn(h), cpp_opts);
+    *out = new char[result.size() + 1];
+    std::memcpy(*out, result.c_str(), result.size() + 1);
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API void bison_free_string(char* s) {
+  delete[] s;
+}
+
 // ─── Class registry ─────────────────────────────────────────────────────────
+
+// Build a bison attribute vector from a C bison_attributes struct.
+static std::vector<std::shared_ptr<const bdg::bison::attribute>>
+attrs_from_meta(const bison_attributes* meta) {
+  std::vector<std::shared_ptr<const bdg::bison::attribute>> attrs;
+  if (!meta)
+    return attrs;
+  if (meta->display_name)
+    attrs.push_back(
+        bdg::bison::attr<bdg::bison::DisplayName>(meta->display_name));
+  if (meta->description)
+    attrs.push_back(
+        bdg::bison::attr<bdg::bison::Description>(meta->description));
+  if (meta->category)
+    attrs.push_back(
+        bdg::bison::attr<bdg::bison::Category>(meta->category));
+  if (meta->obsolete) {
+    std::string msg = meta->obsolete_message ? meta->obsolete_message : "";
+    attrs.push_back(
+        bdg::bison::attr<bdg::bison::Obsolete>(std::move(msg)));
+  }
+  if (meta->required)
+    attrs.push_back(bdg::bison::attr<bdg::bison::Required>());
+  return attrs;
+}
 
 BISON_API bison_error bison_add_class(
     bison_hash ns_name,
     bison_handle klass,
-    bison_hash parent_name) {
+    bison_hash parent_name,
+    const bison_attributes* meta) {
   if (!klass)
     return BISON_ERR_NULL;
   try {
-    // addClass takes a shared_ptr; copy the one inside the handle.
     sp_dyn copy = *as_sp(klass);
     bool ok = bdg::bison::dynamic::addClass(
         bdg::bison::key_t{ns_name},
         std::move(copy),
-        bdg::bison::key_t{parent_name});
+        bdg::bison::key_t{parent_name},
+        attrs_from_meta(meta));
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
@@ -163,6 +215,147 @@ bison_find_class(bison_hash ns_name, bison_hash klass_name) {
 
 BISON_API void bison_clear_registry(void) {
   bdg::bison::dynamic::getRegistry().wlock()->clear();
+}
+
+// Fill a bison_attributes struct from the attributes on a bison::field.
+static void fill_attrs(bison_attributes* out, const bdg::bison::field& f) {
+  *out = bison_attributes{};
+  if (auto* dn = f.findAttribute<bdg::bison::DisplayName>())
+    out->display_name = dn->name().c_str();
+  if (auto* d = f.findAttribute<bdg::bison::Description>())
+    out->description = d->text().c_str();
+  if (auto* c = f.findAttribute<bdg::bison::Category>())
+    out->category = c->name().c_str();
+  if (auto* o = f.findAttribute<bdg::bison::Obsolete>()) {
+    out->obsolete = 1;
+    out->obsolete_message =
+        o->message().empty() ? nullptr : o->message().c_str();
+  }
+  if (f.findAttribute<bdg::bison::Required>())
+    out->required = 1;
+}
+
+BISON_API bison_error bison_get_class_attributes(
+    bison_hash ns_name, bison_hash klass_name, bison_attributes* out) {
+  if (!out)
+    return BISON_ERR_NULL;
+  try {
+    auto lp = bdg::bison::dynamic::getRegistry().rlock();
+    auto nsIt = lp->find(bdg::bison::key_t{ns_name});
+    if (nsIt == lp->end())
+      return BISON_ERR_NOT_FOUND;
+    auto it = nsIt->second.find(bdg::bison::key_t{klass_name});
+    if (it == nsIt->second.end())
+      return BISON_ERR_NOT_FOUND;
+    const auto* f = it->second->findField(bdg::bison::dynamic::CLASS);
+    if (!f) {
+      *out = bison_attributes{};
+      return BISON_OK;
+    }
+    fill_attrs(out, *f);
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_get_field_attributes(
+    bison_handle h, bison_hash field_key, bison_attributes* out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    const auto* f =
+        dyn(h)->findField(bdg::bison::key_t{field_key});
+    if (!f)
+      return BISON_ERR_NOT_FOUND;
+    fill_attrs(out, *f);
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_get_method_attributes(
+    bison_handle h, bison_hash method_key, bison_attributes* out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    const auto* e =
+        dyn(h)->findMethod(bdg::bison::key_t{method_key});
+    if (!e)
+      return BISON_ERR_NOT_FOUND;
+    *out = bison_attributes{};
+    if (auto* dn = e->findAttribute<bdg::bison::DisplayName>())
+      out->display_name = dn->name().c_str();
+    if (auto* d = e->findAttribute<bdg::bison::Description>())
+      out->description = d->text().c_str();
+    if (auto* c = e->findAttribute<bdg::bison::Category>())
+      out->category = c->name().c_str();
+    if (auto* o = e->findAttribute<bdg::bison::Obsolete>()) {
+      out->obsolete = 1;
+      out->obsolete_message =
+          o->message().empty() ? nullptr : o->message().c_str();
+    }
+    if (e->findAttribute<bdg::bison::Required>())
+      out->required = 1;
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+// ─── Field registration ──────────────────────────────────────────────────────
+
+static bison_error add_field_impl(
+    bison_handle obj,
+    bison_hash key,
+    bdg::bison::field f) {
+  if (!obj)
+    return BISON_ERR_NULL;
+  try {
+    bool ok = dyn(obj)->addField(bdg::bison::key_t{key}, std::move(f));
+    return ok ? BISON_OK : BISON_ERR_DUPLICATE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_add_field_int(
+    bison_handle obj, bison_hash key, int32_t value,
+    const bison_attributes* meta) {
+  bdg::bison::field f{value};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_float(
+    bison_handle obj, bison_hash key, float value,
+    const bison_attributes* meta) {
+  bdg::bison::field f{value};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_bool(
+    bison_handle obj, bison_hash key, int value,
+    const bison_attributes* meta) {
+  bdg::bison::field f{bool(value != 0)};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_string(
+    bison_handle obj, bison_hash key, const char* value,
+    const bison_attributes* meta) {
+  if (!value)
+    return BISON_ERR_NULL;
+  bdg::bison::field f{std::string{value}};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
 }
 
 // ─── Setters ────────────────────────────────────────────────────────────────
@@ -389,30 +582,21 @@ BISON_API bison_error bison_add_method(
     bison_hash name,
     bison_method_fn fn,
     void* user,
-    bison_method_deleter_fn deleter) {
+    const bison_attributes* meta) {
   if (!h || !fn)
     return BISON_ERR_NULL;
   try {
     struct closure_t {
       bison_method_fn fn;
       void* user;
-      bison_method_deleter_fn deleter;
 
-      closure_t(bison_method_fn f, void* u, bison_method_deleter_fn d)
-          : fn(f), user(u), deleter(d) {}
+      closure_t(bison_method_fn f, void* u) : fn(f), user(u) {}
       closure_t(const closure_t&) = delete;
       closure_t& operator=(const closure_t&) = delete;
-
-      ~closure_t() {
-        if (deleter)
-          deleter(user);
-      }
     };
-    // make_shared constructs closure_t in-place — no temporary, so the
-    // destructor fires exactly once when the last method reference is dropped.
-    auto cl = std::make_shared<closure_t>(fn, user, deleter);
+    auto cl = std::make_shared<closure_t>(fn, user);
 
-    bdg::bison::method wrapped =
+    bdg::bison::method_fn wrapped =
         [cl](
             bdg::bison::dynamic& self,
             const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
@@ -440,7 +624,9 @@ BISON_API bison_error bison_add_method(
       return result;
     };
 
-    bool ok = dyn(h)->addMethod(bdg::bison::key_t{name}, wrapped);
+    bool ok = dyn(h)->addMethod(
+        bdg::bison::key_t{name},
+        bdg::bison::method{std::move(wrapped), attrs_from_meta(meta)});
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
