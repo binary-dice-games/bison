@@ -328,6 +328,76 @@ class field : public field_base {
 };
 
 /**
+ * @brief A callable method with optional attribute annotations.
+ *
+ * Parallel to `field` for named callable members on a `dynamic` object.
+ * Holds a `method_fn` plus zero or more `attribute` tags that describe
+ * the method's purpose, category, and lifecycle state.
+ *
+ * `call()` is declared here and defined after `dynamic` to avoid a
+ * forward-declaration issue with the return type.
+ */
+class method {
+ public:
+  friend class dynamic;
+
+  /**
+   * @brief Construct a method with a callable and zero or more attribute args.
+   *
+   * @tparam Attrs  Zero or more `std::shared_ptr<const attribute>` values.
+   * @param  fn     Method implementation callable.
+   * @param  attrs  Attribute annotations forwarded into the internal vector.
+   */
+  template <typename... Attrs>
+  explicit method(method_fn fn, Attrs&&... attrs)
+      : fn_(std::move(fn)), attrs_{std::forward<Attrs>(attrs)...} {}
+
+  /**
+   * @brief Construct a method with a callable and a pre-built attribute vector.
+   *
+   * @param fn     Method implementation callable.
+   * @param attrs  Attribute vector (moved in).
+   */
+  method(method_fn fn, std::vector<std::shared_ptr<const attribute>> attrs)
+      : fn_(std::move(fn)), attrs_(std::move(attrs)) {}
+
+  /**
+   * @brief Invoke this method.
+   *
+   * @param self    Mutable reference to the calling object.
+   * @param params  Read-only argument object.
+   * @return The `dynamic` value returned by the implementation.
+   */
+  dynamic call(dynamic& self, const dynamic& params) const;
+
+  /**
+   * @brief Find and return a pointer to the first attached attribute of type
+   *        @p T, or `nullptr` if none is present.
+   *
+   * @tparam T  A type derived from `attribute`.
+   * @return Const pointer to the attribute, or `nullptr`.
+   */
+  template <typename T>
+  const T* findAttribute() const {
+    static_assert(
+        std::is_base_of_v<attribute, T>, "T must derive from attribute");
+    for (const auto& a : attrs_)
+      if (const T* p = dynamic_cast<const T*>(a.get()))
+        return p;
+    return nullptr;
+  }
+
+  /** @brief Attach an additional attribute to this method. */
+  void addAttribute(std::shared_ptr<const attribute> a) {
+    attrs_.push_back(std::move(a));
+  }
+
+ private:
+  method_fn fn_;
+  std::vector<std::shared_ptr<const attribute>> attrs_;
+};
+
+/**
  * @brief Runtime dynamic object with named/indexed fields and method dispatch.
  *
  * A `dynamic` is a map of `key_t → field` entries plus an optional map of
@@ -504,41 +574,15 @@ class dynamic {
   }
 
   /**
-   * @brief A registered method: callable implementation plus optional
-   *        attribute annotations, parallel to `field` for named properties.
-   */
-  class method {
-   public:
-    method_fn fn;
-    std::vector<std::shared_ptr<const attribute>> attrs;
-
-    void addAttribute(std::shared_ptr<const attribute> a) {
-      attrs.push_back(std::move(a));
-    }
-    template <typename T>
-    const T* findAttribute() const {
-      for (const auto& a : attrs)
-        if (const T* p = dynamic_cast<const T*>(a.get()))
-          return p;
-      return nullptr;
-    }
-  };
-
-  /**
    * @brief Register a callable method on this object.
    *
    * @param name  Hash key for the method.
-   * @param fn    Method implementation callable.
-   * @param attrs Optional attribute annotations.
+   * @param m     Method instance (implementation + optional attributes).
    * @return `true` if the method was registered; `false` if the key was
    *         already taken.
    */
-  inline bool addMethod(
-      key_t name,
-      method_fn fn,
-      std::vector<std::shared_ptr<const attribute>> attrs = {}) {
-    return methods_.emplace(name, method{std::move(fn), std::move(attrs)})
-        .second;
+  inline bool addMethod(key_t name, method m) {
+    return methods_.emplace(name, std::move(m)).second;
   }
 
   /**
@@ -579,7 +623,7 @@ class dynamic {
     if (m == nullptr) {
       throw std::runtime_error("Method not found");
     }
-    return m->fn(*this, params);
+    return m->call(*this, params);
   }
 
   /**
@@ -851,6 +895,10 @@ class dynamic {
     return key_t{0U};
   }
 };
+
+inline dynamic method::call(dynamic& self, const dynamic& params) const {
+  return fn_(self, params);
+}
 
 inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that)
     : std::shared_ptr<dynamic>(that) {}
@@ -1246,7 +1294,7 @@ inline std::string print_field_value(
       static_cast<const field_base&>(f));
 }
 
-inline std::string collect_method_attr_pairs(const dynamic::method& m) {
+inline std::string collect_method_attr_pairs(const method& m) {
   std::string s;
   auto append = [&](const std::string& k, const std::string& v) {
     if (!s.empty()) s += ", ";
@@ -1268,7 +1316,7 @@ inline std::string collect_method_attr_pairs(const dynamic::method& m) {
   return s;
 }
 
-inline std::string print_method_value(const dynamic::method& m) {
+inline std::string print_method_value(const method& m) {
   const std::string pairs = collect_method_attr_pairs(m);
   if (pairs.empty()) return "<method>";
   return "<method {" + pairs + "}>";
@@ -1280,7 +1328,7 @@ inline std::string format_field_key(key_t k, const field& f) {
   return format_key(k);
 }
 
-inline std::string format_method_key(key_t k, const dynamic::method& m) {
+inline std::string format_method_key(key_t k, const method& m) {
   if (const auto* dn = m.findAttribute<DisplayName>())
     return dn->name();
   return format_key(k);
@@ -1300,7 +1348,7 @@ inline std::string print_dynamic(
       result += print_field_value(f, opts, depth + 1);
       result += '\n';
     });
-    obj.forEachMethod([&](key_t k, const dynamic::method& m) {
+    obj.forEachMethod([&](key_t k, const method& m) {
       result += next;
       result += format_method_key(k, m);
       result += ": ";
@@ -1319,7 +1367,7 @@ inline std::string print_dynamic(
       result += print_field_value(f, opts, depth + 1);
       first = false;
     });
-    obj.forEachMethod([&](key_t k, const dynamic::method& m) {
+    obj.forEachMethod([&](key_t k, const method& m) {
       if (!first) result += ", ";
       result += format_method_key(k, m);
       result += ": ";

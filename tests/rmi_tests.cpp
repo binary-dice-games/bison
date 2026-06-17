@@ -540,13 +540,13 @@ TEST_F(RmiE2E, ClearResetsFields) {
 TEST_F(RmiE2E, CallMethod) {
   // Register a class with an "add" method.
   auto proto = dynamic_ptr{"Calc"_key, {{"result"_key, int32_t{0}}}};
-  proto->addMethod("add"_key, [](dynamic& /*self*/, const dynamic& params) {
+  proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) {
     int32_t a = params["a"_key];
     int32_t b = params["b"_key];
     dynamic ret;
     ret["result"_key] = a + b;
     return ret;
-  });
+  }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -569,9 +569,9 @@ TEST_F(RmiE2E, CallMethod) {
 
 TEST_F(RmiE2E, OnewayCallResolvesImmediately) {
   auto proto = dynamic_ptr{"Sink"_key, {}};
-  proto->addMethod("noop"_key, [](dynamic& /*s*/, const dynamic& /*p*/) {
+  proto->addMethod("noop"_key, method{[](dynamic& /*s*/, const dynamic& /*p*/) {
     return dynamic{};
-  });
+  }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -600,15 +600,15 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
 
   auto proto = dynamic_ptr{"Hooked"_key, {{"x"_key, int32_t{0}}}};
   proto->addMethod(
-      HOOK_CONSTRUCT, [&construct_count](dynamic& /*self*/, const dynamic&) {
+      HOOK_CONSTRUCT, method{[&construct_count](dynamic& /*self*/, const dynamic&) {
         ++construct_count;
         return dynamic{};
-      });
+      }});
   proto->addMethod(
-      HOOK_DESTRUCT, [&destruct_count](dynamic& /*self*/, const dynamic&) {
+      HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
         ++destruct_count;
         return dynamic{};
-      });
+      }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -626,7 +626,7 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
 TEST_F(RmiE2E, SetterHookTransformsPatch) {
   auto proto = dynamic_ptr{"Clamped"_key, {{"v"_key, int32_t{0}}}};
   // __setter clamps v to [0, 100].
-  proto->addMethod(HOOK_SETTER, [](dynamic& /*self*/, const dynamic& patch) {
+  proto->addMethod(HOOK_SETTER, method{[](dynamic& /*self*/, const dynamic& patch) {
     dynamic out = patch.clone();
     auto* f = out.findField("v"_key);
     if (f && f->is<int32_t>()) {
@@ -637,7 +637,7 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
         out["v"_key] = int32_t{0};
     }
     return out;
-  });
+  }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -660,7 +660,7 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
 TEST_F(RmiE2E, GetterHookTransformsResult) {
   auto proto = dynamic_ptr{"Doubled"_key, {{"n"_key, int32_t{0}}}};
   // __getter doubles the value of n in the response.
-  proto->addMethod(HOOK_GETTER, [](dynamic& /*self*/, const dynamic& snap) {
+  proto->addMethod(HOOK_GETTER, method{[](dynamic& /*self*/, const dynamic& snap) {
     dynamic out = snap.clone();
     auto* f = out.findField("n"_key);
     if (f && f->is<int32_t>()) {
@@ -668,7 +668,7 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
       out["n"_key] = val * 2;
     }
     return out;
-  });
+  }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -738,7 +738,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
 
   // Register a class whose "trigger" method emits an event back to the client.
   auto proto = dynamic_ptr{"Emitter"_key, {}};
-  proto->addMethod("trigger"_key, [](dynamic& self, const dynamic& params) {
+  proto->addMethod("trigger"_key, method{[](dynamic& self, const dynamic& params) {
     // Retrieve the emit_event callback stored in userdata.
     // For this test we smuggle it via a shared_ptr<userdata>.
     struct emit_ud : bdg::bison::userdata {
@@ -752,7 +752,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
       ud->fn({}, "onTick"_key, std::move(ev_params));
     }
     return dynamic{};
-  });
+  }});
   dynamic::addClass(0U, proto, 0U);
 
   // Override instantiate so we can attach userdata with the emit callback.
@@ -887,10 +887,10 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
 
   auto proto = dynamic_ptr{"Ephemeral"_key, {}};
   proto->addMethod(
-      HOOK_DESTRUCT, [&destruct_count](dynamic& /*self*/, const dynamic&) {
+      HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
         ++destruct_count;
         return dynamic{};
-      });
+      }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -914,9 +914,9 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
 
 TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   auto proto = dynamic_ptr{"Echo"_key, {}};
-  proto->addMethod("echo"_key, [](dynamic& /*self*/, const dynamic& params) {
+  proto->addMethod("echo"_key, method{[](dynamic& /*self*/, const dynamic& params) {
     return dynamic{params.clone()};
-  });
+  }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -1094,13 +1094,13 @@ TEST_F(StandaloneTests, ClearResetsFields) {
 
 TEST_F(StandaloneTests, CallMethod) {
   auto proto = dynamic_ptr{"Adder"_key, {}};
-  proto->addMethod("add"_key, [](dynamic& /*self*/, const dynamic& params) {
+  proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) {
     int32_t a = params["a"_key];
     int32_t b = params["b"_key];
     dynamic result;
     result["sum"_key] = int32_t{a + b};
     return result;
-  });
+  }});
   dynamic::addClass(0U, proto);
 
   standalone sa;
@@ -1121,15 +1121,15 @@ TEST_F(StandaloneTests, ConstructAndDestructHooksAreCalled) {
 
   auto proto = dynamic_ptr{"Tracked"_key, {}};
   proto->addMethod(
-      HOOK_CONSTRUCT, [&constructed](dynamic& /*self*/, const dynamic&) {
+      HOOK_CONSTRUCT, method{[&constructed](dynamic& /*self*/, const dynamic&) {
         ++constructed;
         return dynamic{};
-      });
+      }});
   proto->addMethod(
-      HOOK_DESTRUCT, [&destructed](dynamic& /*self*/, const dynamic&) {
+      HOOK_DESTRUCT, method{[&destructed](dynamic& /*self*/, const dynamic&) {
         ++destructed;
         return dynamic{};
-      });
+      }});
   dynamic::addClass(0U, proto);
 
   {
@@ -1267,15 +1267,19 @@ TEST_F(StandaloneTests, DescribeSpecificClassIncludesMethodList) {
   auto proto = dynamic_ptr{"ServiceClass"_key};
   proto->addMethod(
       "start"_key,
-      [](dynamic&, const dynamic&) -> dynamic { return {}; },
-      {attr<DisplayName>("Start Service"), attr<Description>("Starts the service")});
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          attr<DisplayName>("Start Service"),
+          attr<Description>("Starts the service")});
   proto->addMethod(
       "stop"_key,
-      [](dynamic&, const dynamic&) -> dynamic { return {}; },
-      {attr<DisplayName>("Stop Service"), attr<Obsolete>("Use shutdown instead")});
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          attr<DisplayName>("Stop Service"),
+          attr<Obsolete>("Use shutdown instead")});
   proto->addMethod(
       "ping"_key,
-      [](dynamic&, const dynamic&) -> dynamic { return {}; });
+      method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
 
   dynamic::addClass(0U, proto);
 
@@ -1384,16 +1388,19 @@ TEST_F(RmiE2E, DescribeSpecificClassIncludesMethodAttributes) {
   auto proto = dynamic_ptr{"RemoteCalc"_key};
   proto->addMethod(
       "add"_key,
-      [](dynamic& /*self*/, const dynamic& p) -> dynamic {
-        dynamic r;
-        r["result"_key] = p.as<int32_t>("a"_key) + p.as<int32_t>("b"_key);
-        return r;
-      },
-      {attr<DisplayName>("Add"), attr<Description>("Returns the sum of a and b")});
+      method{
+          [](dynamic& /*self*/, const dynamic& p) -> dynamic {
+            dynamic r;
+            r["result"_key] = p.as<int32_t>("a"_key) + p.as<int32_t>("b"_key);
+            return r;
+          },
+          attr<DisplayName>("Add"),
+          attr<Description>("Returns the sum of a and b")});
   proto->addMethod(
       "reset"_key,
-      [](dynamic&, const dynamic&) -> dynamic { return {}; },
-      {attr<Obsolete>("Use clear instead")});
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          attr<Obsolete>("Use clear instead")});
 
   dynamic::addClass(0U, proto);
 

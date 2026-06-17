@@ -625,7 +625,8 @@ BISON_API bison_error bison_add_method(
     };
 
     bool ok = dyn(h)->addMethod(
-        bdg::bison::key_t{name}, std::move(wrapped), attrs_from_meta(meta));
+        bdg::bison::key_t{name},
+        bdg::bison::method{std::move(wrapped), attrs_from_meta(meta)});
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;

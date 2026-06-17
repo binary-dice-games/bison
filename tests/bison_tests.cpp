@@ -805,24 +805,24 @@ TEST(DynamicSerializationTests, NullNestedPointer) {
 TEST(DynamicMethodTests, AddAndCallMethod) {
   dynamic obj;
   obj.addMethod(
-      "greet"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "greet"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         dynamic result;
         result["msg"_key] = std::string{"hello"};
         return result;
-      });
+      }});
   dynamic result = obj.call("greet"_key, dynamic{});
   EXPECT_EQ(result["msg"_key].as<std::string>(), "hello");
 }
 
 TEST(DynamicMethodTests, MethodReceivesParams) {
   dynamic obj;
-  obj.addMethod("add"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+  obj.addMethod("add"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
     int32_t a = params["a"_key].as<int32_t>();
     int32_t b = params["b"_key].as<int32_t>();
     dynamic result;
     result["sum"_key] = a + b;
     return result;
-  });
+  }});
 
   dynamic args;
   args["a"_key] = int32_t{3};
@@ -834,10 +834,10 @@ TEST(DynamicMethodTests, MethodReceivesParams) {
 TEST(DynamicMethodTests, MethodCanMutateSelf) {
   dynamic obj;
   obj["counter"_key] = int32_t{0};
-  obj.addMethod("inc"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+  obj.addMethod("inc"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
     self["counter"_key] = int32_t{self["counter"_key].as<int32_t>() + 1};
     return dynamic{};
-  });
+  }});
   obj.call("inc"_key, dynamic{});
   obj.call("inc"_key, dynamic{});
   EXPECT_EQ(obj["counter"_key].as<int32_t>(), 2);
@@ -851,8 +851,8 @@ TEST(DynamicMethodTests, CallNonexistentMethodThrows) {
 TEST(DynamicMethodTests, AddMethodReturnsFalseOnDuplicate) {
   dynamic obj;
   method_fn fn = [](dynamic&, const dynamic&) -> dynamic { return {}; };
-  EXPECT_TRUE(obj.addMethod("fn"_key, fn));
-  EXPECT_FALSE(obj.addMethod("fn"_key, fn));
+  EXPECT_TRUE(obj.addMethod("fn"_key, method{fn}));
+  EXPECT_FALSE(obj.addMethod("fn"_key, method{fn}));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -913,11 +913,11 @@ TEST_F(InheritanceTest, FieldInheritedFromParent) {
 TEST_F(InheritanceTest, MethodInheritedFromParent) {
   auto base = dynamic_ptr{"Animal2"_key};
   base->addMethod(
-      "speak"_key, [](dynamic& self, const dynamic& params) -> dynamic {
+      "speak"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
         dynamic r;
         r["sound"_key] = std::string{"..."};
         return r;
-      });
+      }});
   dynamic::addClass(0U, base, 0U);
 
   auto child = dynamic_ptr{"Dog"_key};
@@ -1448,11 +1448,12 @@ TEST(PrintTest, MethodsAppearsInOutput) {
   obj["value"_key] = field{int32_t{0}, attr<DisplayName>("value")};
   obj.addMethod(
       "reset"_key,
-      [](dynamic&, const dynamic&) -> dynamic { return {}; },
-      {attr<DisplayName>("Reset"), attr<Description>("Resets to zero")});
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          attr<DisplayName>("Reset"), attr<Description>("Resets to zero")});
   obj.addMethod(
       "noop"_key,
-      [](dynamic&, const dynamic&) -> dynamic { return {}; });
+      method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
 
   const std::string out = print(obj);
   // Method with DisplayName uses that name as the key.

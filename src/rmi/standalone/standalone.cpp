@@ -78,7 +78,7 @@ static bool apply_attrs(bison::dynamic& desc, const bison::field& f) {
  *  @return `true` if at least one attribute was written. */
 static bool apply_method_attrs(
     bison::dynamic& desc,
-    const bison::dynamic::method& e) {
+    const bison::method& e) {
   using namespace bison;
   bool applied = false;
   if (auto* dn = e.findAttribute<DisplayName>()) {
@@ -378,7 +378,7 @@ bison::dynamic standalone::handle_describe(
     bison::dynamic methods_meta;
     bool has_methods = false;
     proto->forEachMethod(
-        [&](bison::key_t k, const bison::dynamic::method& e) {
+        [&](bison::key_t k, const bison::method& e) {
           bison::dynamic mmeta;
           apply_method_attrs(mmeta, e);
           methods_meta[k] = bison::dynamic_ptr{std::move(mmeta)};
