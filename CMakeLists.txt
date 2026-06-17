@@ -90,6 +90,9 @@ target_sources(bison PRIVATE
   src/rmi/server/pty_server_app.cpp
   src/rmi/server/server.cpp
   src/rmi/standalone/standalone.cpp
+  src/pty/pty_server_transport.cpp
+  src/pty/pty_server_app.cpp
+  src/pty/pty_client_app.cpp
 )
 
 if(WIN32)
