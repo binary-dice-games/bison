@@ -1499,3 +1499,175 @@ TEST(PrintTest, MethodsAppearsInOutput) {
   // Field is still present.
   EXPECT_NE(out.find("value"),           std::string::npos);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 17. Typed subclass support: instantiate<T>, addClass<T>, forEachChild<T>,
+//     and to_field_value upcast for shared_ptr<T> where T derives from dynamic
+// ═════════════════════════════════════════════════════════════════════════════
+
+struct Widget : public dynamic {
+  int tag = 0;
+  explicit Widget(dynamic&& base) : dynamic(std::move(base)) {}
+};
+
+struct FooChild : public dynamic {
+  explicit FooChild(dynamic&& b) : dynamic(std::move(b)) {}
+};
+
+struct BarChild : public dynamic {
+  explicit BarChild(dynamic&& b) : dynamic(std::move(b)) {}
+};
+
+class SubclassTest : public ::testing::Test {
+ protected:
+  void SetUp() override { clearClassRegistry(); }
+  void TearDown() override { clearClassRegistry(); }
+};
+
+// ── to_field_value: shared_ptr<T> where T derives from dynamic ───────────────
+
+TEST(SubclassFieldCoercionTests, SharedPtrSubclassStoredAsDynamicPtr) {
+  auto w = std::make_shared<Widget>(dynamic::instantiate("Widget"_key));
+  w->tag = 42;
+  field f{w};
+  EXPECT_TRUE(f.is<dynamic_ptr>());
+  auto* wptr = dynamic_cast<Widget*>(f.as<dynamic_ptr>().get());
+  ASSERT_NE(wptr, nullptr);
+  EXPECT_EQ(wptr->tag, 42);
+}
+
+TEST(SubclassFieldCoercionTests, AssignSharedPtrSubclassToMonostateField) {
+  auto w = std::make_shared<Widget>(dynamic::instantiate("Widget"_key));
+  w->tag = 7;
+  field f;
+  f = w;
+  EXPECT_TRUE(f.is<dynamic_ptr>());
+  auto* wptr = dynamic_cast<Widget*>(f.as<dynamic_ptr>().get());
+  ASSERT_NE(wptr, nullptr);
+  EXPECT_EQ(wptr->tag, 7);
+}
+
+// ── instantiate<T> ───────────────────────────────────────────────────────────
+
+TEST_F(SubclassTest, InstantiateTypedSubclassGlobalNamespace) {
+  auto ptr = dynamic::instantiate<Widget>("Widget"_key);
+  ASSERT_NE(ptr, nullptr);
+  EXPECT_EQ(
+      (*ptr)["__class"_key].as<bison_key_t>().id, hash_t("Widget"_key));
+}
+
+TEST_F(SubclassTest, InstantiateTypedSubclassWithNamespace) {
+  auto ptr = dynamic::instantiate<Widget>("ui"_key, "Widget"_key);
+  ASSERT_NE(ptr, nullptr);
+  EXPECT_EQ(
+      (*ptr)["__class"_key].as<bison_key_t>().id, hash_t("Widget"_key));
+  EXPECT_EQ(
+      (*ptr)["__namespace"_key].as<bison_key_t>().id, hash("ui"));
+}
+
+TEST_F(SubclassTest, InstantiateTypedSubclassInheritsFields) {
+  auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto"_key));
+  (*proto)["color"_key] = std::string{"red"};
+  ASSERT_TRUE(dynamic::addClass("ui"_key, proto, key_t{0U}));
+
+  auto inst = dynamic::instantiate<Widget>("ui"_key, "WProto"_key);
+  ASSERT_NE(inst, nullptr);
+  EXPECT_EQ((*inst)["color"_key].as<std::string>(), "red");
+}
+
+// ── addClass<T>(ns, shared_ptr<T>, parent, class_attrs) ──────────────────────
+
+TEST_F(SubclassTest, AddClassWithTypedSharedPtrSucceeds) {
+  auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto1"_key));
+  (*proto)["size"_key] = int32_t{10};
+  EXPECT_TRUE(dynamic::addClass("ui"_key, proto, key_t{0U}));
+}
+
+TEST_F(SubclassTest, AddClassWithTypedSharedPtrDuplicateFails) {
+  auto p1 = std::make_shared<Widget>(dynamic::instantiate("WProto2"_key));
+  auto p2 = std::make_shared<Widget>(dynamic::instantiate("WProto2"_key));
+  EXPECT_TRUE(dynamic::addClass("ui"_key, p1, key_t{0U}));
+  EXPECT_FALSE(dynamic::addClass("ui"_key, p2, key_t{0U}));
+}
+
+TEST_F(SubclassTest, AddClassWithTypedSharedPtrAndClassAttrs) {
+  auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto3"_key));
+  Widget* raw = proto.get();
+  ASSERT_TRUE(dynamic::addClass(
+      "ui"_key, proto, key_t{0U},
+      {attr<DisplayName>("My Widget"), attr<Description>("hint")}));
+
+  // proto was moved; raw still valid via the registry's shared ownership.
+  auto* dn = (*raw)[dynamic::CLASS].findAttribute<DisplayName>();
+  ASSERT_NE(dn, nullptr);
+  EXPECT_EQ(dn->name(), "My Widget");
+  auto* desc = (*raw)[dynamic::CLASS].findAttribute<Description>();
+  ASSERT_NE(desc, nullptr);
+  EXPECT_EQ(desc->text(), "hint");
+}
+
+TEST_F(SubclassTest, AddClassWithTypedSharedPtrFieldsInheritable) {
+  auto base = std::make_shared<Widget>(dynamic::instantiate("WBase"_key));
+  (*base)["visible"_key] = true;
+  ASSERT_TRUE(dynamic::addClass("ui"_key, base, key_t{0U}));
+
+  auto child = std::make_shared<Widget>(dynamic::instantiate("WChild"_key));
+  ASSERT_TRUE(dynamic::addClass("ui"_key, child, "WBase"_key));
+
+  auto inst = dynamic::instantiate<Widget>("ui"_key, "WChild"_key);
+  ASSERT_NE(inst, nullptr);
+  EXPECT_TRUE((*inst)["visible"_key].as<bool>());
+}
+
+// ── forEachChild<T> ──────────────────────────────────────────────────────────
+
+TEST(ForEachChildTests, VisitsOnlyMatchingSubtype) {
+  dynamic parent;
+  parent["a"_key] =
+      dynamic_ptr{std::make_shared<FooChild>(dynamic::instantiate(key_t{0U}))};
+  parent["b"_key] =
+      dynamic_ptr{std::make_shared<BarChild>(dynamic::instantiate(key_t{0U}))};
+  parent["c"_key] =
+      dynamic_ptr{std::make_shared<FooChild>(dynamic::instantiate(key_t{0U}))};
+
+  int count = 0;
+  parent.forEachChild<FooChild>([&count](key_t, FooChild&) { ++count; });
+  EXPECT_EQ(count, 2);
+}
+
+TEST(ForEachChildTests, SkipsNonDynamicPtrFields) {
+  dynamic parent;
+  parent["x"_key] = int32_t{1};
+  parent["y"_key] = std::string{"hello"};
+
+  int count = 0;
+  parent.forEachChild<FooChild>([&count](key_t, FooChild&) { ++count; });
+  EXPECT_EQ(count, 0);
+}
+
+TEST(ForEachChildTests, SkipsNullDynamicPtr) {
+  dynamic parent;
+  parent["p"_key] = std::shared_ptr<dynamic>{};
+
+  int count = 0;
+  parent.forEachChild<FooChild>([&count](key_t, FooChild&) { ++count; });
+  EXPECT_EQ(count, 0);
+}
+
+TEST(ForEachChildTests, VisitorReceivesCorrectKeyAndRef) {
+  dynamic parent;
+  auto child =
+      std::make_shared<FooChild>(dynamic::instantiate(key_t{0U}));
+  (*child)["val"_key] = int32_t{99};
+  parent["child"_key] = dynamic_ptr{child};
+
+  key_t visited_key{0U};
+  int visited_val = 0;
+  parent.forEachChild<FooChild>([&](key_t k, FooChild& f) {
+    visited_key = k;
+    visited_val = f["val"_key].as<int32_t>();
+  });
+
+  EXPECT_EQ(visited_key.id, hash_t("child"_key));
+  EXPECT_EQ(visited_val, 99);
+}

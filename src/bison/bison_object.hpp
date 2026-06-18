@@ -173,6 +173,12 @@ class field : public field_base {
       return std::string(value);
     } else if constexpr (std::is_same_v<value_type, std::shared_ptr<dynamic>>) {
       return dynamic_ptr(std::forward<T>(value));
+    } else if constexpr (
+        std::is_constructible_v<std::shared_ptr<dynamic>, value_type> &&
+        !std::is_same_v<value_type, std::shared_ptr<dynamic>>) {
+      // shared_ptr<T> where T derives from dynamic (e.g. a typed ui subclass).
+      // Upcast to dynamic_ptr so the field stores the canonical pointer type.
+      return dynamic_ptr(std::forward<T>(value));
     } else {
       return std::forward<T>(value);
     }
@@ -703,6 +709,36 @@ class dynamic {
   }
 
   /**
+   * @brief Create an instance of a `dynamic` subclass @p T in a namespace.
+   *
+   * Calls the non-template `instantiate(ns, klass)` to build the base object
+   * and moves it into a heap-allocated @p T via `T(dynamic&&)`.
+   *
+   * @tparam T      Concrete subclass of `dynamic` with a `T(dynamic&&)` ctor.
+   * @param  ns     Hash of the namespace; `0U` for the global namespace.
+   * @param  klass  Hash of the class name.
+   * @return `std::shared_ptr<T>` owning the new instance.
+   */
+  template <typename T,
+            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  static std::shared_ptr<T> instantiate(const key_t ns, const key_t klass) {
+    return std::make_shared<T>(dynamic::instantiate(ns, klass));
+  }
+
+  /**
+   * @brief Create an instance of a `dynamic` subclass @p T in the global
+   *        namespace.
+   * @tparam T     Concrete subclass of `dynamic` with a `T(dynamic&&)` ctor.
+   * @param  klass Hash of the class name.
+   * @return `std::shared_ptr<T>` owning the new instance.
+   */
+  template <typename T,
+            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  static std::shared_ptr<T> instantiate(const key_t klass) {
+    return instantiate<T>(key_t{0U}, klass);
+  }
+
+  /**
    * @brief Register a class prototype in the namespace registry.
    *
    * Sets the `PARENT` field of @p klass to @p parent, sets the `NAMESPACE`
@@ -738,6 +774,30 @@ class dynamic {
     for (auto& a : class_attrs)
       (*klass)[CLASS].addAttribute(std::move(a));
     return addClass(ns, std::move(klass), parent);
+  }
+
+  /**
+   * @brief Register a typed subclass prototype without an explicit cast.
+   *
+   * Convenience overload for callers that already hold a `std::shared_ptr<T>`
+   * (where `T` is a `dynamic` subclass).  The pointer is implicitly narrowed to
+   * `dynamic_ptr` before forwarding to the primary overload.
+   *
+   * @tparam T          Subclass of `dynamic`.
+   * @param  ns         Namespace to register in.
+   * @param  klass      Prototype as a typed shared pointer.
+   * @param  parent     Parent class name hash (`0U` for root).
+   * @param  class_attrs Optional class-level attributes.
+   */
+  template <typename T,
+            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  static bool addClass(
+      const key_t ns,
+      std::shared_ptr<T> klass,
+      const key_t parent = key_t{0U},
+      std::vector<std::shared_ptr<const attribute>> class_attrs = {}) {
+    return addClass(ns, dynamic_ptr{std::move(klass)}, parent,
+                    std::move(class_attrs));
   }
 
   static bool
@@ -898,6 +958,31 @@ class dynamic {
   void forEach(F&& fn) const {
     for (const auto& kv : fields_) {
       fn(kv.first, kv.second);
+    }
+  }
+
+  /**
+   * @brief Iterate over every `dynamic_ptr` child field cast to type @p T.
+   *
+   * Filters `fields_` to entries whose value is a `dynamic_ptr`, then attempts
+   * a `dynamic_cast` to `T*`.  Only children that succeed the cast invoke @p fn.
+   * Fields that are not `dynamic_ptr`, or whose pointed-to object is not a @p T,
+   * are silently skipped.
+   *
+   * @tparam T  Concrete subclass of `dynamic`.
+   * @tparam F  Callable with signature `void(key_t, T&)`.
+   * @param  fn Visitor invoked for each matching child.
+   */
+  template <typename T, typename F,
+            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  void forEachChild(F&& fn) const {
+    for (const auto& kv : fields_) {
+      if (kv.second.is<dynamic_ptr>()) {
+        const auto& ptr = kv.second.as<dynamic_ptr>();
+        if (auto* typed = dynamic_cast<T*>(ptr.get())) {
+          fn(kv.first, *typed);
+        }
+      }
     }
   }
 
