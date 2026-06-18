@@ -89,7 +89,7 @@ class client : public proxy_backend {
   client(client&&) = delete;
   client& operator=(client&&) = delete;
 
-  ~client();
+  virtual ~client();
 
   /**
    * @brief Open the transport and start the client worker loop.
