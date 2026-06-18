@@ -697,6 +697,40 @@ TEST(DynamicTests, CloneIsIndependent) {
   EXPECT_EQ(copy["v"_key].as<int32_t>(), 2);
 }
 
+TEST(DynamicTests, CloneIsDeep) {
+  auto inner = std::make_shared<dynamic>(0U);
+  (*inner)["x"_key] = int32_t{10};
+
+  dynamic orig;
+  orig["child"_key] = dynamic_ptr{inner};
+
+  dynamic copy = orig.clone();
+
+  // Mutating the clone's nested object must not affect the original.
+  copy["child"_key].as<dynamic_ptr>()->at("x"_key) = int32_t{99};
+  EXPECT_EQ((*inner)["x"_key].as<int32_t>(), 10);
+  EXPECT_EQ(copy["child"_key].as<dynamic_ptr>()->at("x"_key).as<int32_t>(), 99);
+}
+
+TEST(DynamicTests, CloneOriginalDoesNotAffectClone) {
+  auto inner = std::make_shared<dynamic>(0U);
+  (*inner)["x"_key] = int32_t{10};
+
+  dynamic orig;
+  orig["v"_key] = int32_t{1};
+  orig["child"_key] = dynamic_ptr{inner};
+
+  dynamic copy = orig.clone();
+
+  // Mutating a scalar field on the original must not affect the clone.
+  orig["v"_key] = int32_t{42};
+  EXPECT_EQ(copy["v"_key].as<int32_t>(), 1);
+
+  // Mutating the original's nested object must not affect the clone.
+  (*inner)["x"_key] = int32_t{99};
+  EXPECT_EQ(copy["child"_key].as<dynamic_ptr>()->at("x"_key).as<int32_t>(), 10);
+}
+
 TEST(DynamicTests, AddFieldReturnsFalseOnDuplicate) {
   dynamic obj;
   EXPECT_TRUE(obj.addField("x"_key, field{int32_t{1}}));

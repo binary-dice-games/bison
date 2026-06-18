@@ -501,9 +501,24 @@ class dynamic {
   dynamic& operator=(dynamic&& that) = default;
   virtual ~dynamic() {}
 
-  /** @brief Return a deep copy of this object (fields and methods). */
+  /**
+   * @brief Return a deep copy of this object.
+   *
+   * All fields are copied; nested `dynamic_ptr` fields are recursively cloned
+   * so the result shares no mutable state with the original.  Methods are
+   * copied by value (their `method_fn` callables are shared, which is safe
+   * since they are immutable).  The `userdata` pointer is shallow-copied.
+   */
   inline dynamic clone() const {
-    return dynamic(static_cast<const dynamic>(*this));
+    dynamic copy{static_cast<const dynamic&>(*this)};
+    for (auto& kv : copy.fields_) {
+      if (kv.second.is<dynamic_ptr>()) {
+        auto& ptr = kv.second.as<dynamic_ptr>();
+        if (ptr != nullptr)
+          ptr = dynamic_ptr{std::make_shared<dynamic>(ptr->clone())};
+      }
+    }
+    return copy;
   }
 
   /**

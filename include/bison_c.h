@@ -189,6 +189,20 @@ BISON_API bison_handle bison_add_ref(bison_handle h);
  */
 BISON_API void bison_release(bison_handle h);
 
+/**
+ * @brief Perform a deep clone of @p h and return the result as a new handle.
+ *
+ * All fields are copied.  Nested `dynamic` object fields are recursively
+ * cloned, so the returned object shares no mutable state with @p h.
+ * The caller owns the returned handle and must release it with
+ * `bison_release`.
+ *
+ * @param h  Source object handle.
+ * @return New handle (ref-count 1) owning the cloned object, or `NULL` if
+ *         @p h is `NULL` or an allocation error occurs.
+ */
+BISON_API bison_handle bison_clone(bison_handle h);
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Import helpers
  * ═════════════════════════════════════════════════════════════════════════ */

@@ -69,6 +69,67 @@ TEST(LifecycleTests, AddRefOnNullReturnsNull) {
   EXPECT_EQ(bison_add_ref(nullptr), nullptr);
 }
 
+TEST(LifecycleTests, CloneOnNullReturnsNull) {
+  EXPECT_EQ(bison_clone(nullptr), nullptr);
+}
+
+TEST(LifecycleTests, CloneReturnsDistinctHandle) {
+  ScopedHandle orig{bison_create(0)};
+  ASSERT_NE(orig.h, nullptr);
+  ScopedHandle copy{bison_clone(orig)};
+  ASSERT_NE(copy.h, nullptr);
+  EXPECT_NE(orig.h, copy.h);
+}
+
+TEST(LifecycleTests, CloneScalarFieldIsIndependent) {
+  ScopedHandle orig{bison_create(0)};
+  ASSERT_EQ(bison_set_int(orig, H("v"), 1), BISON_OK);
+
+  ScopedHandle copy{bison_clone(orig)};
+  ASSERT_NE(copy.h, nullptr);
+
+  // Mutating the clone must not affect the original.
+  ASSERT_EQ(bison_set_int(copy, H("v"), 99), BISON_OK);
+  int32_t v = 0;
+  ASSERT_EQ(bison_get_int(orig, H("v"), &v), BISON_OK);
+  EXPECT_EQ(v, 1);
+}
+
+TEST(LifecycleTests, CloneOriginalDoesNotAffectClone) {
+  ScopedHandle orig{bison_create(0)};
+  ASSERT_EQ(bison_set_int(orig, H("v"), 1), BISON_OK);
+
+  ScopedHandle copy{bison_clone(orig)};
+  ASSERT_NE(copy.h, nullptr);
+
+  // Mutating the original must not affect the clone.
+  ASSERT_EQ(bison_set_int(orig, H("v"), 42), BISON_OK);
+  int32_t v = 0;
+  ASSERT_EQ(bison_get_int(copy, H("v"), &v), BISON_OK);
+  EXPECT_EQ(v, 1);
+}
+
+TEST(LifecycleTests, CloneNestedObjectIsDeep) {
+  ScopedHandle inner{bison_create(0)};
+  ASSERT_EQ(bison_set_int(inner, H("x"), 10), BISON_OK);
+
+  ScopedHandle orig{bison_create(0)};
+  ASSERT_EQ(bison_set_object(orig, H("child"), inner), BISON_OK);
+
+  ScopedHandle copy{bison_clone(orig)};
+  ASSERT_NE(copy.h, nullptr);
+
+  // Mutate the nested object through the clone; the original must be unchanged.
+  bison_handle raw_child = nullptr;
+  ASSERT_EQ(bison_get_object(copy, H("child"), &raw_child), BISON_OK);
+  ScopedHandle cloned_child{raw_child};
+  ASSERT_EQ(bison_set_int(cloned_child, H("x"), 99), BISON_OK);
+
+  int32_t v = 0;
+  ASSERT_EQ(bison_get_int(inner, H("x"), &v), BISON_OK);
+  EXPECT_EQ(v, 10);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 2. Setters and getters — named fields
 // ═════════════════════════════════════════════════════════════════════════════

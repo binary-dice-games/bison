@@ -99,6 +99,18 @@ BISON_API void bison_release(bison_handle h) {
   delete as_sp(h); // decrements shared_ptr refcount; may destroy the object
 }
 
+BISON_API bison_handle bison_clone(bison_handle h) {
+  if (!h)
+    return nullptr;
+  try {
+    auto* sp = new sp_dyn(
+        std::make_shared<bdg::bison::dynamic>(as_sp(h)->get()->clone()));
+    return as_handle(sp);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 // ─── Import helpers ─────────────────────────────────────────────────────────
 
 BISON_API bison_handle bison_from_json(const char* json) {
