@@ -106,6 +106,39 @@ class Required : public attribute {
 };
 
 /**
+ * @brief Inclusive [min, max] range hint for a numeric field.
+ *
+ * Consumers (e.g. property editors, validation layers) may use this to clamp
+ * input or render an appropriate widget.  This is advisory only — the runtime
+ * does not enforce the range.
+ */
+class Range : public attribute {
+ public:
+  Range(double min, double max) : min_(min), max_(max) {}
+  double min() const { return min_; }
+  double max() const { return max_; }
+
+ private:
+  double min_;
+  double max_;
+};
+
+/**
+ * @brief Increment step hint for a numeric field.
+ *
+ * Advisory increment used by property editors and slider widgets.  Does not
+ * affect serialisation or runtime assignment.
+ */
+class Step : public attribute {
+ public:
+  explicit Step(double step) : step_(step) {}
+  double step() const { return step_; }
+
+ private:
+  double step_;
+};
+
+/**
  * @brief A typed variant value with optional metadata attributes.
  *
  * `field` extends `field_base` (a `std::variant`) and enforces *stable-type*
