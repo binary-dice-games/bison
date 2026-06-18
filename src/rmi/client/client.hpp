@@ -160,6 +160,20 @@ class client : public proxy_backend {
    */
   void unregister_object_events(bison::key_t object_id);
 
+  /**
+   * @brief Create a proxy for a server-side object whose ID is already known.
+   *
+   * Use this when the server returns an object ID through a method call result
+   * rather than through `OP_INSTANTIATE`.  The caller is responsible for
+   * ensuring @p id refers to a live object in the current session.
+   *
+   * @param id Remote object identifier.
+   * @return A valid `proxy::dynamic` backed by this client.
+   */
+  proxy::dynamic make_proxy(bison::key_t id) {
+    return proxy::dynamic(this, std::move(id));
+  }
+
  private:
   // ── Private methods (defined in client.cpp) ───────────────────────────────
 

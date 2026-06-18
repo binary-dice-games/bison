@@ -459,6 +459,9 @@ void server::handle_instantiate(
     }
   }
 
+  // Verify the class is registered (under lock), then release lock before
+  // calling on_create_object so that hook implementations can acquire
+  // other locks without risking a deadlock.
   {
     auto lp = bison::dynamic::getRegistry().rlock();
     const auto& nsmap = *lp;
@@ -472,39 +475,51 @@ void server::handle_instantiate(
           "Class not registered in requested namespace");
       return;
     }
+  }  // registry lock released
 
-    auto obj = std::make_shared<bison::dynamic>(
-        bison::dynamic::instantiate(ns, klass));
-
-    if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
-      try {
-        bison::dynamic construct_params;
-        auto& pf = p[FIELD_PARAMS];
-        if (pf.is<bison::dynamic_ptr>()) {
-          auto ptr = pf.as<bison::dynamic_ptr>();
-          if (ptr)
-            construct_params = std::move(*ptr);
-        }
-        obj->call(HOOK_CONSTRUCT, construct_params);
-      } catch (const std::exception& e) {
-        send_error(
-            conn,
-            env,
-            OP_INSTANTIATE,
-            ERR_INTERNAL_ERROR,
-            std::string("__construct failed: ") + e.what());
-        return;
-      }
-    }
-
-    const bison::key_t oid = shared::generate_id();
-    ctx.objects[oid.id] = obj;
-
-    bison::dynamic resp;
-    resp[FIELD_OBJECT_ID] = oid;
-    resp[FIELD_KLASS] = klass;
-    send_response(conn, env, OP_INSTANTIATE, std::move(resp));
+  bison::dynamic_ptr obj;
+  try {
+    obj = on_create_object(ctx, ns, klass);
+  } catch (const std::exception& e) {
+    send_error(conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR, e.what());
+    return;
   }
+
+  if (!obj) {
+    send_error(
+        conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR,
+        "on_create_object returned null");
+    return;
+  }
+
+  if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
+    try {
+      bison::dynamic construct_params;
+      auto& pf = p[FIELD_PARAMS];
+      if (pf.is<bison::dynamic_ptr>()) {
+        auto ptr = pf.as<bison::dynamic_ptr>();
+        if (ptr)
+          construct_params = std::move(*ptr);
+      }
+      obj->call(HOOK_CONSTRUCT, construct_params);
+    } catch (const std::exception& e) {
+      send_error(
+          conn,
+          env,
+          OP_INSTANTIATE,
+          ERR_INTERNAL_ERROR,
+          std::string("__construct failed: ") + e.what());
+      return;
+    }
+  }
+
+  const bison::key_t oid = shared::generate_id();
+  ctx.objects[oid.id] = obj;
+
+  bison::dynamic resp;
+  resp[FIELD_OBJECT_ID] = oid;
+  resp[FIELD_KLASS] = klass;
+  send_response(conn, env, OP_INSTANTIATE, std::move(resp));
 }
 
 /** @brief Handle clear requests for a live remote object. */

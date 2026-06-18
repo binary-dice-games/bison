@@ -168,6 +168,30 @@ class server {
    */
   virtual void on_session_destroyed(context& ctx) { (void)ctx; }
 
+  /**
+   * @brief Factory hook called when a client instantiates a new object.
+   *
+   * The default implementation wraps a plain `bison::dynamic::instantiate`
+   * result in a `dynamic_ptr`.  Override to return a session-aware subclass
+   * (e.g. a handler that holds a reference to per-session application state).
+   *
+   * Called from the session worker thread after the class has been verified as
+   * registered, outside the class-registry read lock.
+   *
+   * @param ctx   Session context for the requesting client.
+   * @param ns    Namespace key of the requested class.
+   * @param klass Class key of the requested type.
+   * @return Heap-allocated `dynamic` (or subclass) for the new object.
+   */
+  virtual bison::dynamic_ptr on_create_object(
+      context& ctx,
+      bison::key_t ns,
+      bison::key_t klass) {
+    (void)ctx;
+    return bison::dynamic_ptr{
+        std::make_shared<bison::dynamic>(bison::dynamic::instantiate(ns, klass))};
+  }
+
  private:
   // ── Private methods (defined in server.cpp) ───────────────────────────────
 
@@ -204,7 +228,7 @@ class server {
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_instantiate(
+  void handle_instantiate(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
