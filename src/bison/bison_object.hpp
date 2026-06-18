@@ -1066,8 +1066,12 @@ inline dynamic method::call(dynamic& self, const dynamic& params) const {
 }
 
 inline dynamic_ptr dynamic::clone_for_instance() const {
-  return dynamic_ptr{new dynamic(
-      dynamic::instantiate(resolveNamespace(), as<key_t>(CLASS)))};
+  // as<key_t> is a public accessor; it reads fields_ via the member function,
+  // which avoids the private resolveNamespace() path.  NAMESPACE field is
+  // always set by addClass; CLASS is set by every constructor.
+  auto ns = as<key_t>(NAMESPACE);
+  auto klass = as<key_t>(CLASS);
+  return dynamic_ptr{new dynamic(dynamic::instantiate(ns, klass))};
 }
 
 inline dynamic_ptr dynamic::create_instance(key_t ns, key_t klass) {
