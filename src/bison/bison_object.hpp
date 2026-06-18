@@ -616,6 +616,38 @@ class dynamic {
   inline static dynamic deserializeWithSchema(buffer_deserializer& in);
 
   /**
+   * @brief Create a fresh instance of this object's concrete type.
+   *
+   * The default implementation constructs a plain `dynamic` with the same
+   * class and namespace as this prototype (i.e. behaves like `instantiate`).
+   * Subclasses registered via `addClass` should override this to return a
+   * `shared_ptr` to a new instance of their own type, so that
+   * `create_instance` routes to the correct concrete class without any
+   * per-type dispatch in calling code.
+   *
+   * Called outside the class-registry read lock.  The returned object is
+   * uninitialized beyond its bison schema; callers are responsible for any
+   * additional setup (e.g. injecting session context).
+   *
+   * @return Heap-allocated instance of the same concrete type as `*this`.
+   */
+  virtual dynamic_ptr clone_for_instance() const;
+
+  /**
+   * @brief Instantiate a registered class by namespace and class key.
+   *
+   * Looks up the registered prototype for @p klass in @p ns, releases the
+   * registry lock, then calls `clone_for_instance()` on the prototype.
+   * Because the prototype may be a subclass of `dynamic`, the returned
+   * object's concrete type matches whatever was registered via `addClass`.
+   *
+   * @param ns    Namespace key; `0U` for the global namespace.
+   * @param klass Class key.
+   * @return New instance, or an empty `dynamic_ptr` if the class is not found.
+   */
+  static dynamic_ptr create_instance(key_t ns, key_t klass);
+
+  /**
    * @brief Add a field by name if it does not already exist.
    *
    * @param name   Hash key for the new field.
@@ -1031,6 +1063,26 @@ class dynamic {
 
 inline dynamic method::call(dynamic& self, const dynamic& params) const {
   return fn_(self, params);
+}
+
+inline dynamic_ptr dynamic::clone_for_instance() const {
+  return dynamic_ptr{new dynamic(
+      dynamic::instantiate(resolveNamespace(), as<key_t>(CLASS)))};
+}
+
+inline dynamic_ptr dynamic::create_instance(key_t ns, key_t klass) {
+  dynamic_ptr proto;
+  {
+    auto lp = getRegistry().rlock();
+    auto ns_it = lp->find(ns);
+    if (ns_it == lp->end())
+      return {};
+    auto cls_it = ns_it->second.find(klass);
+    if (cls_it == ns_it->second.end())
+      return {};
+    proto = cls_it->second;  // copy shared_ptr under lock; releases before call
+  }
+  return proto->clone_for_instance();
 }
 
 inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that)

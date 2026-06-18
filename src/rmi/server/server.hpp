@@ -188,8 +188,7 @@ class server {
       bison::key_t ns,
       bison::key_t klass) {
     (void)ctx;
-    return bison::dynamic_ptr{
-        std::make_shared<bison::dynamic>(bison::dynamic::instantiate(ns, klass))};
+    return bison::dynamic::create_instance(ns, klass);
   }
 
  private:
