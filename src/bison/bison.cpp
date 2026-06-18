@@ -277,4 +277,31 @@ dynamic_ptr from_yaml(std::string text) {
 }
 
 } // namespace extensions
+
+// ── dynamic::clone_for_instance / create_instance ────────────────────────────
+// Defined here rather than inline in the header to prevent MSVC from emitting
+// the virtual function body into every translation unit's COMDAT section, which
+// causes LNK1163 when the linker tries to pick a canonical definition.
+
+dynamic_ptr dynamic::clone_for_instance() const {
+  auto ns = as<key_t>(NAMESPACE);
+  auto klass = as<key_t>(CLASS);
+  return dynamic_ptr{new dynamic(dynamic::instantiate(ns, klass))};
+}
+
+dynamic_ptr dynamic::create_instance(key_t ns, key_t klass) {
+  dynamic_ptr proto;
+  {
+    auto lp = getRegistry().rlock();
+    auto ns_it = lp->find(ns);
+    if (ns_it == lp->end())
+      return {};
+    auto cls_it = ns_it->second.find(klass);
+    if (cls_it == ns_it->second.end())
+      return {};
+    proto = cls_it->second;
+  }
+  return proto->clone_for_instance();
+}
+
 } // namespace bdg::bison
