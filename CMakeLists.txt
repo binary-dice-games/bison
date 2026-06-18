@@ -82,6 +82,7 @@ endif()
 target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
+  src/rmi/transport/pipe_transport.cpp
   src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
   src/rmi/client/client.cpp
