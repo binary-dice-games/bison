@@ -192,6 +192,7 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
 
   // Register the context so external observers can access it.
   session_contexts_.wlock()->emplace(ctx.session_id.id, ctx_ptr);
+  on_session_created(ctx);
 
   while (!conn->is_closed()) {
     bison::buffer frame;
@@ -229,6 +230,7 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
     }
   }
 
+  on_session_destroyed(ctx);
   cleanup_context(ctx);
 
   // Unregister and clear emit_event to prevent dangling references to conn.

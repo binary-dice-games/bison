@@ -145,6 +145,29 @@ class server {
     return session_contexts_;
   }
 
+ protected:
+  /**
+   * @brief Called after a session context is created and registered.
+   *
+   * Fires in the worker thread, after `ctx.session_id` is assigned and the
+   * context is inserted into `session_contexts_`, but before the first request
+   * is processed.  Override to attach per-session state.
+   *
+   * @param ctx Newly registered session context.
+   */
+  virtual void on_session_created(context& ctx) { (void)ctx; }
+
+  /**
+   * @brief Called just before a session context is cleaned up.
+   *
+   * Fires in the worker thread when the connection closes, before
+   * `cleanup_context` destroys the object table and before the context is
+   * removed from `session_contexts_`.
+   *
+   * @param ctx Session context about to be destroyed.
+   */
+  virtual void on_session_destroyed(context& ctx) { (void)ctx; }
+
  private:
   // ── Private methods (defined in server.cpp) ───────────────────────────────
 
