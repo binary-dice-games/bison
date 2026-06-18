@@ -324,7 +324,105 @@ TEST(MemoryTransport, AcceptTimeoutReturnsNullopt) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6. End-to-end: connect / disconnect
+// 6. StreamTransport
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(StreamTransport, ClientSendServerReceive) {
+  std::stringstream ss;
+  stream_server_transport server_t{ss};
+  server_t.start(dynamic{});
+
+  auto conn = server_t.accept(std::chrono::milliseconds{100});
+  ASSERT_TRUE(conn != nullptr);
+
+  stream_client_transport client_t{ss};
+  client_t.open(dynamic{});
+
+  const buffer frame{'H', 'e', 'l', 'l', 'o'};
+  client_t.send(frame);
+
+  // Rewind so the server side can read what was written.
+  ss.seekg(0);
+
+  buffer received;
+  ASSERT_TRUE(conn->receive(received, std::chrono::milliseconds{200}));
+  EXPECT_EQ(received, frame);
+}
+
+TEST(StreamTransport, ServerSendClientReceive) {
+  std::stringstream ss;
+  stream_server_transport server_t{ss};
+  server_t.start(dynamic{});
+
+  auto conn = server_t.accept(std::chrono::milliseconds{100});
+  ASSERT_TRUE(conn != nullptr);
+
+  const buffer reply{'O', 'K'};
+  conn->send(reply);
+
+  // Rewind so the client side can read what was written.
+  ss.seekg(0);
+
+  stream_client_transport client_t{ss};
+  buffer got;
+  ASSERT_TRUE(client_t.receive(got, std::chrono::milliseconds{200}));
+  EXPECT_EQ(got, reply);
+}
+
+TEST(StreamTransport, AcceptReturnsSingleConnection) {
+  std::stringstream ss;
+  stream_server_transport server_t{ss};
+  server_t.start(dynamic{});
+
+  auto first = server_t.accept(std::chrono::milliseconds{100});
+  ASSERT_TRUE(first != nullptr);
+
+  auto second = server_t.accept(std::chrono::milliseconds{100});
+  EXPECT_EQ(second, nullptr);
+}
+
+TEST(StreamTransport, StopPreventsAccept) {
+  std::stringstream ss;
+  stream_server_transport server_t{ss};
+  server_t.start(dynamic{});
+  server_t.stop();
+
+  auto conn = server_t.accept(std::chrono::milliseconds{100});
+  EXPECT_EQ(conn, nullptr);
+}
+
+TEST(StreamTransport, ShutdownPreventsClientReceive) {
+  std::stringstream ss;
+  stream_client_transport client_t{ss};
+  client_t.shutdown();
+
+  buffer frame;
+  EXPECT_FALSE(client_t.receive(frame, std::chrono::milliseconds{50}));
+}
+
+TEST(StreamTransport, IsClosedAfterClose) {
+  std::stringstream ss;
+  stream_server_connection conn{ss};
+  EXPECT_FALSE(conn.is_closed());
+  conn.close();
+  EXPECT_TRUE(conn.is_closed());
+}
+
+TEST(StreamTransport, EmptyFrameRoundTrip) {
+  std::stringstream ss;
+  stream_client_transport client_t{ss};
+  client_t.send(buffer{});
+
+  ss.seekg(0);
+
+  stream_server_connection conn{ss};
+  buffer received;
+  ASSERT_TRUE(conn.receive(received, std::chrono::milliseconds{200}));
+  EXPECT_TRUE(received.empty());
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 8. End-to-end: connect / disconnect
 // ═════════════════════════════════════════════════════════════════════════════
 
 class RmiE2E : public ::testing::Test {

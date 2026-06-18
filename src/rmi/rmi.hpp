@@ -4,9 +4,9 @@
  * @brief Umbrella include for the Bison RMI framework.
  *
  * Include this header to access the full remote-method-invocation stack:
- * envelope constants/helpers, ID generation, in-memory transport,
- * client/server runtime, standalone in-process mode, and remote object
- * proxy types.
+ * envelope constants/helpers, ID generation, in-memory and iostream-backed
+ * transports, client/server runtime, standalone in-process mode, and remote
+ * object proxy types.
  */
 #pragma once
 
@@ -21,4 +21,5 @@
 #include "src/rmi/standalone/standalone.hpp"
 #include "src/rmi/transport/memory_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
+#include "src/rmi/transport/stream_transport.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
