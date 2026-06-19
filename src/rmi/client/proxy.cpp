@@ -15,7 +15,7 @@ namespace bdg::bison::rmi::proxy {
 std::future<bool> dynamic::clear() {
   auto f = backend_->send_request(
       shared::constants::OP_CLEAR, object_id_, bison::dynamic{}, false);
-  return std::async(std::launch::deferred, [f = std::move(f)]() mutable {
+  return std::async(std::launch::async, [f = std::move(f)]() mutable {
     f.get();
     return true;
   });
@@ -25,7 +25,7 @@ std::future<bool> dynamic::clear() {
 std::future<bool> dynamic::set(bison::dynamic fields) {
   auto f = backend_->send_request(
       shared::constants::OP_SET, object_id_, std::move(fields), false);
-  return std::async(std::launch::deferred, [f = std::move(f)]() mutable {
+  return std::async(std::launch::async, [f = std::move(f)]() mutable {
     f.get();
     return true;
   });

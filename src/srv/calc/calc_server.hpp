@@ -33,7 +33,7 @@ namespace bdg::bison::srv {
  * > c = instantiate("", "Calculator")
  * > c.get()
  * { "memory": 0.0 }
- * > c.call("add", {"a": 10, "b": 3})
+ * > c.call("add", {"a": 10.0, "b": 3.0})
  * { "result": 13.0 }
  * > c.set({"memory": 42.0})
  * > c.get()

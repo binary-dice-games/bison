@@ -271,7 +271,8 @@ static nlohmann::json dynamic_to_json(
 
 template <typename T>
 static T get_future(std::future<T> fut, std::chrono::milliseconds timeout) {
-  if (fut.wait_for(timeout) != std::future_status::ready)
+  auto res = fut.wait_for(timeout);
+  if (res != std::future_status::ready && res != std::future_status::deferred)
     throw std::runtime_error("request timed out");
   return fut.get();
 }
