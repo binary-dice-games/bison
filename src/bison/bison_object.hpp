@@ -615,37 +615,59 @@ class dynamic {
   inline static dynamic deserializeWithSchema(stream_deserializer& in);
   inline static dynamic deserializeWithSchema(buffer_deserializer& in);
 
+  /// @brief Callable type stored in registered class prototypes.
+  using factory_fn = std::function<dynamic_ptr()>;
+
   /**
-   * @brief Create a fresh instance of this object's concrete type.
+   * @brief Return a factory that creates a fresh @p T instance with the given
+   *        class keys.
    *
-   * The default implementation constructs a plain `dynamic` with the same
-   * class and namespace as this prototype (i.e. behaves like `instantiate`).
-   * Subclasses registered via `addClass` should override this to return a
-   * `shared_ptr` to a new instance of their own type, so that
-   * `create_instance` routes to the correct concrete class without any
-   * per-type dispatch in calling code.
+   * Convenience helper for the factory-aware `addClass` overload; eliminates
+   * the need for typed subclasses to write their own factory lambdas.
    *
-   * Called outside the class-registry read lock.  The returned object is
-   * uninitialized beyond its bison schema; callers are responsible for any
-   * additional setup (e.g. injecting session context).
+   * Example:
+   * ```cpp
+   * dynamic::addClass("wish"_key, proto,
+   *     dynamic::make_factory<import_handler>("wish"_key, "__WishImport"_key));
+   * ```
    *
-   * @return Heap-allocated instance of the same concrete type as `*this`.
+   * @tparam T     Concrete subclass of `dynamic`.
+   * @param  ns    Namespace key passed to `instantiate<T>`.
+   * @param  klass Class key passed to `instantiate<T>`.
    */
-  virtual dynamic_ptr clone_for_instance() const;
+  template <typename T, typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  static factory_fn make_factory(key_t ns, key_t klass) {
+    return [ns, klass]() -> dynamic_ptr {
+      return dynamic::instantiate<T>(ns, klass);
+    };
+  }
 
   /**
    * @brief Instantiate a registered class by namespace and class key.
    *
-   * Looks up the registered prototype for @p klass in @p ns, releases the
-   * registry lock, then calls `clone_for_instance()` on the prototype.
-   * Because the prototype may be a subclass of `dynamic`, the returned
-   * object's concrete type matches whatever was registered via `addClass`.
+   * Looks up the registered prototype for @p klass in @p ns, copies its
+   * factory under the registry read lock, releases the lock, then calls the
+   * factory.  If no factory was registered with `addClass`, falls back to
+   * constructing a plain `dynamic` — correct for prototype-only classes such as
+   * UI elements.
    *
    * @param ns    Namespace key; `0U` for the global namespace.
    * @param klass Class key.
    * @return New instance, or an empty `dynamic_ptr` if the class is not found.
    */
-  static dynamic_ptr create_instance(key_t ns, key_t klass);
+  static dynamic_ptr create_instance(key_t ns, key_t klass) {
+    factory_fn factory;
+    {
+      auto lp = getRegistry().rlock();
+      auto ns_it = lp->find(ns);
+      if (ns_it == lp->end()) return {};
+      auto cls_it = ns_it->second.find(klass);
+      if (cls_it == ns_it->second.end()) return {};
+      factory = cls_it->second->factory_;
+    }
+    if (factory) return factory();
+    return dynamic_ptr{new dynamic(dynamic::instantiate(ns, klass))};
+  }
 
   /**
    * @brief Add a field by name if it does not already exist.
@@ -830,6 +852,30 @@ class dynamic {
       std::vector<std::shared_ptr<const attribute>> class_attrs = {}) {
     return addClass(ns, dynamic_ptr{std::move(klass)}, parent,
                     std::move(class_attrs));
+  }
+
+  /**
+   * @brief Register @p klass with an instance factory.
+   *
+   * @p factory is stored in the prototype so that `create_instance` returns
+   * an object of the correct concrete type without virtual dispatch.  All
+   * other behaviour (inheritance chain, namespace, duplicate detection) is
+   * identical to the zero-factory overload.
+   *
+   * @p factory comes last (after @p parent) so that calls with explicit parent
+   * are unambiguous with the zero-factory overload.  Use `key_t{0U}` for
+   * @p parent when there is no parent class.
+   *
+   * @param ns      Namespace key.
+   * @param klass   Prototype for the class being registered.
+   * @param parent  Parent class key; `key_t{0U}` for no parent.
+   * @param factory Callable that returns a freshly constructed instance.
+   * @return `true` on success, `false` on duplicate or cycle.
+   */
+  static bool addClass(key_t ns, dynamic_ptr klass, key_t parent,
+                       factory_fn factory) {
+    klass->factory_ = std::move(factory);
+    return addClass(ns, std::move(klass), parent);
   }
 
   static bool
@@ -1035,6 +1081,7 @@ class dynamic {
   mutable std::map<key_t, field> fields_;
   mutable std::unordered_map<key_t, method, key_t, key_t> methods_;
   mutable std::shared_ptr<userdata> userdata_;
+  factory_fn factory_;  // set once by the factory-aware addClass; empty → plain-dynamic fallback
 
   /**
    * @brief Resolve and cache the namespace for this instance's class chain.
@@ -1064,10 +1111,6 @@ class dynamic {
 inline dynamic method::call(dynamic& self, const dynamic& params) const {
   return fn_(self, params);
 }
-
-// clone_for_instance() and create_instance() are defined in bison.cpp to
-// avoid MSVC COMDAT-section conflicts that arise when a virtual function with
-// an inline body is emitted from multiple translation units.
 
 inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that)
     : std::shared_ptr<dynamic>(that) {}
