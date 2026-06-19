@@ -85,6 +85,25 @@ class srv_app {
    */
   virtual void on_error(const std::string& msg) const;
 
+#if defined(__linux__)
+  /**
+   * @brief Called after the PTY server starts (Linux PTY transport only).
+   *
+   * Default: prints a ready message to stdout.
+   */
+  virtual void on_listening_pty() const;
+#endif
+
+  /**
+   * @brief Return an optional preamble for `OP_HELP` responses.
+   *
+   * The returned string is prepended to the auto-generated class listing in
+   * `OP_HELP` responses.  Default: returns an empty string (no preamble).
+   *
+   * @return Free-form text describing the server's purpose.
+   */
+  virtual std::string server_description() const { return {}; }
+
  protected:
   /**
    * @brief Register domain classes in the bison class registry.

@@ -149,6 +149,30 @@ class client : public proxy_backend {
       bison::key_t ns = 0U,
       bison::key_t klass = 0U);
 
+  /**
+   * @brief Request the server's hash→display-name dictionary.
+   *
+   * The returned `bison::dynamic` maps each registered item's `key_t` hash to
+   * its `DisplayName` string.  Only items with a `DisplayName` attribute are
+   * included.  The dictionary is flat: class keys, field keys, and method keys
+   * are all at the top level.
+   *
+   * @return Future resolved with the dictionary payload.
+   */
+  std::future<bison::dynamic> get_dictionary();
+
+  /**
+   * @brief Request human-readable help text describing the server.
+   *
+   * The returned `bison::dynamic` contains a `FIELD_DESCRIPTION` string with
+   * an auto-generated listing of registered classes, their fields, and their
+   * methods (display names and descriptions only).  The server may prepend a
+   * custom intro via `on_help_text()`.
+   *
+   * @return Future resolved with the help payload.
+   */
+  std::future<bison::dynamic> get_help();
+
   /**   * @brief Create a remote object instance on the server.
    * @param ns Class namespace key; `0U` selects the global namespace.
    * @param klass Class key to instantiate.

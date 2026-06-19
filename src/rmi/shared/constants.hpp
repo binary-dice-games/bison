@@ -38,6 +38,10 @@ inline const bison::key_t OP_DESTROY = "destroy"_key;
 inline const bison::key_t OP_DISCONNECT = "disconnect"_key;
 /** @brief Operation token for event payload dispatch. */
 inline const bison::key_t OP_EVENT = "event"_key;
+/** @brief Operation token for hash→display-name dictionary requests. */
+inline const bison::key_t OP_DICTIONARY = "dictionary"_key;
+/** @brief Operation token for human-readable server help text requests. */
+inline const bison::key_t OP_HELP = "help"_key;
 
 // ── Object lifecycle hook names
 // ───────────────────────────────────────────────
@@ -113,7 +117,7 @@ inline const bison::key_t FIELD_ERROR_DETAILS = "__details"_key;
 // ── Operation payload field keys
 // ──────────────────────────────────────────────
 /** @brief Operation payload key for class token. */
-inline const bison::key_t FIELD_KLASS = "__klass"_key;
+inline const bison::key_t FIELD_KLASS = "__class"_key;
 /** @brief Operation payload key for class namespace token. */
 inline const bison::key_t FIELD_NAMESPACE = "__namespace"_key;
 /** @brief Operation payload key for argument/field payload object. */
@@ -140,7 +144,8 @@ inline const bison::key_t FIELD_OBSOLETE_MESSAGE = "__obsoleteMessage"_key;
 inline const bison::key_t FIELD_REQUIRED = "__required"_key;
 /** @brief Descriptor field holding a map of field-key → per-field metadata. */
 inline const bison::key_t FIELD_FIELDS = "__fields"_key;
-/** @brief Descriptor field holding a map of method-key → per-method metadata. */
+/** @brief Descriptor field holding a map of method-key → per-method metadata.
+ */
 inline const bison::key_t FIELD_METHODS = "__methods"_key;
 
 // ── Protocol version ─────────────────────────────────────────────────────────

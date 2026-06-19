@@ -5,12 +5,12 @@
  */
 #include "src/app/cli/cli_app.hpp"
 
+#include "src/bison/bison_object.hpp"
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-#include "src/bison/bison_object.hpp"
 
 #if defined(__linux__)
-#  include "src/app/pty/pty_client_transport.hpp"
+#include "src/app/pty/pty_client_transport.hpp"
 #endif
 
 #include <gflags/gflags.h>
@@ -26,9 +26,9 @@
 #include <vector>
 
 DECLARE_string(host);
-DECLARE_int32 (port);
-DECLARE_bool  (pty);
-DECLARE_int32 (timeout);
+DECLARE_int32(port);
+DECLARE_bool(pty);
+DECLARE_int32(timeout);
 
 namespace bdg::bison::app {
 
@@ -46,26 +46,51 @@ static void register_key(key_name_map& km, const std::string& name) {
     km[bison::key_t{name}.id] = name;
 }
 
+// Recursively extract all string field-names from a JSON value and register
+// them in the key-name map.  Call this before converting any user-supplied
+// JSON to bison::dynamic so that every field key the user typed is resolvable.
+static void register_json_keys(key_name_map& km, const nlohmann::json& j) {
+  if (j.is_object()) {
+    for (const auto& [k, v] : j.items()) {
+      register_key(km, k);
+      register_json_keys(km, v);
+    }
+  } else if (j.is_array()) {
+    for (const auto& elem : j)
+      register_json_keys(km, elem);
+  }
+}
+
+// Merge a server-side hash→display-name dictionary into the key-name map.
+// The dictionary is a flat bison::dynamic where each field key is a hash and
+// each field value is the display-name string.
+static void merge_dictionary(key_name_map& km, const bison::dynamic& dict) {
+  dict.forEach([&](bison::key_t k, const bison::field& f) {
+    if (f.is<std::string>())
+      km[k.id] = f.as<std::string>();
+  });
+}
+
 // Build initial map from the well-known RMI protocol field constants.
 static key_name_map make_known_keys() {
   using namespace rmi::shared::constants;
   key_name_map m;
   auto add = [&](bison::key_t k, const char* s) { m[k.id] = s; };
-  add(FIELD_NAME,             "__name");
-  add(FIELD_FIELDS,           "__fields");
-  add(FIELD_METHODS,          "__methods");
-  add(FIELD_KLASS,            "__klass");
-  add(FIELD_NAMESPACE,        "__namespace");
-  add(FIELD_PARAMS,           "__params");
-  add(FIELD_DISPLAY_NAME,     "__displayName");
-  add(FIELD_DESCRIPTION,      "__description");
-  add(FIELD_CATEGORY,         "__category");
-  add(FIELD_OBSOLETE,         "__obsolete");
+  add(FIELD_NAME, "__name");
+  add(FIELD_FIELDS, "__fields");
+  add(FIELD_METHODS, "__methods");
+  add(FIELD_KLASS, "__class");
+  add(FIELD_NAMESPACE, "__namespace");
+  add(FIELD_PARAMS, "__params");
+  add(FIELD_DISPLAY_NAME, "__displayName");
+  add(FIELD_DESCRIPTION, "__description");
+  add(FIELD_CATEGORY, "__category");
+  add(FIELD_OBSOLETE, "__obsolete");
   add(FIELD_OBSOLETE_MESSAGE, "__obsoleteMessage");
-  add(FIELD_REQUIRED,         "__required");
-  add(FIELD_ERROR,            "__error");
-  add(FIELD_ERROR_CODE,       "__code");
-  add(FIELD_ERROR_MESSAGE,    "__message");
+  add(FIELD_REQUIRED, "__required");
+  add(FIELD_ERROR, "__error");
+  add(FIELD_ERROR_CODE, "__code");
+  add(FIELD_ERROR_MESSAGE, "__message");
   return m;
 }
 
@@ -73,7 +98,8 @@ static key_name_map make_known_keys() {
 
 static std::string trim(std::string_view s) {
   size_t a = s.find_first_not_of(" \t\r\n");
-  if (a == std::string_view::npos) return {};
+  if (a == std::string_view::npos)
+    return {};
   size_t b = s.find_last_not_of(" \t\r\n");
   return std::string(s.substr(a, b - a + 1));
 }
@@ -87,17 +113,27 @@ static std::string extract_parens(std::string_view s, size_t open_pos) {
   size_t start = open_pos + 1;
   for (size_t i = start; i < s.size(); ++i) {
     char c = s[i];
-    if (escape) { escape = false; continue; }
-    if (in_str) {
-      if (c == '\\') escape = true;
-      else if (c == '"') in_str = false;
+    if (escape) {
+      escape = false;
       continue;
     }
-    if (c == '"') { in_str = true; continue; }
-    if (c == '(' || c == '{' || c == '[') ++depth;
+    if (in_str) {
+      if (c == '\\')
+        escape = true;
+      else if (c == '"')
+        in_str = false;
+      continue;
+    }
+    if (c == '"') {
+      in_str = true;
+      continue;
+    }
+    if (c == '(' || c == '{' || c == '[')
+      ++depth;
     else if (c == ')' || c == '}' || c == ']') {
       --depth;
-      if (depth == 0) return std::string(s.substr(start, i - start));
+      if (depth == 0)
+        return std::string(s.substr(start, i - start));
     }
   }
   return {};
@@ -112,23 +148,36 @@ static std::vector<std::string> split_args(std::string_view s) {
   size_t start = 0;
   for (size_t i = 0; i < s.size(); ++i) {
     char c = s[i];
-    if (escape) { escape = false; continue; }
-    if (in_str) {
-      if (c == '\\') escape = true;
-      else if (c == '"') in_str = false;
+    if (escape) {
+      escape = false;
       continue;
     }
-    if (c == '"') { in_str = true; continue; }
-    if (c == '{' || c == '[' || c == '(') ++depth;
-    else if (c == '}' || c == ']' || c == ')') { if (depth > 0) --depth; }
-    else if (c == ',' && depth == 0) {
+    if (in_str) {
+      if (c == '\\')
+        escape = true;
+      else if (c == '"')
+        in_str = false;
+      continue;
+    }
+    if (c == '"') {
+      in_str = true;
+      continue;
+    }
+    if (c == '{' || c == '[' || c == '(')
+      ++depth;
+    else if (c == '}' || c == ']' || c == ')') {
+      if (depth > 0)
+        --depth;
+    } else if (c == ',' && depth == 0) {
       auto a = trim(s.substr(start, i - start));
-      if (!a.empty()) result.push_back(a);
+      if (!a.empty())
+        result.push_back(a);
       start = i + 1;
     }
   }
   auto last = trim(s.substr(start));
-  if (!last.empty()) result.push_back(last);
+  if (!last.empty())
+    result.push_back(last);
   return result;
 }
 
@@ -146,11 +195,13 @@ static std::string unquote(std::string_view s) {
 
 // ── dynamic → JSON ───────────────────────────────────────────────────────────
 
-static nlohmann::json dynamic_to_json(const bison::dynamic& d,
-                                      const key_name_map& km);
+static nlohmann::json dynamic_to_json(
+    const bison::dynamic& d,
+    const key_name_map& km);
 
-static nlohmann::json field_to_json(const bison::field& f,
-                                    const key_name_map& km) {
+static nlohmann::json field_to_json(
+    const bison::field& f,
+    const key_name_map& km) {
   return std::visit(
       [&](const auto& v) -> nlohmann::json {
         using T = std::decay_t<decltype(v)>;
@@ -166,18 +217,22 @@ static nlohmann::json field_to_json(const bison::field& f,
           return v;
         } else if constexpr (std::is_same_v<T, bison::hash_t>) {
           auto it = km.find(v);
-          if (it != km.end()) return it->second;
+          if (it != km.end())
+            return it->second;
           return std::string("#") + std::to_string(v);
         } else if constexpr (std::is_same_v<T, bison::key_t>) {
           auto it = km.find(v.id);
-          if (it != km.end()) return it->second;
+          if (it != km.end())
+            return it->second;
           return std::string("#") + std::to_string(v.id);
         } else if constexpr (std::is_same_v<T, bison::dynamic_ptr>) {
-          if (v) return dynamic_to_json(*v, km);
+          if (v)
+            return dynamic_to_json(*v, km);
           return nullptr;
         } else if constexpr (std::is_same_v<T, std::vector<bool>>) {
           auto arr = nlohmann::json::array();
-          for (bool b : v) arr.push_back(b);
+          for (bool b : v)
+            arr.push_back(b);
           return arr;
         } else if constexpr (
             std::is_same_v<T, std::vector<int32_t>> ||
@@ -187,7 +242,8 @@ static nlohmann::json field_to_json(const bison::field& f,
           // Render raw bytes as lowercase hex string.
           std::ostringstream oss;
           oss << std::hex << std::setfill('0');
-          for (uint8_t b : v) oss << std::setw(2) << static_cast<int>(b);
+          for (uint8_t b : v)
+            oss << std::setw(2) << static_cast<int>(b);
           return oss.str();
         } else {
           return nullptr;
@@ -196,20 +252,22 @@ static nlohmann::json field_to_json(const bison::field& f,
       static_cast<const bison::field_base&>(f));
 }
 
-static nlohmann::json dynamic_to_json(const bison::dynamic& d,
-                                      const key_name_map& km) {
+static nlohmann::json dynamic_to_json(
+    const bison::dynamic& d,
+    const key_name_map& km) {
   auto obj = nlohmann::json::object();
   d.forEach([&](bison::key_t k, const bison::field& f) {
     auto it = km.find(k.id);
     std::string key_str = (it != km.end())
-                              ? it->second
-                              : (std::string("#") + std::to_string(k.id));
+        ? it->second
+        : (std::string("#") + std::to_string(k.id));
     obj[key_str] = field_to_json(f, km);
   });
   return obj;
 }
 
-// ── Future helper ─────────────────────────────────────────────────────────────
+// ── Future helper
+// ─────────────────────────────────────────────────────────────
 
 template <typename T>
 static T get_future(std::future<T> fut, std::chrono::milliseconds timeout) {
@@ -218,7 +276,8 @@ static T get_future(std::future<T> fut, std::chrono::milliseconds timeout) {
   return fut.get();
 }
 
-// ── Argument conversion ───────────────────────────────────────────────────────
+// ── Argument conversion
+// ───────────────────────────────────────────────────────
 
 // Parse a raw arg string to a bison::dynamic.
 // String literals (e.g. "Ikea") must be passed through unquote() separately.
@@ -227,7 +286,8 @@ static bison::dynamic parse_json_arg(const std::string& raw) {
   return ptr ? *ptr : bison::dynamic{};
 }
 
-// ── Help text ─────────────────────────────────────────────────────────────────
+// ── Help text
+// ─────────────────────────────────────────────────────────────────
 
 static const char* const k_help_text = R"(Commands:
   name = instantiate("namespace", "Class")      create an instance
@@ -239,11 +299,13 @@ static const char* const k_help_text = R"(Commands:
   del name                                      destroy an instance
   describe                                      list all server classes
   describe("namespace", "Class")                describe one class
+  info                                          server help and class listing
   list                                          show active instances
   help                                          this message
   exit  |  quit  |  Ctrl+D                      disconnect and exit)";
 
-// ── REPL dispatcher ───────────────────────────────────────────────────────────
+// ── REPL dispatcher
+// ───────────────────────────────────────────────────────────
 
 // Returns false when the REPL should stop.
 static bool dispatch(
@@ -253,9 +315,11 @@ static bool dispatch(
     key_name_map& km,
     std::chrono::milliseconds timeout) {
   auto s = trim(line);
-  if (s.empty() || s.front() == '#') return true;
+  if (s.empty() || s.front() == '#')
+    return true;
 
-  if (s == "exit" || s == "quit") return false;
+  if (s == "exit" || s == "quit")
+    return false;
 
   if (s == "help") {
     std::cout << k_help_text << '\n';
@@ -290,22 +354,37 @@ static bool dispatch(
   {
     bool in_str = false, esc = false;
     for (size_t i = 0; i < s.size(); ++i) {
-      if (esc) { esc = false; continue; }
-      if (in_str) {
-        if (s[i] == '\\') esc = true;
-        else if (s[i] == '"') in_str = false;
+      if (esc) {
+        esc = false;
         continue;
       }
-      if (s[i] == '"') { in_str = true; continue; }
-      if (s[i] == '(') { first_paren = i; break; }
+      if (in_str) {
+        if (s[i] == '\\')
+          esc = true;
+        else if (s[i] == '"')
+          in_str = false;
+        continue;
+      }
+      if (s[i] == '"') {
+        in_str = true;
+        continue;
+      }
+      if (s[i] == '(') {
+        first_paren = i;
+        break;
+      }
     }
   }
 
   // Detect assignment: first '=' that appears before any '('.
   size_t eq_pos = std::string::npos;
   for (size_t i = 0; i < s.size(); ++i) {
-    if (first_paren != std::string::npos && i >= first_paren) break;
-    if (s[i] == '=') { eq_pos = i; break; }
+    if (first_paren != std::string::npos && i >= first_paren)
+      break;
+    if (s[i] == '=') {
+      eq_pos = i;
+      break;
+    }
   }
 
   if (eq_pos != std::string::npos) {
@@ -332,19 +411,28 @@ static bool dispatch(
       return true;
     }
 
-    auto ns_str    = unquote(trim(args[0]));
+    auto ns_str = unquote(trim(args[0]));
     auto class_str = unquote(trim(args[1]));
     register_key(km, ns_str);
     register_key(km, class_str);
 
-    bison::key_t ns_key   = ns_str.empty()    ? bison::key_t{0u} : bison::key_t{ns_str};
+    bison::key_t ns_key =
+        ns_str.empty() ? bison::key_t{0u} : bison::key_t{ns_str};
     bison::key_t class_key = bison::key_t{class_str};
 
     bison::dynamic params;
-    if (args.size() >= 3) params = parse_json_arg(trim(args[2]));
+    if (args.size() >= 3) {
+      auto raw = trim(args[2]);
+      try {
+        register_json_keys(km, nlohmann::json::parse(raw));
+      } catch (...) {
+      }
+      params = parse_json_arg(raw);
+    }
 
     try {
-      auto proxy = get_future(c.instantiate(ns_key, class_key, std::move(params)), timeout);
+      auto proxy = get_future(
+          c.instantiate(ns_key, class_key, std::move(params)), timeout);
       handles.try_emplace(var, std::move(proxy));
       std::cout << var << '\n';
     } catch (const std::exception& ex) {
@@ -357,14 +445,17 @@ static bool dispatch(
   if (first_paren != std::string::npos) {
     size_t dot_pos = std::string::npos;
     for (size_t i = 0; i < first_paren; ++i) {
-      if (s[i] == '.') { dot_pos = i; break; }
+      if (s[i] == '.') {
+        dot_pos = i;
+        break;
+      }
     }
 
     if (dot_pos != std::string::npos) {
       auto obj_name = trim(s.substr(0, dot_pos));
-      auto op       = trim(s.substr(dot_pos + 1, first_paren - dot_pos - 1));
+      auto op = trim(s.substr(dot_pos + 1, first_paren - dot_pos - 1));
       auto args_str = extract_parens(s, first_paren);
-      auto args     = split_args(args_str);
+      auto args = split_args(args_str);
 
       auto it = handles.find(obj_name);
       if (it == handles.end()) {
@@ -379,16 +470,12 @@ static bool dispatch(
           if (args.empty()) {
             result = get_future(proxy.get(), timeout);
           } else {
-            auto proj = parse_json_arg(trim(args[0]));
-            // Register projected field names so output is readable.
-            proj.forEach([&](bison::key_t k, const bison::field&) {
-              auto it2 = km.find(k.id);
-              if (it2 == km.end()) {
-                // We can't reverse the hash — the user will see #NNNN.
-                (void)it2;
-              }
-            });
-            result = get_future(proxy.get(std::move(proj)), timeout);
+            auto raw = trim(args[0]);
+            try {
+              register_json_keys(km, nlohmann::json::parse(raw));
+            } catch (...) {
+            }
+            result = get_future(proxy.get(parse_json_arg(raw)), timeout);
           }
           std::cout << dynamic_to_json(result, km).dump(2) << '\n';
         } catch (const std::exception& ex) {
@@ -400,8 +487,12 @@ static bool dispatch(
           return true;
         }
         try {
-          auto fields = parse_json_arg(trim(args[0]));
-          get_future(proxy.set(std::move(fields)), timeout);
+          auto raw = trim(args[0]);
+          try {
+            register_json_keys(km, nlohmann::json::parse(raw));
+          } catch (...) {
+          }
+          get_future(proxy.set(parse_json_arg(raw)), timeout);
         } catch (const std::exception& ex) {
           std::cerr << "error: " << ex.what() << '\n';
         }
@@ -413,10 +504,18 @@ static bool dispatch(
         auto method_name = unquote(trim(args[0]));
         register_key(km, method_name);
         bison::dynamic params;
-        if (args.size() >= 2) params = parse_json_arg(trim(args[1]));
+        if (args.size() >= 2) {
+          auto raw = trim(args[1]);
+          try {
+            register_json_keys(km, nlohmann::json::parse(raw));
+          } catch (...) {
+          }
+          params = parse_json_arg(raw);
+        }
         try {
           auto result = get_future(
-              proxy.call(bison::key_t{method_name}, std::move(params)), timeout);
+              proxy.call(bison::key_t{method_name}, std::move(params)),
+              timeout);
           std::cout << dynamic_to_json(result, km).dump(2) << '\n';
         } catch (const std::exception& ex) {
           std::cerr << "error: " << ex.what() << '\n';
@@ -429,9 +528,9 @@ static bool dispatch(
     }
 
     // Command with parens: describe("Ns", "Class")
-    auto cmd      = trim(s.substr(0, first_paren));
+    auto cmd = trim(s.substr(0, first_paren));
     auto args_str = extract_parens(s, first_paren);
-    auto args     = split_args(args_str);
+    auto args = split_args(args_str);
 
     if (cmd == "describe") {
       bison::key_t ns_key{0u};
@@ -470,6 +569,22 @@ static bool dispatch(
     return true;
   }
 
+  // Bare command: info
+  if (s == "info") {
+    try {
+      using namespace rmi::shared::constants;
+      auto result = get_future(c.get_help(), timeout);
+      const auto* f = result.findField(FIELD_DESCRIPTION);
+      if (f && f->is<std::string>())
+        std::cout << f->as<std::string>();
+      else
+        std::cout << dynamic_to_json(result, km).dump(2) << '\n';
+    } catch (const std::exception& ex) {
+      std::cerr << "error: " << ex.what() << '\n';
+    }
+    return true;
+  }
+
   std::cerr << "error: unknown command '" << s
             << "' (type 'help' for available commands)\n";
   return true;
@@ -498,10 +613,20 @@ int cli_app::on_session(rmi::client& c) {
 
   std::cout << "bison-cli connected. Type 'help' for commands.\n";
 
+  // Seed the key-name map with display names from the server.
+  try {
+    auto dict = get_future(c.get_dictionary(), timeout_);
+    merge_dictionary(km, dict);
+  } catch (...) {
+    // Non-fatal: server may not support OP_DICTIONARY.
+  }
+
   while (true) {
     std::cout << "> " << std::flush;
-    if (!std::getline(std::cin, line)) break; // EOF / Ctrl+D
-    if (!dispatch(line, c, handles, km, timeout_)) break;
+    if (!std::getline(std::cin, line))
+      break; // EOF / Ctrl+D
+    if (!dispatch(line, c, handles, km, timeout_))
+      break;
   }
 
   // Drain all remaining proxies before disconnecting.
@@ -512,7 +637,8 @@ int cli_app::on_session(rmi::client& c) {
   return 0;
 }
 
-// ── cli_app::run — argument parsing and lifecycle ─────────────────────────────
+// ── cli_app::run — argument parsing and lifecycle
+// ─────────────────────────────
 
 int cli_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);

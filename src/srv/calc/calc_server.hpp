@@ -41,6 +41,13 @@ namespace bdg::bison::srv {
  * @endcode
  */
 class calc_server : public app::srv_app {
+ public:
+  std::string server_description() const override {
+    return "Stateful arithmetic calculator server.\n"
+           "Exposes a Calculator class with a persistent memory field and\n"
+           "four arithmetic operations: Add, Subtract, Multiply, Divide.";
+  }
+
  protected:
   void register_classes() override;
 };

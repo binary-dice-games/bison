@@ -10,6 +10,7 @@
 #include "src/rmi/shared/schemas.hpp"
 
 #include <shared_mutex>
+#include <sstream>
 #include <stdexcept>
 
 namespace bdg::bison::rmi {
@@ -338,6 +339,10 @@ void server::handle_request(
     handle_destroy(ctx, env, conn);
   else if (op == OP_DISCONNECT)
     handle_disconnect(ctx, env, conn);
+  else if (op == OP_DICTIONARY)
+    handle_dictionary(ctx, env, conn);
+  else if (op == OP_HELP)
+    handle_help(ctx, env, conn);
   else
     send_error(conn, env, op, ERR_UNKNOWN_OPERATION, "Unknown operation");
 }
@@ -715,6 +720,102 @@ void server::handle_disconnect(
     transport::server_connection_iface& conn) {
   cleanup_context(ctx);
   conn.close();
+}
+
+/** @brief Handle hash→display-name dictionary requests. */
+void server::handle_dictionary(
+    context& /*ctx*/,
+    const shared::envelope& env,
+    transport::server_connection_iface& conn) {
+  using namespace bison;
+  dynamic dict;
+  {
+    auto lp = dynamic::getRegistry().rlock();
+    for (const auto& [ns_key, classes] : *lp) {
+      for (const auto& [klass_key, proto] : classes) {
+        if (klass_key == CLASS_ENVELOPE) continue;
+        // Class-level DisplayName
+        const auto* class_field = proto->findField(dynamic::CLASS);
+        if (class_field) {
+          if (auto* dn = class_field->findAttribute<DisplayName>())
+            dict[klass_key] = dn->name();
+        }
+        // Field DisplayNames
+        proto->forEach([&](key_t k, const field& f) {
+          if (k == dynamic::CLASS || k == dynamic::PARENT ||
+              k == dynamic::NAMESPACE) return;
+          if (auto* dn = f.findAttribute<DisplayName>())
+            dict[k] = dn->name();
+        });
+        // Method DisplayNames
+        proto->forEachMethod([&](key_t k, const method& m) {
+          if (auto* dn = m.findAttribute<DisplayName>())
+            dict[k] = dn->name();
+        });
+      }
+    }
+  }
+  send_response(conn, env, OP_DICTIONARY, std::move(dict));
+}
+
+/** @brief Handle human-readable help text requests. */
+void server::handle_help(
+    context& /*ctx*/,
+    const shared::envelope& env,
+    transport::server_connection_iface& conn) {
+  using namespace bison;
+  std::string preamble = on_help_text();
+  std::ostringstream oss;
+  if (!preamble.empty())
+    oss << preamble << "\n\n";
+  oss << "Registered classes:\n";
+
+  {
+    auto lp = dynamic::getRegistry().rlock();
+    for (const auto& [ns_key, classes] : *lp) {
+      for (const auto& [klass_key, proto] : classes) {
+        if (klass_key == CLASS_ENVELOPE) continue;
+        // Only show classes that have a DisplayName.
+        const auto* class_field = proto->findField(dynamic::CLASS);
+        if (!class_field) continue;
+        auto* cdn = class_field->findAttribute<DisplayName>();
+        if (!cdn) continue;
+        oss << "  " << cdn->name();
+        if (auto* cd = class_field->findAttribute<Description>())
+          oss << " -- " << cd->text();
+        oss << '\n';
+        // Fields with DisplayName
+        bool first_field = true;
+        proto->forEach([&](key_t k, const field& f) {
+          if (k == dynamic::CLASS || k == dynamic::PARENT ||
+              k == dynamic::NAMESPACE) return;
+          auto* dn = f.findAttribute<DisplayName>();
+          if (!dn) return;
+          if (first_field) { oss << "    Fields:\n"; first_field = false; }
+          oss << "      " << dn->name();
+          if (auto* d = f.findAttribute<Description>())
+            oss << " -- " << d->text();
+          oss << '\n';
+        });
+        // Methods with DisplayName
+        bool first_method = true;
+        proto->forEachMethod([&](key_t k, const method& m) {
+          (void)k;
+          auto* dn = m.findAttribute<DisplayName>();
+          if (!dn) return;
+          if (first_method) { oss << "    Methods:\n"; first_method = false; }
+          oss << "      " << dn->name();
+          if (auto* d = m.findAttribute<Description>())
+            oss << " -- " << d->text();
+          oss << '\n';
+        });
+      }
+    }
+  }
+
+  dynamic resp;
+  resp[FIELD_DESCRIPTION] = oss.str();
+  send_response(conn, env, OP_HELP, std::move(resp));
 }
 
 /**

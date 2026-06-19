@@ -143,6 +143,27 @@ class standalone : public proxy_backend {
   void disconnect();
 
   /**
+   * @brief Return the hash→display-name dictionary for all registered classes.
+   *
+   * Mirrors `server::handle_dictionary` without transport.
+   *
+   * @return Future already resolved with a flat `bison::dynamic` mapping each
+   *         `DisplayName`-annotated item's hash to its display-name string.
+   */
+  std::future<bison::dynamic> get_dictionary();
+
+  /**
+   * @brief Return human-readable help text describing the registered classes.
+   *
+   * Mirrors `server::handle_help` without transport.  The auto-generated
+   * listing includes all classes with a `DisplayName` attribute.
+   *
+   * @return Future already resolved with a `bison::dynamic` containing
+   *         `FIELD_DESCRIPTION` → help text string.
+   */
+  std::future<bison::dynamic> get_help();
+
+  /**
    * @brief Dispatch a protocol operation asynchronously on the worker thread.
    *
    * The operation is queued and the calling thread returns immediately with a
@@ -239,6 +260,8 @@ class standalone : public proxy_backend {
   // ── Operation handlers (mirror server-side logic without transport) ───────
 
   bison::dynamic handle_describe(bison::key_t ns, bison::key_t klass);
+  bison::dynamic handle_dictionary();
+  bison::dynamic handle_help();
   bison::dynamic handle_instantiate(
       bison::key_t ns,
       bison::key_t klass,

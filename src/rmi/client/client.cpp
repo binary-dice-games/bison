@@ -47,6 +47,16 @@ std::future<bison::dynamic> client::describe(
   return send_request(OP_DESCRIBE, {}, std::move(payload), false);
 }
 
+/** @copydoc bdg::bison::rmi::client::get_dictionary */
+std::future<bison::dynamic> client::get_dictionary() {
+  return send_request(OP_DICTIONARY, {}, bison::dynamic{}, false);
+}
+
+/** @copydoc bdg::bison::rmi::client::get_help */
+std::future<bison::dynamic> client::get_help() {
+  return send_request(OP_HELP, {}, bison::dynamic{}, false);
+}
+
 /** @copydoc bdg::bison::rmi::client::instantiate */
 std::future<proxy::dynamic> client::instantiate(
     bison::key_t ns,

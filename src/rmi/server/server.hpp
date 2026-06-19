@@ -168,6 +168,17 @@ class server {
   virtual void on_session_destroyed(context& ctx) { (void)ctx; }
 
   /**
+   * @brief Override to prepend a custom description to `OP_HELP` responses.
+   *
+   * Default: returns an empty string (no preamble).  The server will still
+   * auto-generate a listing of all registered classes with `DisplayName`
+   * attributes.
+   *
+   * @return Free-form text prepended before the auto-generated class listing.
+   */
+  virtual std::string on_help_text() const { return {}; }
+
+  /**
    * @brief Factory hook called when a client instantiates a new object.
    *
    * The default implementation wraps a plain `bison::dynamic::instantiate`
@@ -257,6 +268,16 @@ class server {
       transport::server_connection_iface& conn);
 
   static void handle_disconnect(
+      context& ctx,
+      const shared::envelope& env,
+      transport::server_connection_iface& conn);
+
+  void handle_dictionary(
+      context& ctx,
+      const shared::envelope& env,
+      transport::server_connection_iface& conn);
+
+  void handle_help(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);

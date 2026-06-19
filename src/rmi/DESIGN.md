@@ -507,21 +507,21 @@ Flow:
 
 ### 10.2 describe
 
-- Request payload: `{ "__klass": 0 | <key/hash> }`
+- Request payload: `{ "__class": 0 | <key/hash> }`
 - Response payload:
   - all classes: list/map of class descriptors.
   - single class: full metadata including field schema, inheritance, methods, and events.
 - Request and response payloads use regular self-describing serialization.
-- A zero class id in `__klass` requests the full class list; a non-zero hashed class id requests metadata for that specific class.
+- A zero class id in `__class` requests the full class list; a non-zero hashed class id requests metadata for that specific class.
 
 ### 10.3 instantiate
 
-- Request payload: `{ "__klass": <key/hash>, "__params": {...} }`
+- Request payload: `{ "__class": <key/hash>, "__params": {...} }`
 - Server creates object using registered Bison class factory and binds to session context.
 - If the instantiated object registers a `__construct` method, the server invokes it immediately after object creation, passing the instantiate `params` as call arguments.
-- Response payload: `{ "__objectId": <opaque-random-id>, "__klass": <key/hash> }`
+- Response payload: `{ "__objectId": <opaque-random-id>, "__class": <key/hash> }`
 - Params and response payload use regular self-describing serialization.
-- Class id field `__klass` MUST be transmitted as hashed key/token, not full class string.
+- Class id field `__class` MUST be transmitted as hashed key/token, not full class string.
 - If `__construct` fails, object creation is considered failed and the object is not retained in the session context.
 - Object ids MUST be opaque random identifiers rather than incremental counters to reduce guessing attacks across the protocol boundary.
 

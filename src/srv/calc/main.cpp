@@ -9,6 +9,7 @@
 
 DEFINE_string(host, "0.0.0.0", "Bind host address");
 DEFINE_int32 (port, 7070,      "Listen port");
+DEFINE_bool  (pty,  false,     "Use PTY transport (Linux only)");
 
 int main(int argc, char** argv) {
   bdg::bison::srv::calc_server server;

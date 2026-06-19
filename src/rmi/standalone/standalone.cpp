@@ -12,6 +12,7 @@
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/ids.hpp"
 
+#include <sstream>
 #include <stdexcept>
 
 namespace bdg::bison::rmi {
@@ -205,6 +206,16 @@ void standalone::destroy(proxy::dynamic&& proxy) {
 /** @copydoc bdg::bison::rmi::standalone::disconnect */
 void standalone::disconnect() {
   stop_worker();
+}
+
+/** @copydoc bdg::bison::rmi::standalone::get_dictionary */
+std::future<bison::dynamic> standalone::get_dictionary() {
+  return enqueue([this]() { return handle_dictionary(); });
+}
+
+/** @copydoc bdg::bison::rmi::standalone::get_help */
+std::future<bison::dynamic> standalone::get_help() {
+  return enqueue([this]() { return handle_help(); });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::send_request */
@@ -601,6 +612,95 @@ bison::dynamic standalone::handle_destroy(bison::key_t object_id) {
   }
   unregister_object_events(object_id);
   return bison::dynamic{};
+}
+
+/**
+ * @brief Return hash→display-name dictionary for all registered classes.
+ *
+ * Mirrors `server::handle_dictionary` without transport.
+ */
+bison::dynamic standalone::handle_dictionary() {
+  using namespace bison;
+  dynamic dict;
+  {
+    auto lp = dynamic::getRegistry().rlock();
+    for (const auto& [ns_key, classes] : *lp) {
+      for (const auto& [klass_key, proto] : classes) {
+        if (klass_key == CLASS_ENVELOPE) continue;
+        const auto* class_field = proto->findField(dynamic::CLASS);
+        if (class_field) {
+          if (auto* dn = class_field->findAttribute<DisplayName>())
+            dict[klass_key] = dn->name();
+        }
+        proto->forEach([&](key_t k, const field& f) {
+          if (k == dynamic::CLASS || k == dynamic::PARENT ||
+              k == dynamic::NAMESPACE) return;
+          if (auto* dn = f.findAttribute<DisplayName>())
+            dict[k] = dn->name();
+        });
+        proto->forEachMethod([&](key_t k, const method& m) {
+          if (auto* dn = m.findAttribute<DisplayName>())
+            dict[k] = dn->name();
+        });
+      }
+    }
+  }
+  return dict;
+}
+
+/**
+ * @brief Return human-readable help text for all registered classes.
+ *
+ * Mirrors `server::handle_help` without transport.
+ */
+bison::dynamic standalone::handle_help() {
+  using namespace bison;
+  std::ostringstream oss;
+  oss << "Registered classes:\n";
+
+  {
+    auto lp = dynamic::getRegistry().rlock();
+    for (const auto& [ns_key, classes] : *lp) {
+      for (const auto& [klass_key, proto] : classes) {
+        if (klass_key == CLASS_ENVELOPE) continue;
+        const auto* class_field = proto->findField(dynamic::CLASS);
+        if (!class_field) continue;
+        auto* cdn = class_field->findAttribute<DisplayName>();
+        if (!cdn) continue;
+        oss << "  " << cdn->name();
+        if (auto* cd = class_field->findAttribute<Description>())
+          oss << " -- " << cd->text();
+        oss << '\n';
+        bool first_field = true;
+        proto->forEach([&](key_t k, const field& f) {
+          if (k == dynamic::CLASS || k == dynamic::PARENT ||
+              k == dynamic::NAMESPACE) return;
+          auto* dn = f.findAttribute<DisplayName>();
+          if (!dn) return;
+          if (first_field) { oss << "    Fields:\n"; first_field = false; }
+          oss << "      " << dn->name();
+          if (auto* d = f.findAttribute<Description>())
+            oss << " -- " << d->text();
+          oss << '\n';
+        });
+        bool first_method = true;
+        proto->forEachMethod([&](key_t k, const method& m) {
+          (void)k;
+          auto* dn = m.findAttribute<DisplayName>();
+          if (!dn) return;
+          if (first_method) { oss << "    Methods:\n"; first_method = false; }
+          oss << "      " << dn->name();
+          if (auto* d = m.findAttribute<Description>())
+            oss << " -- " << d->text();
+          oss << '\n';
+        });
+      }
+    }
+  }
+
+  dynamic resp;
+  resp[FIELD_DESCRIPTION] = oss.str();
+  return resp;
 }
 
 } // namespace bdg::bison::rmi

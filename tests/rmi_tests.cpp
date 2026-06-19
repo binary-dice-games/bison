@@ -1632,3 +1632,129 @@ TEST_F(RmiE2E, DescribeSpecificClassIncludesMethodAttributes) {
 
   c.disconnect();
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 20. OP_DICTIONARY — hash→display-name dictionary
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST_F(StandaloneTests, GetDictionaryEmptyForUnannotatedClasses) {
+  auto proto = dynamic_ptr{"PlainThing"_key, {{"x"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  dynamic dict = sa.get_dictionary().get();
+  // No DisplayName attrs → empty dictionary (except possibly internal items).
+  // "PlainThing" has no DisplayName so its hash should NOT appear.
+  const auto* f = dict.findField("PlainThing"_key);
+  EXPECT_EQ(f, nullptr);
+}
+
+TEST_F(StandaloneTests, GetDictionaryReturnsDisplayNamesForAnnotatedClass) {
+  field score_field{int32_t{0}, attr<DisplayName>("Score"),
+                    attr<Description>("Player score")};
+  auto proto = dynamic_ptr{"AnnotatedPlayer"_key};
+  proto->addField("score"_key, std::move(score_field));
+  proto->addMethod(
+      "reset"_key,
+      method{[](dynamic&, const dynamic&) -> dynamic { return {}; },
+             attr<DisplayName>("Reset Score")});
+
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("Annotated Player"),
+       attr<Description>("A player with annotations")});
+
+  standalone sa;
+  dynamic dict = sa.get_dictionary().get();
+
+  // Class DisplayName keyed by class hash.
+  const auto* class_entry = dict.findField("AnnotatedPlayer"_key);
+  ASSERT_NE(class_entry, nullptr);
+  EXPECT_EQ(class_entry->as<std::string>(), "Annotated Player");
+
+  // Field DisplayName keyed by field hash.
+  const auto* field_entry = dict.findField("score"_key);
+  ASSERT_NE(field_entry, nullptr);
+  EXPECT_EQ(field_entry->as<std::string>(), "Score");
+
+  // Method DisplayName keyed by method hash.
+  const auto* method_entry = dict.findField("reset"_key);
+  ASSERT_NE(method_entry, nullptr);
+  EXPECT_EQ(method_entry->as<std::string>(), "Reset Score");
+}
+
+TEST_F(RmiE2E, GetDictionaryReturnsDisplayNamesEndToEnd) {
+  field hp_field{int32_t{100}, attr<DisplayName>("Hit Points")};
+  auto proto = dynamic_ptr{"E2EHero"_key};
+  proto->addField("hp"_key, std::move(hp_field));
+
+  dynamic::addClass(
+      0U, proto, 0U, {attr<DisplayName>("E2E Hero")});
+
+  auto c = make_client();
+  c.connect();
+  dynamic dict = c.get_dictionary().get();
+
+  const auto* class_entry = dict.findField("E2EHero"_key);
+  ASSERT_NE(class_entry, nullptr);
+  EXPECT_EQ(class_entry->as<std::string>(), "E2E Hero");
+
+  const auto* hp_entry = dict.findField("hp"_key);
+  ASSERT_NE(hp_entry, nullptr);
+  EXPECT_EQ(hp_entry->as<std::string>(), "Hit Points");
+
+  c.disconnect();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 21. OP_HELP — human-readable server help text
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST_F(StandaloneTests, GetHelpReturnsDescriptionField) {
+  field score_field{int32_t{0}, attr<DisplayName>("Score"),
+                    attr<Description>("Player score")};
+  auto proto = dynamic_ptr{"HelpWidget"_key};
+  proto->addField("score"_key, std::move(score_field));
+  proto->addMethod(
+      "increment"_key,
+      method{[](dynamic&, const dynamic&) -> dynamic { return {}; },
+             attr<DisplayName>("Increment"),
+             attr<Description>("Increment the score")});
+
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("Help Widget"),
+       attr<Description>("A widget for help tests")});
+
+  standalone sa;
+  dynamic result = sa.get_help().get();
+
+  const auto* desc = result.findField(FIELD_DESCRIPTION);
+  ASSERT_NE(desc, nullptr);
+  ASSERT_TRUE(desc->is<std::string>());
+
+  const std::string& text = desc->as<std::string>();
+  EXPECT_NE(text.find("Help Widget"), std::string::npos);
+  EXPECT_NE(text.find("A widget for help tests"), std::string::npos);
+  EXPECT_NE(text.find("Score"), std::string::npos);
+  EXPECT_NE(text.find("Increment"), std::string::npos);
+}
+
+TEST_F(RmiE2E, GetHelpEndToEndContainsClassNames) {
+  auto proto = dynamic_ptr{"E2EService"_key};
+  dynamic::addClass(
+      0U, proto, 0U,
+      {attr<DisplayName>("E2E Service"),
+       attr<Description>("A service for end-to-end help tests")});
+
+  auto c = make_client();
+  c.connect();
+
+  dynamic result = c.get_help().get();
+  const auto* desc = result.findField(FIELD_DESCRIPTION);
+  ASSERT_NE(desc, nullptr);
+  const std::string& text = desc->as<std::string>();
+  EXPECT_NE(text.find("E2E Service"), std::string::npos);
+
+  c.disconnect();
+}
