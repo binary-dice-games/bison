@@ -21,8 +21,11 @@ namespace bdg::bison::app {
  * `run()` from `main()`.
  *
  * Supported gflags CLI flags:
- *   - `--host HOST`  bind host (default: `0.0.0.0`)
- *   - `--port PORT`  listen port (default: `7070`)
+ *   - `--host HOST`     bind host (default: `0.0.0.0`)
+ *   - `--port PORT`     listen port (default: `7070`)
+ *   - `--verbose`       print one request trace line and one response trace
+ *                       line per RMI operation to stdout (open, connect,
+ *                       instantiate, call, get, set, destroy, disconnect, …)
  *
  * Run with `--help` to see all available flags.
  *

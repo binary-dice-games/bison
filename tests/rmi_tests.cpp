@@ -1794,3 +1794,147 @@ TEST_F(RmiE2E, GetHelpEndToEndContainsClassNames) {
 
   c.disconnect();
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 22. on_request_trace hook
+// ═════════════════════════════════════════════════════════════════════════════
+
+struct TraceRecord {
+  bison_key_t op;
+  bool        is_error;
+  bison_key_t error_code;
+};
+
+class TracingServer : public server {
+ public:
+  explicit TracingServer(transport::server_transport_iface& t)
+      : server(t) {}
+
+  std::vector<bison_key_t> request_ops;
+  std::vector<TraceRecord> response_records;
+
+ protected:
+  void on_request_trace(context& /*ctx*/, const envelope& env) override {
+    request_ops.push_back(env.op);
+  }
+
+  void on_response_trace(
+      context& /*ctx*/,
+      const envelope& /*request_env*/,
+      bison_key_t op,
+      bool is_error,
+      bison_key_t error_code,
+      const dynamic& /*response_payload*/) override {
+    response_records.push_back({op, is_error, error_code});
+  }
+};
+
+TEST(RmiRequestTrace, TraceHookFiresForEachOperation) {
+  clearClassRegistry();
+
+  auto proto = dynamic_ptr{"TraceTarget"_key, {{"v"_key, int32_t{0}}}};
+  proto->addMethod("noop"_key, method{[](dynamic& /*self*/, const dynamic&) {
+    return dynamic{};
+  }});
+  dynamic::addClass(0U, proto, 0U);
+
+  memory_server_transport mt;
+  TracingServer srv{mt};
+  srv.listen(dynamic{});
+
+  client c{mt.connect()};
+  c.connect();
+
+  auto proxy = c.instantiate(0U, "TraceTarget"_key).get();
+
+  dynamic f;
+  f["v"_key] = int32_t{42};
+  proxy.set(std::move(f)).get();
+  proxy.get().get();
+
+  dynamic params;
+  proxy.call("noop"_key, std::move(params)).get();
+
+  c.destroy(std::move(proxy));
+  c.disconnect();
+
+  // Give the worker thread time to finish.
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  srv.stop();
+
+  const auto& ops = srv.request_ops;
+  auto req_contains = [&](bison_key_t op) {
+    return std::find_if(ops.begin(), ops.end(), [&](bison_key_t o) {
+      return static_cast<hash_t>(o) == static_cast<hash_t>(op);
+    }) != ops.end();
+  };
+
+  EXPECT_TRUE(req_contains(OP_CONNECT));
+  EXPECT_TRUE(req_contains(OP_INSTANTIATE));
+  EXPECT_TRUE(req_contains(OP_SET));
+  EXPECT_TRUE(req_contains(OP_GET));
+  EXPECT_TRUE(req_contains(OP_CALL));
+  EXPECT_TRUE(req_contains(OP_DESTROY));
+  EXPECT_TRUE(req_contains(OP_DISCONNECT));
+}
+
+TEST(RmiResponseTrace, TraceHookFiresForEachResponse) {
+  clearClassRegistry();
+
+  auto proto = dynamic_ptr{"RespTarget"_key, {{"v"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto, 0U);
+
+  memory_server_transport mt;
+  TracingServer srv{mt};
+  srv.listen(dynamic{});
+
+  client c{mt.connect()};
+  c.connect();
+
+  auto proxy = c.instantiate(0U, "RespTarget"_key).get();
+  proxy.get().get();
+
+  c.destroy(std::move(proxy));
+  c.disconnect();
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  srv.stop();
+
+  const auto& recs = srv.response_records;
+  auto resp_contains = [&](bison_key_t op, bool is_error) {
+    return std::find_if(recs.begin(), recs.end(), [&](const TraceRecord& r) {
+      return static_cast<hash_t>(r.op) == static_cast<hash_t>(op) &&
+             r.is_error == is_error;
+    }) != recs.end();
+  };
+
+  EXPECT_TRUE(resp_contains(OP_CONNECT, false));
+  EXPECT_TRUE(resp_contains(OP_INSTANTIATE, false));
+  EXPECT_TRUE(resp_contains(OP_GET, false));
+  EXPECT_TRUE(resp_contains(OP_DESTROY, false));
+}
+
+TEST(RmiResponseTrace, ErrorResponseIsTracedAsError) {
+  clearClassRegistry();
+
+  memory_server_transport mt;
+  TracingServer srv{mt};
+  srv.listen(dynamic{});
+
+  client c{mt.connect()};
+  c.connect();
+
+  // Instantiate an unregistered class → should produce an error response.
+  EXPECT_THROW(c.instantiate(0U, "NoSuchClass"_key).get(), std::runtime_error);
+
+  c.disconnect();
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  srv.stop();
+
+  const auto& recs = srv.response_records;
+  bool found_error = std::find_if(recs.begin(), recs.end(), [](const TraceRecord& r) {
+    return static_cast<hash_t>(r.op) == static_cast<hash_t>(OP_INSTANTIATE) &&
+           r.is_error;
+  }) != recs.end();
+  EXPECT_TRUE(found_error);
+}
