@@ -52,8 +52,7 @@ class server {
    */
   explicit server(
       std::unique_ptr<transport::server_transport_iface> transport)
-      : transport_raw_(transport.get()),
-        transport_owned_(std::move(transport)) {}
+      : transport_(transport.release(), transport_deleter{true}) {}
 
   /**
    * @brief Construct a server that borrows an externally-owned transport.
@@ -63,7 +62,7 @@ class server {
    * @param transport Transport implementation owned by the caller.
    */
   explicit server(transport::server_transport_iface& transport)
-      : transport_raw_(&transport) {}
+      : transport_(&transport, transport_deleter{false}) {}
 
   /**
    * @brief Convenience constructor for ownable concrete transport types.
@@ -266,8 +265,14 @@ class server {
 
   // ── Members ───────────────────────────────────────────────────────────────
 
-  transport::server_transport_iface* transport_raw_{nullptr};
-  std::unique_ptr<transport::server_transport_iface> transport_owned_;
+  struct transport_deleter {
+    bool owns;
+    void operator()(transport::server_transport_iface* p) const {
+      if (owns) delete p;
+    }
+  };
+  std::unique_ptr<transport::server_transport_iface, transport_deleter>
+      transport_;
 
   std::thread accept_thread_;
   std::atomic<bool> running_{false};

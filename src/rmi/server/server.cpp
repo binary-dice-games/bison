@@ -124,14 +124,14 @@ server::~server() {
 void server::listen(bison::dynamic params) {
   shared::register_all_schemas();
   running_.store(true);
-  transport_raw_->start(std::move(params));
+  transport_.get()->start(std::move(params));
   accept_thread_ = std::thread(&server::accept_loop, this);
 }
 
 /** @copydoc bdg::bison::rmi::server::stop */
 void server::stop() {
   running_.store(false);
-  transport_raw_->stop();
+  transport_.get()->stop();
   if (accept_thread_.joinable())
     accept_thread_.join();
   join_workers();
@@ -156,7 +156,7 @@ void server::join_workers() {
  */
 void server::accept_loop() {
   while (running_.load(std::memory_order_acquire)) {
-    auto conn = transport_raw_->accept(std::chrono::milliseconds{100});
+    auto conn = transport_.get()->accept(std::chrono::milliseconds{100});
     if (!conn)
       continue;
     workers_.wlock()->emplace_back(
