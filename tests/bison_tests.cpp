@@ -499,14 +499,68 @@ TEST(FieldTests, ImplicitConversionToCorrectType) {
   EXPECT_EQ(v, 123);
 }
 
-TEST(FieldTests, ImplicitConversionWrongTypeThrows) {
+TEST(FieldTests, ImplicitConversionIncompatibleTypeThrows) {
   field f{int32_t{1}};
-  EXPECT_THROW(
-      {
-        float v = static_cast<float>(f);
-        (void)v;
-      },
-      std::runtime_error);
+  EXPECT_THROW(f.get_as<dynamic_ptr>(), std::runtime_error);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cross-type casting tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(FieldTests, CrossTypeCastIntToFloat) {
+  field f{int32_t{42}};
+  float v = static_cast<float>(f);
+  EXPECT_FLOAT_EQ(v, 42.0f);
+}
+
+TEST(FieldTests, CrossTypeCastFloatToInt) {
+  field f{3.7f};
+  int32_t v = static_cast<int32_t>(f);
+  EXPECT_EQ(v, 3);
+}
+
+TEST(FieldTests, CrossTypeCastIntToStringViaGetAs) {
+  field f{int32_t{99}};
+  EXPECT_EQ(f.get_as<std::string>(), "99");
+}
+
+TEST(FieldTests, CrossTypeCastFloatToStringViaGetAs) {
+  field f{1.5f};
+  std::string s = f.get_as<std::string>();
+  EXPECT_FALSE(s.empty());
+}
+
+TEST(FieldTests, CrossTypeCastBoolToString) {
+  field ft{true};
+  field ff{false};
+  EXPECT_EQ(ft.get_as<std::string>(), "true");
+  EXPECT_EQ(ff.get_as<std::string>(), "false");
+}
+
+TEST(FieldTests, CrossTypeCastStringToInt) {
+  field f{std::string{"42"}};
+  EXPECT_EQ(f.get_as<int32_t>(), 42);
+}
+
+TEST(FieldTests, CrossTypeCastStringToFloat) {
+  field f{std::string{"3.14"}};
+  EXPECT_FLOAT_EQ(f.get_as<float>(), 3.14f);
+}
+
+TEST(FieldTests, CrossTypeCastMonostateThrows) {
+  field f;
+  EXPECT_THROW(f.get_as<int32_t>(), std::runtime_error);
+}
+
+TEST(FieldTests, CrossTypeCastIncompatibleThrows) {
+  field f{int32_t{1}};
+  EXPECT_THROW(f.get_as<dynamic_ptr>(), std::runtime_error);
+}
+
+TEST(FieldTests, CrossTypeCastAsStillStrict) {
+  field f{int32_t{5}};
+  EXPECT_THROW(f.as<float>(), std::runtime_error);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

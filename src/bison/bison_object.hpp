@@ -205,7 +205,7 @@ class field : public field_base {
   }
 
   operator std::string() const {
-    return as<std::string>();
+    return cast_value<std::string>(static_cast<const field_base&>(*this));
   }
 
   operator const std::string&() const {
@@ -214,10 +214,7 @@ class field : public field_base {
 
   template <typename T>
   operator T() const {
-    if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
-      throw std::runtime_error("Invalid type");
-    }
-    return std::get<T>(static_cast<const field_base&>(*this));
+    return cast_value<T>(static_cast<const field_base&>(*this));
   }
 
   /**
@@ -255,6 +252,25 @@ class field : public field_base {
   template <typename T>
   bool is() const {
     return std::holds_alternative<T>(static_cast<const field_base&>(*this));
+  }
+
+  /**
+   * @brief Convert the field value to @p T, casting between compatible types.
+   *
+   * Unlike `as<T>()`, this method performs cross-type conversions:
+   * numeric types cast to one another via `static_cast`, arithmetic types
+   * convert to `std::string` via `std::to_string` (bools give `"true"` /
+   * `"false"`), and strings parse to numeric types via `std::stoi` /
+   * `std::stof`.  Throws `std::runtime_error` for incompatible conversions
+   * and re-throws `std::invalid_argument` / `std::out_of_range` from
+   * string-to-numeric parsing.
+   *
+   * @tparam T  Target type.
+   * @return Value converted to @p T.
+   */
+  template <typename T>
+  T get_as() const {
+    return cast_value<T>(static_cast<const field_base&>(*this));
   }
 
   /**
@@ -363,6 +379,40 @@ class field : public field_base {
   inline static field deserialize(buffer_deserializer& in);
 
  private:
+  // ── Cross-type cast helper ──────────────────────────────────────────────
+  template <typename To>
+  static To cast_value(const field_base& base) {
+    return std::visit(
+        [](const auto& v) -> To {
+          using From = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<From, To>) {
+            return v;
+          } else if constexpr (std::is_same_v<From, std::monostate>) {
+            throw std::runtime_error("Field is empty");
+          } else if constexpr (std::is_arithmetic_v<From> &&
+                               std::is_arithmetic_v<To>) {
+            return static_cast<To>(v);
+          } else if constexpr (std::is_same_v<To, std::string>) {
+            if constexpr (std::is_same_v<From, bool>)
+              return v ? "true" : "false";
+            else if constexpr (std::is_arithmetic_v<From>)
+              return std::to_string(v);
+            else
+              throw std::runtime_error("Incompatible types");
+          } else if constexpr (std::is_same_v<From, std::string>) {
+            if constexpr (std::is_integral_v<To>)
+              return static_cast<To>(std::stoi(v));
+            else if constexpr (std::is_floating_point_v<To>)
+              return static_cast<To>(std::stof(v));
+            else
+              throw std::runtime_error("Incompatible types");
+          } else {
+            throw std::runtime_error("Incompatible types");
+          }
+        },
+        base);
+  }
+
   mutable std::vector<std::shared_ptr<const attribute>> attributes_;
 };
 
