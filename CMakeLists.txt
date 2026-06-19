@@ -93,6 +93,7 @@ target_sources(bison PRIVATE
   src/app/pty/pty_client_transport.cpp
   src/app/pty/pty_server_app.cpp
   src/app/pty/pty_client_app.cpp
+  src/app/cli/cli_app.cpp
 )
 
 if(WIN32)
@@ -134,3 +135,8 @@ if(PACKAGE_TESTS)
 endif()
 
 add_subdirectory(examples)
+
+# ─── bison-cli executable ─────────────────────────────────────────────────────
+add_executable(bison-cli src/app/cli/main.cpp)
+target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json)
+target_include_directories(bison-cli PRIVATE src/rmi)
