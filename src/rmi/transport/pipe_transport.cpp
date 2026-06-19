@@ -222,7 +222,7 @@ static bool posix_read_all(
     auto remaining_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now)
             .count();
-    int slice_ms = static_cast<int>((std::min)(remaining_ms, (long long)10));
+    int slice_ms = static_cast<int>((std::min)(remaining_ms, decltype(remaining_ms){10}));
 
     struct pollfd pfd{fd, POLLIN, 0};
     int r = ::poll(&pfd, 1, slice_ms);
