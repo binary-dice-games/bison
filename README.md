@@ -1,5 +1,7 @@
 # Bison
 
+<img src="resources/BinaryDice.png" alt="BinaryDice" height="60"/> <img src="resources/Bison.png" alt="Bison" height="60"/>
+
 **Bison** is a C++20 library for serializing and deserializing objects in a compact binary format. It is conceptually similar to JSON — objects are self-describing, carrying both field names and values — but the wire format is binary rather than text, making it more efficient in size and parsing speed. Unlike Protocol Buffers, no external IDL schema is required.
 
 ## Features
