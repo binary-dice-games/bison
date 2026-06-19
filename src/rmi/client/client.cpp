@@ -34,6 +34,7 @@ void client::connect(bison::dynamic params) {
   payload[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
   auto f = send_request(OP_CONNECT, {}, std::move(payload), false);
   f.get();
+  on_connect();
 }
 
 /** @copydoc bdg::bison::rmi::client::describe */
@@ -60,13 +61,16 @@ std::future<proxy::dynamic> client::instantiate(
   return std::async(std::launch::async, [this, f = std::move(f)]() mutable {
     auto result = f.get();
     bison::key_t oid = result.as<bison::key_t>(FIELD_OBJECT_ID);
-    return proxy::dynamic{this, std::move(oid)};
+    proxy::dynamic p{this, std::move(oid)};
+    on_instantiate(p);
+    return p;
   });
 }
 
 /** @copydoc bdg::bison::rmi::client::destroy */
 void client::destroy(proxy::dynamic&& proxy) {
   bison::key_t oid = proxy.object_id();
+  on_destroy(oid);
   proxy.valid_ = false;
   proxy.backend_ = nullptr;
 
@@ -90,6 +94,7 @@ void client::disconnect() {
   if (worker_.joinable())
     worker_.join();
 
+  on_disconnect();
   fail_all_pending(ERR_TRANSPORT_ERROR, "Client disconnected");
 }
 

@@ -92,6 +92,48 @@ class client : public proxy_backend {
   virtual ~client();
 
   /**
+   * @brief Called at the end of `connect()` once the handshake succeeds.
+   *
+   * Fires in the thread that called `connect()`.  Override to initialise
+   * per-session state (e.g. instantiate protocol proxies).
+   */
+  virtual void on_connect() {}
+
+  /**
+   * @brief Called inside the `instantiate()` continuation after the proxy is
+   *        created but before the future is resolved for the caller.
+   *
+   * Fires in the detached async thread that resolves the `instantiate()`
+   * future.  Override to track live remote objects or register event handlers.
+   *
+   * @param proxy The newly created proxy (valid, not yet returned to caller).
+   */
+  virtual void on_instantiate(const proxy::dynamic& proxy) { (void)proxy; }
+
+  /**
+   * @brief Called at the start of `destroy()`, before the proxy is invalidated
+   *        and before `OP_DESTROY` is sent.
+   *
+   * Fires in the thread that called `destroy()`.  Override to clean up state
+   * associated with the remote object (e.g. remove from a tracking registry).
+   *
+   * @param object_id The ID of the object about to be destroyed.
+   */
+  virtual void on_destroy(bison::key_t object_id) { (void)object_id; }
+
+  /**
+   * @brief Called inside `disconnect()` after the worker thread has stopped
+   *        and the transport has shut down, before pending requests are failed.
+   *
+   * Fires in the thread that called `disconnect()`.  Override to release any
+   * state that is only valid during an active session (e.g. proxy handles).
+   *
+   * @note Not called when the destructor triggers `disconnect()` as a safety
+   *       net — virtual dispatch is unavailable at that point.
+   */
+  virtual void on_disconnect() {}
+
+  /**
    * @brief Open the transport and start the client worker loop.
    * @param params Optional transport-specific startup parameters.
    */
