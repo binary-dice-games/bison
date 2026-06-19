@@ -747,10 +747,19 @@ void server::handle_dictionary(
           if (auto* dn = f.findAttribute<DisplayName>())
             dict[k] = dn->name();
         });
-        // Method DisplayNames
+        // Method DisplayNames and parameter field DisplayNames
         proto->forEachMethod([&](key_t k, const method& m) {
           if (auto* dn = m.findAttribute<DisplayName>())
             dict[k] = dn->name();
+          auto add_param_fields = [&](const dynamic* d) {
+            if (!d) return;
+            d->forEach([&](key_t fk, const field& f) {
+              if (auto* dn = f.findAttribute<DisplayName>())
+                dict[fk] = dn->name();
+            });
+          };
+          add_param_fields(m.inputSpec());
+          add_param_fields(m.outputSpec());
         });
       }
     }

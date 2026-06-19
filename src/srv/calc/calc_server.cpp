@@ -35,8 +35,11 @@ void calc_server::register_classes() {
             result["result"_key] = a + b;
             return result;
           },
-          {attr<DisplayName>("Add"),
-           attr<Description>("Return a + b")}});
+          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
+                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          attr<DisplayName>("Add"),
+          attr<Description>("Return a + b")});
 
   proto->addMethod(
       "subtract"_key,
@@ -48,8 +51,11 @@ void calc_server::register_classes() {
             result["result"_key] = a - b;
             return result;
           },
-          {attr<DisplayName>("Subtract"),
-           attr<Description>("Return a - b")}});
+          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
+                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          attr<DisplayName>("Subtract"),
+          attr<Description>("Return a - b")});
 
   proto->addMethod(
       "multiply"_key,
@@ -61,8 +67,11 @@ void calc_server::register_classes() {
             result["result"_key] = a * b;
             return result;
           },
-          {attr<DisplayName>("Multiply"),
-           attr<Description>("Return a * b")}});
+          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
+                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          attr<DisplayName>("Multiply"),
+          attr<Description>("Return a * b")});
 
   proto->addMethod(
       "divide"_key,
@@ -79,8 +88,12 @@ void calc_server::register_classes() {
             }
             return result;
           },
-          {attr<DisplayName>("Divide"),
-           attr<Description>("Return a / b; sets error key on division by zero")}});
+          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
+                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}},
+                                   {"error"_key,  field{std::string{}, attr<DisplayName>("Error")}}}},
+          attr<DisplayName>("Divide"),
+          attr<Description>("Return a / b; sets error key on division by zero")});
 
   // ── Register in global namespace ──────────────────────────────────────────
 

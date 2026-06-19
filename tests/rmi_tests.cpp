@@ -1683,6 +1683,42 @@ TEST_F(StandaloneTests, GetDictionaryReturnsDisplayNamesForAnnotatedClass) {
   EXPECT_EQ(method_entry->as<std::string>(), "Reset Score");
 }
 
+TEST_F(StandaloneTests, GetDictionaryReturnsMethodParamDisplayNames) {
+  auto proto = dynamic_ptr{"ParamClass"_key};
+  proto->addMethod(
+      "compute"_key,
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          /*input=*/  dynamic{0U, {{"x"_key, field{0.0f, attr<DisplayName>("X")}},
+                                   {"y"_key, field{0.0f, attr<DisplayName>("Y")}}}},
+          /*output=*/ dynamic{0U, {{"sum"_key, field{0.0f, attr<DisplayName>("Sum")}}}},
+          attr<DisplayName>("Compute")});
+
+  dynamic::addClass(0U, proto, 0U, {attr<DisplayName>("Param Class")});
+
+  standalone sa;
+  dynamic dict = sa.get_dictionary().get();
+
+  // Method itself.
+  const auto* m = dict.findField("compute"_key);
+  ASSERT_NE(m, nullptr);
+  EXPECT_EQ(m->as<std::string>(), "Compute");
+
+  // Input param fields.
+  const auto* x_entry = dict.findField("x"_key);
+  ASSERT_NE(x_entry, nullptr);
+  EXPECT_EQ(x_entry->as<std::string>(), "X");
+
+  const auto* y_entry = dict.findField("y"_key);
+  ASSERT_NE(y_entry, nullptr);
+  EXPECT_EQ(y_entry->as<std::string>(), "Y");
+
+  // Output param fields.
+  const auto* sum_entry = dict.findField("sum"_key);
+  ASSERT_NE(sum_entry, nullptr);
+  EXPECT_EQ(sum_entry->as<std::string>(), "Sum");
+}
+
 TEST_F(RmiE2E, GetDictionaryReturnsDisplayNamesEndToEnd) {
   field hp_field{int32_t{100}, attr<DisplayName>("Hit Points")};
   auto proto = dynamic_ptr{"E2EHero"_key};

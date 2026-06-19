@@ -437,7 +437,13 @@ class method {
    * @param  fn     Method implementation callable.
    * @param  attrs  Attribute annotations forwarded into the internal vector.
    */
-  template <typename... Attrs>
+  template <
+      typename... Attrs,
+      std::enable_if_t<
+          (... && std::is_convertible_v<
+                      std::decay_t<Attrs>,
+                      std::shared_ptr<const attribute>>),
+          int> = 0>
   explicit method(method_fn fn, Attrs&&... attrs)
       : fn_(std::move(fn)), attrs_{std::forward<Attrs>(attrs)...} {}
 
@@ -449,6 +455,32 @@ class method {
    */
   method(method_fn fn, std::vector<std::shared_ptr<const attribute>> attrs)
       : fn_(std::move(fn)), attrs_(std::move(attrs)) {}
+
+  /**
+   * @brief Construct a method with input/output param specs and attribute args.
+   *
+   * @tparam Attrs   Zero or more `std::shared_ptr<const attribute>` values.
+   * @param  fn      Method implementation callable.
+   * @param  input   Annotated dynamic describing input parameter fields.
+   * @param  output  Annotated dynamic describing output parameter fields.
+   * @param  attrs   Attribute annotations for the method itself.
+   */
+  template <typename... Attrs>
+  method(
+      method_fn fn,
+      dynamic_ptr input,
+      dynamic_ptr output,
+      Attrs&&... attrs)
+      : fn_(std::move(fn)),
+        input_(std::move(input)),
+        output_(std::move(output)),
+        attrs_{std::forward<Attrs>(attrs)...} {}
+
+  /** @brief Return input parameter spec, or nullptr if none was registered. */
+  const dynamic* inputSpec() const { return input_.get(); }
+
+  /** @brief Return output parameter spec, or nullptr if none was registered. */
+  const dynamic* outputSpec() const { return output_.get(); }
 
   /**
    * @brief Invoke this method.
@@ -483,6 +515,8 @@ class method {
 
  private:
   method_fn fn_;
+  dynamic_ptr input_;
+  dynamic_ptr output_;
   std::vector<std::shared_ptr<const attribute>> attrs_;
 };
 
