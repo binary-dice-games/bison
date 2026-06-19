@@ -94,6 +94,7 @@ target_sources(bison PRIVATE
   src/app/pty/pty_server_app.cpp
   src/app/pty/pty_client_app.cpp
   src/app/cli/cli_app.cpp
+  src/app/srv/srv_app.cpp
 )
 
 if(WIN32)
@@ -135,6 +136,7 @@ if(PACKAGE_TESTS)
 endif()
 
 add_subdirectory(examples)
+add_subdirectory(src/srv)
 
 # ─── bison-cli executable ─────────────────────────────────────────────────────
 add_executable(bison-cli src/app/cli/main.cpp)
