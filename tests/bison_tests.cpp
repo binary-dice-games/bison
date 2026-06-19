@@ -1622,7 +1622,7 @@ TEST_F(SubclassTest, InstantiateTypedSubclassWithNamespace) {
 TEST_F(SubclassTest, InstantiateTypedSubclassInheritsFields) {
   auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto"_key));
   (*proto)["color"_key] = std::string{"red"};
-  ASSERT_TRUE(dynamic::addClass("ui"_key, proto, key_t{0U}));
+  ASSERT_TRUE(dynamic::addClass("ui"_key, proto, bison_key_t{0U}));
 
   auto inst = dynamic::instantiate<Widget>("ui"_key, "WProto"_key);
   ASSERT_NE(inst, nullptr);
@@ -1634,21 +1634,21 @@ TEST_F(SubclassTest, InstantiateTypedSubclassInheritsFields) {
 TEST_F(SubclassTest, AddClassWithTypedSharedPtrSucceeds) {
   auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto1"_key));
   (*proto)["size"_key] = int32_t{10};
-  EXPECT_TRUE(dynamic::addClass("ui"_key, proto, key_t{0U}));
+  EXPECT_TRUE(dynamic::addClass("ui"_key, proto, bison_key_t{0U}));
 }
 
 TEST_F(SubclassTest, AddClassWithTypedSharedPtrDuplicateFails) {
   auto p1 = std::make_shared<Widget>(dynamic::instantiate("WProto2"_key));
   auto p2 = std::make_shared<Widget>(dynamic::instantiate("WProto2"_key));
-  EXPECT_TRUE(dynamic::addClass("ui"_key, p1, key_t{0U}));
-  EXPECT_FALSE(dynamic::addClass("ui"_key, p2, key_t{0U}));
+  EXPECT_TRUE(dynamic::addClass("ui"_key, p1, bison_key_t{0U}));
+  EXPECT_FALSE(dynamic::addClass("ui"_key, p2, bison_key_t{0U}));
 }
 
 TEST_F(SubclassTest, AddClassWithTypedSharedPtrAndClassAttrs) {
   auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto3"_key));
   Widget* raw = proto.get();
   ASSERT_TRUE(dynamic::addClass(
-      "ui"_key, proto, key_t{0U},
+      "ui"_key, proto, bison_key_t{0U},
       {attr<DisplayName>("My Widget"), attr<Description>("hint")}));
 
   // proto was moved; raw still valid via the registry's shared ownership.
@@ -1663,7 +1663,7 @@ TEST_F(SubclassTest, AddClassWithTypedSharedPtrAndClassAttrs) {
 TEST_F(SubclassTest, AddClassWithTypedSharedPtrFieldsInheritable) {
   auto base = std::make_shared<Widget>(dynamic::instantiate("WBase"_key));
   (*base)["visible"_key] = true;
-  ASSERT_TRUE(dynamic::addClass("ui"_key, base, key_t{0U}));
+  ASSERT_TRUE(dynamic::addClass("ui"_key, base, bison_key_t{0U}));
 
   auto child = std::make_shared<Widget>(dynamic::instantiate("WChild"_key));
   ASSERT_TRUE(dynamic::addClass("ui"_key, child, "WBase"_key));
@@ -1678,14 +1678,14 @@ TEST_F(SubclassTest, AddClassWithTypedSharedPtrFieldsInheritable) {
 TEST(ForEachChildTests, VisitsOnlyMatchingSubtype) {
   dynamic parent;
   parent["a"_key] =
-      dynamic_ptr{std::make_shared<FooChild>(dynamic::instantiate(key_t{0U}))};
+      dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
   parent["b"_key] =
-      dynamic_ptr{std::make_shared<BarChild>(dynamic::instantiate(key_t{0U}))};
+      dynamic_ptr(std::make_shared<BarChild>(dynamic::instantiate(bison_key_t{0U})));
   parent["c"_key] =
-      dynamic_ptr{std::make_shared<FooChild>(dynamic::instantiate(key_t{0U}))};
+      dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
 
   int count = 0;
-  parent.forEachChild<FooChild>([&count](key_t, FooChild&) { ++count; });
+  parent.forEachChild<FooChild>([&count](bison_key_t, FooChild&) { ++count; });
   EXPECT_EQ(count, 2);
 }
 
@@ -1695,7 +1695,7 @@ TEST(ForEachChildTests, SkipsNonDynamicPtrFields) {
   parent["y"_key] = std::string{"hello"};
 
   int count = 0;
-  parent.forEachChild<FooChild>([&count](key_t, FooChild&) { ++count; });
+  parent.forEachChild<FooChild>([&count](bison_key_t, FooChild&) { ++count; });
   EXPECT_EQ(count, 0);
 }
 
@@ -1704,20 +1704,20 @@ TEST(ForEachChildTests, SkipsNullDynamicPtr) {
   parent["p"_key] = std::shared_ptr<dynamic>{};
 
   int count = 0;
-  parent.forEachChild<FooChild>([&count](key_t, FooChild&) { ++count; });
+  parent.forEachChild<FooChild>([&count](bison_key_t, FooChild&) { ++count; });
   EXPECT_EQ(count, 0);
 }
 
 TEST(ForEachChildTests, VisitorReceivesCorrectKeyAndRef) {
   dynamic parent;
   auto child =
-      std::make_shared<FooChild>(dynamic::instantiate(key_t{0U}));
+      std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U}));
   (*child)["val"_key] = int32_t{99};
-  parent["child"_key] = dynamic_ptr{child};
+  parent["child"_key] = dynamic_ptr(child);
 
-  key_t visited_key{0U};
+  bison_key_t visited_key{0U};
   int visited_val = 0;
-  parent.forEachChild<FooChild>([&](key_t k, FooChild& f) {
+  parent.forEachChild<FooChild>([&](bison_key_t k, FooChild& f) {
     visited_key = k;
     visited_val = f["val"_key].as<int32_t>();
   });
