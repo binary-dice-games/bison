@@ -8,11 +8,15 @@
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 
+#include <gflags/gflags.h>
+
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <string_view>
+
+DECLARE_string(host);
+DECLARE_int32 (port);
 
 namespace bdg::bison::app {
 
@@ -59,31 +63,17 @@ void srv_app::on_error(const std::string& msg) const {
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
 
 int srv_app::run(int argc, char** argv) {
-  std::string host = "0.0.0.0";
-  uint16_t    port = 7070;
-
-  for (int i = 1; i < argc; ++i) {
-    std::string_view arg{argv[i]};
-    if (arg == "--host") {
-      if (i + 1 >= argc) { on_error("--host requires a value"); return 1; }
-      host = argv[++i];
-    } else if (arg == "--port") {
-      if (i + 1 >= argc) { on_error("--port requires a value"); return 1; }
-      port = static_cast<uint16_t>(std::stoi(argv[++i]));
-    } else {
-      on_error("unknown option: " + std::string(arg));
-      return 1;
-    }
-  }
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   try {
     register_classes();
 
-    rmi::transport::socket_server_transport transport{host, port};
+    auto port = static_cast<uint16_t>(FLAGS_port);
+    rmi::transport::socket_server_transport transport{FLAGS_host, port};
     bridged_server srv{transport, *this};
 
     srv.listen();
-    on_listening(host, port);
+    on_listening(FLAGS_host, port);
 
     std::string line;
     std::getline(std::cin, line);

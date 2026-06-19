@@ -13,6 +13,7 @@
 #  include "src/app/pty/pty_client_transport.hpp"
 #endif
 
+#include <gflags/gflags.h>
 #include <nlohmann/json.hpp>
 
 #include <iomanip>
@@ -23,6 +24,11 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+
+DECLARE_string(host);
+DECLARE_int32 (port);
+DECLARE_bool  (pty);
+DECLARE_int32 (timeout);
 
 namespace bdg::bison::app {
 
@@ -509,45 +515,19 @@ int cli_app::on_session(rmi::client& c) {
 // ── cli_app::run — argument parsing and lifecycle ─────────────────────────────
 
 int cli_app::run(int argc, char** argv) {
-  std::string host = "127.0.0.1";
-  uint16_t    port = 7070;
-  bool        use_pty = false;
-  int         transport_flags = 0; // counts explicit transport selections
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  for (int i = 1; i < argc; ++i) {
-    std::string_view arg{argv[i]};
-
-    if (arg == "--host") {
-      if (i + 1 >= argc) { on_error("--host requires a value"); return 1; }
-      host = argv[++i];
-      ++transport_flags;
-    } else if (arg == "--port") {
-      if (i + 1 >= argc) { on_error("--port requires a value"); return 1; }
-      port = static_cast<uint16_t>(std::stoi(argv[++i]));
-      ++transport_flags;
-    } else if (arg == "--pty") {
-      use_pty = true;
-      ++transport_flags;
-    } else if (arg == "--timeout") {
-      if (i + 1 >= argc) { on_error("--timeout requires a value"); return 1; }
-      timeout_ = std::chrono::milliseconds{std::stoi(argv[++i])};
-    } else {
-      on_error("unknown option: " + std::string(arg));
-      return 1;
-    }
-  }
-
-  // --host and --port together count as a single transport selection.
-  // Detect conflicting transports (e.g. --pty combined with --host).
-  if (use_pty && (host != "127.0.0.1" || port != 7070)) {
+  if (FLAGS_pty && (FLAGS_host != "127.0.0.1" || FLAGS_port != 7070)) {
     on_error("--pty cannot be combined with --host or --port");
     return 1;
   }
 
+  timeout_ = std::chrono::milliseconds{FLAGS_timeout};
+
   try {
     std::unique_ptr<rmi::transport::client_transport_iface> transport;
 
-    if (use_pty) {
+    if (FLAGS_pty) {
 #if defined(__linux__)
       transport = std::make_unique<pty_client_transport>();
 #else
@@ -555,7 +535,8 @@ int cli_app::run(int argc, char** argv) {
       return 1;
 #endif
     } else {
-      transport = std::make_unique<rmi::transport::socket_client_transport>(host, port);
+      transport = std::make_unique<rmi::transport::socket_client_transport>(
+          FLAGS_host, static_cast<uint16_t>(FLAGS_port));
     }
 
     rmi::client c{std::move(transport)};

@@ -4,4 +4,4 @@ add_executable(calc-server
 )
 
 target_include_directories(calc-server PRIVATE ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/rmi)
-target_link_libraries(calc-server PRIVATE bison)
+target_link_libraries(calc-server PRIVATE bison gflags)

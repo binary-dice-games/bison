@@ -20,9 +20,11 @@ namespace bdg::bison::app {
  * `register_classes()` to populate the bison class registry, then call
  * `run()` from `main()`.
  *
- * Supported CLI flags:
+ * Supported gflags CLI flags:
  *   - `--host HOST`  bind host (default: `0.0.0.0`)
  *   - `--port PORT`  listen port (default: `7070`)
+ *
+ * Run with `--help` to see all available flags.
  *
  * Typical lifecycle:
  * 1. `register_classes()` — populate the bison class registry.

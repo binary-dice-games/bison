@@ -54,6 +54,10 @@ add_subdirectory("extern/json")
 # Allow legacy subprojects (libyaml currently declares cmake_minimum_required 3.0).
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory("extern/yaml")
+
+set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
+add_subdirectory("extern/gflags")
 # libyaml is used in a shared library; it must be compiled with -fPIC.
 set_property(TARGET yaml PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -70,7 +74,7 @@ target_include_directories(bison
         include
 )
 
-target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml)
+target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml gflags)
 target_link_libraries(bison PRIVATE asio_headers)
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
@@ -140,5 +144,5 @@ add_subdirectory(src/srv)
 
 # ─── bison-cli executable ─────────────────────────────────────────────────────
 add_executable(bison-cli src/app/cli/main.cpp)
-target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json)
+target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json gflags)
 target_include_directories(bison-cli PRIVATE src/rmi)

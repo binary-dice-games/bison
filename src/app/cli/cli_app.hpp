@@ -33,10 +33,12 @@ namespace bdg::bison::app {
  * > exit
  * @endcode
  *
- * Transport is selected by CLI flags (exactly one must be given):
- *   - (default) `--host HOST --port PORT` – TCP socket (default localhost:7070)
- *   - `--pty`   – PTY transport (Linux only)
+ * Transport is selected by gflags CLI flags:
+ *   - `--host HOST --port PORT` – TCP socket (default localhost:7070)
+ *   - `--pty`                   – PTY transport (Linux only)
+ *   - `--timeout MS`            – per-request timeout (default 30000 ms)
  *
+ * Run with `--help` to see all available flags.
  * Cross-platform (Windows, Linux, macOS); PTY transport is Linux-only.
  */
 class cli_app {
