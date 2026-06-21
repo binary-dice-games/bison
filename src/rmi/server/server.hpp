@@ -201,6 +201,54 @@ class server {
     return bison::dynamic::create_instance(ns, klass);
   }
 
+  /**
+   * @brief Called for each validated request before it is dispatched.
+   *
+   * Fires in the session worker thread after the envelope op, kind, and
+   * version fields pass validation, but before the operation handler runs.
+   * Default: no-op.
+   *
+   * @param ctx  Session context for the requesting client.
+   * @param env  Decoded and validated request envelope.
+   */
+  virtual void on_request_trace(
+      context& ctx,
+      const shared::envelope& env) {
+    (void)ctx;
+    (void)env;
+  }
+
+  /**
+   * @brief Called just before each response or error frame is sent.
+   *
+   * Fires in the session worker thread after the operation handler runs and
+   * the response envelope has been built, but before it is written to the
+   * transport.  Default: no-op.
+   *
+   * @param ctx              Session context for the requesting client.
+   * @param request_env      The original request envelope that triggered this
+   *                         reply.
+   * @param op               Operation token echoed in the response.
+   * @param is_error         `true` when the response is an error frame.
+   * @param error_code       Canonical error code token; zero when `is_error`
+   *                         is `false`.
+   * @param response_payload The response payload object (empty on errors).
+   */
+  virtual void on_response_trace(
+      context& ctx,
+      const shared::envelope& request_env,
+      bison::key_t op,
+      bool is_error,
+      bison::key_t error_code,
+      const bison::dynamic& response_payload) {
+    (void)ctx;
+    (void)request_env;
+    (void)op;
+    (void)is_error;
+    (void)error_code;
+    (void)response_payload;
+  }
+
  private:
   // ── Private methods (defined in server.cpp) ───────────────────────────────
 
@@ -209,13 +257,15 @@ class server {
       std::unique_ptr<transport::server_connection_iface> conn);
   void join_workers();
 
-  static void send_response(
+  void send_response(
+      context& ctx,
       transport::server_connection_iface& conn,
       const shared::envelope& env,
       bison::key_t op,
       bison::dynamic payload);
 
-  static void send_error(
+  void send_error(
+      context& ctx,
       transport::server_connection_iface& conn,
       const shared::envelope& env,
       bison::key_t op,
@@ -227,12 +277,12 @@ class server {
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_connect(
+  void handle_connect(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_describe(
+  void handle_describe(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
@@ -242,32 +292,32 @@ class server {
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_clear(
+  void handle_clear(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_set(
+  void handle_set(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_get(
+  void handle_get(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_call(
+  void handle_call(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_destroy(
+  void handle_destroy(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);
 
-  static void handle_disconnect(
+  void handle_disconnect(
       context& ctx,
       const shared::envelope& env,
       transport::server_connection_iface& conn);

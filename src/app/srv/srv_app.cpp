@@ -5,7 +5,10 @@
  */
 #include "src/app/srv/srv_app.hpp"
 
+#include "src/bison/bison_print.hpp"
 #include "src/rmi/server/server.hpp"
+#include "src/rmi/shared/constants.hpp"
+#include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 
 #if defined(__linux__)
@@ -19,19 +22,41 @@
 #include <gflags/gflags.h>
 
 #include <cstdint>
+#include <iomanip>
 #include <iostream>
+#include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
 DECLARE_string(host);
 DECLARE_int32 (port);
 DECLARE_bool  (pty);
+DECLARE_bool  (verbose);
 
 namespace bdg::bison::app {
 
 // ── Internal server subclass that bridges rmi hooks to srv_app hooks ─────────
 
 namespace {
+
+// ── Verbose trace helpers ─────────────────────────────────────────────────────
+
+static const char* op_to_label(bison::key_t op) {
+  using namespace rmi::shared::constants;
+  if (op == OP_CONNECT)     return "connect    ";
+  if (op == OP_DISCONNECT)  return "disconnect ";
+  if (op == OP_INSTANTIATE) return "instantiate";
+  if (op == OP_CALL)        return "call       ";
+  if (op == OP_GET)         return "get        ";
+  if (op == OP_SET)         return "set        ";
+  if (op == OP_DESTROY)     return "destroy    ";
+  if (op == OP_CLEAR)       return "clear      ";
+  if (op == OP_DESCRIBE)    return "describe   ";
+  if (op == OP_DICTIONARY)  return "dictionary ";
+  if (op == OP_HELP)        return "help       ";
+  return "unknown    ";
+}
 
 class bridged_server : public rmi::server {
  public:
@@ -40,11 +65,137 @@ class bridged_server : public rmi::server {
 
  protected:
   void on_session_created(rmi::context& ctx) override {
+    std::call_once(dict_flag_, [this] {
+      dict_ = bison::build_display_dict();
+    });
+    if (FLAGS_verbose) {
+      std::ostringstream oss;
+      oss << "[verbose] open        sid=0x"
+          << std::hex << std::setw(8) << std::setfill('0') << ctx.session_id.id;
+      std::cout << oss.str() << '\n';
+    }
     app_.on_session_created(ctx);
   }
 
   void on_session_destroyed(rmi::context& ctx) override {
+    if (FLAGS_verbose) {
+      std::ostringstream oss;
+      oss << "[verbose] close       sid=0x"
+          << std::hex << std::setw(8) << std::setfill('0') << ctx.session_id.id
+          << " (" << std::dec << ctx.objects.size() << " objects)";
+      std::cout << oss.str() << '\n';
+    }
     app_.on_session_destroyed(ctx);
+  }
+
+  void on_request_trace(
+      rmi::context& ctx,
+      const rmi::shared::envelope& env) override {
+    if (!FLAGS_verbose) return;
+    using namespace rmi::shared::constants;
+
+    bison::print_options popts;
+    popts.multiline = false;
+    popts.dict = &dict_;
+
+    std::ostringstream oss;
+    oss << "[verbose] " << op_to_label(env.op)
+        << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
+        << ctx.session_id.id;
+
+    const bison::key_t op = env.op;
+    if (op == OP_INSTANTIATE || op == OP_DESCRIBE) {
+      const auto* f = env.payload.findField(FIELD_KLASS);
+      if (f && f->is<bison::key_t>()) {
+        const auto h = f->as<bison::key_t>().id;
+        auto it = dict_.find(h);
+        if (it != dict_.end()) {
+          oss << " class=" << it->second;
+        } else {
+          oss << " class=#" << std::hex << std::setw(8) << std::setfill('0') << h;
+        }
+      }
+    } else if (op == OP_CALL) {
+      oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+          << std::setfill('0') << env.object_id.id;
+      const auto* f = env.payload.findField(FIELD_NAME);
+      if (f && f->is<bison::key_t>()) {
+        const auto h = f->as<bison::key_t>().id;
+        auto it = dict_.find(h);
+        if (it != dict_.end()) {
+          oss << " method=" << it->second;
+        } else {
+          oss << " method=#" << std::hex << std::setw(8) << std::setfill('0') << h;
+        }
+      }
+      // Print call arguments.
+      const auto* pf = env.payload.findField(FIELD_PARAMS);
+      if (pf && pf->is<bison::dynamic_ptr>()) {
+        auto ptr = pf->as<bison::dynamic_ptr>();
+        if (ptr && !ptr->empty())
+          oss << " args=" << bison::print(*ptr, popts);
+      }
+    } else if (op == OP_SET) {
+      oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+          << std::setfill('0') << env.object_id.id;
+      if (!env.payload.empty())
+        oss << " " << bison::print(env.payload, popts);
+    } else if (op == OP_GET || op == OP_DESTROY || op == OP_CLEAR) {
+      oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+          << std::setfill('0') << env.object_id.id;
+    }
+
+    std::cout << oss.str() << '\n';
+  }
+
+  void on_response_trace(
+      rmi::context& ctx,
+      const rmi::shared::envelope& request_env,
+      bison::key_t op,
+      bool is_error,
+      bison::key_t error_code,
+      const bison::dynamic& response_payload) override {
+    if (!FLAGS_verbose) return;
+    using namespace rmi::shared::constants;
+
+    bison::print_options popts;
+    popts.multiline = false;
+    popts.dict = &dict_;
+
+    std::ostringstream oss;
+    oss << "[verbose] " << op_to_label(op)
+        << (is_error ? " ERROR" : " ok   ")
+        << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
+        << ctx.session_id.id;
+
+    if (is_error) {
+      oss << " code=0x" << error_code.id;
+    } else if (!response_payload.empty()) {
+      // For instantiate/describe, label the class; for others, just dump.
+      if (op == OP_INSTANTIATE) {
+        const auto* kf = response_payload.findField(FIELD_KLASS);
+        if (kf && kf->is<bison::key_t>()) {
+          const auto h = kf->as<bison::key_t>().id;
+          auto it = dict_.find(h);
+          if (it != dict_.end()) {
+            oss << " class=" << it->second;
+          } else {
+            oss << " class=#" << std::hex << std::setw(8) << std::setfill('0') << h;
+          }
+        }
+        const auto* of = response_payload.findField(FIELD_OBJECT_ID);
+        if (of && of->is<bison::key_t>())
+          oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+              << std::setfill('0') << of->as<bison::key_t>().id;
+      } else if (op == OP_CALL || op == OP_GET) {
+        oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+            << std::setfill('0') << request_env.object_id.id;
+        if (!response_payload.empty())
+          oss << " " << bison::print(response_payload, popts);
+      }
+    }
+
+    std::cout << oss.str() << '\n';
   }
 
   std::string on_help_text() const override {
@@ -53,6 +204,8 @@ class bridged_server : public rmi::server {
 
  private:
   srv_app& app_;
+  std::once_flag dict_flag_;
+  std::unordered_map<bison::hash_t, std::string> dict_;
 };
 
 #if defined(__linux__)

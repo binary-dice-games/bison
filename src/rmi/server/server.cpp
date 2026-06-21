@@ -225,7 +225,7 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
       handle_request(ctx, env, *conn);
     } catch (const std::exception& e) {
       try {
-        send_error(*conn, env, env.op, ERR_INVALID_REQUEST, e.what());
+        send_error(ctx, *conn, env, env.op, ERR_INVALID_REQUEST, e.what());
       } catch (...) {
       }
     }
@@ -245,6 +245,7 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
  * @brief Send a protocol response envelope.
  */
 void server::send_response(
+    context& ctx,
     transport::server_connection_iface& conn,
     const shared::envelope& env,
     bison::key_t op,
@@ -257,12 +258,14 @@ void server::send_response(
   response_env.oneway = false;
   response_env.payload = std::move(payload);
   conn.send(response_env.encode());
+  on_response_trace(ctx, env, op, false, bison::key_t{0u}, response_env.payload);
 }
 
 /**
  * @brief Send an error response envelope.
  */
 void server::send_error(
+    context& ctx,
     transport::server_connection_iface& conn,
     const shared::envelope& env,
     bison::key_t op,
@@ -280,6 +283,7 @@ void server::send_error(
   response_env.oneway = false;
   response_env.error = std::move(error_payload);
   conn.send(response_env.encode());
+  on_response_trace(ctx, env, op, true, code, bison::dynamic{});
 }
 
 // ── Request dispatch
@@ -294,12 +298,13 @@ void server::handle_request(
     transport::server_connection_iface& conn) {
   if (env.op == 0u) {
     send_error(
-        conn, env, OP_CONNECT, ERR_INVALID_REQUEST, "Missing operation token");
+        ctx, conn, env, OP_CONNECT, ERR_INVALID_REQUEST, "Missing operation token");
     return;
   }
 
   if (env.kind != KIND_REQUEST) {
     send_error(
+        ctx,
         conn,
         env,
         OP_CONNECT,
@@ -311,6 +316,7 @@ void server::handle_request(
   int32_t version = env.version;
   if (version != PROTOCOL_VERSION) {
     send_error(
+        ctx,
         conn,
         env,
         OP_CONNECT,
@@ -318,6 +324,8 @@ void server::handle_request(
         "Unsupported protocol version");
     return;
   }
+
+  on_request_trace(ctx, env);
 
   bison::key_t op = env.op;
 
@@ -344,7 +352,7 @@ void server::handle_request(
   else if (op == OP_HELP)
     handle_help(ctx, env, conn);
   else
-    send_error(conn, env, op, ERR_UNKNOWN_OPERATION, "Unknown operation");
+    send_error(ctx, conn, env, op, ERR_UNKNOWN_OPERATION, "Unknown operation");
 }
 
 // ── Operation handlers
@@ -352,17 +360,17 @@ void server::handle_request(
 
 /** @brief Handle `connect` handshake requests. */
 void server::handle_connect(
-    context& /*ctx*/,
+    context& ctx,
     const shared::envelope& env,
     transport::server_connection_iface& conn) {
   bison::dynamic resp;
   resp[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
-  send_response(conn, env, OP_CONNECT, std::move(resp));
+  send_response(ctx, conn, env, OP_CONNECT, std::move(resp));
 }
 
 /** @brief Handle class metadata requests. */
 void server::handle_describe(
-    context& /*ctx*/,
+    context& ctx,
     const shared::envelope& env,
     transport::server_connection_iface& conn) {
   const auto& p = env.payload;
@@ -403,7 +411,7 @@ void server::handle_describe(
       if (!proto) {
         lp.unlock();
         send_error(
-            conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
+            ctx, conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
         return;
       }
       resp[FIELD_KLASS] = requested;
@@ -442,7 +450,7 @@ void server::handle_describe(
     }
   }
 
-  send_response(conn, env, OP_DESCRIBE, std::move(resp));
+  send_response(ctx, conn, env, OP_DESCRIBE, std::move(resp));
 }
 
 /** @brief Handle server-side object instantiation requests. */
@@ -459,7 +467,7 @@ void server::handle_instantiate(
     try {
       ns = read_key_token(p, FIELD_NAMESPACE);
     } catch (const std::exception& e) {
-      send_error(conn, env, OP_INSTANTIATE, ERR_INVALID_REQUEST, e.what());
+      send_error(ctx, conn, env, OP_INSTANTIATE, ERR_INVALID_REQUEST, e.what());
       return;
     }
   }
@@ -473,6 +481,7 @@ void server::handle_instantiate(
     auto nsIt = nsmap.find(ns);
     if (nsIt == nsmap.end() || !nsIt->second.count(klass)) {
       send_error(
+          ctx,
           conn,
           env,
           OP_INSTANTIATE,
@@ -486,13 +495,13 @@ void server::handle_instantiate(
   try {
     obj = on_create_object(ctx, ns, klass);
   } catch (const std::exception& e) {
-    send_error(conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR, e.what());
+    send_error(ctx, conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR, e.what());
     return;
   }
 
   if (!obj) {
     send_error(
-        conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR,
+        ctx, conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR,
         "on_create_object returned null");
     return;
   }
@@ -509,6 +518,7 @@ void server::handle_instantiate(
       obj->call(HOOK_CONSTRUCT, construct_params);
     } catch (const std::exception& e) {
       send_error(
+          ctx,
           conn,
           env,
           OP_INSTANTIATE,
@@ -524,7 +534,7 @@ void server::handle_instantiate(
   bison::dynamic resp;
   resp[FIELD_OBJECT_ID] = oid;
   resp[FIELD_KLASS] = klass;
-  send_response(conn, env, OP_INSTANTIATE, std::move(resp));
+  send_response(ctx, conn, env, OP_INSTANTIATE, std::move(resp));
 }
 
 /** @brief Handle clear requests for a live remote object. */
@@ -535,7 +545,7 @@ void server::handle_clear(
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
-    send_error(conn, env, OP_CLEAR, ERR_OBJECT_NOT_FOUND, "Object not found");
+    send_error(ctx, conn, env, OP_CLEAR, ERR_OBJECT_NOT_FOUND, "Object not found");
     return;
   }
 
@@ -570,7 +580,7 @@ void server::handle_clear(
     }
   }
 
-  send_response(conn, env, OP_CLEAR, bison::dynamic{});
+  send_response(ctx, conn, env, OP_CLEAR, bison::dynamic{});
 }
 
 /** @brief Handle partial field updates for a live remote object. */
@@ -581,7 +591,7 @@ void server::handle_set(
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
-    send_error(conn, env, OP_SET, ERR_OBJECT_NOT_FOUND, "Object not found");
+    send_error(ctx, conn, env, OP_SET, ERR_OBJECT_NOT_FOUND, "Object not found");
     return;
   }
   auto& obj = *it->second;
@@ -593,6 +603,7 @@ void server::handle_set(
       patch = obj.call(HOOK_SETTER, patch);
     } catch (const std::exception& e) {
       send_error(
+          ctx,
           conn,
           env,
           OP_SET,
@@ -607,7 +618,7 @@ void server::handle_set(
       obj[k] = v;
   });
 
-  send_response(conn, env, OP_SET, bison::dynamic{});
+  send_response(ctx, conn, env, OP_SET, bison::dynamic{});
 }
 
 /** @brief Handle object reads with optional projection payload. */
@@ -618,7 +629,7 @@ void server::handle_get(
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
-    send_error(conn, env, OP_GET, ERR_OBJECT_NOT_FOUND, "Object not found");
+    send_error(ctx, conn, env, OP_GET, ERR_OBJECT_NOT_FOUND, "Object not found");
     return;
   }
   auto& obj = *it->second;
@@ -651,7 +662,7 @@ void server::handle_get(
     }
   }
 
-  send_response(conn, env, OP_GET, std::move(result));
+  send_response(ctx, conn, env, OP_GET, std::move(result));
 }
 
 /** @brief Handle method invocation requests. */
@@ -662,7 +673,7 @@ void server::handle_call(
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
-    send_error(conn, env, OP_CALL, ERR_OBJECT_NOT_FOUND, "Object not found");
+    send_error(ctx, conn, env, OP_CALL, ERR_OBJECT_NOT_FOUND, "Object not found");
     return;
   }
   auto& obj = *it->second;
@@ -683,10 +694,10 @@ void server::handle_call(
   try {
     bison::dynamic res = obj.call(method_name, args);
     if (!oneway)
-      send_response(conn, env, OP_CALL, std::move(res));
+      send_response(ctx, conn, env, OP_CALL, std::move(res));
   } catch (const std::exception& e) {
     if (!oneway)
-      send_error(conn, env, OP_CALL, ERR_INTERNAL_ERROR, e.what());
+      send_error(ctx, conn, env, OP_CALL, ERR_INTERNAL_ERROR, e.what());
   }
 }
 
@@ -698,7 +709,7 @@ void server::handle_destroy(
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
-    send_error(conn, env, OP_DESTROY, ERR_OBJECT_NOT_FOUND, "Object not found");
+    send_error(ctx, conn, env, OP_DESTROY, ERR_OBJECT_NOT_FOUND, "Object not found");
     return;
   }
 
@@ -710,7 +721,7 @@ void server::handle_destroy(
   }
 
   ctx.objects.erase(it);
-  send_response(conn, env, OP_DESTROY, bison::dynamic{});
+  send_response(ctx, conn, env, OP_DESTROY, bison::dynamic{});
 }
 
 /** @brief Handle disconnect requests and close the connection context. */
@@ -724,7 +735,7 @@ void server::handle_disconnect(
 
 /** @brief Handle hash→display-name dictionary requests. */
 void server::handle_dictionary(
-    context& /*ctx*/,
+    context& ctx,
     const shared::envelope& env,
     transport::server_connection_iface& conn) {
   using namespace bison;
@@ -764,12 +775,12 @@ void server::handle_dictionary(
       }
     }
   }
-  send_response(conn, env, OP_DICTIONARY, std::move(dict));
+  send_response(ctx, conn, env, OP_DICTIONARY, std::move(dict));
 }
 
 /** @brief Handle human-readable help text requests. */
 void server::handle_help(
-    context& /*ctx*/,
+    context& ctx,
     const shared::envelope& env,
     transport::server_connection_iface& conn) {
   using namespace bison;
@@ -824,7 +835,7 @@ void server::handle_help(
 
   dynamic resp;
   resp[FIELD_DESCRIPTION] = oss.str();
-  send_response(conn, env, OP_HELP, std::move(resp));
+  send_response(ctx, conn, env, OP_HELP, std::move(resp));
 }
 
 /**
