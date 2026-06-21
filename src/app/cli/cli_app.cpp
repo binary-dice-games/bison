@@ -16,9 +16,7 @@
 #include <gflags/gflags.h>
 #include <nlohmann/json.hpp>
 
-#include <iomanip>
 #include <iostream>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -36,11 +34,21 @@ namespace bdg::bison::app {
 
 namespace {
 
-// Maps key_t hash IDs to their original string names so the output of
-// dynamic_to_json() uses readable field names wherever possible.
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+/// Maps key_t hash IDs back to their original string names for readable output.
 using key_name_map = std::unordered_map<uint32_t, std::string>;
 
-// Register a string name so it can be resolved back in output.
+/// All mutable state shared across REPL command handlers within one session.
+struct repl_context {
+  rmi::client& client;
+  std::unordered_map<std::string, rmi::proxy::dynamic>& handles;
+  key_name_map& km;
+  std::chrono::milliseconds timeout;
+};
+
+// ── Key name registry ─────────────────────────────────────────────────────────
+
 static void register_key(key_name_map& km, const std::string& name) {
   if (!name.empty())
     km[bison::key_t{name}.id] = name;
@@ -94,7 +102,7 @@ static key_name_map make_known_keys() {
   return m;
 }
 
-// ── String utilities ─────────────────────────────────────────────────────────
+// ── String utilities ──────────────────────────────────────────────────────────
 
 static std::string trim(std::string_view s) {
   size_t a = s.find_first_not_of(" \t\r\n");
@@ -113,26 +121,16 @@ static std::string extract_parens(std::string_view s, size_t open_pos) {
   size_t start = open_pos + 1;
   for (size_t i = start; i < s.size(); ++i) {
     char c = s[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
+    if (escape) { escape = false; continue; }
     if (in_str) {
-      if (c == '\\')
-        escape = true;
-      else if (c == '"')
-        in_str = false;
+      if (c == '\\') escape = true;
+      else if (c == '"') in_str = false;
       continue;
     }
-    if (c == '"') {
-      in_str = true;
-      continue;
-    }
-    if (c == '(' || c == '{' || c == '[')
-      ++depth;
+    if (c == '"') { in_str = true; continue; }
+    if (c == '(' || c == '{' || c == '[') ++depth;
     else if (c == ')' || c == '}' || c == ']') {
-      --depth;
-      if (depth == 0)
+      if (--depth == 0)
         return std::string(s.substr(start, i - start));
     }
   }
@@ -148,36 +146,23 @@ static std::vector<std::string> split_args(std::string_view s) {
   size_t start = 0;
   for (size_t i = 0; i < s.size(); ++i) {
     char c = s[i];
-    if (escape) {
-      escape = false;
-      continue;
-    }
+    if (escape) { escape = false; continue; }
     if (in_str) {
-      if (c == '\\')
-        escape = true;
-      else if (c == '"')
-        in_str = false;
+      if (c == '\\') escape = true;
+      else if (c == '"') in_str = false;
       continue;
     }
-    if (c == '"') {
-      in_str = true;
-      continue;
-    }
-    if (c == '{' || c == '[' || c == '(')
-      ++depth;
-    else if (c == '}' || c == ']' || c == ')') {
-      if (depth > 0)
-        --depth;
-    } else if (c == ',' && depth == 0) {
+    if (c == '"') { in_str = true; continue; }
+    if (c == '{' || c == '[' || c == '(') ++depth;
+    else if (c == '}' || c == ']' || c == ')') { if (depth > 0) --depth; }
+    else if (c == ',' && depth == 0) {
       auto a = trim(s.substr(start, i - start));
-      if (!a.empty())
-        result.push_back(a);
+      if (!a.empty()) result.push_back(a);
       start = i + 1;
     }
   }
   auto last = trim(s.substr(start));
-  if (!last.empty())
-    result.push_back(last);
+  if (!last.empty()) result.push_back(last);
   return result;
 }
 
@@ -193,81 +178,8 @@ static std::string unquote(std::string_view s) {
   }
 }
 
-// ── dynamic → JSON ───────────────────────────────────────────────────────────
 
-static nlohmann::json dynamic_to_json(
-    const bison::dynamic& d,
-    const key_name_map& km);
-
-static nlohmann::json field_to_json(
-    const bison::field& f,
-    const key_name_map& km) {
-  return std::visit(
-      [&](const auto& v) -> nlohmann::json {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_same_v<T, std::monostate>) {
-          return nullptr;
-        } else if constexpr (std::is_same_v<T, bool>) {
-          return v;
-        } else if constexpr (std::is_same_v<T, int32_t>) {
-          return v;
-        } else if constexpr (std::is_same_v<T, float>) {
-          return v;
-        } else if constexpr (std::is_same_v<T, std::string>) {
-          return v;
-        } else if constexpr (std::is_same_v<T, bison::hash_t>) {
-          auto it = km.find(v);
-          if (it != km.end())
-            return it->second;
-          return std::string("#") + std::to_string(v);
-        } else if constexpr (std::is_same_v<T, bison::key_t>) {
-          auto it = km.find(v.id);
-          if (it != km.end())
-            return it->second;
-          return std::string("#") + std::to_string(v.id);
-        } else if constexpr (std::is_same_v<T, bison::dynamic_ptr>) {
-          if (v)
-            return dynamic_to_json(*v, km);
-          return nullptr;
-        } else if constexpr (std::is_same_v<T, std::vector<bool>>) {
-          auto arr = nlohmann::json::array();
-          for (bool b : v)
-            arr.push_back(b);
-          return arr;
-        } else if constexpr (
-            std::is_same_v<T, std::vector<int32_t>> ||
-            std::is_same_v<T, std::vector<float>>) {
-          return nlohmann::json(v);
-        } else if constexpr (std::is_same_v<T, std::vector<uint8_t>>) {
-          // Render raw bytes as lowercase hex string.
-          std::ostringstream oss;
-          oss << std::hex << std::setfill('0');
-          for (uint8_t b : v)
-            oss << std::setw(2) << static_cast<int>(b);
-          return oss.str();
-        } else {
-          return nullptr;
-        }
-      },
-      static_cast<const bison::field_base&>(f));
-}
-
-static nlohmann::json dynamic_to_json(
-    const bison::dynamic& d,
-    const key_name_map& km) {
-  auto obj = nlohmann::json::object();
-  d.forEach([&](bison::key_t k, const bison::field& f) {
-    auto it = km.find(k.id);
-    std::string key_str = (it != km.end())
-        ? it->second
-        : (std::string("#") + std::to_string(k.id));
-    obj[key_str] = field_to_json(f, km);
-  });
-  return obj;
-}
-
-// ── Future helper
-// ─────────────────────────────────────────────────────────────
+// ── Future helper ──────────────────────────────────────────────────────────────
 
 template <typename T>
 static T get_future(std::future<T> fut, std::chrono::milliseconds timeout) {
@@ -277,20 +189,27 @@ static T get_future(std::future<T> fut, std::chrono::milliseconds timeout) {
   return fut.get();
 }
 
-// ── Argument conversion
-// ───────────────────────────────────────────────────────
+// ── Argument conversion ────────────────────────────────────────────────────────
 
-// Parse a raw arg string to a bison::dynamic.
-// String literals (e.g. "Ikea") must be passed through unquote() separately.
 static bison::dynamic parse_json_arg(const std::string& raw) {
   auto ptr = bison::extensions::from_json(raw);
   return ptr ? *ptr : bison::dynamic{};
 }
 
-// ── Help text
-// ─────────────────────────────────────────────────────────────────
+// Parse @p raw as JSON, register all its string keys into ctx.km, then return
+// the resulting bison::dynamic.  JSON parse errors are silently ignored so that
+// non-JSON raw values (e.g. bare strings) are still attempted via parse_json_arg.
+static bison::dynamic parse_and_register(
+    repl_context& ctx, const std::string& raw) {
+  try {
+    register_json_keys(ctx.km, nlohmann::json::parse(raw));
+  } catch (...) {}
+  return parse_json_arg(raw);
+}
 
-static const char* const k_help_text = R"(Commands:
+// ── Help text ─────────────────────────────────────────────────────────────────
+
+static constexpr const char* k_help_text = R"(Commands:
   name = instantiate("namespace", "Class")      create an instance
   name = instantiate("namespace", "Class", {})  create with params
   name.get()                                    get all fields (JSON)
@@ -305,284 +224,348 @@ static const char* const k_help_text = R"(Commands:
   help                                          this message
   exit  |  quit  |  Ctrl+D                      disconnect and exit)";
 
-// ── REPL dispatcher
-// ───────────────────────────────────────────────────────────
+// ── Command handlers ──────────────────────────────────────────────────────────
 
-// Returns false when the REPL should stop.
-static bool dispatch(
-    const std::string& line,
-    rmi::client& c,
-    std::unordered_map<std::string, rmi::proxy::dynamic>& handles,
-    key_name_map& km,
-    std::chrono::milliseconds timeout) {
-  auto s = trim(line);
+/**
+ * @brief Handle `list` — print all active variable names and their object IDs.
+ */
+static void cmd_list(const repl_context& ctx) {
+  if (ctx.handles.empty()) {
+    std::cout << "(no active instances)\n";
+  } else {
+    for (const auto& [name, proxy] : ctx.handles)
+      std::cout << name << "  (id=" << proxy.id() << ")\n";
+  }
+}
+
+/**
+ * @brief Handle `del <name>` — destroy the named proxy and remove it from the
+ *        variable table.
+ *
+ * @param var  Variable name to destroy (may have leading/trailing whitespace).
+ */
+static void cmd_del(repl_context& ctx, std::string_view var) {
+  const auto name = trim(var);
+  auto it = ctx.handles.find(name);
+  if (it == ctx.handles.end()) {
+    std::cerr << "error: '" << name << "' is not defined\n";
+    return;
+  }
+  auto node = ctx.handles.extract(it);
+  ctx.client.destroy(std::move(node.mapped()));
+}
+
+/**
+ * @brief Handle `name = instantiate("Ns", "Class"[, {params}])`.
+ *
+ * Creates a server-side object, stores the resulting proxy under @p var in
+ * the handle table, and prints @p var on success.
+ *
+ * @param var       Variable name to assign the proxy to.
+ * @param args_str  Raw comma-separated argument string extracted from the parens.
+ */
+static void cmd_instantiate(
+    repl_context& ctx,
+    const std::string& var,
+    const std::string& args_str) {
+  const auto args = split_args(args_str);
+  if (args.size() < 2) {
+    std::cerr << "error: instantiate requires namespace and class name\n";
+    return;
+  }
+
+  const auto ns_str = unquote(trim(args[0]));
+  const auto class_str = unquote(trim(args[1]));
+  register_key(ctx.km, ns_str);
+  register_key(ctx.km, class_str);
+
+  bison::key_t ns_key = ns_str.empty() ? bison::key_t{0u} : bison::key_t{ns_str};
+  bison::key_t class_key = bison::key_t{class_str};
+
+  bison::dynamic params;
+  if (args.size() >= 3)
+    params = parse_and_register(ctx, trim(args[2]));
+
+  try {
+    auto proxy = get_future(
+        ctx.client.instantiate(ns_key, class_key, std::move(params)),
+        ctx.timeout);
+    ctx.handles.try_emplace(var, std::move(proxy));
+    std::cout << var << '\n';
+  } catch (const std::exception& ex) {
+    std::cerr << "error: " << ex.what() << '\n';
+  }
+}
+
+/**
+ * @brief Handle `name.get([projection])` — retrieve fields from a remote object.
+ *
+ * Without arguments retrieves all fields.  With a JSON-object projection
+ * retrieves only the listed keys.  Prints the result as pretty-printed JSON.
+ *
+ * @param proxy  Target proxy.
+ * @param args   Parsed argument list; first element (if present) is a JSON
+ *               projection object, e.g. `{"field": null}`.
+ */
+static void cmd_get(
+    repl_context& ctx,
+    rmi::proxy::dynamic& proxy,
+    const std::vector<std::string>& args) {
+  try {
+    bison::dynamic result = args.empty()
+        ? get_future(proxy.get(), ctx.timeout)
+        : get_future(
+              proxy.get(parse_and_register(ctx, trim(args[0]))), ctx.timeout);
+    std::cout << bison::extensions::to_json(result, ctx.km) << '\n';
+  } catch (const std::exception& ex) {
+    std::cerr << "error: " << ex.what() << '\n';
+  }
+}
+
+/**
+ * @brief Handle `name.set({fields})` — apply a partial field update.
+ *
+ * @param proxy  Target proxy.
+ * @param args   Parsed argument list; first element must be a JSON object of
+ *               field-name/value pairs to apply.
+ */
+static void cmd_set(
+    repl_context& ctx,
+    rmi::proxy::dynamic& proxy,
+    const std::vector<std::string>& args) {
+  if (args.empty()) {
+    std::cerr << "error: set requires a JSON object argument\n";
+    return;
+  }
+  try {
+    get_future(proxy.set(parse_and_register(ctx, trim(args[0]))), ctx.timeout);
+  } catch (const std::exception& ex) {
+    std::cerr << "error: " << ex.what() << '\n';
+  }
+}
+
+/**
+ * @brief Handle `name.call("method"[, {params}])` — invoke a remote method.
+ *
+ * Prints the return value as pretty-printed JSON.
+ *
+ * @param proxy  Target proxy.
+ * @param args   Parsed argument list: args[0] is the method name (quoted
+ *               string); args[1] (optional) is a JSON parameters object.
+ */
+static void cmd_call(
+    repl_context& ctx,
+    rmi::proxy::dynamic& proxy,
+    const std::vector<std::string>& args) {
+  if (args.empty()) {
+    std::cerr << "error: call requires a method name\n";
+    return;
+  }
+  const auto method_name = unquote(trim(args[0]));
+  register_key(ctx.km, method_name);
+
+  bison::dynamic params;
+  if (args.size() >= 2)
+    params = parse_and_register(ctx, trim(args[1]));
+
+  try {
+    auto result = get_future(
+        proxy.call(bison::key_t{method_name}, std::move(params)), ctx.timeout);
+    std::cout << bison::extensions::to_json(result, ctx.km) << '\n';
+  } catch (const std::exception& ex) {
+    std::cerr << "error: " << ex.what() << '\n';
+  }
+}
+
+/**
+ * @brief Handle `describe[("Ns", "Class")]` — list server classes or describe one.
+ *
+ * Without arguments queries all namespaces and classes.  With arguments prints
+ * the field and method schema for the named class.
+ *
+ * @param args  Empty to list all classes; otherwise args[0]=namespace,
+ *              args[1]=class.
+ */
+static void cmd_describe(
+    repl_context& ctx, const std::vector<std::string>& args) {
+  bison::key_t ns_key{0u};
+  bison::key_t class_key{0u};
+  if (args.size() >= 1) {
+    const auto ns_str = unquote(trim(args[0]));
+    register_key(ctx.km, ns_str);
+    ns_key = bison::key_t{ns_str};
+  }
+  if (args.size() >= 2) {
+    const auto class_str = unquote(trim(args[1]));
+    register_key(ctx.km, class_str);
+    class_key = bison::key_t{class_str};
+  }
+  try {
+    auto result = get_future(ctx.client.describe(ns_key, class_key), ctx.timeout);
+    std::cout << bison::extensions::to_json(result, ctx.km) << '\n';
+  } catch (const std::exception& ex) {
+    std::cerr << "error: " << ex.what() << '\n';
+  }
+}
+
+/**
+ * @brief Handle `info` — print human-readable server help text from OP_HELP.
+ *
+ * Prints the `__description` string field from the response when present;
+ * otherwise falls back to pretty-printed JSON of the full response payload.
+ */
+static void cmd_info(repl_context& ctx) {
+  try {
+    using namespace rmi::shared::constants;
+    auto result = get_future(ctx.client.get_help(), ctx.timeout);
+    const auto* f = result.findField(FIELD_DESCRIPTION);
+    if (f && f->is<std::string>())
+      std::cout << f->as<std::string>();
+    else
+      std::cout << bison::extensions::to_json(result, ctx.km) << '\n';
+  } catch (const std::exception& ex) {
+    std::cerr << "error: " << ex.what() << '\n';
+  }
+}
+
+// ── REPL line parser helpers ──────────────────────────────────────────────────
+
+/// Return the index of the first '(' not inside a string literal, or npos.
+static size_t find_first_paren(std::string_view s) {
+  bool in_str = false, esc = false;
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (esc) { esc = false; continue; }
+    if (in_str) {
+      if (s[i] == '\\') esc = true;
+      else if (s[i] == '"') in_str = false;
+      continue;
+    }
+    if (s[i] == '"') { in_str = true; continue; }
+    if (s[i] == '(') return i;
+  }
+  return std::string::npos;
+}
+
+// ── REPL line-form handlers ───────────────────────────────────────────────────
+
+/**
+ * @brief Handle `name = instantiate("Ns", "Class"[, {params}])`.
+ *
+ * Validates that the right-hand side is an `instantiate(...)` call, then
+ * delegates to `cmd_instantiate`.
+ *
+ * @param s    Trimmed input line.
+ * @param ctx  Active REPL context.
+ * @param eq_pos  Position of the '=' separator in @p s.
+ */
+static void dispatch_assignment(
+    const std::string& s, repl_context& ctx, size_t eq_pos) {
+  const auto var = trim(s.substr(0, eq_pos));
+  const auto rhs = trim(s.substr(eq_pos + 1));
+  const size_t rhs_paren = rhs.find('(');
+  if (rhs_paren == std::string::npos) {
+    std::cerr << "error: expected function call on right-hand side\n";
+    return;
+  }
+  const auto fn = trim(rhs.substr(0, rhs_paren));
+  if (fn != "instantiate") {
+    std::cerr << "error: only 'instantiate(...)' is supported here\n";
+    return;
+  }
+  cmd_instantiate(ctx, var, extract_parens(rhs, rhs_paren));
+}
+
+/**
+ * @brief Handle `name.op(...)` — proxy operation in dot notation.
+ *
+ * Looks up the object name in the handle table and dispatches to
+ * `cmd_get`, `cmd_set`, or `cmd_call` based on @p op.
+ *
+ * @param s            Trimmed input line.
+ * @param ctx          Active REPL context.
+ * @param dot_pos      Position of the '.' in @p s.
+ * @param first_paren  Position of the first '(' in @p s.
+ */
+static void dispatch_proxy_op(
+    const std::string& s, repl_context& ctx,
+    size_t dot_pos, size_t first_paren) {
+  const auto obj_name = trim(s.substr(0, dot_pos));
+  const auto op       = trim(s.substr(dot_pos + 1, first_paren - dot_pos - 1));
+  const auto args     = split_args(extract_parens(s, first_paren));
+
+  auto it = ctx.handles.find(obj_name);
+  if (it == ctx.handles.end()) {
+    std::cerr << "error: '" << obj_name << "' is not defined\n";
+    return;
+  }
+  auto& proxy = it->second;
+
+  if      (op == "get")  cmd_get(ctx, proxy, args);
+  else if (op == "set")  cmd_set(ctx, proxy, args);
+  else if (op == "call") cmd_call(ctx, proxy, args);
+  else
+    std::cerr << "error: unknown operation '" << op
+              << "' (available: get, set, call)\n";
+}
+
+/**
+ * @brief Handle a command followed by parenthesised arguments, e.g.
+ *        `describe("Ns", "Class")`.
+ *
+ * @param s            Trimmed input line.
+ * @param ctx          Active REPL context.
+ * @param first_paren  Position of the opening '(' in @p s.
+ */
+static void dispatch_paren_cmd(
+    const std::string& s, repl_context& ctx, size_t first_paren) {
+  const auto cmd  = trim(s.substr(0, first_paren));
+  const auto args = split_args(extract_parens(s, first_paren));
+  if (cmd == "describe")
+    cmd_describe(ctx, args);
+  else
+    std::cerr << "error: unknown command '" << cmd
+              << "' (type 'help' for available commands)\n";
+}
+
+// ── REPL dispatcher ───────────────────────────────────────────────────────────
+
+/// Parse and dispatch one REPL line.  Returns false when the session should end.
+static bool dispatch(const std::string& line, repl_context& ctx) {
+  const auto s = trim(line);
   if (s.empty() || s.front() == '#')
     return true;
-
   if (s == "exit" || s == "quit")
     return false;
 
-  if (s == "help") {
-    std::cout << k_help_text << '\n';
-    return true;
-  }
-
-  if (s == "list") {
-    if (handles.empty()) {
-      std::cout << "(no active instances)\n";
-    } else {
-      for (const auto& [name, proxy] : handles)
-        std::cout << name << "  (id=" << proxy.id() << ")\n";
-    }
-    return true;
-  }
+  // Bare keyword commands.
+  if (s == "help")     { std::cout << k_help_text << '\n'; return true; }
+  if (s == "list")     { cmd_list(ctx);         return true; }
+  if (s == "describe") { cmd_describe(ctx, {}); return true; }
+  if (s == "info")     { cmd_info(ctx);         return true; }
 
   // del <name>
   if (s.size() > 4 && s.substr(0, 4) == "del ") {
-    auto var = trim(s.substr(4));
-    auto it = handles.find(var);
-    if (it == handles.end()) {
-      std::cerr << "error: '" << var << "' is not defined\n";
-    } else {
-      auto node = handles.extract(it);
-      c.destroy(std::move(node.mapped()));
-    }
+    cmd_del(ctx, s.substr(4));
     return true;
   }
 
-  // Find the first '(' in the line, if any.
-  size_t first_paren = std::string::npos;
-  {
-    bool in_str = false, esc = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-      if (esc) {
-        esc = false;
-        continue;
-      }
-      if (in_str) {
-        if (s[i] == '\\')
-          esc = true;
-        else if (s[i] == '"')
-          in_str = false;
-        continue;
-      }
-      if (s[i] == '"') {
-        in_str = true;
-        continue;
-      }
-      if (s[i] == '(') {
-        first_paren = i;
-        break;
-      }
-    }
-  }
+  const size_t first_paren = find_first_paren(s);
 
-  // Detect assignment: first '=' that appears before any '('.
-  size_t eq_pos = std::string::npos;
-  for (size_t i = 0; i < s.size(); ++i) {
-    if (first_paren != std::string::npos && i >= first_paren)
-      break;
+  // Find the first '=' before any '(' to detect assignment.
+  const size_t eq_limit = (first_paren != std::string::npos) ? first_paren : s.size();
+  for (size_t i = 0; i < eq_limit; ++i) {
     if (s[i] == '=') {
-      eq_pos = i;
-      break;
+      dispatch_assignment(s, ctx, i);
+      return true;
     }
   }
 
-  if (eq_pos != std::string::npos) {
-    // name = instantiate("Ns", "Class"[, {params}])
-    auto var = trim(s.substr(0, eq_pos));
-    auto rhs = trim(s.substr(eq_pos + 1));
-
-    size_t rhs_paren = rhs.find('(');
-    if (rhs_paren == std::string::npos) {
-      std::cerr << "error: expected function call on right-hand side\n";
-      return true;
-    }
-    auto fn = trim(rhs.substr(0, rhs_paren));
-
-    if (fn != "instantiate") {
-      std::cerr << "error: only 'instantiate(...)' is supported here\n";
-      return true;
-    }
-
-    auto args_str = extract_parens(rhs, rhs_paren);
-    auto args = split_args(args_str);
-    if (args.size() < 2) {
-      std::cerr << "error: instantiate requires namespace and class name\n";
-      return true;
-    }
-
-    auto ns_str = unquote(trim(args[0]));
-    auto class_str = unquote(trim(args[1]));
-    register_key(km, ns_str);
-    register_key(km, class_str);
-
-    bison::key_t ns_key =
-        ns_str.empty() ? bison::key_t{0u} : bison::key_t{ns_str};
-    bison::key_t class_key = bison::key_t{class_str};
-
-    bison::dynamic params;
-    if (args.size() >= 3) {
-      auto raw = trim(args[2]);
-      try {
-        register_json_keys(km, nlohmann::json::parse(raw));
-      } catch (...) {
-      }
-      params = parse_json_arg(raw);
-    }
-
-    try {
-      auto proxy = get_future(
-          c.instantiate(ns_key, class_key, std::move(params)), timeout);
-      handles.try_emplace(var, std::move(proxy));
-      std::cout << var << '\n';
-    } catch (const std::exception& ex) {
-      std::cerr << "error: " << ex.what() << '\n';
-    }
-    return true;
-  }
-
-  // Detect method call: <name>.<op>(...) — '.' before first '('.
   if (first_paren != std::string::npos) {
-    size_t dot_pos = std::string::npos;
-    for (size_t i = 0; i < first_paren; ++i) {
-      if (s[i] == '.') {
-        dot_pos = i;
-        break;
-      }
-    }
-
-    if (dot_pos != std::string::npos) {
-      auto obj_name = trim(s.substr(0, dot_pos));
-      auto op = trim(s.substr(dot_pos + 1, first_paren - dot_pos - 1));
-      auto args_str = extract_parens(s, first_paren);
-      auto args = split_args(args_str);
-
-      auto it = handles.find(obj_name);
-      if (it == handles.end()) {
-        std::cerr << "error: '" << obj_name << "' is not defined\n";
-        return true;
-      }
-      auto& proxy = it->second;
-
-      if (op == "get") {
-        try {
-          bison::dynamic result;
-          if (args.empty()) {
-            result = get_future(proxy.get(), timeout);
-          } else {
-            auto raw = trim(args[0]);
-            try {
-              register_json_keys(km, nlohmann::json::parse(raw));
-            } catch (...) {
-            }
-            result = get_future(proxy.get(parse_json_arg(raw)), timeout);
-          }
-          std::cout << dynamic_to_json(result, km).dump(2) << '\n';
-        } catch (const std::exception& ex) {
-          std::cerr << "error: " << ex.what() << '\n';
-        }
-      } else if (op == "set") {
-        if (args.empty()) {
-          std::cerr << "error: set requires a JSON object argument\n";
-          return true;
-        }
-        try {
-          auto raw = trim(args[0]);
-          try {
-            register_json_keys(km, nlohmann::json::parse(raw));
-          } catch (...) {
-          }
-          get_future(proxy.set(parse_json_arg(raw)), timeout);
-        } catch (const std::exception& ex) {
-          std::cerr << "error: " << ex.what() << '\n';
-        }
-      } else if (op == "call") {
-        if (args.empty()) {
-          std::cerr << "error: call requires a method name\n";
-          return true;
-        }
-        auto method_name = unquote(trim(args[0]));
-        register_key(km, method_name);
-        bison::dynamic params;
-        if (args.size() >= 2) {
-          auto raw = trim(args[1]);
-          try {
-            register_json_keys(km, nlohmann::json::parse(raw));
-          } catch (...) {
-          }
-          params = parse_json_arg(raw);
-        }
-        try {
-          auto result = get_future(
-              proxy.call(bison::key_t{method_name}, std::move(params)),
-              timeout);
-          std::cout << dynamic_to_json(result, km).dump(2) << '\n';
-        } catch (const std::exception& ex) {
-          std::cerr << "error: " << ex.what() << '\n';
-        }
-      } else {
-        std::cerr << "error: unknown operation '" << op
-                  << "' (available: get, set, call)\n";
-      }
-      return true;
-    }
-
-    // Command with parens: describe("Ns", "Class")
-    auto cmd = trim(s.substr(0, first_paren));
-    auto args_str = extract_parens(s, first_paren);
-    auto args = split_args(args_str);
-
-    if (cmd == "describe") {
-      bison::key_t ns_key{0u};
-      bison::key_t class_key{0u};
-      if (args.size() >= 1) {
-        auto ns_str = unquote(trim(args[0]));
-        register_key(km, ns_str);
-        ns_key = bison::key_t{ns_str};
-      }
-      if (args.size() >= 2) {
-        auto class_str = unquote(trim(args[1]));
-        register_key(km, class_str);
-        class_key = bison::key_t{class_str};
-      }
-      try {
-        auto result = get_future(c.describe(ns_key, class_key), timeout);
-        std::cout << dynamic_to_json(result, km).dump(2) << '\n';
-      } catch (const std::exception& ex) {
-        std::cerr << "error: " << ex.what() << '\n';
-      }
-    } else {
-      std::cerr << "error: unknown command '" << cmd
-                << "' (type 'help' for available commands)\n";
-    }
-    return true;
-  }
-
-  // Bare command: describe
-  if (s == "describe") {
-    try {
-      auto result = get_future(c.describe(0u, 0u), timeout);
-      std::cout << dynamic_to_json(result, km).dump(2) << '\n';
-    } catch (const std::exception& ex) {
-      std::cerr << "error: " << ex.what() << '\n';
-    }
-    return true;
-  }
-
-  // Bare command: info
-  if (s == "info") {
-    try {
-      using namespace rmi::shared::constants;
-      auto result = get_future(c.get_help(), timeout);
-      const auto* f = result.findField(FIELD_DESCRIPTION);
-      if (f && f->is<std::string>())
-        std::cout << f->as<std::string>();
-      else
-        std::cout << dynamic_to_json(result, km).dump(2) << '\n';
-    } catch (const std::exception& ex) {
-      std::cerr << "error: " << ex.what() << '\n';
-    }
+    const size_t dot_pos = s.find('.');
+    if (dot_pos < first_paren)
+      dispatch_proxy_op(s, ctx, dot_pos, first_paren);
+    else
+      dispatch_paren_cmd(s, ctx, first_paren);
     return true;
   }
 
@@ -610,7 +593,6 @@ void cli_app::on_error(const std::string& msg) const {
 int cli_app::on_session(rmi::client& c) {
   std::unordered_map<std::string, rmi::proxy::dynamic> handles;
   key_name_map km = make_known_keys();
-  std::string line;
 
   std::cout << "bison-cli connected. Type 'help' for commands.\n";
 
@@ -622,24 +604,24 @@ int cli_app::on_session(rmi::client& c) {
     // Non-fatal: server may not support OP_DICTIONARY.
   }
 
+  repl_context ctx{c, handles, km, timeout_};
+  std::string line;
   while (true) {
     std::cout << "> " << std::flush;
     if (!std::getline(std::cin, line))
       break; // EOF / Ctrl+D
-    if (!dispatch(line, c, handles, km, timeout_))
+    if (!dispatch(line, ctx))
       break;
   }
 
   // Drain all remaining proxies before disconnecting.
   for (auto& [name, proxy] : handles)
     c.destroy(std::move(proxy));
-  handles.clear();
 
   return 0;
 }
 
-// ── cli_app::run — argument parsing and lifecycle
-// ─────────────────────────────
+// ── cli_app::run — flag validation and lifecycle ───────────────────────────────
 
 int cli_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);

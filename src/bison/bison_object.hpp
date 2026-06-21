@@ -1493,6 +1493,49 @@ dynamic_ptr from_json(std::string json);
  */
 dynamic_ptr from_yaml(std::string yaml);
 
+/**
+ * @brief Serialize @p d to a JSON string.
+ *
+ * Field-value types are mapped as follows: null/monostate → JSON `null`,
+ * `bool` → JSON boolean, `int32_t` → JSON integer, `float` → JSON float,
+ * `std::string` → JSON string, `dynamic_ptr` → nested JSON object,
+ * numeric vectors → JSON arrays, `std::vector<uint8_t>` → lowercase hex
+ * string, `hash_t`/`key_t` → resolved name or `"#<decimal>"`.
+ *
+ * Field keys are resolved via @p keys (a hash-ID → name map).  Because
+ * `key_t` is a one-way FNV-1a hash, keys absent from the map are emitted
+ * as `"#<decimal>"`.
+ *
+ * @param d       Source object.
+ * @param keys    Hash-ID to display-name map used to resolve field keys.
+ * @param indent  Indentation width in spaces; pass -1 for compact output.
+ * @return UTF-8 JSON string representation of @p d.
+ */
+std::string to_json(const dynamic& d,
+                    const std::unordered_map<uint32_t, std::string>& keys = {},
+                    int indent = 2);
+
+/**
+ * @brief Serialize @p d to a YAML string.
+ *
+ * Produces block-style YAML.  Field-value types are mapped as follows:
+ * null/monostate → `null`, `bool` → `true`/`false`, `int32_t` → integer,
+ * `float` → decimal (with trailing `.0` when needed to distinguish from
+ * integers), `std::string` → double-quoted string, `dynamic_ptr` → nested
+ * YAML mapping, numeric vectors → YAML sequences, `std::vector<uint8_t>` →
+ * double-quoted lowercase hex string, `hash_t`/`key_t` → resolved name or
+ * `"#<decimal>"`.
+ *
+ * Field key resolution follows the same rules as `to_json`.
+ *
+ * @param d     Source object.
+ * @param keys  Hash-ID to display-name map used to resolve field keys.
+ * @return UTF-8 YAML string representation of @p d.
+ * @throws std::runtime_error on internal libyaml emitter failure.
+ */
+std::string to_yaml(const dynamic& d,
+                    const std::unordered_map<uint32_t, std::string>& keys = {});
+
 } // namespace extensions
 
 } // namespace bdg::bison

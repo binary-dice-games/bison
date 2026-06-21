@@ -135,6 +135,36 @@ BISON_API bison_handle bison_from_yaml(const char* yaml) {
   }
 }
 
+// ─── Export helpers ──────────────────────────────────────────────────────────
+
+BISON_API bison_error bison_to_json(bison_handle h, int indent, char** out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    const std::string result =
+        bdg::bison::extensions::to_json(*dyn(h), {}, indent);
+    *out = new char[result.size() + 1];
+    std::memcpy(*out, result.c_str(), result.size() + 1);
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_to_yaml(bison_handle h, char** out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    const std::string result =
+        bdg::bison::extensions::to_yaml(*dyn(h), {});
+    *out = new char[result.size() + 1];
+    std::memcpy(*out, result.c_str(), result.size() + 1);
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
 // ─── Pretty-print ────────────────────────────────────────────────────────────
 
 BISON_API bison_error bison_print(

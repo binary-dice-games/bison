@@ -16,6 +16,7 @@
  * | `bison_create`, `bison_from_json`, `bison_from_yaml` | +1 (caller owns) |
  * | `bison_add_ref` | +1 (returns new handle sharing the same object) |
  * | `bison_release` | −1 (object destroyed when count reaches 0) |
+ * | `bison_to_json`, `bison_to_yaml` | no change (read-only serialization) |
  *
  * Every handle obtained from a creation or `bison_add_ref` call **must** be
  * released with `bison_release` exactly once.
@@ -236,6 +237,52 @@ BISON_API bison_handle bison_from_json(const char* json);
  * @endcode
  */
 BISON_API bison_handle bison_from_yaml(const char* yaml);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Export helpers
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Serialize @p h to a JSON string.
+ *
+ * Field keys are emitted as `"#<decimal>"` unless a key-name map is supplied
+ * at the C++ level; via this C API no map is available, so all field keys
+ * appear as `"#<decimal>"`.  The returned string is heap-allocated; release
+ * it with `bison_free_string`.
+ *
+ * @param h       Source object handle.
+ * @param indent  Indentation width in spaces; pass -1 for compact output.
+ * @param out     Receives a pointer to the allocated JSON string on success.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_EXCEPTION`.
+ *
+ * @code{.c}
+ * char* json = NULL;
+ * bison_to_json(h, 2, &json);
+ * puts(json);
+ * bison_free_string(json);
+ * @endcode
+ */
+BISON_API bison_error bison_to_json(bison_handle h, int indent, char** out);
+
+/**
+ * @brief Serialize @p h to a YAML string.
+ *
+ * Produces block-style YAML.  Field keys appear as `"#<decimal>"` (same
+ * limitation as `bison_to_json`).  The returned string is heap-allocated; release it with
+ * `bison_free_string`.
+ *
+ * @param h    Source object handle.
+ * @param out  Receives a pointer to the allocated YAML string on success.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_EXCEPTION`.
+ *
+ * @code{.c}
+ * char* yaml = NULL;
+ * bison_to_yaml(h, &yaml);
+ * puts(yaml);
+ * bison_free_string(yaml);
+ * @endcode
+ */
+BISON_API bison_error bison_to_yaml(bison_handle h, char** out);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Pretty-print
