@@ -14,10 +14,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -28,9 +30,16 @@ namespace bdg::bison::rmi {
 /**
  * @brief Owns a transport connection and performs RMI protocol operations.
  *
- * The client serializes requests into RMI envelopes, receives responses on a
- * background worker thread, resolves pending futures by request ID, and routes
- * server events to user-registered handlers.
+ * The client serializes requests into RMI envelopes and runs two background
+ * threads:
+ *
+ * - **Worker thread** — reads frames from the transport, resolves pending
+ *   response futures by request ID, and enqueues incoming events.
+ * - **Event dispatch thread** — drains the event queue and calls user
+ *   registered handlers one at a time (FIFO).  Because this thread is
+ *   independent of the worker thread, event handlers may safely call any
+ *   blocking RMI operation (e.g. `send_request(...).get()`) without
+ *   deadlocking.
  *
  * Inherits `proxy_backend` so that `proxy::dynamic` instances created by this
  * client can dispatch their operations back through the same interface as
@@ -244,6 +253,7 @@ class client : public proxy_backend {
   // ── Private methods (defined in client.cpp) ───────────────────────────────
 
   void worker_loop();
+  void event_loop();
   void process_frame(const shared::envelope& env);
   void fail_all_pending(bison::key_t code, const std::string& message);
 
@@ -251,7 +261,13 @@ class client : public proxy_backend {
 
   std::unique_ptr<transport::client_transport_iface> transport_;
   std::thread worker_;
+  std::thread event_thread_;
   std::atomic<bool> running_{false};
+
+  // Event dispatch queue — worker produces, event_thread_ consumes.
+  std::queue<std::function<void()>> event_queue_;
+  std::mutex event_queue_mtx_;
+  std::condition_variable event_queue_cv_;
 
   bison::synchronized<
       std::unordered_map<bison::hash_t, std::promise<bison::dynamic>>>

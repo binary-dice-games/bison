@@ -28,7 +28,8 @@ void client::connect(bison::dynamic params) {
   shared::register_all_schemas();
   transport_->open(std::move(params));
   running_.store(true);
-  worker_ = std::thread(&client::worker_loop, this);
+  worker_       = std::thread(&client::worker_loop, this);
+  event_thread_ = std::thread(&client::event_loop, this);
 
   bison::dynamic payload;
   payload[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
@@ -100,12 +101,15 @@ void client::disconnect() {
   }
 
   running_.store(false);
-  transport_->shutdown();
+  transport_->shutdown();          // unblock worker_loop's transport->receive()
+  event_queue_cv_.notify_one();    // unblock event_loop if it is idle-waiting
   if (worker_.joinable())
-    worker_.join();
+    worker_.join();                // worker exits, fail_all_pending is called there
+  if (event_thread_.joinable())
+    event_thread_.join();          // drain remaining queued events then exit
 
   on_disconnect();
-  fail_all_pending(ERR_TRANSPORT_ERROR, "Client disconnected");
+  fail_all_pending(ERR_TRANSPORT_ERROR, "Client disconnected");  // safety net
 }
 
 /** @copydoc bdg::bison::rmi::client::send_request */
@@ -186,6 +190,31 @@ void client::worker_loop() {
 }
 
 /**
+ * @brief Drain the event queue and invoke handlers one at a time.
+ *
+ * Runs on a dedicated thread so handlers may safely make blocking RMI calls
+ * without deadlocking the worker thread that delivers responses.  Exits when
+ * `running_` is false and the queue is empty.
+ */
+void client::event_loop() {
+  while (true) {
+    std::function<void()> task;
+    {
+      std::unique_lock<std::mutex> lk(event_queue_mtx_);
+      event_queue_cv_.wait(lk, [this] {
+        return !event_queue_.empty() ||
+               !running_.load(std::memory_order_acquire);
+      });
+      if (event_queue_.empty())
+        break;
+      task = std::move(event_queue_.front());
+      event_queue_.pop();
+    }
+    task();
+  }
+}
+
+/**
  * @brief Route one decoded envelope to response resolution or event delivery.
  * @param env Decoded envelope object.
  */
@@ -245,10 +274,17 @@ void client::process_frame(const shared::envelope& env) {
       }
     }
     if (handler) {
-      try {
-        handler(std::move(params));
-      } catch (...) {
+      {
+        std::lock_guard<std::mutex> lk(event_queue_mtx_);
+        event_queue_.push(
+            [h = std::move(handler), p = std::move(params)]() mutable {
+              try {
+                h(std::move(p));
+              } catch (...) {
+              }
+            });
       }
+      event_queue_cv_.notify_one();
     }
   }
 }
