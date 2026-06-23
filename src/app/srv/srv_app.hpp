@@ -7,6 +7,7 @@
 
 #include "src/bison/bison.hpp"
 #include "src/rmi/server/context.hpp"
+#include "src/rmi/transport/transport_iface.hpp"
 
 #include <string>
 
@@ -21,8 +22,10 @@ namespace bdg::bison::app {
  * `run()` from `main()`.
  *
  * Supported gflags CLI flags:
- *   - `--host HOST`     bind host (default: `0.0.0.0`)
- *   - `--port PORT`     listen port (default: `7070`)
+ *   - `--host HOST`     bind host for socket transport (default: `0.0.0.0`)
+ *   - `--port PORT`     listen port for socket transport (default: `7070`)
+ *   - `--pipe PATH`     named-pipe / Unix-socket path; when non-empty, the
+ *                       named-pipe transport is used instead of socket
  *   - `--verbose`       print one request trace line and one response trace
  *                       line per RMI operation to stdout (open, connect,
  *                       instantiate, call, get, set, destroy, disconnect, …)
@@ -52,12 +55,10 @@ class srv_app {
   /**
    * @brief Called after the server starts listening for connections.
    *
-   * Default: prints a ready message to stdout.
-   *
-   * @param host  Bound hostname or IP.
-   * @param port  Bound port number.
+   * Default: prints a ready message to stdout.  The default implementation
+   * uses `FLAGS_host` and `FLAGS_port` to report the socket address.
    */
-  virtual void on_listening(const std::string& host, uint16_t port) const;
+  virtual void on_listening() const;
 
   /**
    * @brief Called when a new client session is established.
@@ -115,6 +116,36 @@ class srv_app {
    * `bison::dynamic::addClass()` to register prototype objects.
    */
   virtual void register_classes() = 0;
+
+  /**
+   * @brief Create a server using `transport` and block until shutdown.
+   *
+   * Override to substitute a different server type (e.g. one with a GUI
+   * render loop).  The default creates a `bridged_server` and blocks on
+   * stdin until Enter is pressed.
+   *
+   * Host and port are not passed as parameters — they are available through
+   * `FLAGS_host` and `FLAGS_port`, which are defined in the binary's
+   * `main.cpp` and carry meaning only for the socket transport.
+   *
+   * @param transport  Bound transport to serve.
+   * @return 0 on clean shutdown, non-zero on error.
+   */
+  virtual int run_with_transport(
+      rmi::transport::server_transport_iface& transport);
+
+#if defined(__linux__)
+  /**
+   * @brief Run the PTY server lifecycle, blocking until the shell exits.
+   *
+   * Override to customize PTY session handling.  The default accepts one
+   * PTY session at a time via `bridged_server` and blocks on
+   * `wait_until_closed()` between sessions.
+   *
+   * @return 0 on clean shutdown, non-zero on error.
+   */
+  virtual int run_pty();
+#endif
 };
 
 } // namespace bdg::bison::app

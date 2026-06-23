@@ -9,6 +9,7 @@
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/envelope.hpp"
+#include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 
 #if defined(__linux__)
@@ -31,6 +32,7 @@
 
 DECLARE_string(host);
 DECLARE_int32 (port);
+DECLARE_string(pipe);
 DECLARE_bool  (pty);
 DECLARE_bool  (verbose);
 
@@ -256,10 +258,14 @@ class one_shot_transport final
 
 // ── Default hook implementations ──────────────────────────────────────────────
 
-void srv_app::on_listening(const std::string& host, uint16_t port) const {
-  std::cout << "[srv_app] listening on " << host << ':' << port
-            << " -- press Enter to stop\n"
-            << std::flush;
+void srv_app::on_listening() const {
+  if (!FLAGS_pipe.empty()) {
+    std::cout << "[srv_app] listening on pipe " << FLAGS_pipe
+              << " -- press Enter to stop\n" << std::flush;
+  } else {
+    std::cout << "[srv_app] listening on " << FLAGS_host << ':' << FLAGS_port
+              << " -- press Enter to stop\n" << std::flush;
+  }
 }
 
 void srv_app::on_session_created(rmi::context& ctx) const { (void)ctx; }
@@ -277,6 +283,56 @@ void srv_app::on_listening_pty() const {
 }
 #endif
 
+// ── Default run_with_transport — socket/stream sessions ──────────────────────
+
+int srv_app::run_with_transport(
+    rmi::transport::server_transport_iface& transport) {
+  bridged_server srv{transport, *this};
+  srv.listen();
+  on_listening();
+  std::string line;
+  std::getline(std::cin, line);
+  srv.stop();
+  return 0;
+}
+
+// ── Default run_pty — PTY lifecycle (Linux only) ──────────────────────────────
+
+#if defined(__linux__)
+int srv_app::run_pty() {
+  pty_server_transport transport{"bash"};
+  bison::dynamic pty_params;
+  pty_params["mode"_key] = std::string{"dcs"};
+  transport.start(std::move(pty_params));
+
+  on_listening_pty();
+
+  while (transport.is_shell_running()) {
+    auto conn = transport.accept(std::chrono::milliseconds{200});
+    if (!conn) {
+      if (!transport.is_shell_running()) break;
+      continue;
+    }
+
+    {
+      one_shot_transport adapter{std::move(conn)};
+      bridged_server srv{adapter, *this};
+      srv.listen();
+
+      while (!transport.wait_until_closed(std::chrono::milliseconds{200})) {
+        if (!transport.is_shell_running()) break;
+      }
+    }
+
+    if (!transport.is_shell_running()) break;
+    transport.restart_session();
+  }
+
+  transport.stop();
+  return 0;
+}
+#endif
+
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
 
 int srv_app::run(int argc, char** argv) {
@@ -286,52 +342,17 @@ int srv_app::run(int argc, char** argv) {
     register_classes();
 
 #if defined(__linux__)
-    if (FLAGS_pty) {
-      pty_server_transport transport{"bash"};
-      bison::dynamic pty_params;
-      pty_params["mode"_key] = std::string{"dcs"};
-      transport.start(std::move(pty_params));
-
-      on_listening_pty();
-
-      while (transport.is_shell_running()) {
-        auto conn = transport.accept(std::chrono::milliseconds{200});
-        if (!conn) {
-          if (!transport.is_shell_running()) break;
-          continue;
-        }
-
-        {
-          one_shot_transport adapter{std::move(conn)};
-          bridged_server srv{adapter, *this};
-          srv.listen();
-
-          while (!transport.wait_until_closed(std::chrono::milliseconds{200})) {
-            if (!transport.is_shell_running()) break;
-          }
-        }
-
-        if (!transport.is_shell_running()) break;
-        transport.restart_session();
-      }
-
-      transport.stop();
-      return 0;
-    }
+    if (FLAGS_pty) return run_pty();
 #endif
+
+    if (!FLAGS_pipe.empty()) {
+      rmi::transport::named_pipe_server_transport transport{FLAGS_pipe};
+      return run_with_transport(transport);
+    }
 
     auto port = static_cast<uint16_t>(FLAGS_port);
     rmi::transport::socket_server_transport transport{FLAGS_host, port};
-    bridged_server srv{transport, *this};
-
-    srv.listen();
-    on_listening(FLAGS_host, port);
-
-    std::string line;
-    std::getline(std::cin, line);
-
-    srv.stop();
-    return 0;
+    return run_with_transport(transport);
   } catch (const std::exception& ex) {
     on_error(ex.what());
     return 1;
