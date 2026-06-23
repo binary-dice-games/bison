@@ -204,26 +204,19 @@ class server {
   /**
    * @brief Called for each validated request before it is dispatched.
    *
-   * Fires in the session worker thread after the envelope op, kind, and
-   * version fields pass validation, but before the operation handler runs.
-   * Default: no-op.
+   * Formats a human-readable trace line and forwards it to `on_print`.
+   * Override to suppress or replace the default formatting.
    *
    * @param ctx  Session context for the requesting client.
    * @param env  Decoded and validated request envelope.
    */
-  virtual void on_request_trace(
-      context& ctx,
-      const shared::envelope& env) {
-    (void)ctx;
-    (void)env;
-  }
+  virtual void on_request_trace(context& ctx, const shared::envelope& env);
 
   /**
    * @brief Called just before each response or error frame is sent.
    *
-   * Fires in the session worker thread after the operation handler runs and
-   * the response envelope has been built, but before it is written to the
-   * transport.  Default: no-op.
+   * Formats a human-readable trace line and forwards it to `on_print`.
+   * Override to suppress or replace the default formatting.
    *
    * @param ctx              Session context for the requesting client.
    * @param request_env      The original request envelope that triggered this
@@ -240,13 +233,22 @@ class server {
       bison::key_t op,
       bool is_error,
       bison::key_t error_code,
-      const bison::dynamic& response_payload) {
-    (void)ctx;
-    (void)request_env;
-    (void)op;
-    (void)is_error;
-    (void)error_code;
-    (void)response_payload;
+      const bison::dynamic& response_payload);
+
+  /**
+   * @brief Output hook for formatted trace lines.
+   *
+   * Called by the default `on_request_trace` and `on_response_trace`
+   * implementations with a fully-formatted, human-readable string.  Override
+   * to redirect trace output (e.g. to a logger or file).
+   * Default: no-op.
+   *
+   * @param session_id  Session that produced the trace line.
+   * @param line        Formatted trace string (no trailing newline).
+   */
+  virtual void on_print(bison::key_t session_id, const std::string& line) {
+    (void)session_id;
+    (void)line;
   }
 
  private:

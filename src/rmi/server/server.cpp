@@ -5,10 +5,12 @@
  */
 #include "src/rmi/server/server.hpp"
 
+#include "src/bison/bison_print.hpp"
 #include "src/rmi/shared/constants.hpp"
 #include "src/rmi/shared/ids.hpp"
 #include "src/rmi/shared/schemas.hpp"
 
+#include <iomanip>
 #include <shared_mutex>
 #include <sstream>
 #include <stdexcept>
@@ -17,6 +19,123 @@ namespace bdg::bison::rmi {
 
 using namespace shared::constants;
 using namespace transport;
+
+// ── Trace helpers ─────────────────────────────────────────────────────────────
+
+namespace {
+
+static const char* op_to_label(bison::key_t op) {
+  if (op == OP_CONNECT)     return "connect    ";
+  if (op == OP_DISCONNECT)  return "disconnect ";
+  if (op == OP_INSTANTIATE) return "instantiate";
+  if (op == OP_CALL)        return "call       ";
+  if (op == OP_GET)         return "get        ";
+  if (op == OP_SET)         return "set        ";
+  if (op == OP_DESTROY)     return "destroy    ";
+  if (op == OP_CLEAR)       return "clear      ";
+  if (op == OP_DESCRIBE)    return "describe   ";
+  if (op == OP_DICTIONARY)  return "dictionary ";
+  if (op == OP_HELP)        return "help       ";
+  return "unknown    ";
+}
+
+// Built lazily on first trace call; thread-safe via static-local init.
+static const std::unordered_map<bison::hash_t, std::string>& trace_dict() {
+  static auto dict = bison::build_display_dict();
+  return dict;
+}
+
+static std::string resolve(bison::hash_t h) {
+  const auto& d = trace_dict();
+  auto it = d.find(h);
+  return it != d.end() ? it->second
+       : ("#" + [&]{ std::ostringstream s; s << std::hex << std::setw(8)
+                                               << std::setfill('0') << h;
+                     return s.str(); }());
+}
+
+} // namespace (trace helpers)
+
+void server::on_request_trace(context& ctx, const shared::envelope& env) {
+  bison::print_options popts;
+  popts.multiline = false;
+  popts.dict = &trace_dict();
+
+  std::ostringstream oss;
+  oss << "[rmi] " << op_to_label(env.op)
+      << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
+      << ctx.session_id.id;
+
+  const bison::key_t op = env.op;
+  if (op == OP_INSTANTIATE || op == OP_DESCRIBE) {
+    const auto* f = env.payload.findField(FIELD_KLASS);
+    if (f && f->is<bison::key_t>())
+      oss << " class=" << resolve(f->as<bison::key_t>().id);
+  } else if (op == OP_CALL) {
+    oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+        << std::setfill('0') << env.object_id.id;
+    const auto* f = env.payload.findField(FIELD_NAME);
+    if (f && f->is<bison::key_t>())
+      oss << " method=" << resolve(f->as<bison::key_t>().id);
+    const auto* pf = env.payload.findField(FIELD_PARAMS);
+    if (pf && pf->is<bison::dynamic_ptr>()) {
+      auto ptr = pf->as<bison::dynamic_ptr>();
+      if (ptr && !ptr->empty())
+        oss << " args=" << bison::print(*ptr, popts);
+    }
+  } else if (op == OP_SET) {
+    oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+        << std::setfill('0') << env.object_id.id;
+    if (!env.payload.empty())
+      oss << " " << bison::print(env.payload, popts);
+  } else if (op == OP_GET || op == OP_DESTROY || op == OP_CLEAR) {
+    oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+        << std::setfill('0') << env.object_id.id;
+  }
+
+  on_print(ctx.session_id, oss.str());
+}
+
+void server::on_response_trace(
+    context& ctx,
+    const shared::envelope& request_env,
+    bison::key_t op,
+    bool is_error,
+    bison::key_t error_code,
+    const bison::dynamic& response_payload) {
+  bison::print_options popts;
+  popts.multiline = false;
+  popts.dict = &trace_dict();
+
+  std::ostringstream oss;
+  oss << "[rmi] " << op_to_label(op)
+      << (is_error ? " ERROR" : " ok   ")
+      << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
+      << ctx.session_id.id;
+
+  if (is_error) {
+    oss << " code=0x" << error_code.id;
+  } else if (!response_payload.empty()) {
+    if (op == OP_INSTANTIATE) {
+      const auto* kf = response_payload.findField(FIELD_KLASS);
+      if (kf && kf->is<bison::key_t>())
+        oss << " class=" << resolve(kf->as<bison::key_t>().id);
+      const auto* of = response_payload.findField(FIELD_OBJECT_ID);
+      if (of && of->is<bison::key_t>())
+        oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+            << std::setfill('0') << of->as<bison::key_t>().id;
+    } else if (op == OP_CALL || op == OP_GET) {
+      oss << std::dec << " obj=0x" << std::hex << std::setw(8)
+          << std::setfill('0') << request_env.object_id.id;
+      if (!response_payload.empty())
+        oss << " " << bison::print(response_payload, popts);
+    }
+  }
+
+  on_print(ctx.session_id, oss.str());
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
 namespace {
 
