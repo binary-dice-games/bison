@@ -1,92 +1,83 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file pty_server_app.hpp
- * @brief Multi-session PTY server application scaffold.
+ * @brief PTY server application scaffold — thin wrapper over srv_app.
  */
 #pragma once
 
 #if defined(__linux__)
 
-#include "src/bison/bison.hpp"
+#include "src/app/server/srv_app.hpp"
 
 #include <string>
 
 namespace bdg::bison::app {
 
 /**
- * @brief Extensible base class for multi-session PTY server applications.
+ * @brief Extensible base class for PTY bison server applications.
  *
- * Concrete applications subclass `pty_server_app`, override
- * `register_classes()` to expose their domain objects in the bison class
- * registry, and call `run()` from `main()`.  Optional hooks allow
- * customisation of the shell, transport parameters, and per-session
- * lifecycle events.
+ * `pty_server_app` is a thin wrapper around `srv_app` that forces the PTY
+ * transport and provides backward-compatible virtual hooks for the C ABI and
+ * existing subclasses.
  *
- * The base class manages:
- * - Calling `register_classes()` once before the session loop.
- * - Starting `pty_server_transport` once (the shell subprocess runs for the
- *   lifetime of the process).
- * - Looping: wait for a client HELLO → create `rmi::server` for the session
- *   → call `on_client_connected()` → wait for disconnect → destroy the server
- *   (releasing all session objects) → call `on_session_ended()` →
- *   `restart_session()` → repeat.
- * - Stopping cleanly when the shell subprocess exits.
+ * Concrete applications:
+ * 1. Override `register_classes()` to populate the bison class registry.
+ * 2. Call `run()` from `main()` — flags are ignored; the PTY lifecycle starts
+ *    immediately.
+ *
+ * Optional hooks mirror the older `pty_server_app` API to maintain backward
+ * compatibility with `pty_c.cpp` and existing user code:
+ * - `shell_command()` — shell to launch via `forkpty` (default: `"bash"`)
+ * - `listen_params()` — retained for C ABI; not used internally
+ * - `on_client_connected()` — called before each session starts
+ * - `on_session_ended()` — called after each session ends
+ * - `on_error()` — called on fatal exceptions (default: `std::cerr`)
+ *
+ * All session lifecycle, verbose trace, and error paths go through
+ * `srv_app::run_pty()` and `bridged_server`, so `on_session_created/destroyed`
+ * and `--verbose` trace work automatically when subclassed.
  *
  * Linux only.
  */
-class pty_server_app {
+class pty_server_app : public srv_app {
  public:
-  virtual ~pty_server_app() = default;
-
   /**
-   * @brief Run the multi-session server loop.
-   *
-   * Blocks until the shell subprocess exits or a fatal error occurs.
+   * @brief Run the PTY server — argc/argv are ignored, PTY transport is forced.
    *
    * @return 0 on clean shell exit; 1 on error.
    */
-  int run(int argc, char** argv);
+  int run(int argc, char** argv) override;
 
  protected:
-  /**
-   * @brief Register domain classes in the bison global class registry.
-   *
-   * Called once before the session loop.  Implementations should call
-   * `bison::register_class<T>()` (or equivalent) for each exposed type.
-   */
-  virtual void register_classes() = 0;
+  /** @brief Shell command passed to `forkpty` (default: `"bash"`). */
+  std::string shell_command() const override { return "bash"; }
 
   /**
-   * @brief Shell command passed to `forkpty` (default: `"bash"`).
+   * @brief Transport parameters (retained for C ABI compatibility).
    *
-   * Override to use a different shell (e.g. `"sh"`, `"zsh"`, `"fish"`).
-   */
-  virtual std::string shell_command() const;
-
-  /**
-   * @brief Transport parameters applied when `pty_server_transport::start()`
-   *        is called (default: `mode=dcs`).
-   *
-   * The PTY transport forces DCS mode regardless; these params are passed
-   * through for any future extension points.
+   * Not used by `pty_server_app::run()` internally; kept so that
+   * `pty_c.cpp` subclasses can still override this method.
    */
   virtual bison::dynamic listen_params() const;
 
   /**
-   * @brief Called once after a client connects and the `rmi::server` is ready.
+   * @brief Called after a client connects and before the session starts.
+   *
+   * Default: no-op.
    */
-  virtual void on_client_connected() const;
+  virtual void on_client_connected() const {}
 
   /**
-   * @brief Called after each session ends and the `rmi::server` is destroyed.
+   * @brief Called after each session ends and all session objects are released.
+   *
+   * Default: no-op.
    */
-  virtual void on_session_ended() const;
+  virtual void on_session_ended() const {}
 
-  /**
-   * @brief Called when a transport-level exception is caught.
-   * @param msg Human-readable error description.
-   */
-  virtual void on_error(const std::string& msg) const;
+ private:
+  // Bridge srv_app hooks to the legacy pty_server_app hook names.
+  void on_pty_client_connected() const override { on_client_connected(); }
+  void on_pty_session_ended()    const override { on_session_ended(); }
 };
 
 } // namespace bdg::bison::app

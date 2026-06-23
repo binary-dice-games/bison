@@ -1,27 +1,23 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file cli_app.hpp
- * @brief Interactive REPL application scaffold for bison RMI servers.
+ * @brief Interactive REPL client for bison RMI servers.
  */
 #pragma once
 
-#include "src/bison/bison.hpp"
-#include "src/rmi/client/client.hpp"
-
-#include <chrono>
-#include <string>
+#include "src/app/client/client_app.hpp"
 
 namespace bdg::bison::app {
 
 /**
- * @brief Extensible base class for interactive bison CLI applications.
+ * @brief Interactive command-line REPL for bison RMI servers.
  *
- * Parses command-line flags, constructs the appropriate transport, and
- * manages the connect/session/disconnect lifecycle.  Concrete applications
- * override `on_session()` to replace the built-in REPL with custom
- * behaviour (for example, a terminal UI driven by remote objects).
+ * `cli_app` is a thin subclass of `client_app` that provides a
+ * scripting-style REPL as its `on_session()` implementation.  Transport
+ * selection, flag parsing, and the connect/disconnect lifecycle are all
+ * handled by `client_app`.
  *
- * Default `on_session()` runs a scripting-style REPL:
+ * Default `on_session()` runs the built-in REPL:
  *
  * @code
  * > t = instantiate("Ikea", "Table")
@@ -33,69 +29,33 @@ namespace bdg::bison::app {
  * > exit
  * @endcode
  *
- * Transport is selected by gflags CLI flags:
- *   - `--host HOST --port PORT` – TCP socket (default localhost:7070)
- *   - `--pty`                   – PTY transport (Linux only)
- *   - `--timeout MS`            – per-request timeout (default 30000 ms)
+ * Override `on_session()` to replace the REPL with custom behaviour (for
+ * example, a scripted test or a full-screen terminal UI).
  *
- * Run with `--help` to see all available flags.
- * Cross-platform (Windows, Linux, macOS); PTY transport is Linux-only.
+ * Transport flags (from `client_app`):
+ *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
+ *   - `--pipe PATH`             — named-pipe / Unix-socket path
+ *   - `--pty`                   — PTY DCS channel (Linux only)
+ *   - `--timeout MS`            — per-request timeout (default: 30 000 ms)
  */
-class cli_app {
- public:
-  virtual ~cli_app() = default;
-
-  /**
-   * @brief Parse flags, connect, run session, disconnect.
-   *
-   * @param argc  Argument count from `main`.
-   * @param argv  Argument vector from `main`.
-   * @return Value returned by `on_session()`, or 1 on error.
-   */
-  int run(int argc, char** argv);
-
+class cli_app : public client_app {
  protected:
   /**
-   * @brief Main application logic for the RMI session.
+   * @brief Run the interactive scripting REPL.
    *
-   * Called after the transport is connected.  The default implementation
-   * runs the interactive scripting-style REPL.  Override to replace it
-   * entirely (for example, with a full-screen terminal UI).
-   *
-   * The `timeout_` member is set from `--timeout` before this is called.
+   * Default implementation.  Override to replace with custom session logic.
    *
    * @param c Connected RMI client.
-   * @return Exit code; becomes the return value of `run()`.
+   * @return 0 on clean exit (user typed `exit`/`quit` or EOF).
    */
-  virtual int on_session(rmi::client& c);
-
-  /**
-   * @brief Called immediately after the connection handshake succeeds.
-   *
-   * Default: no-op.
-   */
-  virtual void on_connected() const;
-
-  /**
-   * @brief Populate connection parameters before `connect()` is called.
-   *
-   * Default: sets `timeout_ms` to 30 000 (30 s).
-   *
-   * @param params In/out parameter map.
-   */
-  virtual void on_connect_params(bison::dynamic& params) const;
+  int on_session(rmi::client& c) override;
 
   /**
    * @brief Called when a transport or session exception is caught.
    *
-   * Default: writes to `std::cerr`.
-   *
-   * @param msg Human-readable error description.
+   * Default: writes to `std::cerr` with a `[cli_app]` prefix.
    */
-  virtual void on_error(const std::string& msg) const;
-
-  /** @brief Per-request timeout applied to all blocking futures in `on_session()`. */
-  std::chrono::milliseconds timeout_{30000};
+  void on_error(const std::string& msg) const override;
 };
 
 } // namespace bdg::bison::app

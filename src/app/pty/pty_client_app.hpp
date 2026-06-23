@@ -1,85 +1,63 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file pty_client_app.hpp
- * @brief Remote PTY client application scaffold.
+ * @brief PTY client application scaffold — thin wrapper over client_app.
  */
 #pragma once
 
 #if defined(__linux__)
 
-#include "src/bison/bison.hpp"
-#include "src/rmi/client/client.hpp"
-
-#include <string>
+#include "src/app/client/client_app.hpp"
 
 namespace bdg::bison::app {
 
 /**
  * @brief Extensible base class for processes that connect to a `pty_server_app`.
  *
- * Runs on the remote machine (e.g., after an `ssh` into the server host).
- * Uses the process's own `stdin`/`stdout` as the bison transport — no
- * subprocess is launched.  The SSH channel carries the DCS frames between
- * this process and the `pty_server_transport` running on the server.
+ * `pty_client_app` is a thin subclass of `client_app` that always uses the
+ * PTY DCS transport (process stdin/stdout) and bypasses flag parsing.
  *
- * Concrete applications override `on_session()` to interact with the
- * server's remote objects (instantiate, call, get/set, etc.).  The base
- * class handles transport construction, handshake, and disconnect.
+ * Runs on the remote machine (e.g. after an `ssh` into the server host).
+ * The SSH channel carries the DCS frames between this process and the
+ * `pty_server_transport` on the server.
  *
- * Typical lifecycle:
- * 1. `connect()` via `pty_client_transport` (uses process stdin/stdout) —
- *    sends HELLO to the server, waits for the server's HELLO response.
- * 2. `on_connected()` hook (default: no-op).
- * 3. `on_session(rmi_client)` — application logic.
- * 4. `disconnect()`.
+ * Concrete applications override `on_session()` to drive the RMI session
+ * (instantiate objects, call methods, etc.).  All other hooks are inherited
+ * from `client_app`:
+ * - `on_connected()` — default: no-op
+ * - `on_connect_params()` — sets PTY-specific defaults (handshake_timeout_ms)
+ * - `on_error()` — default: stderr with `[pty_client_app]` prefix
  *
  * Linux only.
  */
-class pty_client_app {
+class pty_client_app : public client_app {
  public:
-  virtual ~pty_client_app() = default;
-
   /**
-   * @brief Connect to the server and run the session.
+   * @brief Connect to the PTY server and run the session.
    *
-   * @return The value returned by `on_session()`, or 1 on error.
+   * Bypasses flag parsing and uses `pty_client_transport` directly.
+   * argc/argv are ignored.
+   *
+   * @return Value returned by `on_session()`, or 1 on error.
    */
-  int run(int argc, char** argv);
+  int run(int argc, char** argv) override;
 
  protected:
   /**
-   * @brief Main application logic for the RMI session.
+   * @brief Populate PTY-specific connection parameters.
    *
-   * Called after the handshake completes.  Interact with the server through
-   * @p c (instantiate objects, call methods, etc.).  The return value becomes
-   * the process exit code.
-   *
-   * @param c Connected RMI client.
-   * @return Exit code.
+   * Sets `handshake_timeout_ms` to 300 000 (five minutes) to allow the user
+   * time to SSH in and start the client before the server's HELLO window
+   * expires.  Override to adjust the timeout.
    */
-  virtual int on_session(rmi::client& c) = 0;
-
-  /**
-   * @brief Called immediately after the handshake succeeds (default: no-op).
-   */
-  virtual void on_connected() const;
+  void on_connect_params(bison::dynamic& params) const override;
 
   /**
    * @brief Called when a transport or session exception is caught.
-   * @param msg Human-readable error description.
-   */
-  virtual void on_error(const std::string& msg) const;
-
-  /**
-   * @brief Populate connection parameters before `connect()` is called.
    *
-   * Default values: `mode=dcs`, `handshake_timeout_ms=300000` (five minutes,
-   * to allow the user time to SSH into the server and start the client
-   * before the server-side HELLO window expires).
-   *
-   * @param params In/out parameter map.
+   * Default: writes to `std::cerr` with a `[pty_client_app]` prefix.
    */
-  virtual void on_connect_params(bison::dynamic& params) const;
+  void on_error(const std::string& msg) const override;
 };
 
 } // namespace bdg::bison::app

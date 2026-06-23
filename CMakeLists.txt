@@ -90,16 +90,17 @@ target_sources(bison PRIVATE
   src/rmi/transport/pipe_transport.cpp
   src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
+  src/rmi/transport/pty_server_transport.cpp
+  src/rmi/transport/pty_client_transport.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
   src/rmi/server/server.cpp
   src/rmi/standalone/standalone.cpp
-  src/app/pty/pty_server_transport.cpp
-  src/app/pty/pty_client_transport.cpp
   src/app/pty/pty_server_app.cpp
   src/app/pty/pty_client_app.cpp
+  src/app/client/client_app.cpp
   src/app/cli/cli_app.cpp
-  src/app/srv/srv_app.cpp
+  src/app/server/srv_app.cpp
 )
 
 if(WIN32)

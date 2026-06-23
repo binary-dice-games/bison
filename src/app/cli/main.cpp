@@ -9,6 +9,7 @@
 
 DEFINE_string(host,    "127.0.0.1", "Server host address");
 DEFINE_int32 (port,    7070,        "Server TCP port");
+DEFINE_string(pipe,    "",          "Named-pipe / Unix-socket path (empty = use socket)");
 DEFINE_bool  (pty,     false,       "Use PTY transport (Linux only)");
 DEFINE_int32 (timeout, 30000,       "Per-request timeout in milliseconds");
 

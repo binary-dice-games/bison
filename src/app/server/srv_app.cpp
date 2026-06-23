@@ -3,14 +3,14 @@
  * @file srv_app.cpp
  * @brief Extensible server application scaffold implementation.
  */
-#include "src/app/srv/srv_app.hpp"
+#include "src/app/server/srv_app.hpp"
 
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 
 #if defined(__linux__)
-#  include "src/app/pty/pty_server_transport.hpp"
+#  include "src/rmi/transport/pty_server_transport.hpp"
 #  include "src/rmi/transport/transport_iface.hpp"
 #  include <atomic>
 #  include <condition_variable>
@@ -170,7 +170,7 @@ int srv_app::run_with_transport(
 
 #if defined(__linux__)
 int srv_app::run_pty() {
-  pty_server_transport transport{"bash"};
+  pty_server_transport transport{shell_command()};
   bison::dynamic pty_params;
   pty_params["mode"_key] = std::string{"dcs"};
   transport.start(std::move(pty_params));
@@ -184,6 +184,8 @@ int srv_app::run_pty() {
       continue;
     }
 
+    on_pty_client_connected();
+
     {
       one_shot_transport adapter{std::move(conn)};
       bridged_server srv{adapter, *this};
@@ -193,6 +195,8 @@ int srv_app::run_pty() {
         if (!transport.is_shell_running()) break;
       }
     }
+
+    on_pty_session_ended();
 
     if (!transport.is_shell_running()) break;
     transport.restart_session();
