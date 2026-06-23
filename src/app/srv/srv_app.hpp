@@ -108,6 +108,19 @@ class srv_app {
    */
   virtual std::string server_description() const { return {}; }
 
+  /**
+   * @brief Called once per formatted verbose trace line when `--verbose` is
+   *        active.
+   *
+   * The default implementation writes @p line followed by `'\n'` to
+   * `std::cout`.  Override to redirect verbose output (e.g. to a log file).
+   *
+   * @param session_id  Session that generated the trace event.
+   * @param line        Formatted trace message (no trailing newline).
+   */
+  virtual void on_verbose_trace(bison::key_t session_id,
+                                const std::string& line) const;
+
  protected:
   /**
    * @brief Register domain classes in the bison class registry.

@@ -70,13 +70,15 @@ class bridged_server : public rmi::server {
     std::call_once(dict_flag_, [this] {
       dict_ = bison::build_display_dict();
     });
+    // Call the app hook first so wish can initialise the session logger before
+    // the trace fires.
+    app_.on_session_created(ctx);
     if (FLAGS_verbose) {
       std::ostringstream oss;
       oss << "[verbose] open        sid=0x"
           << std::hex << std::setw(8) << std::setfill('0') << ctx.session_id.id;
-      std::cout << oss.str() << '\n';
+      app_.on_verbose_trace(ctx.session_id, oss.str());
     }
-    app_.on_session_created(ctx);
   }
 
   void on_session_destroyed(rmi::context& ctx) override {
@@ -85,7 +87,7 @@ class bridged_server : public rmi::server {
       oss << "[verbose] close       sid=0x"
           << std::hex << std::setw(8) << std::setfill('0') << ctx.session_id.id
           << " (" << std::dec << ctx.objects.size() << " objects)";
-      std::cout << oss.str() << '\n';
+      app_.on_verbose_trace(ctx.session_id, oss.str());
     }
     app_.on_session_destroyed(ctx);
   }
@@ -147,7 +149,7 @@ class bridged_server : public rmi::server {
           << std::setfill('0') << env.object_id.id;
     }
 
-    std::cout << oss.str() << '\n';
+    app_.on_verbose_trace(ctx.session_id, oss.str());
   }
 
   void on_response_trace(
@@ -197,7 +199,7 @@ class bridged_server : public rmi::server {
       }
     }
 
-    std::cout << oss.str() << '\n';
+    app_.on_verbose_trace(ctx.session_id, oss.str());
   }
 
   std::string on_help_text() const override {
@@ -257,6 +259,11 @@ class one_shot_transport final
 } // namespace
 
 // ── Default hook implementations ──────────────────────────────────────────────
+
+void srv_app::on_verbose_trace(bison::key_t /*session_id*/,
+                               const std::string& line) const {
+  std::cout << line << '\n';
+}
 
 void srv_app::on_listening() const {
   if (!FLAGS_pipe.empty()) {
