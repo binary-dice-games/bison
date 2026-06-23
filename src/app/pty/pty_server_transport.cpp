@@ -671,7 +671,10 @@ void pty_server_transport::start(bison::dynamic params) {
     return; // idempotent
 
   int master_fd = -1;
-  const pid_t pid = ::forkpty(&master_fd, nullptr, nullptr, nullptr);
+  winsize ws{};
+  ws.ws_col = 500;
+  ws.ws_row = 50;
+  const pid_t pid = ::forkpty(&master_fd, nullptr, nullptr, &ws);
   if (pid < 0) {
     impl_->started_.store(false);
     throw std::runtime_error("pty_server_transport::start: forkpty failed");
