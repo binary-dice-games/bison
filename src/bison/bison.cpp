@@ -743,8 +743,8 @@ void register_key_name(hash_t h, std::string_view name) {
 }
 
 std::unordered_map<hash_t, std::string> build_display_dict() {
-  // Seed from the explicit key-name registry (populated by string overloads of
-  // addMethod / addField and by direct register_key_name() calls).
+  // Seed from the explicit key-name registry (populated by _rkey literals and
+  // by direct register_key_name() calls).
   std::unordered_map<hash_t, std::string> d;
   {
     std::lock_guard<std::mutex> lk{key_name_registry_mutex()};
