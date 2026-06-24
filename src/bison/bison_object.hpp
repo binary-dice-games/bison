@@ -775,28 +775,11 @@ class dynamic {
     return field.as<T>();
   }
 
-  /**
-   * @brief Return field @p k converted to @p T, or @p dflt on any failure.
-   *
-   * Performs cross-type conversion via `field::get_as<T>()` (numeric casts,
-   * arithmetic ↔ string) rather than requiring an exact type match.  Returns
-   * @p dflt when the field is absent, empty (monostate), or the conversion is
-   * not supported instead of throwing.
-   *
-   * @tparam T     Target value type.
-   * @param  k     Key of the field to retrieve.
-   * @param  dflt  Value returned on absence or conversion failure.
-   * @return Converted field value, or @p dflt.
-   */
   template <typename T>
   T get_as(key_t k, T dflt = T{}) const {
     const auto* f = findField(k);
     if (!f) return dflt;
-    try {
-      return f->get_as<T>();
-    } catch (...) {
-      return dflt;
-    }
+    return f->get_as<T>();
   }
 
   inline void serialize(stream_serializer& out) const;
