@@ -200,18 +200,37 @@ class field : public field_base {
       : field_base(to_field_value(std::forward<T>(value))),
         attributes_{std::forward<Attrs>(attrs)...} {}
 
+  /** @brief Implicit conversion to `dynamic_ptr`; equivalent to `as<dynamic_ptr>()`.
+   *  @throws std::runtime_error if the active alternative is not `dynamic_ptr`. */
   operator dynamic_ptr() const {
     return as<dynamic_ptr>();
   }
 
+  /**
+   * @brief Cross-type conversion to `std::string`.
+   *
+   * Numeric types are converted via `std::to_string`; `bool` gives `"true"` or
+   * `"false"`.  Throws `std::runtime_error` for incompatible types (e.g.
+   * `dynamic_ptr`).
+   */
   operator std::string() const {
     return cast_value<std::string>(static_cast<const field_base&>(*this));
   }
 
+  /** @brief Direct const reference to the stored `std::string` value.
+   *  @throws std::runtime_error if the active alternative is not `std::string`. */
   operator const std::string&() const {
     return as<std::string>();
   }
 
+  /**
+   * @brief Generic cross-type conversion to @p T via `cast_value`.
+   *
+   * Performs numeric casts, arithmetic↔string conversions, and exact-type
+   * returns.  Throws `std::runtime_error` for incompatible conversions.
+   *
+   * @tparam T  Target type.
+   */
   template <typename T>
   operator T() const {
     return cast_value<T>(static_cast<const field_base&>(*this));
@@ -644,46 +663,112 @@ class dynamic {
     fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
   }
 
+  /**
+   * @brief Access or create the field at numeric index @p pos.
+   *
+   * Inserts an empty (monostate) field if the index does not yet exist.
+   *
+   * @param pos  Zero-based numeric index.
+   * @return Mutable reference to the field at @p pos.
+   */
   inline field& operator[](size_t pos) {
     return fields_[static_cast<hash_t>(pos)];
   }
 
+  /**
+   * @brief Read-only access to the field at numeric index @p pos.
+   *
+   * Inserts an empty (monostate) field if the index does not yet exist
+   * (`fields_` is `mutable` so this is permitted on a const object).
+   *
+   * @param pos  Zero-based numeric index.
+   * @return Const reference to the field at @p pos.
+   */
   inline const field& operator[](size_t pos) const {
     return fields_[static_cast<hash_t>(pos)];
   }
 
+  /**
+   * @brief Access or create the field named @p name, walking the prototype chain.
+   *
+   * Resolves the field via `findField` (which caches inherited values into
+   * `fields_`).  If the field is not found on this instance or any ancestor,
+   * an empty (monostate) entry is created and returned.
+   *
+   * @param name  Hash key of the field to look up.
+   * @return Mutable reference to the resolved or newly created field.
+   */
   inline field& operator[](key_t name) {
     auto f = findField(name);
     return f != nullptr ? *f : fields_[name];
   }
 
+  /**
+   * @brief Read-only access to the field named @p name, walking the prototype
+   *        chain.
+   *
+   * Behaves identically to the mutable overload but returns a const reference.
+   * Creates an empty field in `fields_` if the key is absent throughout the
+   * prototype chain (`fields_` is `mutable`).
+   *
+   * @param name  Hash key of the field to look up.
+   * @return Const reference to the resolved or newly created field.
+   */
   inline const field& operator[](key_t name) const {
     auto f = findField(name);
     return f != nullptr ? *f : fields_[name];
   }
 
+  /** @brief Mutable named-field access; equivalent to `(*this)[name]`. */
   field& at(key_t name) {
     return (*this)[name];
   }
 
+  /** @brief Const named-field access; equivalent to `(*this)[name]`. */
   const field& at(key_t name) const {
     return (*this)[name];
   }
 
+  /** @brief Mutable numeric-index access; equivalent to `(*this)[pos]`. */
   field& at(size_t pos) {
     return (*this)[pos];
   }
 
+  /** @brief Const numeric-index access; equivalent to `(*this)[pos]`. */
   const field& at(size_t pos) const {
     return (*this)[pos];
   }
 
+  /**
+   * @brief Return a mutable reference to field @p name typed as @p T.
+   *
+   * Creates an empty field entry if @p name is absent, then delegates to
+   * `field::as<T>()`.  Throws `std::runtime_error` if the field holds a
+   * different type.
+   *
+   * @tparam T    Requested alternative type.
+   * @param  name Key of the field to access.
+   * @param  def  Unused (kept for API symmetry with `field::as<T>(T def)`).
+   * @return Mutable reference to the stored `T` value.
+   */
   template <typename T>
   T& as(key_t name, T def = T{}) {
     auto& field = fields_[name];
     return field.as<T>();
   }
 
+  /**
+   * @brief Return a const reference to field @p name typed as @p T.
+   *
+   * Creates an empty field entry if @p name is absent (`fields_` is
+   * `mutable`), then delegates to `field::as<T>() const`.  Throws
+   * `std::runtime_error` if the field holds a different type.
+   *
+   * @tparam T    Requested alternative type.
+   * @param  name Key of the field to access.
+   * @param  def  Unused (kept for API symmetry with `field::as<T>(T def)`).
+   * @return Const reference to the stored `T` value.
+   */
   template <typename T>
   const T& as(key_t name, T def = T{}) const {
     auto& field = fields_[name];
@@ -901,21 +986,6 @@ class dynamic {
   }
 
   /**
-   * @brief Register a class prototype in the namespace registry.
-   *
-   * Sets the `PARENT` field of @p klass to @p parent, sets the `NAMESPACE`
-   * field of @p klass to @p ns, and inserts the prototype into the registry
-   * under `(ns, class_name)`.  Returns `false` if a class with the same name
-   * is already registered in @p ns, or if registering would create a
-   * circular inheritance chain within @p ns.
-   *
-   * @param ns      Hash of the namespace to register in; `0U` for the global
-   *                (default) namespace.
-   * @param klass   Prototype object; its `CLASS` field must be set.
-   * @param parent  Hash of the parent class name (`0U` for a root class).
-   * @return `true` on success, `false` on duplicate or cycle.
-   */
-  /**
    * @brief Register a class prototype with class-level attribute annotations.
    *
    * Attaches each attribute in @p class_attrs to the `CLASS` field of @p klass
@@ -986,6 +1056,21 @@ class dynamic {
     return addClass(ns, std::move(klass), parent);
   }
 
+  /**
+   * @brief Register a class prototype in the namespace registry.
+   *
+   * Sets the `PARENT` field of @p klass to @p parent, sets the `NAMESPACE`
+   * field of @p klass to @p ns, and inserts the prototype into the registry
+   * under `(ns, class_name)`.  Returns `false` if a class with the same name
+   * is already registered in @p ns, or if registering would create a
+   * circular inheritance chain within @p ns.
+   *
+   * @param ns      Hash of the namespace to register in; `0U` for the global
+   *                (default) namespace.
+   * @param klass   Prototype object; its `CLASS` field must be set.
+   * @param parent  Hash of the parent class name (`0U` for a root class).
+   * @return `true` on success, `false` on duplicate or cycle.
+   */
   static bool
   addClass(const key_t ns, dynamic_ptr klass, const key_t parent = key_t{0U}) {
     auto name = klass->as<key_t>(CLASS);
@@ -1055,16 +1140,6 @@ class dynamic {
     return it != fields_.end() ? &it->second : nullptr;
   }
 
-  /**
-   * @brief Find a method on this instance or its class prototype chain.
-   *
-   * Returns a pointer to the callable (caching into `methods_` on first
-   * inherited hit), or `nullptr` if not found anywhere in the chain.
-   * The correct namespace collection is resolved via `resolveNamespace`.
-   *
-   * @param name  Hash key to look up.
-   * @return Pointer to the resolved method, or `nullptr`.
-   */
   /**
    * @brief Find a method on this instance or its class prototype chain.
    *
