@@ -342,9 +342,12 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
       continue;
     }
 
+    on_before_dispatch(ctx);
     try {
       handle_request(ctx, env, *conn);
+      on_after_dispatch(ctx);
     } catch (const std::exception& e) {
+      on_after_dispatch(ctx);
       try {
         send_error(ctx, *conn, env, env.op, ERR_INVALID_REQUEST, e.what());
       } catch (...) {

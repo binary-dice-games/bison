@@ -251,6 +251,29 @@ class server {
     (void)line;
   }
 
+  /**
+   * @brief Called on the worker thread immediately before dispatching each
+   *        validated request.
+   *
+   * Override to acquire per-session resources (e.g. a render mutex) before
+   * any request handler runs.  Paired with `on_after_dispatch`.
+   *
+   * @param ctx Session context for the request.
+   */
+  virtual void on_before_dispatch(context& ctx) { (void)ctx; }
+
+  /**
+   * @brief Called on the worker thread immediately after each request
+   *        dispatch completes, whether it succeeded or threw.
+   *
+   * Guaranteed to be called exactly once per `on_before_dispatch` call.
+   * Must not throw -- override to release resources acquired in
+   * `on_before_dispatch`.
+   *
+   * @param ctx Session context for the request.
+   */
+  virtual void on_after_dispatch(context& ctx) noexcept { (void)ctx; }
+
  private:
   // ── Private methods (defined in server.cpp) ───────────────────────────────
 
