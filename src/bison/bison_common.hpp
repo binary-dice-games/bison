@@ -190,6 +190,34 @@ constexpr key_t operator""_key(const char* name, std::size_t size) noexcept {
   return key_t{hash(name)};
 }
 
+// Forward-declared here so `_rkey` can call it; see full doc below.
+void register_key_name(hash_t h, std::string_view name);
+
+/**
+ * @brief Registering key literal — hashes @p name like `_key` and also records
+ *        the string in the global key-name registry.
+ *
+ * Use this literal in `addMethod`, `addField`, and `register_key_name` call
+ * sites where human-readable trace output is desired:
+ * @code{.cpp}
+ *   addMethod("preset"_rkey, method{...});
+ *   addField("label"_rkey, field{...});
+ * @endcode
+ * The registered string becomes available to `build_display_dict()` as a
+ * fallback when the key has no `DisplayName` attribute.
+ *
+ * This literal is **not** `constexpr` because it writes to a runtime registry.
+ * Use `_key` wherever a compile-time constant is required.
+ *
+ * @param name  Null-terminated string literal.
+ * @param size  Length of the literal (unused; provided by the compiler).
+ * @return `key_t` wrapping the FNV-1a hash of @p name with MSB set.
+ */
+inline key_t operator""_rkey(const char* name, std::size_t /*size*/) noexcept {
+  register_key_name(hash(name), name);
+  return key_t{hash(name)};
+}
+
 /**
  * @brief Reference-counted smart pointer to a `dynamic` object.
  *
@@ -268,13 +296,12 @@ using namespace_map = std::unordered_map<key_t, collection, key_t, key_t>;
  * `build_display_dict()` merges as a fallback for keys that do not carry a
  * `DisplayName` attribute.  Thread-safe; may be called from any thread.
  *
- * The string overloads of `dynamic::addMethod()` and `dynamic::addField()`
- * call this automatically.  Call it explicitly for parameter field names
- * (e.g. `"descriptor"_key`) that never appear in a class prototype.
+ * Use the `_rkey` literal (e.g. `(void)"descriptor"_rkey`) as a concise way
+ * to register a name at startup without an explicit call here.
  *
- * @param h     Hash produced by `hash()` or `_key` literal.
+ * @param h     Hash produced by `hash()` or `_key` / `_rkey` literal.
  * @param name  Human-readable name to associate with @p h.
  */
-void register_key_name(hash_t h, std::string_view name);
+// (declared above, before `_rkey`, so that the literal can call it)
 
 } // namespace bdg::bison
