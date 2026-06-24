@@ -309,7 +309,7 @@ Depends on:
   (`get_dictionary()`, `get_help()`, `describe()`, etc.).
 - `src/rmi/proxy` — `proxy::dynamic` for object handles.
 - `src/rmi/transport/socket_transport` — default TCP transport.
-- `src/app/pty/pty_client_transport` — PTY transport (Linux only).
+- `src/rmi/transport/pty_client_transport` — PTY transport (Linux only).
 - `src/bison/bison.hpp` — `bison::dynamic`, `bison::key_t`.
 - `src/bison/bison_object.hpp` — `bdg::bison::extensions::from_json()`.
 - `src/rmi/shared/constants.hpp` — well-known field-name and operation constants.

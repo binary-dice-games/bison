@@ -15,10 +15,14 @@ This directory does NOT implement:
 
 Source files owned by this directory:
 
-- `pty_server_transport.hpp` / `pty_server_transport.cpp` — PTY-owning server transport.
-- `pty_client_transport.hpp` / `pty_client_transport.cpp` — stdin/stdout client transport with client-initiated handshake.
 - `pty_server_app.hpp` / `pty_server_app.cpp` — multi-session server application scaffold.
 - `pty_client_app.hpp` / `pty_client_app.cpp` — remote client application scaffold.
+- `pty_c.cpp` — C ABI wrapper exposing `pty_server_run` / `pty_client_run`.
+
+Transport implementations have moved to `src/rmi/transport/`:
+
+- `src/rmi/transport/pty_server_transport.hpp/.cpp` — PTY-owning server transport.
+- `src/rmi/transport/pty_client_transport.hpp/.cpp` — stdin/stdout client transport.
 
 Linux/POSIX only. All files are guarded with `#if defined(__linux__)`.
 

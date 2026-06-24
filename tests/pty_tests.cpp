@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 // PTY transport and application scaffold tests (Linux only).
 
-#include "src/app/pty/pty_server_transport.hpp"
+#include "src/rmi/transport/pty_server_transport.hpp"
 #include "src/app/pty/pty_server_app.hpp"
 #include "src/app/pty/pty_client_app.hpp"
 
