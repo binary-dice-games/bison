@@ -604,10 +604,31 @@ class dynamic {
     fields_[CLASS] = klass;
   }
 
-  dynamic(const dynamic& that) = default;
-  dynamic(dynamic&& that) noexcept = default;
+  dynamic(const dynamic& that)
+      : fields_(that.fields_), methods_(that.methods_),
+        userdata_(that.userdata_), factory_(that.factory_) {
+    // field_lookup_ is intentionally left empty and rebuilt lazily.
+  }
+
+  dynamic(dynamic&& that) noexcept
+      : fields_(std::move(that.fields_)), methods_(std::move(that.methods_)),
+        userdata_(std::move(that.userdata_)),
+        factory_(std::move(that.factory_)) {
+    // field_lookup_ is intentionally left empty and rebuilt lazily.
+  }
+
   dynamic& operator=(const dynamic& that) = delete;
-  dynamic& operator=(dynamic&& that) = default;
+
+  dynamic& operator=(dynamic&& that) {
+    if (this != &that) {
+      fields_       = std::move(that.fields_);
+      methods_      = std::move(that.methods_);
+      userdata_     = std::move(that.userdata_);
+      factory_      = std::move(that.factory_);
+      field_lookup_.clear();  // stale pointers; rebuilt lazily
+    }
+    return *this;
+  }
   virtual ~dynamic() {}
 
   /**
@@ -649,6 +670,7 @@ class dynamic {
    * @return `true` if the field existed and was erased.
    */
   inline bool erase(size_t pos) {
+    field_lookup_.erase(static_cast<hash_t>(pos));
     return fields_.erase(static_cast<hash_t>(pos)) != 0;
   }
 
@@ -661,6 +683,7 @@ class dynamic {
    */
   inline void clear() {
     fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
+    field_lookup_.clear();  // numeric pointers now stale; rebuilt lazily
   }
 
   /**
@@ -700,7 +723,10 @@ class dynamic {
    */
   inline field& operator[](key_t name) {
     auto f = findField(name);
-    return f != nullptr ? *f : fields_[name];
+    if (f) return *f;
+    auto& v = fields_[name];
+    field_lookup_[name] = &v;
+    return v;
   }
 
   /**
@@ -716,7 +742,10 @@ class dynamic {
    */
   inline const field& operator[](key_t name) const {
     auto f = findField(name);
-    return f != nullptr ? *f : fields_[name];
+    if (f) return *f;
+    auto& v = fields_[name];
+    field_lookup_[name] = &v;
+    return v;
   }
 
   /** @brief Mutable named-field access; equivalent to `(*this)[name]`. */
@@ -854,7 +883,10 @@ class dynamic {
    *         present.
    */
   inline bool addField(key_t name, field value) {
-    return fields_.emplace(std::make_pair(name, std::move(value))).second;
+    auto result = fields_.emplace(std::make_pair(name, std::move(value)));
+    if (result.second)
+      field_lookup_.emplace(name, &result.first->second);
+    return result.second;
   }
 
   /**
@@ -1089,11 +1121,19 @@ class dynamic {
    * @return Pointer to the resolved field, or `nullptr`.
    */
   field* findField(key_t name) const {
-    // Fast path: field already cached in this instance.
+    // O(1): check the pointer cache first.
+    {
+      auto it = field_lookup_.find(name);
+      if (it != field_lookup_.end()) return it->second;
+    }
+
+    // O(log N): field present locally but not yet in the cache.
     {
       auto it = fields_.find(name);
-      if (it != fields_.end())
+      if (it != fields_.end()) {
+        field_lookup_.emplace(name, &it->second);
         return &it->second;
+      }
     }
 
     // Slow path: search the class prototype chain.
@@ -1118,9 +1158,13 @@ class dynamic {
       }
     }
 
-    // Return whatever is now in the cache (inserted above, or absent).
+    // Populate cache from whatever the prototype walk may have inserted.
     auto it = fields_.find(name);
-    return it != fields_.end() ? &it->second : nullptr;
+    if (it != fields_.end()) {
+      field_lookup_.emplace(name, &it->second);
+      return &it->second;
+    }
+    return nullptr;
   }
 
   /**
@@ -1246,6 +1290,10 @@ class dynamic {
  private:
   mutable std::map<key_t, field> fields_;
   mutable std::unordered_map<key_t, method, key_t, key_t> methods_;
+  /// @brief O(1) pointer cache into `fields_`. Entries are lazily populated
+  ///        and invalidated by `erase`/`clear`. Cleared on copy and move so
+  ///        stale pointers from the source object are never reused.
+  mutable std::unordered_map<key_t, field*, key_t, key_t> field_lookup_;
   mutable std::shared_ptr<userdata> userdata_;
   factory_fn factory_;  // set once by the factory-aware addClass; empty → plain-dynamic fallback
 
