@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#include "src/app/srv/srv_app.hpp"
+#include "src/app/server/server_app.hpp"
 
 namespace bdg::bison::srv {
 
@@ -40,7 +40,7 @@ namespace bdg::bison::srv {
  * { "memory": 42.0 }
  * @endcode
  */
-class calc_server : public app::srv_app {
+class calc_server : public app::server_app {
  public:
   std::string server_description() const override {
     return "Stateful arithmetic calculator server.\n"

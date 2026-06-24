@@ -25,7 +25,7 @@ package_add_test(bison_test bison_tests.cpp)
 package_add_test(rmi_test rmi_tests.cpp)
 
 # PTY transport and app scaffold tests (Linux only; links util for forkpty)
-# app_test_flags.cpp provides DEFINE_* for gflags referenced by srv_app /
+# app_test_flags.cpp provides DEFINE_* for gflags referenced by server_app /
 # client_app, which are pulled in transitively via pty_server_app.
 package_add_test(pty_test pty_tests.cpp app_test_flags.cpp)
 target_link_libraries(pty_test gflags)

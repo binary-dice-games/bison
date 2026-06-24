@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file pty_server_app.cpp
- * @brief PTY server application scaffold — delegates to srv_app::run_pty().
+ * @brief PTY server application scaffold — delegates to server_app::run_pty().
  */
 #include "src/app/pty/pty_server_app.hpp"
 

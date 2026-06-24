@@ -1,6 +1,6 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file srv_app.hpp
+ * @file server_app.hpp
  * @brief Extensible server application scaffold for bison RMI servers.
  */
 #pragma once
@@ -39,9 +39,9 @@ namespace bdg::bison::app {
  * 4. Accept connections and serve requests until Enter is pressed.
  * 5. Stop the listener and clean up.
  */
-class srv_app {
+class server_app {
  public:
-  virtual ~srv_app() = default;
+  virtual ~server_app() = default;
 
   /**
    * @brief Parse flags, register classes, start server, and block until done.

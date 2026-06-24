@@ -1,10 +1,10 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file app_test_flags.cpp
- * @brief gflags definitions required by srv_app / client_app when linked into
+ * @brief gflags definitions required by server_app / client_app when linked into
  *        test executables.
  *
- * srv_app and client_app use DECLARE_* for flags that are normally DEFINE_* in
+ * server_app and client_app use DECLARE_* for flags that are normally DEFINE_* in
  * a server or client binary's main.cpp.  Any test executable that pulls in
  * those scaffolds (transitively via pty_server_app, pty_client_app, etc.) must
  * provide definitions so the linker can resolve the references.

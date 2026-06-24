@@ -1,13 +1,13 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file pty_server_app.hpp
- * @brief PTY server application scaffold — thin wrapper over srv_app.
+ * @brief PTY server application scaffold — thin wrapper over server_app.
  */
 #pragma once
 
 #if defined(__linux__)
 
-#include "src/app/server/srv_app.hpp"
+#include "src/app/server/server_app.hpp"
 
 #include <string>
 
@@ -16,7 +16,7 @@ namespace bdg::bison::app {
 /**
  * @brief Extensible base class for PTY bison server applications.
  *
- * `pty_server_app` is a thin wrapper around `srv_app` that forces the PTY
+ * `pty_server_app` is a thin wrapper around `server_app` that forces the PTY
  * transport and provides backward-compatible virtual hooks for the C ABI and
  * existing subclasses.
  *
@@ -34,12 +34,12 @@ namespace bdg::bison::app {
  * - `on_error()` — called on fatal exceptions (default: `std::cerr`)
  *
  * All session lifecycle, verbose trace, and error paths go through
- * `srv_app::run_pty()` and `bridged_server`, so `on_session_created/destroyed`
+ * `server_app::run_pty()` and `bridged_server`, so `on_session_created/destroyed`
  * and `--verbose` trace work automatically when subclassed.
  *
  * Linux only.
  */
-class pty_server_app : public srv_app {
+class pty_server_app : public server_app {
  public:
   /**
    * @brief Run the PTY server — argc/argv are ignored, PTY transport is forced.
@@ -75,7 +75,7 @@ class pty_server_app : public srv_app {
   virtual void on_session_ended() const {}
 
  private:
-  // Bridge srv_app hooks to the legacy pty_server_app hook names.
+  // Bridge server_app hooks to the legacy pty_server_app hook names.
   void on_pty_client_connected() const override { on_client_connected(); }
   void on_pty_session_ended()    const override { on_session_ended(); }
 };

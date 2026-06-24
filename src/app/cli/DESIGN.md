@@ -284,7 +284,7 @@ Subclasses (e.g. "wish") may call `get_dictionary()` themselves and apply
 **`OP_HELP` auto-generates its listing from the registry.**
 The server builds the help text by walking the same registry used by
 `OP_DESCRIBE`.  No manual documentation string is required at the server
-level; `srv_app` subclasses may override `server_description()` to prepend
+level; `server_app` subclasses may override `server_description()` to prepend
 a custom intro paragraph, but the class/field/method listing is always
 generated automatically.  Only items with a `DisplayName` attribute appear
 in the listing, keeping the output readable even when hashes are involved.

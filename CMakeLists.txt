@@ -100,7 +100,7 @@ target_sources(bison PRIVATE
   src/app/pty/pty_client_app.cpp
   src/app/client/client_app.cpp
   src/app/cli/cli_app.cpp
-  src/app/server/srv_app.cpp
+  src/app/server/server_app.cpp
 )
 
 if(WIN32)

@@ -1,9 +1,9 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file srv_app.cpp
+ * @file server_app.cpp
  * @brief Extensible server application scaffold implementation.
  */
-#include "src/app/server/srv_app.hpp"
+#include "src/app/server/server_app.hpp"
 
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
@@ -34,13 +34,13 @@ DECLARE_bool  (verbose);
 
 namespace bdg::bison::app {
 
-// ── Internal server subclass that bridges rmi hooks to srv_app hooks ─────────
+// ── Internal server subclass that bridges rmi hooks to server_app hooks ───────
 
 namespace {
 
 class bridged_server : public rmi::server {
  public:
-  bridged_server(rmi::transport::server_transport_iface& t, srv_app& app)
+  bridged_server(rmi::transport::server_transport_iface& t, server_app& app)
       : rmi::server(t), app_(app) {}
 
  protected:
@@ -72,17 +72,17 @@ class bridged_server : public rmi::server {
   }
 
  private:
-  srv_app& app_;
+  server_app& app_;
 };
 
 #if defined(__linux__)
 /**
  * @brief Single-use transport adapter wrapping a pre-accepted PTY connection.
  *
- * `srv_app` accepts a connection from `pty_server_transport`, wraps it here,
- * and passes this adapter to a fresh `bridged_server`.  The adapter yields the
- * connection on the first `accept()` call and blocks on all subsequent calls
- * until `stop()` is invoked.
+ * `server_app` accepts a connection from `pty_server_transport`, wraps it
+ * here, and passes this adapter to a fresh `bridged_server`.  The adapter
+ * yields the connection on the first `accept()` call and blocks on all
+ * subsequent calls until `stop()` is invoked.
  */
 class one_shot_transport final
     : public rmi::transport::server_transport_iface {
@@ -123,39 +123,39 @@ class one_shot_transport final
 
 // ── Default hook implementations ──────────────────────────────────────────────
 
-void srv_app::on_verbose_trace(bison::key_t /*session_id*/,
-                               const std::string& line) const {
+void server_app::on_verbose_trace(bison::key_t /*session_id*/,
+                                  const std::string& line) const {
   std::cout << line << '\n';
 }
 
-void srv_app::on_listening() const {
+void server_app::on_listening() const {
   if (!FLAGS_pipe.empty()) {
-    std::cout << "[srv_app] listening on pipe " << FLAGS_pipe
+    std::cout << "[server_app] listening on pipe " << FLAGS_pipe
               << " -- press Enter to stop\n" << std::flush;
   } else {
-    std::cout << "[srv_app] listening on " << FLAGS_host << ':' << FLAGS_port
+    std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port
               << " -- press Enter to stop\n" << std::flush;
   }
 }
 
-void srv_app::on_session_created(rmi::context& ctx) const { (void)ctx; }
+void server_app::on_session_created(rmi::context& ctx) const { (void)ctx; }
 
-void srv_app::on_session_destroyed(rmi::context& ctx) const { (void)ctx; }
+void server_app::on_session_destroyed(rmi::context& ctx) const { (void)ctx; }
 
-void srv_app::on_error(const std::string& msg) const {
-  std::cerr << "[srv_app] error: " << msg << '\n';
+void server_app::on_error(const std::string& msg) const {
+  std::cerr << "[server_app] error: " << msg << '\n';
 }
 
 #if defined(__linux__)
-void srv_app::on_listening_pty() const {
-  std::cout << "[srv_app] PTY server started -- waiting for connections\n"
+void server_app::on_listening_pty() const {
+  std::cout << "[server_app] PTY server started -- waiting for connections\n"
             << std::flush;
 }
 #endif
 
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
-int srv_app::run_with_transport(
+int server_app::run_with_transport(
     rmi::transport::server_transport_iface& transport) {
   bridged_server srv{transport, *this};
   srv.listen();
@@ -169,7 +169,7 @@ int srv_app::run_with_transport(
 // ── Default run_pty — PTY lifecycle (Linux only) ──────────────────────────────
 
 #if defined(__linux__)
-int srv_app::run_pty() {
+int server_app::run_pty() {
   pty_server_transport transport{shell_command()};
   bison::dynamic pty_params;
   pty_params["mode"_key] = std::string{"dcs"};
@@ -209,7 +209,7 @@ int srv_app::run_pty() {
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
 
-int srv_app::run(int argc, char** argv) {
+int server_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   try {
