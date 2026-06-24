@@ -789,7 +789,7 @@ class dynamic {
    * @return Converted field value, or @p dflt.
    */
   template <typename T>
-  T tryGet(key_t k, T dflt = T{}) const {
+  T get_as(key_t k, T dflt = T{}) const {
     const auto* f = findField(k);
     if (!f) return dflt;
     try {
