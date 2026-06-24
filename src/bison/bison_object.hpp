@@ -766,6 +766,19 @@ class dynamic {
   }
 
   /**
+   * @brief String overload: registers @p name in the key-name registry so
+   *        `build_display_dict()` can resolve it, then inserts the field.
+   *
+   * @param name  Null-terminated field name; hashed to produce the key.
+   * @param value Field value to insert.
+   * @return `true` if the field was inserted; `false` if already present.
+   */
+  inline bool addField(const char* name, field value) {
+    register_key_name(hash(name), name);
+    return addField(key_t{name}, std::move(value));
+  }
+
+  /**
    * @brief Register a callable method on this object.
    *
    * @param name  Hash key for the method.
@@ -775,6 +788,19 @@ class dynamic {
    */
   inline bool addMethod(key_t name, method m) {
     return methods_.emplace(name, std::move(m)).second;
+  }
+
+  /**
+   * @brief String overload: registers @p name in the key-name registry so
+   *        `build_display_dict()` can resolve it, then registers the method.
+   *
+   * @param name  Null-terminated method name; hashed to produce the key.
+   * @param m     Method instance (implementation + optional attributes).
+   * @return `true` if the method was registered; `false` if already taken.
+   */
+  inline bool addMethod(const char* name, method m) {
+    register_key_name(hash(name), name);
+    return addMethod(key_t{name}, std::move(m));
   }
 
   /**

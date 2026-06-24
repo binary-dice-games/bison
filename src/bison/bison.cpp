@@ -677,11 +677,15 @@ std::string print_method_value_p(const method& m) {
 std::string print_dynamic_p(
     const dynamic& obj, const print_options& opts, int depth) {
   std::string result;
+  auto is_internal = [](hash_t h) {
+    return h == dynamic::CLASS || h == dynamic::PARENT || h == dynamic::NAMESPACE;
+  };
   if (opts.multiline) {
     const std::string cur  = repeat_str_p(opts.indent, depth);
     const std::string next = repeat_str_p(opts.indent, depth + 1);
     result = "{\n";
     obj.forEach([&](key_t k, const field& f) {
+      if (opts.hide_internal && is_internal(static_cast<hash_t>(k))) return;
       result += next + format_field_key_p(k, f, opts) + ": ";
       result += print_field_value_p(f, opts, depth + 1) + '\n';
     });
@@ -694,6 +698,7 @@ std::string print_dynamic_p(
     result = '{';
     bool first = true;
     obj.forEach([&](key_t k, const field& f) {
+      if (opts.hide_internal && is_internal(static_cast<hash_t>(k))) return;
       if (!first) result += ", ";
       result += format_field_key_p(k, f, opts) + ": ";
       result += print_field_value_p(f, opts, depth + 1);
@@ -716,18 +721,58 @@ std::string print(const dynamic& obj, const print_options& opts) {
   return print_dynamic_p(obj, opts, 0);
 }
 
+// ── Key-name registry ─────────────────────────────────────────────────────────
+
+namespace {
+
+std::unordered_map<hash_t, std::string>& key_name_registry_map() {
+  static std::unordered_map<hash_t, std::string> reg;
+  return reg;
+}
+
+std::mutex& key_name_registry_mutex() {
+  static std::mutex mtx;
+  return mtx;
+}
+
+} // namespace
+
+void register_key_name(hash_t h, std::string_view name) {
+  std::lock_guard<std::mutex> lk{key_name_registry_mutex()};
+  key_name_registry_map().emplace(h, std::string(name));
+}
+
 std::unordered_map<hash_t, std::string> build_display_dict() {
+  // Seed from the explicit key-name registry (populated by string overloads of
+  // addMethod / addField and by direct register_key_name() calls).
   std::unordered_map<hash_t, std::string> d;
+  {
+    std::lock_guard<std::mutex> lk{key_name_registry_mutex()};
+    d = key_name_registry_map();
+  }
+
+  // Merge DisplayName attributes from registered class prototypes.
+  // DisplayName entries take precedence over the registry (they are more
+  // specific — written by hand rather than auto-derived from a key string).
   auto lp = dynamic::getRegistry().rlock();
   for (const auto& [ns_key, classes] : *lp) {
     for (const auto& [klass_key, proto] : classes) {
       if (!proto) continue;
+      // Map the class key (hash of the class name) to its display name.
       const auto* cf = proto->findField(dynamic::CLASS);
       if (cf) {
         if (const auto* dn = cf->findAttribute<DisplayName>())
           d[static_cast<hash_t>(klass_key)] = dn->name();
       }
+      // Map field keys — but skip the internal bookkeeping fields (__class,
+      // __parent, __namespace).  Those fields carry the class's DisplayName as
+      // an attribute (added by addClass()), but they all share the same key
+      // across every prototype; merging them would map hash("__class") to
+      // whichever class was registered last, producing confusing output.
       proto->forEach([&](key_t k, const field& f) {
+        if (static_cast<hash_t>(k) == dynamic::CLASS     ||
+            static_cast<hash_t>(k) == dynamic::PARENT    ||
+            static_cast<hash_t>(k) == dynamic::NAMESPACE) return;
         if (const auto* dn = f.findAttribute<DisplayName>())
           d[static_cast<hash_t>(k)] = dn->name();
       });
@@ -737,6 +782,9 @@ std::unordered_map<hash_t, std::string> build_display_dict() {
         auto add_params = [&](const dynamic* spec) {
           if (!spec) return;
           spec->forEach([&](key_t fk, const field& ff) {
+            if (static_cast<hash_t>(fk) == dynamic::CLASS     ||
+                static_cast<hash_t>(fk) == dynamic::PARENT    ||
+                static_cast<hash_t>(fk) == dynamic::NAMESPACE) return;
             if (const auto* dn = ff.findAttribute<DisplayName>())
               d[static_cast<hash_t>(fk)] = dn->name();
           });

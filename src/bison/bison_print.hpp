@@ -57,6 +57,15 @@ struct print_options {
    * dictionary lookup is performed and unknown hashes are printed raw.
    */
   const std::unordered_map<hash_t, std::string>* dict{nullptr};
+  /**
+   * @brief When `true`, suppress the internal `__class`, `__parent`, and
+   *        `__namespace` fields from the output.
+   *
+   * These fields are bookkeeping metadata stored on every `dynamic` object.
+   * They clutter human-readable traces; set this flag to hide them.
+   * Default: `false` (show all fields).
+   */
+  bool hide_internal{false};
 };
 
 /**

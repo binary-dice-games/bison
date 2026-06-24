@@ -60,6 +60,7 @@ void server::on_request_trace(context& ctx, const shared::envelope& env) {
   bison::print_options popts;
   popts.multiline = false;
   popts.dict = &trace_dict();
+  popts.hide_internal = true;
 
   std::ostringstream oss;
   oss << "[rmi] " << op_to_label(env.op)
@@ -106,6 +107,7 @@ void server::on_response_trace(
   bison::print_options popts;
   popts.multiline = false;
   popts.dict = &trace_dict();
+  popts.hide_internal = true;
 
   std::ostringstream oss;
   oss << "[rmi] " << op_to_label(op)

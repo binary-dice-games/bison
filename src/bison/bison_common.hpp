@@ -261,4 +261,20 @@ using collection = std::unordered_map<key_t, dynamic_ptr, key_t, key_t>;
  */
 using namespace_map = std::unordered_map<key_t, collection, key_t, key_t>;
 
+/**
+ * @brief Register a human-readable name for a hash key.
+ *
+ * Stores @p name in the global key-name registry, which
+ * `build_display_dict()` merges as a fallback for keys that do not carry a
+ * `DisplayName` attribute.  Thread-safe; may be called from any thread.
+ *
+ * The string overloads of `dynamic::addMethod()` and `dynamic::addField()`
+ * call this automatically.  Call it explicitly for parameter field names
+ * (e.g. `"descriptor"_key`) that never appear in a class prototype.
+ *
+ * @param h     Hash produced by `hash()` or `_key` literal.
+ * @param name  Human-readable name to associate with @p h.
+ */
+void register_key_name(hash_t h, std::string_view name);
+
 } // namespace bdg::bison
