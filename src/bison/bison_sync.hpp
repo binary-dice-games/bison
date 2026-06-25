@@ -118,6 +118,17 @@ class synchronized {
   synchronized() = default;
   explicit synchronized(T data) : data_(std::move(data)) {}
 
+  /// @brief In-place constructor: constructs the wrapped value directly.
+  ///
+  /// This is useful for non-movable, non-copyable types. Instead of
+  /// `synchronized(T data)` which requires moving T, this forwards constructor
+  /// arguments directly to T's constructor.
+  ///
+  /// Example: `synchronized<session>(std::in_place, session_id)`.
+  template <typename... Args>
+  explicit synchronized(std::in_place_t, Args&&... args)
+      : data_(std::forward<Args>(args)...) {}
+
   synchronized(const synchronized& other) {
     if constexpr (detail::shared_mutex_c<Mutex>) {
       std::shared_lock lk(other.mutex_);
