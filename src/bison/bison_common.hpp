@@ -223,7 +223,8 @@ inline key_t operator""_rkey(const char* name, std::size_t /*size*/) noexcept {
  *
  * Extends `std::shared_ptr<dynamic>` with additional constructors that
  * allow in-place construction of a `dynamic` and conversion from a bare
- * `std::shared_ptr<dynamic>`.
+ * `std::shared_ptr<dynamic>`, plus `operator[]` for direct field access
+ * without the `(*ptr)[key]` boilerplate.
  */
 class dynamic_ptr : public std::shared_ptr<dynamic> {
  public:
@@ -238,6 +239,10 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
 
   dynamic_ptr(dynamic&& that);
   dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {});
+
+  /// @brief Field access: `ptr[key] = value` without needing `(*ptr)[key]`.
+  template<typename K>
+  decltype(auto) operator[](K key) const { return (**this)[key]; }
 };
 
 /**
