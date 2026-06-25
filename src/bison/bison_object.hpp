@@ -332,6 +332,27 @@ class field : public field_base {
   }
 
   /**
+   * @brief Return a pointer to the stored value if it holds type @p T.
+   *
+   * Analogous to `std::get_if`: returns a non-null pointer only when the
+   * active alternative is exactly @p T; returns `nullptr` otherwise.
+   * Never throws.
+   *
+   * @tparam T  Requested alternative type.
+   * @return Pointer to the stored @p T value, or `nullptr`.
+   */
+  template <typename T>
+  T* get() {
+    return std::get_if<T>(static_cast<field_base*>(this));
+  }
+
+  /** @brief Const overload of `get<T>()`. */
+  template <typename T>
+  const T* get() const {
+    return std::get_if<T>(static_cast<const field_base*>(this));
+  }
+
+  /**
    * @brief Compile-time index of type @p T within `field_base`.
    *
    * @tparam T      Alternative type to locate.
@@ -1165,6 +1186,23 @@ class dynamic {
       return &it->second;
     }
     return nullptr;
+  }
+
+  /**
+   * @brief Find a field by name and return a typed pointer if it holds type @p T.
+   *
+   * Combines `findField` with `field::is<T>()`: returns a non-null pointer only
+   * when the field exists and its active alternative is exactly @p T.  Returns
+   * `nullptr` when the field is absent or holds a different type.
+   *
+   * @tparam T    Requested alternative type (e.g. `std::string`, `dynamic_ptr`).
+   * @param  name Hash key to look up.
+   * @return Pointer to the stored @p T value, or `nullptr`.
+   */
+  template <typename T>
+  T* findField(key_t name) const {
+    field* f = findField(name);
+    return (f && f->is<T>()) ? &f->as<T>() : nullptr;
   }
 
   /**
