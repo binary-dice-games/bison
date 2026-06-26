@@ -156,9 +156,10 @@ class Step : public attribute {
 class EnumFlags : public attribute {
  public:
   using entry = std::pair<std::string, int32_t>;
+  using table = std::vector<entry>;
 
-  explicit EnumFlags(std::initializer_list<entry> values)
-      : values_(values) {}
+  explicit EnumFlags(table values)
+      : values_(std::move(values)) {}
 
   /** @brief Parse `"FlagA | FlagB"` → `int32_t` (OR-combines matched values). */
   int32_t parse(const std::string& s) const {
@@ -220,9 +221,10 @@ class EnumFlags : public attribute {
 class Enum : public attribute {
  public:
   using entry = std::pair<std::string, int32_t>;
+  using table = std::vector<entry>;
 
-  explicit Enum(std::initializer_list<entry> values)
-      : values_(values) {}
+  explicit Enum(table values)
+      : values_(std::move(values)) {}
 
   /** @brief Parse a single enum name → `int32_t`, or `std::stoi` fallback. */
   int32_t parse(const std::string& s) const {
