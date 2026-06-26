@@ -139,6 +139,115 @@ class Step : public attribute {
 };
 
 /**
+ * @brief Bitmask flags attribute: maps symbolic names to `int32_t` bit values.
+ *
+ * Attaching this to an `int32_t` field enables two coercions:
+ *  - **Write**: assigning a `std::string` like `"FlagA | FlagB"` OR-combines
+ *    the matched bit values and stores the result as `int32_t`.  Raw numeric
+ *    strings (`"16"`) are also accepted and parsed via `std::stoi`.  Unknown
+ *    tokens are silently skipped.
+ *  - **Read**: `field::get_as<std::string>()` decomposes the stored integer
+ *    into its constituent flag names joined by `" | "`, falling back to
+ *    `std::to_string` for any bits not covered by a named entry.
+ *
+ * Entries are evaluated in declaration order; list individual single-bit flags
+ * before composite aliases so that `format()` prefers the fine-grained names.
+ */
+class EnumFlags : public attribute {
+ public:
+  using entry = std::pair<std::string, int32_t>;
+
+  explicit EnumFlags(std::initializer_list<entry> values)
+      : values_(values) {}
+
+  /** @brief Parse `"FlagA | FlagB"` → `int32_t` (OR-combines matched values). */
+  int32_t parse(const std::string& s) const {
+    int32_t result = 0;
+    std::string::size_type start = 0;
+    while (true) {
+      auto end = s.find('|', start);
+      std::string tok = (end == std::string::npos)
+          ? s.substr(start) : s.substr(start, end - start);
+      auto ts = tok.find_first_not_of(" \t");
+      auto te = tok.find_last_not_of(" \t");
+      if (ts != std::string::npos) {
+        tok = tok.substr(ts, te - ts + 1);
+        bool found = false;
+        for (const auto& [name, val] : values_) {
+          if (name == tok) { result |= val; found = true; break; }
+        }
+        if (!found) {
+          try { result |= std::stoi(tok); } catch (...) {}
+        }
+      }
+      if (end == std::string::npos) break;
+      start = end + 1;
+    }
+    return result;
+  }
+
+  /** @brief Format `int32_t` → `"FlagA | FlagB"` (set bits, in entry order). */
+  std::string format(int32_t v) const {
+    std::string out;
+    int32_t remaining = v;
+    for (const auto& [name, val] : values_) {
+      if (val != 0 && (remaining & val) == val) {
+        if (!out.empty()) out += " | ";
+        out += name;
+        remaining &= ~val;
+      }
+    }
+    if (remaining != 0) {
+      if (!out.empty()) out += " | ";
+      out += std::to_string(remaining);
+    }
+    if (out.empty()) out = std::to_string(v);
+    return out;
+  }
+
+ private:
+  std::vector<entry> values_;
+};
+
+/**
+ * @brief Discrete enum attribute: maps symbolic names to mutually exclusive
+ *        `int32_t` values.
+ *
+ * Like `EnumFlags` but for non-bitmask enumerations (e.g. direction, alignment).
+ * `parse()` looks up the single matching name (no OR-combining); `format()`
+ * does an exact reverse lookup.
+ */
+class Enum : public attribute {
+ public:
+  using entry = std::pair<std::string, int32_t>;
+
+  explicit Enum(std::initializer_list<entry> values)
+      : values_(values) {}
+
+  /** @brief Parse a single enum name → `int32_t`, or `std::stoi` fallback. */
+  int32_t parse(const std::string& s) const {
+    auto ts = s.find_first_not_of(" \t");
+    auto te = s.find_last_not_of(" \t");
+    std::string tok = (ts == std::string::npos) ? s : s.substr(ts, te - ts + 1);
+    for (const auto& [name, val] : values_) {
+      if (name == tok) return val;
+    }
+    return std::stoi(tok);
+  }
+
+  /** @brief Format `int32_t` → enum name, or `std::to_string` fallback. */
+  std::string format(int32_t v) const {
+    for (const auto& [name, val] : values_) {
+      if (val == v) return name;
+    }
+    return std::to_string(v);
+  }
+
+ private:
+  std::vector<entry> values_;
+};
+
+/**
  * @brief A typed variant value with optional metadata attributes.
  *
  * `field` extends `field_base` (a `std::variant`) and enforces *stable-type*
@@ -255,6 +364,14 @@ class field : public field_base {
       field_base::operator=(v);
     } else if (!std::holds_alternative<value_type>(
                    static_cast<const field_base&>(*this))) {
+      if constexpr (std::is_same_v<value_type, std::string>) {
+        if (is<int32_t>()) {
+          if (const auto* ef = findAttribute<EnumFlags>())
+            { field_base::operator=(ef->parse(v)); return *this; }
+          if (const auto* e = findAttribute<Enum>())
+            { field_base::operator=(e->parse(v)); return *this; }
+        }
+      }
       throw std::runtime_error("Invalid type");
     } else {
       field_base::operator=(v);
@@ -289,6 +406,14 @@ class field : public field_base {
    */
   template <typename T>
   T get_as() const {
+    if constexpr (std::is_same_v<T, std::string>) {
+      if (is<int32_t>()) {
+        const int32_t raw =
+            std::get<int32_t>(static_cast<const field_base&>(*this));
+        if (const auto* ef = findAttribute<EnumFlags>()) return ef->format(raw);
+        if (const auto* e  = findAttribute<Enum>())      return e->format(raw);
+      }
+    }
     return cast_value<T>(static_cast<const field_base&>(*this));
   }
 
