@@ -24,6 +24,9 @@ package_add_test(bison_test bison_tests.cpp)
 # RMI framework tests (header-only, no extra link deps beyond bison)
 package_add_test(rmi_test rmi_tests.cpp)
 
+# Bridge multiplexer tests
+package_add_test(bridge_test bridge_tests.cpp)
+
 # PTY transport and app scaffold tests (Linux only; links util for forkpty)
 # app_test_flags.cpp provides DEFINE_* for gflags referenced by server_app /
 # client_app, which are pulled in transitively via pty_server_app.

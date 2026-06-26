@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include "src/rmi/bridge/bridge.hpp"
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/client/proxy.hpp"
 #include "src/rmi/server/context.hpp"

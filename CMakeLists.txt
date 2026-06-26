@@ -92,6 +92,7 @@ target_sources(bison PRIVATE
   src/rmi/transport/stream_transport.cpp
   src/rmi/transport/pty_server_transport.cpp
   src/rmi/transport/pty_client_transport.cpp
+  src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
   src/rmi/server/server.cpp

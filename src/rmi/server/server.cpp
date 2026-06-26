@@ -596,24 +596,17 @@ void server::handle_instantiate(
     }
   }
 
-  // Verify the class is registered (under lock), then release lock before
-  // calling on_create_object so that hook implementations can acquire
-  // other locks without risking a deadlock.
-  {
-    auto lp = bison::dynamic::getRegistry().rlock();
-    const auto& nsmap = *lp;
-    auto nsIt = nsmap.find(ns);
-    if (nsIt == nsmap.end() || !nsIt->second.count(klass)) {
-      send_error(
-          ctx,
-          conn,
-          env,
-          OP_INSTANTIATE,
-          ERR_CLASS_NOT_FOUND,
-          "Class not registered in requested namespace");
-      return;
-    }
-  }  // registry lock released
+  // Allow subclasses (e.g. rmi::bridge) to bypass the registry check.
+  if (!on_check_class(ctx, ns, klass)) {
+    send_error(
+        ctx,
+        conn,
+        env,
+        OP_INSTANTIATE,
+        ERR_CLASS_NOT_FOUND,
+        "Class not registered in requested namespace");
+    return;
+  }
 
   bison::dynamic_ptr obj;
   try {

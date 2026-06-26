@@ -179,14 +179,40 @@ class server {
   virtual std::string on_help_text() const { return {}; }
 
   /**
+   * @brief Guard hook called before class-registry lookup in
+   *        `handle_instantiate`.
+   *
+   * The default implementation checks whether @p klass is registered under
+   * @p ns in the global `bison::dynamic` registry.  Override to accept
+   * classes that are not locally registered — for example, `rmi::bridge`
+   * returns `true` unconditionally and forwards instantiation to an upstream
+   * server.
+   *
+   * @param ctx   Session context for the requesting client.
+   * @param ns    Namespace key of the requested class.
+   * @param klass Class key of the requested type.
+   * @return `true` when the request should proceed to `on_create_object`.
+   */
+  virtual bool on_check_class(
+      context& ctx,
+      bison::key_t ns,
+      bison::key_t klass) {
+    (void)ctx;
+    auto lp = bison::dynamic::getRegistry().rlock();
+    const auto& nsmap = *lp;
+    auto nsIt = nsmap.find(ns);
+    return nsIt != nsmap.end() && nsIt->second.count(klass);
+  }
+
+  /**
    * @brief Factory hook called when a client instantiates a new object.
    *
    * The default implementation wraps a plain `bison::dynamic::instantiate`
    * result in a `dynamic_ptr`.  Override to return a session-aware subclass
    * (e.g. a handler that holds a reference to per-session application state).
    *
-   * Called from the session worker thread after the class has been verified as
-   * registered, outside the class-registry read lock.
+   * Called from the session worker thread after `on_check_class` returns
+   * `true`, outside the class-registry read lock.
    *
    * @param ctx   Session context for the requesting client.
    * @param ns    Namespace key of the requested class.

@@ -737,6 +737,17 @@ class dynamic {
       "__namespace"_key; /**< Reserved: namespace hash (0 = global). */
 
   /**
+   * @brief Reserved method key: catch-all invoked when a named method is not
+   * found on an object.
+   *
+   * Receives `{ "__name"_key: requested_name, "__params"_key: original_params
+   * }`.  If present, the fallback is called instead of throwing
+   * `"Method not found"`.  Bridge proxy objects register this to forward
+   * arbitrary method calls upstream without enumerating method names.
+   */
+  static inline constexpr hash_t CALL_FALLBACK = "__callFallback"_key;
+
+  /**
    * @brief Construct a dynamic object with an optional class and initial
    * fields.
    *
@@ -1085,6 +1096,14 @@ class dynamic {
   inline dynamic call(key_t name, const dynamic& params) {
     auto* m = findMethod(name);
     if (m == nullptr) {
+      auto* fb = findMethod(key_t{CALL_FALLBACK});
+      if (fb != nullptr) {
+        dynamic wrapper;
+        wrapper[key_t{"__name"_key}] = name;
+        wrapper[key_t{"__params"_key}] =
+            dynamic_ptr{std::make_shared<dynamic>(params.clone())};
+        return fb->call(*this, wrapper);
+      }
       throw std::runtime_error("Method not found");
     }
     return m->call(*this, params);
