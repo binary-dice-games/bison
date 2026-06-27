@@ -1,16 +1,14 @@
 // MIT License © 2025 Binary Dice Games
 // examples/pty_client_example.cpp
 //
-// RMI client example using pty_client_app: connects to pty_server_example
-// running on the same host via SSH.  This process uses its own stdin/stdout
-// (the SSH channel through the server's pty) as the bison DCS transport.
+// RMI client example using pty_client_app.  Reads frames from stdin and writes
+// frames to stdout using 4-byte big-endian length-prefix framing.
 //
-// Run this binary inside an SSH session to the machine running
-// rmi_pty_server_example.
+// Typically spawned as a child process by pty_server_example, which connects
+// its stdin/stdout pipes to the server via uv_spawn().  Can also be wired up
+// manually (e.g. via shell pipes or SSH channel redirection).
 //
-// Linux only.
-
-#if defined(__linux__)
+// Cross-platform (Windows and Linux).
 
 #include "src/app/pty/pty_client_app.hpp"
 
@@ -75,14 +73,3 @@ int main(int argc, char** argv) {
   calculator_pty_client app;
   return app.run(argc, argv);
 }
-
-#else
-
-#include <iostream>
-
-int main() {
-  std::cerr << "rmi_pty_client_example is only supported on Linux.\n";
-  return 1;
-}
-
-#endif // defined(__linux__)

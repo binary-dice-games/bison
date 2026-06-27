@@ -4,16 +4,19 @@
 // PTY RMI server example using the Bison C ABI (pty_c.h / bison_abi).
 //
 // This file intentionally uses only the stable C ABI — no C++ headers.
-// Registers a Calculator class, then owns a bash subprocess via forkpty and
-// serves it over DCS-framed bison to any client connecting via SSH.
+// Registers a Calculator class, then spawns pty_abi_client_example as a child
+// process via uv_spawn(), serving Calculator calls over bison
+// 4-byte-length-prefix framing on the child's stdin/stdout pipes.
 //
-// Linux only.
+// Usage (run from the directory containing both executables):
+//   ./pty_abi_server_example        (Linux / macOS)
+//   .\pty_abi_server_example.exe    (Windows)
+//
+// Cross-platform (Windows and Linux).
 
 #include <stdio.h>
 
 #include "pty_c.h"
-
-#ifdef __linux__
 
 // ── Method implementations ────────────────────────────────────────────────────
 
@@ -78,27 +81,27 @@ static void on_client_connected(void* user) {
 
 static void on_session_ended(void* user) {
   (void)user;
-  fprintf(stderr, "[Server] session ended — waiting for next client.\n");
+  fprintf(stderr, "[Server] session ended.\n");
+}
+
+static const char* get_shell_command(void* user) {
+  (void)user;
+#if defined(_WIN32)
+  return "pty_abi_client_example.exe";
+#else
+  return "./pty_abi_client_example";
+#endif
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
-  fprintf(stderr, "[Server] starting PTY server (bash subprocess via forkpty).\n");
-  fprintf(stderr, "[Server] SSH in and run pty_abi_client_example to connect.\n");
+  fprintf(stderr, "[Server] starting PTY server — spawning client subprocess.\n");
 
   pty_server_callbacks cb = {0};
   cb.register_classes    = register_classes;
+  cb.shell_command       = get_shell_command;
   cb.on_client_connected = on_client_connected;
   cb.on_session_ended    = on_session_ended;
   return pty_server_run(argc, argv, &cb) == RMI_OK ? 0 : 1;
 }
-
-#else
-
-int main(void) {
-  fprintf(stderr, "pty_abi_server_example is only supported on Linux.\n");
-  return 1;
-}
-
-#endif // __linux__

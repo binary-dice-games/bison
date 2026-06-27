@@ -74,10 +74,12 @@ add_executable(
 add_executable(
 	pty_server_example
 	${BISON_PTY_SERVER_EXAMPLE_PRIVATE_SOURCES}
+	pty_flags.cpp
 )
 add_executable(
 	pty_client_example
 	${BISON_PTY_CLIENT_EXAMPLE_PRIVATE_SOURCES}
+	pty_flags.cpp
 )
 add_executable(
 	pty_abi_server_example
@@ -121,12 +123,7 @@ target_link_libraries(bison_performance PRIVATE bison nlohmann_json::nlohmann_js
 target_link_libraries(rmi_server_example PRIVATE bison)
 target_link_libraries(rmi_client_example PRIVATE bison)
 target_link_libraries(rmi_standalone_example PRIVATE bison)
-target_link_libraries(pty_server_example PRIVATE bison)
-target_link_libraries(pty_client_example PRIVATE bison)
+target_link_libraries(pty_server_example PRIVATE bison gflags)
+target_link_libraries(pty_client_example PRIVATE bison gflags)
 target_link_libraries(pty_abi_server_example PRIVATE bison_abi)
 target_link_libraries(pty_abi_client_example PRIVATE bison_abi)
-
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-	target_link_libraries(pty_server_example PRIVATE util)
-	target_link_libraries(pty_client_example PRIVATE util)
-endif()

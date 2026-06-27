@@ -47,14 +47,14 @@ class pty_server_app : public server_app {
   int run(int argc, char** argv) override;
 
  protected:
-  /** @brief Shell command launched by the PTY transport (default: platform shell). */
-  std::string shell_command() const override {
-#if defined(_WIN32)
-    return "cmd.exe";
-#else
-    return "bash";
-#endif
-  }
+  /**
+   * @brief Child process launched by the PTY transport via `uv_spawn()`.
+   *
+   * Override to specify the bison client binary to spawn (e.g.
+   * `"pty_client_example"`).  The default is a bare shell, which is only
+   * useful if you are piping the bison client manually.
+   */
+  std::string shell_command() const override { return "bash"; }
 
   /**
    * @brief Transport parameters (retained for C ABI compatibility).

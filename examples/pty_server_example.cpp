@@ -1,13 +1,15 @@
 // MIT License © 2025 Binary Dice Games
 // examples/pty_server_example.cpp
 //
-// RMI server example using pty_server_app: owns a bash subprocess via forkpty,
-// serves a Calculator over DCS-framed bison to any client that connects via SSH
-// and runs pty_client_example in the resulting terminal.
+// RMI server example using pty_server_app.  Spawns pty_client_example as a
+// child process via uv_spawn(), serving a Calculator object over bison
+// 4-byte-length-prefix framing on the child's stdin/stdout pipes.
 //
-// Linux only.
-
-#if defined(__linux__)
+// Usage (run from the directory containing both executables):
+//   ./pty_server_example        (Linux / macOS)
+//   .\pty_server_example.exe    (Windows)
+//
+// Cross-platform (Windows and Linux).
 
 #include "src/app/pty/pty_server_app.hpp"
 
@@ -17,6 +19,14 @@ using namespace bdg::bison;
 
 class calculator_pty_server final : public app::pty_server_app {
  protected:
+  std::string shell_command() const override {
+#if defined(_WIN32)
+    return "pty_client_example.exe";
+#else
+    return "./pty_client_example";
+#endif
+  }
+
   void register_classes() override {
     auto proto = dynamic_ptr{"Calculator"_key, {}};
 
@@ -72,24 +82,12 @@ class calculator_pty_server final : public app::pty_server_app {
   }
 
   void on_session_ended() const override {
-    std::cerr << "[Server] session ended — waiting for next client.\n";
+    std::cerr << "[Server] session ended.\n";
   }
 };
 
 int main(int argc, char** argv) {
-  std::cerr << "[Server] starting PTY server (bash subprocess via forkpty).\n";
-  std::cerr << "[Server] SSH in and run pty_client_example to connect.\n";
+  std::cerr << "[Server] starting PTY server — spawning client subprocess.\n";
   calculator_pty_server app;
   return app.run(argc, argv);
 }
-
-#else
-
-#include <iostream>
-
-int main() {
-  std::cerr << "rmi_pty_server_example is only supported on Linux.\n";
-  return 1;
-}
-
-#endif // defined(__linux__)

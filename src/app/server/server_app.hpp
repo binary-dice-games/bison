@@ -114,9 +114,11 @@ class server_app {
   virtual void on_pty_session_ended() const {}
 
   /**
-   * @brief Shell command launched by `run_pty()` via `forkpty` (default: "bash").
+   * @brief Child process command launched by `run_pty()` via `uv_spawn()`.
    *
-   * Override to use a different shell (e.g. "sh", "zsh", "fish").
+   * The spawned process must speak the bison 4-byte length-prefix framing
+   * protocol on stdin/stdout.  Override to specify the bison client binary
+   * (e.g. `"pty_client_example"`).
    */
   virtual std::string shell_command() const { return "bash"; }
 

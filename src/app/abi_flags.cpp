@@ -18,6 +18,4 @@ DEFINE_string(pipe,    "",        "Named-pipe / Unix-socket path");
 DEFINE_bool  (verbose, false,     "Print session trace messages to stdout");
 DEFINE_int32 (timeout, 30000,     "Connection timeout in milliseconds");
 
-#if defined(__linux__) || defined(_WIN32)
 DEFINE_bool  (pty,     false,     "Use PTY transport");
-#endif

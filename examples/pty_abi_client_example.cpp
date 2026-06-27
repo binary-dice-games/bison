@@ -4,16 +4,17 @@
 // PTY RMI client example using the Bison C ABI (pty_c.h / bison_abi).
 //
 // This file intentionally uses only the stable C ABI — no C++ headers.
-// Run pty_abi_server_example first; SSH into the server host and launch this
-// binary inside that SSH session so it uses the PTY channel as transport.
+// Reads frames from stdin and writes frames to stdout using 4-byte
+// big-endian length-prefix framing.
 //
-// Linux only.
+// Typically spawned as a child process by pty_abi_server_example, which
+// connects its stdin/stdout pipes to the server via uv_spawn().
+//
+// Cross-platform (Windows and Linux).
 
 #include <stdio.h>
 
 #include "pty_c.h"
-
-#ifdef __linux__
 
 // ── Session callback ──────────────────────────────────────────────────────────
 
@@ -106,16 +107,7 @@ static void on_connected(void* user) {
 
 int main(int argc, char** argv) {
   pty_client_callbacks cb = {0};
-  cb.on_session  = on_session;
+  cb.on_session   = on_session;
   cb.on_connected = on_connected;
   return pty_client_run(argc, argv, &cb) == RMI_OK ? 0 : 1;
 }
-
-#else
-
-int main(void) {
-  fprintf(stderr, "pty_abi_client_example is only supported on Linux.\n");
-  return 1;
-}
-
-#endif // __linux__
