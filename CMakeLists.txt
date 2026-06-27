@@ -138,6 +138,7 @@ add_library(bison_abi SHARED
   src/bison/bison_c.cpp
   src/rmi/rmi_c.cpp
   src/app/pty/pty_c.cpp
+  src/app/abi_flags.cpp
 )
 
 target_compile_definitions(bison_abi PRIVATE BISON_BUILDING_DLL)
