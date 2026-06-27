@@ -94,6 +94,16 @@ Use this guide when generating or editing code in this repository.
 - Keep lock scope tight.
 - Use condition variables with explicit shutdown/stop flags.
 
+## Platform-Dependent Code
+
+Never use conditional compilation (`#ifdef`, `#if defined(...)`, etc.) to separate platform-specific behavior. Instead, split code across files by platform suffix:
+
+- `protocol.cpp` — platform-independent implementation
+- `protocol_linux.cpp` — Linux-specific implementation
+- `protocol_win.cpp` — Windows-specific implementation
+
+The shared header (`protocol.hpp`) declares the full interface. Each `CMakeLists.txt` target includes the platform-independent file plus the one platform-specific file appropriate for that build target. Do not add the other platform files to the same target.
+
 ## Testing Style (GoogleTest)
 
 - Use `TEST` / `TEST_F` with descriptive suite and test names.
