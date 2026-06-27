@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "src/bison/bison.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
@@ -77,7 +77,7 @@ class pty_server_connection : public rmi::transport::server_connection_iface {
  * `restart_session()` and the transport waits for the next client HELLO without
  * restarting the shell subprocess.
  *
- * Linux only.
+ * Linux and Windows.
  */
 class pty_server_transport : public rmi::transport::server_transport_iface {
  public:
@@ -155,4 +155,4 @@ class pty_server_transport : public rmi::transport::server_transport_iface {
 
 } // namespace bdg::bison::app
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)

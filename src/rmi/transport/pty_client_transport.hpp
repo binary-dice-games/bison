@@ -8,11 +8,11 @@
  * `pty_server_transport::accept()`, which waits for the client's HELLO before
  * responding with its own.
  *
- * Linux only.
+ * Linux and Windows.
  */
 #pragma once
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "src/bison/bison.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
@@ -41,7 +41,7 @@ namespace bdg::bison::app {
  * Non-DCS bytes on `stdin` (shell prompts, escape sequences) are silently
  * discarded — the client process is not a terminal emulator.
  *
- * Linux only.
+ * Linux and Windows.
  */
 class pty_client_transport : public rmi::transport::client_transport_iface {
  public:
@@ -95,4 +95,4 @@ class pty_client_transport : public rmi::transport::client_transport_iface {
 
 } // namespace bdg::bison::app
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)

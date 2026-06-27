@@ -11,7 +11,7 @@
 #include "include/pty_c.h"
 #include "src/rmi/rmi.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 #include "src/app/pty/pty_client_app.hpp"
 #include "src/app/pty/pty_server_app.hpp"
 #endif
@@ -91,7 +91,7 @@ static inline rmi_error map_app_exit_code(int exit_code) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 // ── Client wrapper ────────────────────────────────────────────────────────────
 
@@ -199,7 +199,7 @@ class c_pty_server_application_with_callbacks final
   const pty_server_callbacks* callbacks_ = nullptr;
 };
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)
 
 // ─── C API ───────────────────────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ RMI_API rmi_error pty_client_run(
     return RMI_ERR_NULL;
   if (!callbacks || !callbacks->on_session)
     return RMI_ERR_NULL;
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
   try {
     c_pty_client_application_with_callbacks app(callbacks);
     return map_app_exit_code(app.run(argc, argv));
@@ -235,7 +235,7 @@ RMI_API rmi_error pty_server_run(
     return RMI_ERR_NULL;
   if (!callbacks || !callbacks->register_classes)
     return RMI_ERR_NULL;
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
   try {
     c_pty_server_application_with_callbacks app(callbacks);
     return map_app_exit_code(app.run(argc, argv));

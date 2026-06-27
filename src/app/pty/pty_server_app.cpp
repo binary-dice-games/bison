@@ -5,7 +5,7 @@
  */
 #include "src/app/pty/pty_server_app.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 namespace bdg::bison::app {
 
@@ -32,4 +32,4 @@ bison::dynamic pty_server_app::listen_params() const {
 
 } // namespace bdg::bison::app
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)

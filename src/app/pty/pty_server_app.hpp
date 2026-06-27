@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "src/app/server/server_app.hpp"
 
@@ -37,7 +37,7 @@ namespace bdg::bison::app {
  * `server_app::run_pty()` and `bridged_server`, so `on_session_created/destroyed`
  * and `--verbose` trace work automatically when subclassed.
  *
- * Linux only.
+ * Linux and Windows.
  */
 class pty_server_app : public server_app {
  public:
@@ -49,8 +49,14 @@ class pty_server_app : public server_app {
   int run(int argc, char** argv) override;
 
  protected:
-  /** @brief Shell command passed to `forkpty` (default: `"bash"`). */
-  std::string shell_command() const override { return "bash"; }
+  /** @brief Shell command launched by the PTY transport (default: platform shell). */
+  std::string shell_command() const override {
+#if defined(_WIN32)
+    return "cmd.exe";
+#else
+    return "bash";
+#endif
+  }
 
   /**
    * @brief Transport parameters (retained for C ABI compatibility).
@@ -82,4 +88,4 @@ class pty_server_app : public server_app {
 
 } // namespace bdg::bison::app
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)

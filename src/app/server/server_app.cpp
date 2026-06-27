@@ -9,7 +9,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 #  include "src/rmi/transport/pty_server_transport.hpp"
 #  include "src/rmi/transport/transport_iface.hpp"
 #  include <atomic>
@@ -75,7 +75,7 @@ class bridged_server : public rmi::server {
   server_app& app_;
 };
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 /**
  * @brief Single-use transport adapter wrapping a pre-accepted PTY connection.
  *
@@ -117,7 +117,7 @@ class one_shot_transport final
   std::mutex              mtx_;
   std::condition_variable cv_;
 };
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)
 
 } // namespace
 
@@ -146,7 +146,7 @@ void server_app::on_error(const std::string& msg) const {
   std::cerr << "[server_app] error: " << msg << '\n';
 }
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 void server_app::on_listening_pty() const {
   std::cout << "[server_app] PTY server started -- waiting for connections\n"
             << std::flush;
@@ -166,9 +166,9 @@ int server_app::run_with_transport(
   return 0;
 }
 
-// ── Default run_pty — PTY lifecycle (Linux only) ──────────────────────────────
+// ── Default run_pty — PTY lifecycle (Linux and Windows) ──────────────────────
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 int server_app::run_pty() {
   pty_server_transport transport{shell_command()};
   bison::dynamic pty_params;
@@ -205,7 +205,7 @@ int server_app::run_pty() {
   transport.stop();
   return 0;
 }
-#endif
+#endif // defined(__linux__) || defined(_WIN32)
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
 
@@ -215,7 +215,7 @@ int server_app::run(int argc, char** argv) {
   try {
     register_classes();
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
     if (FLAGS_pty) return run_pty();
 #endif
 

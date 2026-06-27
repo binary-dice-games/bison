@@ -89,9 +89,9 @@ class server_app {
    */
   virtual void on_error(const std::string& msg) const;
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
   /**
-   * @brief Called after the PTY server starts (Linux PTY transport only).
+   * @brief Called after the PTY server starts (PTY transport only).
    *
    * Default: prints a ready message to stdout.
    */
@@ -119,7 +119,13 @@ class server_app {
    *
    * Override to use a different shell (e.g. "sh", "zsh", "fish").
    */
-  virtual std::string shell_command() const { return "bash"; }
+  virtual std::string shell_command() const {
+#if defined(_WIN32)
+    return "cmd.exe";
+#else
+    return "bash";
+#endif
+  }
 #endif
 
   /**
@@ -171,7 +177,7 @@ class server_app {
   virtual int run_with_transport(
       rmi::transport::server_transport_iface& transport);
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
   /**
    * @brief Run the PTY server lifecycle, blocking until the shell exits.
    *
@@ -182,7 +188,7 @@ class server_app {
    * @return 0 on clean shutdown, non-zero on error.
    */
   virtual int run_pty();
-#endif
+#endif // defined(__linux__) || defined(_WIN32)
 };
 
 } // namespace bdg::bison::app

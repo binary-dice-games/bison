@@ -5,7 +5,7 @@
  */
 #pragma once
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "src/app/client/client_app.hpp"
 
@@ -28,7 +28,7 @@ namespace bdg::bison::app {
  * - `on_connect_params()` — sets PTY-specific defaults (handshake_timeout_ms)
  * - `on_error()` — default: stderr with `[pty_client_app]` prefix
  *
- * Linux only.
+ * Linux and Windows.
  */
 class pty_client_app : public client_app {
  public:
@@ -62,4 +62,4 @@ class pty_client_app : public client_app {
 
 } // namespace bdg::bison::app
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)

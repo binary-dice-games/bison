@@ -7,7 +7,7 @@
  * host processes written in any language can drive a PTY-backed RMI session
  * without linking C++ directly.
  *
- * Linux only — on other platforms both run functions return
+ * Linux and Windows — on other platforms both run functions return
  * `RMI_ERR_INVALID_STATE`.
  *
  * ## Usage pattern
@@ -113,7 +113,7 @@ typedef struct pty_client_callbacks {
  * @brief Run the PTY RMI client application.
  *
  * Wraps `bdg::bison::app::pty_client_app`.  Blocks until the session ends.
- * On non-Linux platforms returns `RMI_ERR_INVALID_STATE`.
+ * On platforms other than Linux and Windows returns `RMI_ERR_INVALID_STATE`.
  *
  * @param argc       Argument count.
  * @param argv       Argument vector.
@@ -135,7 +135,7 @@ RMI_API rmi_error pty_client_run(
 typedef void (*pty_server_register_classes_fn)(void* user);
 
 /**
- * @brief Invoked to obtain the shell command launched via `forkpty`.
+ * @brief Invoked to obtain the shell command launched by the PTY transport.
  *
  * Return a pointer to a null-terminated string (e.g. `"bash"`).  The string
  * must remain valid for the duration of the callback.  Return `NULL` to use
@@ -207,8 +207,8 @@ typedef struct pty_server_callbacks {
  * @brief Run the PTY RMI server application.
  *
  * Wraps `bdg::bison::app::pty_server_app`.  Blocks until the shell subprocess
- * exits or a fatal error occurs.  On non-Linux platforms returns
- * `RMI_ERR_INVALID_STATE`.
+ * exits or a fatal error occurs.  On platforms other than Linux and Windows
+ * returns `RMI_ERR_INVALID_STATE`.
  *
  * @param argc       Argument count.
  * @param argv       Argument vector.

@@ -24,7 +24,7 @@ Transport implementations have moved to `src/rmi/transport/`:
 - `src/rmi/transport/pty_server_transport.hpp/.cpp` — PTY-owning server transport.
 - `src/rmi/transport/pty_client_transport.hpp/.cpp` — stdin/stdout client transport.
 
-Linux/POSIX only. All files are guarded with `#if defined(__linux__)`.
+Linux and Windows. All files are guarded with `#if defined(__linux__) || defined(_WIN32)`.
 
 ## 2. Design Goals
 
@@ -306,7 +306,12 @@ which would corrupt interactive input (e.g., confuse bash's readline).
 
 ## 7. Constraints and Invariants
 
-- Linux only. `forkpty`, `STDIN_FILENO`, `termios`, `poll` are used directly.
+- Platform support:
+  - Linux: `forkpty`, `termios`, `poll` — handled in `pty_server_transport.cpp` /
+    `pty_client_transport.cpp`.
+  - Windows: ConPTY (`CreatePseudoConsole`, `CreateProcess`), `PeekNamedPipe`,
+    `ReadFile`/`WriteFile` — handled in `*_win.cpp`. Requires Windows 10 1809+
+    (SDK 17763 / `_WIN32_WINNT=0x0A00`), set per-source in CMake.
 - The PTY master fd is never closed between sessions. Closing it would
   signal EOF to the shell subprocess.
 - `write_mtx` must be held for every write to the PTY master fd. User
@@ -321,6 +326,20 @@ which would corrupt interactive input (e.g., confuse bash's readline).
   `stop()` on `SIGTERM`/`SIGINT`.
 - All exceptions from bison RMI operations are caught by the `rmi::server`
   worker threads. `pty_server_app` only catches transport-level exceptions.
+
+### Windows Implementation Notes
+
+- ConPTY creates two anonymous pipes; the server-facing ends (`hRead`, `hWrite`)
+  replace the single `master_fd` used on Linux.
+- Polling uses `PeekNamedPipe` with a 10 ms sleep instead of `poll()`.
+- Console stdin input uses `WaitForSingleObject` (100 ms timeout); pipe stdin
+  uses `PeekNamedPipe` (10 ms sleep).
+- `_WIN32_WINNT=0x0A00` is set per-source in CMake to avoid raising the global
+  version used by ASIO (which stays at `0x0601`).
+- `write_all_fd(HANDLE)` in `dcs_framing.hpp` allows the shared `emit_dcs` /
+  `emit_data` templates to work on Windows without separate implementations.
+- No `termios` raw-mode block is needed on the client — stdin is already a pipe
+  inside the ConPTY session.
 
 ## 8. Integration Boundaries
 

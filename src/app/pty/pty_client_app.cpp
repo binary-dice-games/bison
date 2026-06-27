@@ -5,7 +5,7 @@
  */
 #include "src/app/pty/pty_client_app.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "src/rmi/transport/pty_client_transport.hpp"
 
@@ -40,4 +40,4 @@ int pty_client_app::run(int argc, char** argv) {
 
 } // namespace bdg::bison::app
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)

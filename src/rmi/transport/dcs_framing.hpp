@@ -8,11 +8,11 @@
  * public bison API.  All definitions are inline or template so that no
  * additional translation unit is required.
  *
- * Linux only.
+ * Linux and Windows.
  */
 #pragma once
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 
 #include "src/bison/bison.hpp"
 
@@ -31,7 +31,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include <unistd.h>
+#if defined(_WIN32)
+#  include <windows.h>
+#else
+#  include <unistd.h>
+#endif
 
 namespace bdg::bison::rmi::transport::dcs {
 
@@ -55,8 +59,9 @@ struct partial_message {
   std::chrono::steady_clock::time_point first_seen;
 };
 
-// ── Low-level I/O helper ──────────────────────────────────────────────────────
+// ── Low-level I/O helpers ─────────────────────────────────────────────────────
 
+#if !defined(_WIN32)
 /** @brief Write all @p size bytes from @p data to @p fd, retrying on EINTR. */
 inline bool write_all_fd(int fd, const void* data, size_t size) {
   const auto* p = static_cast<const char*>(data);
@@ -73,6 +78,21 @@ inline bool write_all_fd(int fd, const void* data, size_t size) {
   }
   return true;
 }
+#endif // !defined(_WIN32)
+
+#if defined(_WIN32)
+/** @brief Write all @p size bytes from @p data to Windows HANDLE @p h. */
+inline bool write_all_fd(HANDLE h, const void* data, size_t size) {
+  const auto* p = static_cast<const CHAR*>(data);
+  DWORD rem = static_cast<DWORD>(size), off = 0;
+  while (rem > 0) {
+    DWORD w = 0;
+    if (!WriteFile(h, p + off, rem, &w, nullptr) || w == 0) return false;
+    off += w; rem -= w;
+  }
+  return true;
+}
+#endif // defined(_WIN32)
 
 // ── Base-64 codec ─────────────────────────────────────────────────────────────
 
@@ -335,9 +355,12 @@ void process_body(State& st, const std::string& body) {
 /**
  * @brief Write one DCS frame (`ESC P <body> ESC \`) to @p fd under
  *        @p st.write_mtx.
+ *
+ * @tparam Fd   File descriptor type: `int` on Linux, `HANDLE` on Windows.
+ * @tparam State  Must have: `write_mtx` (mutex).
  */
-template <typename State>
-void emit_dcs(int fd, State& st, const std::string& body) {
+template <typename Fd, typename State>
+void emit_dcs(Fd fd, State& st, const std::string& body) {
   std::lock_guard<std::mutex> lk(st.write_mtx);
   const std::string frame = std::string{kDcsStart} + body + kDcsEnd;
   if (!write_all_fd(fd, frame.data(), frame.size()))
@@ -349,9 +372,12 @@ void emit_dcs(int fd, State& st, const std::string& body) {
  *
  * Uses @p st.write_mtx, @p st.next_msg_id, @p st.max_chunk_bytes, and
  * @p st.max_frame_bytes.
+ *
+ * @tparam Fd   File descriptor type: `int` on Linux, `HANDLE` on Windows.
+ * @tparam State  Must expose the same fields as `pty_shared_state` / `client_state`.
  */
-template <typename State>
-void emit_data(int fd, State& st, const bison::buffer& frame) {
+template <typename Fd, typename State>
+void emit_data(Fd fd, State& st, const bison::buffer& frame) {
   if (frame.size() > st.max_frame_bytes)
     throw std::runtime_error("dcs_framing: frame exceeds max_frame_bytes");
 
@@ -465,4 +491,4 @@ class dcs_byte_parser {
 
 } // namespace bdg::bison::rmi::transport::dcs
 
-#endif // defined(__linux__)
+#endif // defined(__linux__) || defined(_WIN32)
