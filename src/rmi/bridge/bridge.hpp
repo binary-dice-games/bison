@@ -121,6 +121,17 @@ class bridge : public server {
    */
   virtual void on_client_disconnected(context& ctx) { (void)ctx; }
 
+  /**
+   * @brief Access the upstream RMI client.
+   *
+   * Subclasses may call this from `on_client_connected` /
+   * `on_client_disconnected` to create or modify objects on the shared
+   * upstream session (e.g. desktop chrome widgets).
+   *
+   * Only valid after `start()` has been called and before `stop()` returns.
+   */
+  rmi::client& upstream() { return upstream_client_; }
+
   // ── server hook overrides ─────────────────────────────────────────────────
 
   void on_session_created(context& ctx) override;
