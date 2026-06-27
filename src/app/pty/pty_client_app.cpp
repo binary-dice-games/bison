@@ -13,9 +13,7 @@
 namespace bdg::bison::app {
 
 void pty_client_app::on_connect_params(bison::dynamic& params) const {
-  // Five minutes: gives the user time to start the client process inside the
-  // server's terminal before the handshake window expires.
-  params["handshake_timeout_ms"_key] = int32_t{300000};
+  params["handshake_timeout_ms"_key] = int32_t{5000};
 }
 
 void pty_client_app::on_error(const std::string& msg) const {

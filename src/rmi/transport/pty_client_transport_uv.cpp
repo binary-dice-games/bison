@@ -257,7 +257,7 @@ void pty_client_transport::open(bison::dynamic params) {
 
   auto& s = *impl_;
 
-  int32_t handshake_timeout_ms = 300000;
+  int32_t handshake_timeout_ms = 5000;
   if (const auto* f = params.findField("handshake_timeout_ms"_key);
       f != nullptr && f->is<int32_t>())
     handshake_timeout_ms = f->as<int32_t>();
