@@ -5,8 +5,6 @@
  */
 #pragma once
 
-#if defined(__linux__) || defined(_WIN32)
-
 #include "src/app/server/server_app.hpp"
 
 #include <string>
@@ -87,5 +85,3 @@ class pty_server_app : public server_app {
 };
 
 } // namespace bdg::bison::app
-
-#endif // defined(__linux__) || defined(_WIN32)

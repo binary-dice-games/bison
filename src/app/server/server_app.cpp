@@ -166,14 +166,11 @@ int server_app::run_with_transport(
   return 0;
 }
 
-// ── Default run_pty — PTY lifecycle (Linux and Windows) ──────────────────────
+// ── Default run_pty — PTY lifecycle ──────────────────────────────────────────
 
-#if defined(__linux__) || defined(_WIN32)
 int server_app::run_pty() {
   pty_server_transport transport{shell_command()};
-  bison::dynamic pty_params;
-  pty_params["mode"_key] = std::string{"dcs"};
-  transport.start(std::move(pty_params));
+  transport.start(bison::dynamic{});
 
   on_listening_pty();
 
@@ -205,7 +202,6 @@ int server_app::run_pty() {
   transport.stop();
   return 0;
 }
-#endif // defined(__linux__) || defined(_WIN32)
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
 
@@ -215,9 +211,7 @@ int server_app::run(int argc, char** argv) {
   try {
     register_classes();
 
-#if defined(__linux__) || defined(_WIN32)
     if (FLAGS_pty) return run_pty();
-#endif
 
     if (!FLAGS_pipe.empty()) {
       rmi::transport::named_pipe_server_transport transport{FLAGS_pipe};

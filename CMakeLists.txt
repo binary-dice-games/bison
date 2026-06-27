@@ -55,6 +55,10 @@ add_subdirectory("extern/json")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory("extern/yaml")
 
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+add_subdirectory("extern/libuv")
+
 set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
 add_subdirectory("extern/gflags")
@@ -75,7 +79,7 @@ target_include_directories(bison
 )
 
 target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml gflags)
-target_link_libraries(bison PRIVATE asio_headers)
+target_link_libraries(bison PRIVATE uv_a)
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
@@ -86,10 +90,12 @@ endif()
 target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
-  src/rmi/transport/named_pipe_transport.cpp
-  src/rmi/transport/pipe_transport.cpp
-  src/rmi/transport/socket_transport.cpp
+  src/rmi/transport/named_pipe_transport_uv.cpp
+  src/rmi/transport/pipe_transport_uv.cpp
+  src/rmi/transport/socket_transport_uv.cpp
   src/rmi/transport/stream_transport.cpp
+  src/rmi/transport/pty_client_transport_uv.cpp
+  src/rmi/transport/pty_server_transport_uv.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
@@ -98,37 +104,15 @@ target_sources(bison PRIVATE
   src/app/client/client_app.cpp
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
+  src/app/pty/pty_server_app.cpp
+  src/app/pty/pty_client_app.cpp
 )
 
-# PTY transport — platform-specific implementations
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_sources(bison PRIVATE
-    src/rmi/transport/pty_server_transport_linux.cpp
-    src/rmi/transport/pty_client_transport_linux.cpp
-    src/app/pty/pty_server_app.cpp
-    src/app/pty/pty_client_app.cpp
-  )
-elseif(WIN32)
-  target_sources(bison PRIVATE
-    src/rmi/transport/pty_server_transport_win.cpp
-    src/rmi/transport/pty_client_transport_win.cpp
-    src/app/pty/pty_server_app.cpp
-    src/app/pty/pty_client_app.cpp
-  )
-  # ConPTY requires Windows 10 1809 (SDK 17763 / _WIN32_WINNT=0x0A00).
-  # Set per-source only to avoid raising the global _WIN32_WINNT used by ASIO.
-  set_source_files_properties(
-    src/rmi/transport/pty_server_transport_win.cpp
-    src/rmi/transport/pty_client_transport_win.cpp
-    PROPERTIES COMPILE_DEFINITIONS "_WIN32_WINNT=0x0A00"
-  )
-endif()
+target_include_directories(bison PRIVATE src/rmi)
 
 if(WIN32)
-  target_link_libraries(bison PRIVATE Ws2_32)
+  target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
-
-target_include_directories(bison PRIVATE src/rmi)
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
 add_library(bison_abi SHARED

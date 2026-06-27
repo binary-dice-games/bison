@@ -20,25 +20,40 @@ Source tree:
 - `src/rmi/shared`: protocol, message schema, ids, errors, common utilities.
 - `src/rmi/client`: client runtime, remote object proxy, threading, request dispatch.
 - `src/rmi/server`: server runtime, session context, request handlers, lifecycle.
-- `src/rmi/platform/windows`, `src/rmi/platform/linux`, `src/rmi/platform/macos`: platform-specific primitives (socket wrappers, eventing, thread naming, OS handles, etc.).
+- `src/rmi/transport`: all transport implementations. Each transport is a single cross-platform file backed by libuv:
+  - `pipe_transport_uv.cpp` — anonymous in-process pipe channel
+  - `socket_transport_uv.cpp` — TCP socket transport
+  - `named_pipe_transport_uv.cpp` — named pipe / Unix domain socket transport
+  - `pty_client_transport_uv.cpp` — PTY client (stdin/stdout or TTY)
+  - `pty_server_transport_uv.cpp` — PTY server (spawned subprocess via `uv_spawn`)
+  - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
+  - `stream_transport.cpp` — wraps an external `std::iostream`
 
-## 3. Build and Platform Independence Strategy
+There are no platform-specific transport source files. libuv provides all cross-platform I/O.
+
+## 3. Platform Independence Strategy
 
 ### 3.1 Goal
 
-Platform-dependent code is isolated in platform folders and compiled conditionally. Shared/client/server logic remains platform agnostic.
+All transport I/O is implemented using **libuv** (`extern/libuv`, static target `uv_a`). libuv provides a uniform async I/O API across Windows (IOCP), Linux (epoll), and macOS (kqueue), eliminating any need for platform-specific transport code or `#ifdef` guards in transport sources.
 
 ### 3.2 Approach
 
-- CMake selects exactly one platform folder according to target OS.
-- Shared/client/server code includes platform adapters through platform headers that resolve to selected implementation.
-- No platform polymorphism through virtual interfaces is required.
+- Every transport file is a single `.cpp` file with no platform conditionals in I/O behavior.
+- libuv handles OS differences transparently: named pipe paths (`\\.\pipe\name` vs `/tmp/name.sock`), process spawning, TTY raw mode, and socket I/O.
+- The only permitted `#ifdef` in transport code is for string formatting differences (e.g., path format strings), which is a cosmetic single-line difference, not a behavioral split.
+- No `#ifdef _WIN32 / #else` blocks for behavior separation are permitted. If a platform difference is large enough to warrant separate logic, it must be split into `_win.cpp` / `_linux.cpp` file pairs per the project coding style — but in practice libuv eliminates this need for all current transports.
 
-### 3.3 CMake Pattern
+### 3.3 libuv Dependency
 
-- `target_sources(bison PRIVATE ...)` includes:
-  - Always: `src/rmi/shared/**`, `src/rmi/client/**`, `src/rmi/server/**`
-  - Conditionally: one of `src/rmi/platform/windows/**`, `src/rmi/platform/linux/**`, `src/rmi/platform/macos/**`
+libuv is included as a git submodule at `extern/libuv` and built as a static library (`uv_a`). CMakeLists.txt links it into `bison`:
+
+```cmake
+add_subdirectory("extern/libuv")
+target_link_libraries(bison PRIVATE uv_a)
+```
+
+libuv internally links `ws2_32` and other Windows system libraries as needed; the bison build does not add them manually.
 
 ## 4. Architecture Overview
 
@@ -64,7 +79,7 @@ Both client and server transports must support:
 
 - initialization with `bison::dynamic params`
 - connection lifecycle (`connect` / `listen` / `accept` / `close`)
-- framed message send/receive (`bison::dynamic` frame payload)
+- framed message send/receive (`bison::buffer` frame payload)
 - thread-safe send from one thread while receive loop runs on another
 
 ### 5.2 Transport Contracts (conceptual)
@@ -84,6 +99,47 @@ Server-side expected operations:
 - `stop()`
 
 The concrete transport type is injected into `Client`/`Server` constructors.
+
+### 5.3 Wire Framing
+
+All libuv-backed transports use a simple **4-byte big-endian length-prefix** frame format:
+
+```
+[ 4 bytes: payload length (BE uint32) ][ N bytes: payload ]
+```
+
+The length field is written and read using `bison::byte_swap<uint32_t>` (from `bison_common.hpp`), which uses compiler intrinsics and is a no-op on big-endian hosts. There is no frame type byte or checksum — framing is purely delimitng.
+
+### 5.4 Async-to-Sync Bridge Pattern
+
+libuv is callback/event-loop based; bison's transport interface is synchronous (`receive` blocks until a frame arrives or a timeout elapses). Each libuv-backed transport bridges these two models with the following pattern:
+
+**Background thread** runs `uv_run(&loop, UV_RUN_DEFAULT)` and owns all libuv handles.
+
+**Receive path** (loop thread → caller thread):
+- `alloc_cb` / `on_read` callbacks accumulate incoming bytes and parse 4-byte length-prefix frames incrementally.
+- Each complete frame is pushed to a `std::queue<bison::buffer>` under a `std::mutex`, then `recv_cv.notify_one()` is called.
+- `receive(frame, timeout)` waits on `recv_cv` with `wait_for(timeout)`.
+
+**Send path** (caller thread → loop thread):
+- `send(frame)` serializes the frame (4-byte header + payload) into a `std::vector<uint8_t>`, pushes to a send queue under a mutex, then calls `uv_async_send(&send_async)`.
+- The `uv_async_t` callback in the loop thread drains the send queue and issues `uv_write()` for each pending buffer.
+
+**Shutdown**: set a stop flag, call `uv_async_send(&stop_async)`. The stop callback closes all open handles; when all handles are closed `uv_run` returns and the background thread exits, which is then joined by the caller.
+
+### 5.5 Available Transports
+
+| Transport | Class(es) | Backing handle |
+|---|---|---|
+| In-process pipe | `pipe_client_transport`, `pipe_server_transport` | `uv_pipe_t` (named pipe, unique path per channel) |
+| TCP socket | `socket_client_transport`, `socket_server_transport` | `uv_tcp_t` |
+| Named pipe / Unix socket | `named_pipe_client_transport`, `named_pipe_server_transport` | `uv_pipe_t` |
+| PTY client | `pty_client_transport` | `uv_tty_t` (raw mode) or `uv_pipe_t` (pipe fallback via `uv_guess_handle`) |
+| PTY server | `pty_server_transport`, `pty_server_connection` | `uv_process_t` + `uv_pipe_t` via `uv_spawn()` |
+| In-memory | `memory_server_transport`, `memory_client_transport` | No I/O — shared queue |
+| Stream | `stream_client_transport` | Wraps external `std::iostream` |
+
+**PTY semantics note**: the PTY server uses `uv_spawn()` with `uv_pipe_t` for child stdio rather than `forkpty`/ConPTY. The spawned process communicates via the same 4-byte length-prefix framing, not a TTY escape protocol. Interactive shell features (readline, job control) are not available; this is appropriate for spawning bison-aware subprocess workers.
 
 ## 6. Protocol Specification
 
@@ -645,28 +701,23 @@ Versioning strategy:
 - Envelope schema changes require explicit version bump and template
   compatibility checks on both peers.
 
-## 15. Initial Implementation Plan
+## 15. Implementation Status
 
-Phase 1 (MVP):
+**Completed:**
 
-- shared envelope and operation constants
-- client/server skeletons with connect/listen/stop
-- instantiate/set/get/call/destroy
-- per-session context isolation
-- in-memory transport for deterministic unit tests
+- Shared envelope schema, operation constants, and hashed protocol ids
+- Client runtime: connect, describe, instantiate, set, get, call, destroy, disconnect
+- Server runtime: listen, accept loop, per-session context isolation, request dispatch, all hook methods
+- Event dispatch (`onEvent`, server-initiated event frames)
+- All transport implementations (in-memory, TCP, named pipe, anonymous pipe, PTY client, PTY server) — all cross-platform via libuv
+- C ABI (`rmi_c.h`) exposing client, server, and PTY lifecycle to C and language bindings
+- PTY transport refactored to use `uv_spawn()` + `uv_pipe_t` with 4-byte length-prefix framing (DCS+base64 protocol removed)
 
-Phase 2:
+**Future:**
 
-- describe metadata richness
-- event dispatch (`onEvent`)
-- timeout/error hardening
-- TCP transport
-
-Phase 3:
-
-- HTTP/pipe transports
-- auth hooks and capability negotiation
-- performance optimization and batching
+- HTTP transport
+- Auth hooks and capability negotiation in the RMI protocol layer
+- Performance optimization and batching
 
 ## 16. Testing Strategy
 

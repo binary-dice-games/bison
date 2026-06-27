@@ -5,8 +5,6 @@
  */
 #include "src/app/pty/pty_server_app.hpp"
 
-#if defined(__linux__) || defined(_WIN32)
-
 namespace bdg::bison::app {
 
 int pty_server_app::run(int argc, char** argv) {
@@ -25,11 +23,7 @@ int pty_server_app::run(int argc, char** argv) {
 }
 
 bison::dynamic pty_server_app::listen_params() const {
-  bison::dynamic params;
-  params["mode"_key] = std::string{"dcs"};
-  return params;
+  return bison::dynamic{};
 }
 
 } // namespace bdg::bison::app
-
-#endif // defined(__linux__) || defined(_WIN32)
