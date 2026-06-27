@@ -4,9 +4,18 @@
 // RMI client example using pty_client_app.  Reads frames from stdin and writes
 // frames to stdout using 4-byte big-endian length-prefix framing.
 //
-// Typically spawned as a child process by pty_server_example, which connects
-// its stdin/stdout pipes to the server via uv_spawn().  Can also be wired up
-// manually (e.g. via shell pipes or SSH channel redirection).
+// Designed to be launched by pty_server_example (directly or via SSH):
+//
+//   Direct spawn (same machine):
+//     pty_server_example spawns ./pty_client_example via uv_spawn()
+//
+//   Remote spawn over SSH (primary production use case):
+//     pty_server_example spawns "ssh user@this-host ./pty_client_example"
+//     SSH connects the server's pipe to this binary's stdin/stdout
+//     transparently — the 4-byte bison frames pass through SSH unchanged.
+//
+// When stdin is a pipe (spawned by server or SSH), pty_client_app uses
+// uv_pipe_t automatically via uv_guess_handle().
 //
 // Cross-platform (Windows and Linux).
 

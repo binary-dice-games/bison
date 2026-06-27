@@ -4,19 +4,25 @@
 // PTY RMI server example using the Bison C ABI (pty_c.h / bison_abi).
 //
 // This file intentionally uses only the stable C ABI — no C++ headers.
-// Registers a Calculator class, then spawns pty_abi_client_example as a child
-// process via uv_spawn(), serving Calculator calls over bison
-// 4-byte-length-prefix framing on the child's stdin/stdout pipes.
+// Registers a Calculator class, then spawns a child process via uv_spawn()
+// and communicates with it over stdin/stdout pipes using bison 4-byte-length-
+// prefix framing.
 //
-// Usage (run from the directory containing both executables):
-//   ./pty_abi_server_example        (Linux / macOS)
-//   .\pty_abi_server_example.exe    (Windows)
+// The child process set via shell_command callback can be:
+//   Local:  "./pty_abi_client_example"
+//   Remote: "ssh user@remote-host ./pty_abi_client_example"
+//
+// SSH passes stdin/stdout through as binary pipes, so bison frames are
+// relayed transparently to the client running on the remote machine.
 //
 // Cross-platform (Windows and Linux).
 
 #include <stdio.h>
+#include <string.h>
 
 #include "pty_c.h"
+
+static const char* g_spawn_cmd = NULL;
 
 // ── Method implementations ────────────────────────────────────────────────────
 
@@ -86,6 +92,7 @@ static void on_session_ended(void* user) {
 
 static const char* get_shell_command(void* user) {
   (void)user;
+  if (g_spawn_cmd && g_spawn_cmd[0]) return g_spawn_cmd;
 #if defined(_WIN32)
   return "pty_abi_client_example.exe";
 #else
@@ -96,6 +103,7 @@ static const char* get_shell_command(void* user) {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
+  if (argc > 1) g_spawn_cmd = argv[1];
   fprintf(stderr, "[Server] starting PTY server — spawning client subprocess.\n");
 
   pty_server_callbacks cb = {0};

@@ -1,25 +1,45 @@
 // MIT License © 2025 Binary Dice Games
 // examples/pty_server_example.cpp
 //
-// RMI server example using pty_server_app.  Spawns pty_client_example as a
-// child process via uv_spawn(), serving a Calculator object over bison
-// 4-byte-length-prefix framing on the child's stdin/stdout pipes.
+// RMI server example using pty_server_app.  The server spawns a child process
+// via uv_spawn() and communicates with it over stdin/stdout pipes using bison
+// 4-byte-length-prefix framing.
 //
-// Usage (run from the directory containing both executables):
-//   ./pty_server_example        (Linux / macOS)
-//   .\pty_server_example.exe    (Windows)
+// The child process can be anything that speaks bison pipe framing:
+//
+//   Local subprocess (demo, both sides in the same machine):
+//     shell_command() → "./pty_client_example"
+//
+//   Remote subprocess over SSH (primary production use case):
+//     shell_command() → "ssh user@remote-host ./pty_client_example"
+//
+//   The server spawns SSH, SSH tunnels the pipe frames transparently to
+//   pty_client_example running on the remote machine.  SSH acts as a
+//   binary-safe relay — no special configuration needed.
+//
+// Usage:
+//   ./pty_server_example                                  (spawns local client)
+//   ./pty_server_example --run cmd.exe                    (spawns cmd.exe)
+//   ./pty_server_example --run "ssh user@host ./pty_client_example"
 //
 // Cross-platform (Windows and Linux).
 
 #include "src/app/pty/pty_server_app.hpp"
 
+#include <gflags/gflags.h>
 #include <iostream>
+
+DECLARE_string(run);
 
 using namespace bdg::bison;
 
 class calculator_pty_server final : public app::pty_server_app {
  protected:
+  // Use --run "cmd" to set the child command at runtime, e.g.:
+  //   --run cmd.exe
+  //   --run "ssh user@host ./pty_client_example"
   std::string shell_command() const override {
+    if (!FLAGS_run.empty()) return FLAGS_run;
 #if defined(_WIN32)
     return "pty_client_example.exe";
 #else
@@ -87,6 +107,7 @@ class calculator_pty_server final : public app::pty_server_app {
 };
 
 int main(int argc, char** argv) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
   std::cerr << "[Server] starting PTY server — spawning client subprocess.\n";
   calculator_pty_server app;
   return app.run(argc, argv);

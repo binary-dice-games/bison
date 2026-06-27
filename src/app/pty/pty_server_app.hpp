@@ -47,12 +47,17 @@ class pty_server_app : public server_app {
   int run(int argc, char** argv) override;
 
  protected:
-  /**
-   * @brief Child process launched by the PTY transport via `uv_spawn()`.
+    /**
+   * @brief Child process spawned by the PTY transport via `uv_spawn()`.
    *
-   * Override to specify the bison client binary to spawn (e.g.
-   * `"pty_client_example"`).  The default is a bare shell, which is only
-   * useful if you are piping the bison client manually.
+   * The server communicates with the spawned process over its stdin/stdout
+   * pipes using 4-byte big-endian length-prefix framing.
+   *
+   * Common overrides:
+   * - `"./pty_client_example"` — local client subprocess (demo)
+   * - `"ssh user@host ./pty_client_example"` — remote client via SSH;
+   *   SSH relays the pipe frames transparently to the client on the remote
+   *   machine, which is the primary production use case for this transport.
    */
   std::string shell_command() const override { return "bash"; }
 

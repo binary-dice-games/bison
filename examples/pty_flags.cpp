@@ -12,3 +12,6 @@ DEFINE_string(pipe,    "",        "Named-pipe / Unix-socket path");
 DEFINE_bool  (verbose, false,     "Print session trace messages to stdout");
 DEFINE_bool  (pty,     true,      "Use PTY transport");
 DEFINE_int32 (timeout, 30000,     "Connection timeout in milliseconds");
+DEFINE_string(run,     "",        "Command to run as the PTY client subprocess "
+                                  "(e.g. \"ssh user@host ./pty_client_example\"). "
+                                  "Defaults to pty_client_example in the same directory.");

@@ -114,11 +114,19 @@ class server_app {
   virtual void on_pty_session_ended() const {}
 
   /**
-   * @brief Child process command launched by `run_pty()` via `uv_spawn()`.
+   * @brief Child process spawned by `run_pty()` via `uv_spawn()`.
    *
-   * The spawned process must speak the bison 4-byte length-prefix framing
-   * protocol on stdin/stdout.  Override to specify the bison client binary
-   * (e.g. `"pty_client_example"`).
+   * The server communicates with the spawned process over its stdin/stdout
+   * pipes using 4-byte big-endian length-prefix framing.  Override to point
+   * at a bison client binary, either directly or via SSH:
+   *
+   * ```cpp
+   * // local demo
+   * return "./pty_client_example";
+   *
+   * // remote production use: SSH relays pipe frames to the client
+   * return "ssh user@remote-host ./pty_client_example";
+   * ```
    */
   virtual std::string shell_command() const { return "bash"; }
 

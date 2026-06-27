@@ -7,8 +7,12 @@
 // Reads frames from stdin and writes frames to stdout using 4-byte
 // big-endian length-prefix framing.
 //
-// Typically spawned as a child process by pty_abi_server_example, which
-// connects its stdin/stdout pipes to the server via uv_spawn().
+// Designed to be launched by pty_abi_server_example directly or via SSH:
+//   "ssh user@this-host ./pty_abi_client_example"
+//
+// SSH relays stdin/stdout transparently, so bison frames pass through
+// unchanged.  When stdin is a pipe, pty_client_app uses uv_pipe_t
+// automatically via uv_guess_handle().
 //
 // Cross-platform (Windows and Linux).
 
