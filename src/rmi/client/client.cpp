@@ -21,6 +21,13 @@ client::~client() {
     } catch (...) {
     }
   }
+  // disconnect() already joined the threads in the normal path.
+  // When the server closes the connection the worker sets running_=false and
+  // calls on_disconnect() itself, so the destructor skips disconnect() above —
+  // but the threads are still winding down.  Join them here to avoid
+  // std::terminate() from a joinable thread being destroyed.
+  if (worker_.joinable())       worker_.join();
+  if (event_thread_.joinable()) event_thread_.join();
 }
 
 /** @copydoc bdg::bison::rmi::client::connect */
