@@ -123,6 +123,7 @@ void reader_loop(std::shared_ptr<pty_shared_state> state) {
       return;
     }
     if (available == 0) {
+      flush_plain();
       std::this_thread::sleep_for(std::chrono::milliseconds{10});
       continue;
     }
