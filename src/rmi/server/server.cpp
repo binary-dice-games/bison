@@ -316,7 +316,7 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
   session_contexts_.wlock()->emplace(ctx.session_id.id, ctx_ptr);
   on_session_created(ctx);
 
-  while (!conn->is_closed()) {
+  while (running_.load(std::memory_order_acquire) && !conn->is_closed()) {
     bison::buffer frame;
     if (!conn->receive(frame, std::chrono::milliseconds{50}))
       continue;
