@@ -324,7 +324,10 @@ bool socket_server_connection::receive(
     return false;
   }
   bool timed_out = false;
-  return recv_frame(impl_->socket, frame, timeout, timed_out);
+  bool ok = recv_frame(impl_->socket, frame, timeout, timed_out);
+  if (!ok && !timed_out)
+    impl_->closed = true;  // real disconnect, not a poll timeout
+  return ok;
 }
 
 void socket_server_connection::close() {
