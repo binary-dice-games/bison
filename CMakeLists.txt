@@ -149,7 +149,7 @@ target_include_directories(bison_abi
     PRIVATE
   src/rmi
 )
-target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml)
+target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(bison_abi PRIVATE util)
 endif()
