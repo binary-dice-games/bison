@@ -13,3 +13,6 @@
 [submodule "extern/gflags"]
 	path = extern/gflags
 	url = https://github.com/gflags/gflags.git
+[submodule "extern/libuv"]
+	path = extern/libuv
+	url = https://github.com/libuv/libuv.git
