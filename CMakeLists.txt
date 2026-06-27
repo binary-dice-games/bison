@@ -103,8 +103,8 @@ target_sources(bison PRIVATE
 # PTY transport — platform-specific implementations
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_sources(bison PRIVATE
-    src/rmi/transport/pty_server_transport.cpp
-    src/rmi/transport/pty_client_transport.cpp
+    src/rmi/transport/pty_server_transport_linux.cpp
+    src/rmi/transport/pty_client_transport_linux.cpp
     src/app/pty/pty_server_app.cpp
     src/app/pty/pty_client_app.cpp
   )
