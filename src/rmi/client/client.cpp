@@ -178,8 +178,15 @@ void client::unregister_object_events(bison::key_t object_id) {
 void client::worker_loop() {
   while (running_.load(std::memory_order_acquire)) {
     bison::buffer frame;
-    if (!transport_->receive(frame, std::chrono::milliseconds{50}))
+    if (!transport_->receive(frame, std::chrono::milliseconds{50})) {
+      if (!transport_->is_connected()) {
+        // Server closed the connection — trigger a clean disconnect.
+        running_.store(false);
+        event_queue_cv_.notify_one();
+        on_disconnect();
+      }
       continue;
+    }
     try {
       auto env = shared::envelope::decode(frame);
       process_frame(env);

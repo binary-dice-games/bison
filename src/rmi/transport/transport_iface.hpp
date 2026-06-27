@@ -59,6 +59,14 @@ struct client_transport_iface {
   /** @brief Shutdown and close the transport channel. */
   virtual void shutdown() = 0;
 
+  /**
+   * @brief Return whether the transport is still connected to the remote peer.
+   *
+   * Returns `false` after the peer has closed the connection (EOF / reset).
+   * Returns `true` by default for transports that do not track this state.
+   */
+  virtual bool is_connected() const { return true; }
+
   virtual ~client_transport_iface() = default;
 };
 

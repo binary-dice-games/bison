@@ -52,6 +52,9 @@ class socket_client_transport : public client_transport_iface {
     /** @brief Shutdown and close the socket endpoint. */
   void shutdown() override;
 
+    /** @brief Return false once the peer has closed the connection. */
+  bool is_connected() const override;
+
  private:
   struct impl;
   std::unique_ptr<impl> impl_;

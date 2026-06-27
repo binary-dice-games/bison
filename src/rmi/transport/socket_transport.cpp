@@ -65,7 +65,9 @@ bool read_exact(
     tcp::socket& socket,
     uint8_t* out,
     size_t size,
-    std::chrono::milliseconds timeout) {
+    std::chrono::milliseconds timeout,
+    bool& timed_out) {
+  timed_out = false;
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   size_t received = 0;
 
@@ -79,12 +81,13 @@ bool read_exact(
     }
     if (is_retryable_error(ec)) {
       if (std::chrono::steady_clock::now() >= deadline) {
+        timed_out = true;
         return false;
       }
       sleep_until_deadline(deadline);
       continue;
     }
-    return false;
+    return false; // fatal: EOF, connection reset, etc. — timed_out stays false
   }
 
   return true;
@@ -107,9 +110,10 @@ bool send_frame(tcp::socket& socket, const bison::buffer& frame) {
 bool recv_frame(
     tcp::socket& socket,
     bison::buffer& frame,
-    std::chrono::milliseconds timeout) {
+    std::chrono::milliseconds timeout,
+    bool& timed_out) {
   std::array<uint8_t, sizeof(uint32_t)> header{};
-  if (!read_exact(socket, header.data(), header.size(), timeout)) {
+  if (!read_exact(socket, header.data(), header.size(), timeout, timed_out)) {
     return false;
   }
 
@@ -121,7 +125,7 @@ bool recv_frame(
   if (size == 0) {
     return true;
   }
-  return read_exact(socket, frame.data(), frame.size(), timeout);
+  return read_exact(socket, frame.data(), frame.size(), timeout, timed_out);
 }
 
 std::string read_string_param(
@@ -164,7 +168,8 @@ struct socket_client_transport::impl {
   tcp::socket socket;
   std::string host;
   uint16_t port = 7070;
-  bool opened = false;
+  bool opened       = false;
+  bool disconnected = false; // set when the peer closes the connection
 };
 
 struct socket_server_connection::impl {
@@ -263,7 +268,16 @@ bool socket_client_transport::receive(
   if (!impl_->opened || !impl_->socket.is_open()) {
     return false;
   }
-  return recv_frame(impl_->socket, frame, timeout);
+  bool timed_out = false;
+  const bool ok  = recv_frame(impl_->socket, frame, timeout, timed_out);
+  if (!ok && !timed_out) {
+    impl_->disconnected = true; // peer closed the connection
+  }
+  return ok;
+}
+
+bool socket_client_transport::is_connected() const {
+  return impl_ && impl_->opened && !impl_->disconnected;
 }
 
 void socket_client_transport::shutdown() {
@@ -309,7 +323,8 @@ bool socket_server_connection::receive(
   if (!impl_ || impl_->closed || !impl_->socket.is_open()) {
     return false;
   }
-  return recv_frame(impl_->socket, frame, timeout);
+  bool timed_out = false;
+  return recv_frame(impl_->socket, frame, timeout, timed_out);
 }
 
 void socket_server_connection::close() {
