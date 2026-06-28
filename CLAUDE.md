@@ -90,9 +90,12 @@ Use this guide when generating or editing code in this repository.
 
 ### Concurrency
 
-- Use standard primitives (`std::mutex`, `std::lock_guard`, `std::shared_mutex`, atomics).
-- Keep lock scope tight.
-- Use condition variables with explicit shutdown/stop flags.
+**Prefer `bison::synchronized<T>` over raw `std::mutex` for all shared state.**
+`synchronized<T>` wraps a value and makes it inaccessible without explicitly
+calling `.rlock()` (shared read) or `.wlock()` (exclusive write), so the type
+system enforces synchronization rather than relying on comments or convention.
+Avoid raw `std::mutex`, `std::lock_guard`, and `std::unique_lock` except at the
+lowest implementation level (e.g. inside custom data structures).
 
 ## Platform-Dependent Code
 
