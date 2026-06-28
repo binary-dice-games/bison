@@ -119,8 +119,10 @@ for in-process unit tests that bypass the PTY entirely.
 1. **Real PTY, real terminal** — the spawned process has `isatty(0) == true`, so
    readline, colour codes, job control, and interactive shells work as if the
    user were at a physical terminal.
-2. **Transparent escape-sequence multiplexing** — DCS frames travel invisibly
-   alongside normal terminal I/O; the user never sees raw escape sequences.
+2. **Bidirectional escape-sequence channel** — both server and client can send
+   and receive DCS frames at any time. DCS frames travel invisibly in both
+   directions alongside normal terminal I/O; the user never sees raw escape
+   sequences.
 3. **Platform-independent interface** — `pty_server` and `pty_client` have
    identical public and virtual APIs on Linux and Windows. Platform differences
    are fully contained in `_linux.cpp` and `_win.cpp`.
@@ -128,8 +130,8 @@ for in-process unit tests that bypass the PTY entirely.
    returns a fd or pipe handle, libuv streams (`uv_pipe_open`) drive all
    subsequent I/O, write queuing, and shutdown signalling. Only the PTY
    allocation step itself requires platform-specific OS calls.
-5. **Extensibility** — callers subclass `pty_server` / `pty_client` and override
-   only the virtual hooks they need; all other behaviour has a sensible default.
+5. **Extensibility** — callers set only the callbacks they need; all others have
+   a sensible default.
 
 ## 5. Deployment Scenarios
 
@@ -148,17 +150,22 @@ pty_server_transport                   pty_client_transport
 ```
 
 1. `pty_server` forks bash in a real PTY. The user can type shell commands
-   normally; `pty_server::on_pty_output` relays the display bytes to the local
-   terminal so the user sees the shell.
+   normally; the `on_output` callback relays non-DCS bytes to the local terminal
+   so the user sees the shell.
 2. The user SSH-connects to the remote machine from within that bash session.
    The remote shell's stdin/stdout flow through the SSH channel and back to the
    local PTY slave.
 3. On the remote machine, the user starts a bison `pty_client` binary. Its
    stdin/stdout IS the PTY slave (presented as a TTY by SSH). `uv_guess_handle`
    selects `uv_tty_t` and raw mode is set.
-4. DCS frames injected via `inject_escape_sequence` on the server travel through
-   the PTY master → PTY slave → SSH → remote stdin. The remote `pty_client`
-   extracts them and delivers them to `on_escape_sequence`.
+4. **Server → client:** DCS frames written by `pty_server::inject_escape_sequence`
+   travel PTY master → PTY slave → SSH → remote stdin. The remote `pty_client`
+   extracts them and delivers them to the `on_escape_sequence` callback.
+5. **Client → server:** DCS frames written by `pty_client::send_escape_sequence`
+   travel remote stdout → SSH → PTY slave → PTY master. The local `pty_server`
+   extracts them and delivers them to the `on_escape_sequence` callback.
+   Both directions are active simultaneously; neither side needs to wait for the
+   other before sending.
 
 ### 5.2 Direct subprocess (testing / controlled launch)
 
@@ -204,17 +211,23 @@ regardless.
 ### 6.1 `pty_server`
 
 A concrete, non-abstract utility class. Owns the PTY master and child subprocess.
-Drives two I/O paths over the PTY master fd/handle:
+The PTY master fd/handle is a **bidirectional** channel: bytes written to it
+reach the subprocess's stdin; bytes produced by the subprocess's stdout come back
+out of it. `pty_server` drives three I/O paths over this channel:
 
-- **Terminal relay** — non-DCS bytes from the subprocess are delivered to the
-  `on_output` callback. The default writes them to the caller's `stdout` so the
-  user sees normal shell output.
-- **Escape-sequence channel** — DCS frames are extracted by `dcs_byte_parser`
-  and delivered to the `on_escape_sequence` callback. Callers set this callback
-  to decode bison envelopes or any other out-of-band protocol.
+- **Terminal relay (receive)** — non-DCS bytes arriving from the subprocess are
+  delivered to the `on_output` callback. The default writes them to the caller's
+  `stdout` so the user sees normal shell output.
+- **Escape-sequence receive** — DCS frames arriving from the subprocess (i.e.
+  sent by `pty_client::send_escape_sequence` on the other end) are extracted by
+  `dcs_byte_parser` and delivered to the `on_escape_sequence` callback.
+- **Escape-sequence send** — the caller writes DCS frames toward the subprocess
+  (i.e. toward `pty_client`) by calling `inject_escape_sequence`. These bytes
+  are written to the PTY master and appear on the subprocess's stdin.
 
-Callbacks are grouped in a `callbacks` struct and passed at construction. No
-subclassing is required or expected.
+Both the send and receive escape-sequence paths are active simultaneously once
+`start()` is called. Callbacks are grouped in a `callbacks` struct and passed at
+construction. No subclassing is required or expected.
 
 ```cpp
 namespace bdg::bison::rm::pty {
@@ -284,9 +297,24 @@ class pty_server {
 
 ### 6.2 `pty_client`
 
-A concrete, non-abstract utility class. Reads the process's own `stdin` for DCS
-frames and non-DCS terminal bytes. Writes to `stdout` to send DCS frames back
-toward the server. `uv_guess_handle` selects the right libuv handle type
+A concrete, non-abstract utility class. The process's own `stdin` / `stdout`
+form a **bidirectional** channel toward `pty_server`: bytes written to `stdout`
+flow back through the PTY to the server's `on_escape_sequence` callback; bytes
+produced by the server's `inject_escape_sequence` arrive on `stdin`.
+`pty_client` drives three I/O paths:
+
+- **Non-DCS receive** — non-DCS bytes arriving on `stdin` are delivered to the
+  `on_stdin_data` callback (e.g. shell prompts the user typed earlier, echoed
+  output).
+- **Escape-sequence receive** — DCS frames arriving on `stdin` (sent by
+  `pty_server::inject_escape_sequence`) are extracted by `dcs_byte_parser` and
+  delivered to the `on_escape_sequence` callback.
+- **Escape-sequence send** — the caller writes DCS frames toward the server by
+  calling `send_escape_sequence`. These bytes are written to `stdout` and travel
+  through the PTY to the server's `on_escape_sequence` callback.
+
+Both the send and receive escape-sequence paths are active simultaneously once
+`start()` is called. `uv_guess_handle` selects the right libuv handle type
 automatically (§5.3). Callbacks are set at construction; no subclassing required.
 
 ```cpp
@@ -413,38 +441,65 @@ passed as-is. The bison RMI layer uses the `BISON_RMI/1` body format
 
 ## 9. Data Flow
 
-### Server side
+### Server side — PTY master is bidirectional
 
 ```
-user kbd ──→ send_input() ──→ uv_async ──→ uv_write ──→ PTY master ──→ PTY slave stdin
-PTY slave stdout ──→ PTY master ──→ uv_pipe_t on_read ──→ dcs_byte_parser
-  ├─ non-DCS bytes ──→ on_pty_output()       (default: write to caller stdout)
-  └─ DCS body      ──→ on_escape_sequence()  (override: decode bison envelope)
+                        ┌─────────────────────────────────────────────┐
+                        │              PTY master fd / HANDLE          │
+                        │                                              │
+user kbd ──→ send_input()──→[write]                          [read]──→ dcs_byte_parser
+                                                                         ├─ non-DCS ──→ on_output()
+                                                                         └─ DCS body ──→ on_escape_sequence()
 
-inject_escape_sequence() ──→ uv_async ──→ uv_write ──→ PTY master ──→ PTY slave stdin
+inject_escape_sequence()──→[write]                                       (server sends to client)
+                        └─────────────────────────────────────────────┘
+                                           │
+                                      PTY slave (bash/cmd/ps)
 ```
 
-### Client side
+### Client side — stdin/stdout are bidirectional
 
 ```
-stdin ──→ uv_tty_t / uv_pipe_t on_read ──→ dcs_byte_parser
-  ├─ non-DCS bytes ──→ on_stdin_data()       (optional override)
-  └─ DCS body      ──→ on_escape_sequence()  (override: decode bison envelope)
+                        ┌──────────────────────────────────────────────┐
+                        │              stdin          stdout            │
+                        │                                               │
+[from server]  ──→ stdin──→[read]──→ dcs_byte_parser      [write]──→ stdout ──→ [to server]
+                                       ├─ non-DCS ──→ on_stdin_data()
+                                       └─ DCS body ──→ on_escape_sequence()
 
-send_escape_sequence() ──→ uv_async ──→ uv_write ──→ stdout
+send_escape_sequence() ──────────────────────────────────→[write]──→ stdout
+                        └──────────────────────────────────────────────┘
 ```
 
-### Full SSH relay
+### Full SSH relay — both directions active simultaneously
 
 ```
-[local user kbd] ──→ pty_server.send_input ──→ PTY master ──→ bash (PTY slave)
-bash (PTY slave) ──→ PTY master ──→ pty_server
-  ├─ on_pty_output  ──→ local stdout          (user sees terminal)
-  └─ on_escape_sequence ──→ rmi::server inbox (bison frames from client)
-
-pty_server.inject_escape_sequence ──→ PTY master ──→ bash stdin ──→ SSH ──→ remote stdout
-remote stdin ──→ SSH ──→ pty_client stdin ──→ on_escape_sequence ──→ rmi::client inbox
+Local machine                                   Remote machine
+─────────────────────────────────────────────   ─────────────────────────────────
+user kbd ──→ send_input()
+                 │
+                 ▼
+          [PTY master write]                     pty_client.send_escape_sequence()
+                 │                                         │
+                 ▼                                         ▼
+          PTY slave (bash) ◄──── SSH channel ────► [stdout write]
+                 │                                         │
+                 ▼                                         │
+          [PTY master read]                                │
+         dcs_byte_parser                                   ▼
+          ├─ non-DCS ──→ on_output() ──→ local stdout   [stdin read]
+          └─ DCS ──→ on_escape_sequence()          dcs_byte_parser
+                  (frames from client)              ├─ non-DCS ──→ on_stdin_data()
+                                                    └─ DCS ──→ on_escape_sequence()
+inject_escape_sequence()                                          (frames from server)
+          │
+          ▼
+    [PTY master write] ──── SSH channel ────► [stdin]
 ```
+
+Both arrows across the SSH channel carry DCS frames in their respective direction.
+Normal terminal I/O (non-DCS bytes) flows left-to-right only (subprocess output
+toward the user); it is not echoed back from the client side.
 
 ## 10. Thread Model
 
