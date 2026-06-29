@@ -32,8 +32,7 @@ inline bison::hash_t mix32(bison::hash_t x) {
 bison::key_t generate_id() {
   constexpr bison::hash_t kGoldenStep = 0x9e3779b9u;
   static const bison::hash_t seed = []() {
-    const auto now =
-        std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
     bison::hash_t s = static_cast<bison::hash_t>(now);
     s ^= static_cast<bison::hash_t>(static_cast<uint64_t>(now) >> 32);
     s ^= 0x80000001u;
@@ -41,8 +40,7 @@ bison::key_t generate_id() {
   }();
 
   static std::atomic<bison::hash_t> state{seed};
-  const bison::hash_t raw =
-      state.fetch_add(kGoldenStep, std::memory_order_relaxed);
+  const bison::hash_t raw = state.fetch_add(kGoldenStep, std::memory_order_relaxed);
   return bison::key_t{mix32(raw)};
 }
 

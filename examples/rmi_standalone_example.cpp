@@ -44,49 +44,45 @@ static void register_calculator() {
   auto proto = dynamic_ptr{"Calculator"_key, {}};
 
   // add(a, b) → result
-  proto->addMethod(
-      "add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        result["result"_key] = a + b;
-        return result;
-      }});
+  proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     result["result"_key] = a + b;
+                     return result;
+                   }});
 
   // subtract(a, b) → result
-  proto->addMethod(
-      "subtract"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        result["result"_key] = a - b;
-        return result;
-      }});
+  proto->addMethod("subtract"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     result["result"_key] = a - b;
+                     return result;
+                   }});
 
   // multiply(a, b) → result
-  proto->addMethod(
-      "multiply"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        result["result"_key] = a * b;
-        return result;
-      }});
+  proto->addMethod("multiply"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     result["result"_key] = a * b;
+                     return result;
+                   }});
 
   // divide(a, b) → result  (returns 0 and logs error on division by zero)
-  proto->addMethod(
-      "divide"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        if (b == 0.0f) {
-          result["error"_key] = std::string{"division by zero"};
-          result["result"_key] = 0.0f;
-        } else {
-          result["result"_key] = a / b;
-        }
-        return result;
-      }});
+  proto->addMethod("divide"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     if (b == 0.0f) {
+                       result["error"_key] = std::string{"division by zero"};
+                       result["result"_key] = 0.0f;
+                     } else {
+                       result["result"_key] = a / b;
+                     }
+                     return result;
+                   }});
 
   dynamic::addClass(0U, proto, 0U);
 }
@@ -121,8 +117,7 @@ static void run_client(memory_server_transport& transport, int client_id) {
     params["b"_key] = float(7.0f * client_id);
     auto result = calc.call("subtract"_key, std::move(params)).get();
     float res = result["result"_key];
-    println(
-        "[Client ", client_id, "] subtract(100, ", 7 * client_id, ") = ", res);
+    println("[Client ", client_id, "] subtract(100, ", 7 * client_id, ") = ", res);
   }
 
   // ── multiply ─────────────────────────────────────────────────────────────
@@ -132,15 +127,7 @@ static void run_client(memory_server_transport& transport, int client_id) {
     params["b"_key] = float(client_id);
     auto result = calc.call("multiply"_key, std::move(params)).get();
     float res = result["result"_key];
-    println(
-        "[Client ",
-        client_id,
-        "] multiply(",
-        client_id,
-        ", ",
-        client_id,
-        ") = ",
-        res);
+    println("[Client ", client_id, "] multiply(", client_id, ", ", client_id, ") = ", res);
   }
 
   // ── divide ────────────────────────────────────────────────────────────────

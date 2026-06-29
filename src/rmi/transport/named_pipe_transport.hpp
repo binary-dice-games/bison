@@ -48,8 +48,7 @@ class named_pipe_server_connection : public server_connection_iface {
   ~named_pipe_server_connection();
 
   named_pipe_server_connection(const named_pipe_server_connection&) = delete;
-  named_pipe_server_connection& operator=(
-      const named_pipe_server_connection&) = delete;
+  named_pipe_server_connection& operator=(const named_pipe_server_connection&) = delete;
 
   /**
    * @brief Write one length-prefixed frame to the client.
@@ -63,10 +62,7 @@ class named_pipe_server_connection : public server_connection_iface {
    * @param timeout Maximum wait before returning `false`.
    * @return `true` on success; `false` on timeout, EOF, or close.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Close the connection; pending receives return `false`. */
   void close() override;
@@ -94,8 +90,7 @@ class named_pipe_client_transport : public client_transport_iface {
   ~named_pipe_client_transport();
 
   named_pipe_client_transport(const named_pipe_client_transport&) = delete;
-  named_pipe_client_transport& operator=(
-      const named_pipe_client_transport&) = delete;
+  named_pipe_client_transport& operator=(const named_pipe_client_transport&) = delete;
 
   /**
    * @brief Connect to the named pipe / Unix socket.
@@ -115,10 +110,7 @@ class named_pipe_client_transport : public client_transport_iface {
    * @param timeout Maximum wait before returning `false`.
    * @return `true` on success; `false` on timeout or disconnect.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Disconnect; pending receives return `false`. */
   void shutdown() override;
@@ -148,8 +140,7 @@ class named_pipe_server_transport : public server_transport_iface {
   ~named_pipe_server_transport();
 
   named_pipe_server_transport(const named_pipe_server_transport&) = delete;
-  named_pipe_server_transport& operator=(
-      const named_pipe_server_transport&) = delete;
+  named_pipe_server_transport& operator=(const named_pipe_server_transport&) = delete;
 
   /** @brief Open the listening endpoint. */
   void start(bison::dynamic params) override;
@@ -160,8 +151,7 @@ class named_pipe_server_transport : public server_transport_iface {
    * @return Connection on success; `nullptr` on timeout or stop.
    */
   std::unique_ptr<server_connection_iface> accept(
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Stop accepting; pending and future `accept()` calls return `nullptr`. */
   void stop() override;

@@ -154,18 +154,13 @@ class buffer_serializer {
 class buffer_deserializer {
  public:
   buffer_deserializer(const char* data, size_t size)
-      : begin_(reinterpret_cast<const uint8_t*>(data)),
-        end_(begin_ + size),
-        pos_(begin_) {}
+      : begin_(reinterpret_cast<const uint8_t*>(data)), end_(begin_ + size), pos_(begin_) {}
 
-  buffer_deserializer(const uint8_t* data, size_t size)
-      : begin_(data), end_(data + size), pos_(data) {}
+  buffer_deserializer(const uint8_t* data, size_t size) : begin_(data), end_(data + size), pos_(data) {}
 
-  explicit buffer_deserializer(const bdg::bison::buffer& buf)
-      : buffer_deserializer(buf.data(), buf.size()) {}
+  explicit buffer_deserializer(const bdg::bison::buffer& buf) : buffer_deserializer(buf.data(), buf.size()) {}
 
-  explicit buffer_deserializer(const std::string& buf)
-      : buffer_deserializer(buf.data(), buf.size()) {}
+  explicit buffer_deserializer(const std::string& buf) : buffer_deserializer(buf.data(), buf.size()) {}
 
   buffer_deserializer(const buffer_deserializer&) = delete;
   buffer_deserializer(buffer_deserializer&&) = default;
@@ -298,9 +293,7 @@ class stream_serializer {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(
-        reinterpret_cast<const char*>(bytes.data()),
-        static_cast<std::streamsize>(bytes.size()));
+    return write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
   }
 
   template <typename T>
@@ -308,27 +301,21 @@ class stream_serializer {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(
-        reinterpret_cast<const char*>(bytes.data()),
-        static_cast<std::streamsize>(bytes.size()));
+    return write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
   }
 
   stream_serializer& write(const std::string& data) {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(
-        reinterpret_cast<const char*>(bytes.data()),
-        static_cast<std::streamsize>(bytes.size()));
+    return write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
   }
 
   stream_serializer& write(std::string_view data) {
     buffer_serializer buffered;
     buffered.write(data);
     const auto& bytes = buffered.buffer();
-    return write(
-        reinterpret_cast<const char*>(bytes.data()),
-        static_cast<std::streamsize>(bytes.size()));
+    return write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
   }
 
   stream_serializer& write(const char* data, std::streamsize count) {
@@ -389,9 +376,7 @@ class stream_deserializer {
     buffer chunk(sizeof(size_t) + payload_size);
     std::memcpy(chunk.data(), &count_be, sizeof(size_t));
     if (payload_size > 0) {
-      in_.read(
-          reinterpret_cast<char*>(chunk.data() + sizeof(size_t)),
-          static_cast<std::streamsize>(payload_size));
+      in_.read(reinterpret_cast<char*>(chunk.data() + sizeof(size_t)), static_cast<std::streamsize>(payload_size));
     }
 
     buffer_deserializer buffered(chunk);
@@ -412,9 +397,7 @@ class stream_deserializer {
     buffer chunk(sizeof(size_t) + payload_size);
     std::memcpy(chunk.data(), &count_be, sizeof(size_t));
     if (payload_size > 0) {
-      in_.read(
-          reinterpret_cast<char*>(chunk.data() + sizeof(size_t)),
-          static_cast<std::streamsize>(payload_size));
+      in_.read(reinterpret_cast<char*>(chunk.data() + sizeof(size_t)), static_cast<std::streamsize>(payload_size));
     }
 
     buffer_deserializer buffered(chunk);

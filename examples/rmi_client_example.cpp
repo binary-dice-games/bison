@@ -79,12 +79,10 @@ int main(int argc, char** argv) {
     std::cout << "[Client] done." << '\n';
     return 0;
   } catch (const std::exception& ex) {
-    std::cerr << "[Client] failed to connect or execute calls at " << host
-              << ":" << port << ": " << ex.what() << '\n';
+    std::cerr << "[Client] failed to connect or execute calls at " << host << ":" << port << ": " << ex.what() << '\n';
     return 1;
   } catch (...) {
-    std::cerr << "[Client] unexpected failure while connecting to " << host
-              << ":" << port << '\n';
+    std::cerr << "[Client] unexpected failure while connecting to " << host << ":" << port << '\n';
     return 1;
   }
 }

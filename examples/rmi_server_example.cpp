@@ -18,46 +18,42 @@ using namespace bdg::bison::rmi::shared::constants;
 static void register_calculator() {
   auto proto = dynamic_ptr{"Calculator"_key, {}};
 
-  proto->addMethod(
-      "add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        result["result"_key] = a + b;
-        return result;
-      }});
+  proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     result["result"_key] = a + b;
+                     return result;
+                   }});
 
-  proto->addMethod(
-      "subtract"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        result["result"_key] = a - b;
-        return result;
-      }});
+  proto->addMethod("subtract"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     result["result"_key] = a - b;
+                     return result;
+                   }});
 
-  proto->addMethod(
-      "multiply"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        result["result"_key] = a * b;
-        return result;
-      }});
+  proto->addMethod("multiply"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     result["result"_key] = a * b;
+                     return result;
+                   }});
 
-  proto->addMethod(
-      "divide"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
-        float a = params["a"_key];
-        float b = params["b"_key];
-        dynamic result;
-        if (b == 0.0f) {
-          result["error"_key] = std::string{"division by zero"};
-          result["result"_key] = 0.0f;
-        } else {
-          result["result"_key] = a / b;
-        }
-        return result;
-      }});
+  proto->addMethod("divide"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                     float a = params["a"_key];
+                     float b = params["b"_key];
+                     dynamic result;
+                     if (b == 0.0f) {
+                       result["error"_key] = std::string{"division by zero"};
+                       result["result"_key] = 0.0f;
+                     } else {
+                       result["result"_key] = a / b;
+                     }
+                     return result;
+                   }});
 
   dynamic::addClass(0U, proto, 0U);
 }
@@ -82,8 +78,7 @@ int main(int argc, char** argv) {
   server srv{transport};
   srv.listen();
 
-  std::cout << "[Server] Calculator listening on " << host << ":" << port
-            << '\n';
+  std::cout << "[Server] Calculator listening on " << host << ":" << port << '\n';
   std::cout << "[Server] Press Enter to stop..." << '\n';
 
   std::string line;

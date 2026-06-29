@@ -49,8 +49,7 @@ class attribute {
  */
 template <typename T, typename... Args>
 std::shared_ptr<const attribute> attr(Args&&... args) {
-  static_assert(
-      std::is_base_of_v<attribute, T>, "T must derive from attribute");
+  static_assert(std::is_base_of_v<attribute, T>, "T must derive from attribute");
   return std::make_shared<T>(std::forward<Args>(args)...);
 }
 
@@ -60,7 +59,9 @@ std::shared_ptr<const attribute> attr(Args&&... args) {
 class DisplayName : public attribute {
  public:
   explicit DisplayName(std::string name) : name_(std::move(name)) {}
-  const std::string& name() const { return name_; }
+  const std::string& name() const {
+    return name_;
+  }
 
  private:
   std::string name_;
@@ -70,7 +71,9 @@ class DisplayName : public attribute {
 class Description : public attribute {
  public:
   explicit Description(std::string text) : text_(std::move(text)) {}
-  const std::string& text() const { return text_; }
+  const std::string& text() const {
+    return text_;
+  }
 
  private:
   std::string text_;
@@ -80,7 +83,9 @@ class Description : public attribute {
 class Category : public attribute {
  public:
   explicit Category(std::string name) : name_(std::move(name)) {}
-  const std::string& name() const { return name_; }
+  const std::string& name() const {
+    return name_;
+  }
 
  private:
   std::string name_;
@@ -93,7 +98,9 @@ class Category : public attribute {
 class Obsolete : public attribute {
  public:
   explicit Obsolete(std::string message = {}) : message_(std::move(message)) {}
-  const std::string& message() const { return message_; }
+  const std::string& message() const {
+    return message_;
+  }
 
  private:
   std::string message_;
@@ -115,8 +122,12 @@ class Required : public attribute {
 class Range : public attribute {
  public:
   Range(double min, double max) : min_(min), max_(max) {}
-  double min() const { return min_; }
-  double max() const { return max_; }
+  double min() const {
+    return min_;
+  }
+  double max() const {
+    return max_;
+  }
 
  private:
   double min_;
@@ -132,7 +143,9 @@ class Range : public attribute {
 class Step : public attribute {
  public:
   explicit Step(double step) : step_(step) {}
-  double step() const { return step_; }
+  double step() const {
+    return step_;
+  }
 
  private:
   double step_;
@@ -158,8 +171,7 @@ class EnumFlags : public attribute {
   using entry = std::pair<std::string, int32_t>;
   using table = std::vector<entry>;
 
-  explicit EnumFlags(table values)
-      : values_(std::move(values)) {}
+  explicit EnumFlags(table values) : values_(std::move(values)) {}
 
   /** @brief Parse `"FlagA | FlagB"` → `int32_t` (OR-combines matched values). */
   int32_t parse(const std::string& s) const {
@@ -167,21 +179,28 @@ class EnumFlags : public attribute {
     std::string::size_type start = 0;
     while (true) {
       auto end = s.find('|', start);
-      std::string tok = (end == std::string::npos)
-          ? s.substr(start) : s.substr(start, end - start);
+      std::string tok = (end == std::string::npos) ? s.substr(start) : s.substr(start, end - start);
       auto ts = tok.find_first_not_of(" \t");
       auto te = tok.find_last_not_of(" \t");
       if (ts != std::string::npos) {
         tok = tok.substr(ts, te - ts + 1);
         bool found = false;
         for (const auto& [name, val] : values_) {
-          if (name == tok) { result |= val; found = true; break; }
+          if (name == tok) {
+            result |= val;
+            found = true;
+            break;
+          }
         }
         if (!found) {
-          try { result |= std::stoi(tok); } catch (...) {}
+          try {
+            result |= std::stoi(tok);
+          } catch (...) {
+          }
         }
       }
-      if (end == std::string::npos) break;
+      if (end == std::string::npos)
+        break;
       start = end + 1;
     }
     return result;
@@ -193,16 +212,19 @@ class EnumFlags : public attribute {
     int32_t remaining = v;
     for (const auto& [name, val] : values_) {
       if (val != 0 && (remaining & val) == val) {
-        if (!out.empty()) out += " | ";
+        if (!out.empty())
+          out += " | ";
         out += name;
         remaining &= ~val;
       }
     }
     if (remaining != 0) {
-      if (!out.empty()) out += " | ";
+      if (!out.empty())
+        out += " | ";
       out += std::to_string(remaining);
     }
-    if (out.empty()) out = std::to_string(v);
+    if (out.empty())
+      out = std::to_string(v);
     return out;
   }
 
@@ -223,8 +245,7 @@ class Enum : public attribute {
   using entry = std::pair<std::string, int32_t>;
   using table = std::vector<entry>;
 
-  explicit Enum(table values)
-      : values_(std::move(values)) {}
+  explicit Enum(table values) : values_(std::move(values)) {}
 
   /** @brief Parse a single enum name → `int32_t`, or `std::stoi` fallback. */
   int32_t parse(const std::string& s) const {
@@ -232,7 +253,8 @@ class Enum : public attribute {
     auto te = s.find_last_not_of(" \t");
     std::string tok = (ts == std::string::npos) ? s : s.substr(ts, te - ts + 1);
     for (const auto& [name, val] : values_) {
-      if (name == tok) return val;
+      if (name == tok)
+        return val;
     }
     return std::stoi(tok);
   }
@@ -240,7 +262,8 @@ class Enum : public attribute {
   /** @brief Format `int32_t` → enum name, or `std::to_string` fallback. */
   std::string format(int32_t v) const {
     for (const auto& [name, val] : values_) {
-      if (val == v) return name;
+      if (val == v)
+        return name;
     }
     return std::to_string(v);
   }
@@ -278,9 +301,7 @@ class field : public field_base {
   template <typename T>
   static auto to_field_value(T&& value) {
     using value_type = std::decay_t<T>;
-    if constexpr (
-        std::is_same_v<value_type, char*> ||
-        std::is_same_v<value_type, const char*>) {
+    if constexpr (std::is_same_v<value_type, char*> || std::is_same_v<value_type, const char*>) {
       return std::string(value);
     } else if constexpr (std::is_same_v<value_type, std::shared_ptr<dynamic>>) {
       return dynamic_ptr(std::forward<T>(value));
@@ -308,8 +329,7 @@ class field : public field_base {
    */
   template <typename T, typename... Attrs>
   field(T value, Attrs&&... attrs)
-      : field_base(to_field_value(std::forward<T>(value))),
-        attributes_{std::forward<Attrs>(attrs)...} {}
+      : field_base(to_field_value(std::forward<T>(value))), attributes_{std::forward<Attrs>(attrs)...} {}
 
   /** @brief Implicit conversion to `dynamic_ptr`; equivalent to `as<dynamic_ptr>()`.
    *  @throws std::runtime_error if the active alternative is not `dynamic_ptr`. */
@@ -361,17 +381,19 @@ class field : public field_base {
   field& operator=(const T& value) {
     auto v = to_field_value(value);
     using value_type = decltype(v);
-    if (std::holds_alternative<std::monostate>(
-            static_cast<const field_base&>(*this))) {
+    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
       field_base::operator=(v);
-    } else if (!std::holds_alternative<value_type>(
-                   static_cast<const field_base&>(*this))) {
+    } else if (!std::holds_alternative<value_type>(static_cast<const field_base&>(*this))) {
       if constexpr (std::is_same_v<value_type, std::string>) {
         if (is<int32_t>()) {
-          if (const auto* ef = findAttribute<EnumFlags>())
-            { field_base::operator=(ef->parse(v)); return *this; }
-          if (const auto* e = findAttribute<Enum>())
-            { field_base::operator=(e->parse(v)); return *this; }
+          if (const auto* ef = findAttribute<EnumFlags>()) {
+            field_base::operator=(ef->parse(v));
+            return *this;
+          }
+          if (const auto* e = findAttribute<Enum>()) {
+            field_base::operator=(e->parse(v));
+            return *this;
+          }
         }
       }
       throw std::runtime_error("Invalid type");
@@ -410,10 +432,11 @@ class field : public field_base {
   T get_as() const {
     if constexpr (std::is_same_v<T, std::string>) {
       if (is<int32_t>()) {
-        const int32_t raw =
-            std::get<int32_t>(static_cast<const field_base&>(*this));
-        if (const auto* ef = findAttribute<EnumFlags>()) return ef->format(raw);
-        if (const auto* e  = findAttribute<Enum>())      return e->format(raw);
+        const int32_t raw = std::get<int32_t>(static_cast<const field_base&>(*this));
+        if (const auto* ef = findAttribute<EnumFlags>())
+          return ef->format(raw);
+        if (const auto* e = findAttribute<Enum>())
+          return e->format(raw);
       }
     }
     return cast_value<T>(static_cast<const field_base&>(*this));
@@ -431,11 +454,9 @@ class field : public field_base {
    */
   template <typename T>
   T& as(T def = T{}) {
-    if (std::holds_alternative<std::monostate>(
-            static_cast<const field_base&>(*this))) {
+    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
       static_cast<field_base&>(*this) = std::move(def);
-    } else if (!std::holds_alternative<T>(
-                   static_cast<const field_base&>(*this))) {
+    } else if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     }
     return std::get<T>(static_cast<field_base&>(*this));
@@ -491,8 +512,7 @@ class field : public field_base {
   constexpr static std::size_t index_of() {
     if constexpr (index == std::variant_size_v<field_base>) {
       return index;
-    } else if constexpr (
-        std::is_same_v<std::variant_alternative_t<index, field_base>, T>) {
+    } else if constexpr (std::is_same_v<std::variant_alternative_t<index, field_base>, T>) {
       return index;
     } else {
       return index_of<T, index + 1>();
@@ -525,8 +545,7 @@ class field : public field_base {
    */
   template <typename T>
   const T* findAttribute() const {
-    static_assert(
-        std::is_base_of_v<attribute, T>, "T must derive from attribute");
+    static_assert(std::is_base_of_v<attribute, T>, "T must derive from attribute");
     for (const auto& attr_ptr : attributes_) {
       if (const T* result = dynamic_cast<const T*>(attr_ptr.get())) {
         return result;
@@ -556,8 +575,7 @@ class field : public field_base {
             return v;
           } else if constexpr (std::is_same_v<From, std::monostate>) {
             throw std::runtime_error("Field is empty");
-          } else if constexpr (std::is_arithmetic_v<From> &&
-                               std::is_arithmetic_v<To>) {
+          } else if constexpr (std::is_arithmetic_v<From> && std::is_arithmetic_v<To>) {
             return static_cast<To>(v);
           } else if constexpr (std::is_same_v<To, std::string>) {
             if constexpr (std::is_same_v<From, bool>)
@@ -606,13 +624,8 @@ class method {
    */
   template <
       typename... Attrs,
-      std::enable_if_t<
-          (... && std::is_convertible_v<
-                      std::decay_t<Attrs>,
-                      std::shared_ptr<const attribute>>),
-          int> = 0>
-  explicit method(method_fn fn, Attrs&&... attrs)
-      : fn_(std::move(fn)), attrs_{std::forward<Attrs>(attrs)...} {}
+      std::enable_if_t<(... && std::is_convertible_v<std::decay_t<Attrs>, std::shared_ptr<const attribute>>), int> = 0>
+  explicit method(method_fn fn, Attrs&&... attrs) : fn_(std::move(fn)), attrs_{std::forward<Attrs>(attrs)...} {}
 
   /**
    * @brief Construct a method with a callable and a pre-built attribute vector.
@@ -633,21 +646,21 @@ class method {
    * @param  attrs   Attribute annotations for the method itself.
    */
   template <typename... Attrs>
-  method(
-      method_fn fn,
-      dynamic_ptr input,
-      dynamic_ptr output,
-      Attrs&&... attrs)
+  method(method_fn fn, dynamic_ptr input, dynamic_ptr output, Attrs&&... attrs)
       : fn_(std::move(fn)),
         input_(std::move(input)),
         output_(std::move(output)),
         attrs_{std::forward<Attrs>(attrs)...} {}
 
   /** @brief Return input parameter spec, or nullptr if none was registered. */
-  const dynamic* inputSpec() const { return input_.get(); }
+  const dynamic* inputSpec() const {
+    return input_.get();
+  }
 
   /** @brief Return output parameter spec, or nullptr if none was registered. */
-  const dynamic* outputSpec() const { return output_.get(); }
+  const dynamic* outputSpec() const {
+    return output_.get();
+  }
 
   /**
    * @brief Invoke this method.
@@ -667,8 +680,7 @@ class method {
    */
   template <typename T>
   const T* findAttribute() const {
-    static_assert(
-        std::is_base_of_v<attribute, T>, "T must derive from attribute");
+    static_assert(std::is_base_of_v<attribute, T>, "T must derive from attribute");
     for (const auto& a : attrs_)
       if (const T* p = dynamic_cast<const T*>(a.get()))
         return p;
@@ -729,12 +741,9 @@ class dynamic {
   friend class field;
   friend class dynamic_ptr;
 
-  static inline constexpr hash_t CLASS =
-      "__class"_key; /**< Reserved: class name hash. */
-  static inline constexpr hash_t PARENT =
-      "__parent"_key; /**< Reserved: parent class hash. */
-  static inline constexpr hash_t NAMESPACE =
-      "__namespace"_key; /**< Reserved: namespace hash (0 = global). */
+  static inline constexpr hash_t CLASS = "__class"_key; /**< Reserved: class name hash. */
+  static inline constexpr hash_t PARENT = "__parent"_key; /**< Reserved: parent class hash. */
+  static inline constexpr hash_t NAMESPACE = "__namespace"_key; /**< Reserved: namespace hash (0 = global). */
 
   /**
    * @brief Reserved method key: catch-all invoked when a named method is not
@@ -755,22 +764,19 @@ class dynamic {
    * @param fields    Initial field map (moved in).
    * @param userdata  Optional application-defined userdata payload.
    */
-  dynamic(
-      key_t klass = 0U,
-      std::map<key_t, field>&& fields = {},
-      std::shared_ptr<userdata> userdata = nullptr)
+  dynamic(key_t klass = 0U, std::map<key_t, field>&& fields = {}, std::shared_ptr<userdata> userdata = nullptr)
       : fields_(std::move(fields)), userdata_(userdata) {
     fields_[CLASS] = klass;
   }
 
   dynamic(const dynamic& that)
-      : fields_(that.fields_), methods_(that.methods_),
-        userdata_(that.userdata_), factory_(that.factory_) {
+      : fields_(that.fields_), methods_(that.methods_), userdata_(that.userdata_), factory_(that.factory_) {
     // field_lookup_ is intentionally left empty and rebuilt lazily.
   }
 
   dynamic(dynamic&& that) noexcept
-      : fields_(std::move(that.fields_)), methods_(std::move(that.methods_)),
+      : fields_(std::move(that.fields_)),
+        methods_(std::move(that.methods_)),
         userdata_(std::move(that.userdata_)),
         factory_(std::move(that.factory_)) {
     // field_lookup_ is intentionally left empty and rebuilt lazily.
@@ -780,11 +786,11 @@ class dynamic {
 
   dynamic& operator=(dynamic&& that) {
     if (this != &that) {
-      fields_       = std::move(that.fields_);
-      methods_      = std::move(that.methods_);
-      userdata_     = std::move(that.userdata_);
-      factory_      = std::move(that.factory_);
-      field_lookup_.clear();  // stale pointers; rebuilt lazily
+      fields_ = std::move(that.fields_);
+      methods_ = std::move(that.methods_);
+      userdata_ = std::move(that.userdata_);
+      factory_ = std::move(that.factory_);
+      field_lookup_.clear(); // stale pointers; rebuilt lazily
     }
     return *this;
   }
@@ -842,7 +848,7 @@ class dynamic {
    */
   inline void clear() {
     fields_.erase(fields_.begin(), fields_.lower_bound(key_t{0x80000000u}));
-    field_lookup_.clear();  // numeric pointers now stale; rebuilt lazily
+    field_lookup_.clear(); // numeric pointers now stale; rebuilt lazily
   }
 
   /**
@@ -882,7 +888,8 @@ class dynamic {
    */
   inline field& operator[](key_t name) {
     auto f = findField(name);
-    if (f) return *f;
+    if (f)
+      return *f;
     auto& v = fields_[name];
     field_lookup_[name] = &v;
     return v;
@@ -901,7 +908,8 @@ class dynamic {
    */
   inline const field& operator[](key_t name) const {
     auto f = findField(name);
-    if (f) return *f;
+    if (f)
+      return *f;
     auto& v = fields_[name];
     field_lookup_[name] = &v;
     return v;
@@ -966,7 +974,8 @@ class dynamic {
   template <typename T>
   T get_as(key_t k, T dflt = T{}) const {
     const auto* f = findField(k);
-    if (!f) return dflt;
+    if (!f)
+      return dflt;
     return f->get_as<T>();
   }
 
@@ -1001,9 +1010,7 @@ class dynamic {
    */
   template <typename T, typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
   static factory_fn make_factory(key_t ns, key_t klass) {
-    return [ns, klass]() -> dynamic_ptr {
-      return dynamic::instantiate<T>(ns, klass);
-    };
+    return [ns, klass]() -> dynamic_ptr { return dynamic::instantiate<T>(ns, klass); };
   }
 
   /**
@@ -1024,12 +1031,15 @@ class dynamic {
     {
       auto lp = getRegistry().rlock();
       auto ns_it = lp->find(ns);
-      if (ns_it == lp->end()) return {};
+      if (ns_it == lp->end())
+        return {};
       auto cls_it = ns_it->second.find(klass);
-      if (cls_it == ns_it->second.end()) return {};
+      if (cls_it == ns_it->second.end())
+        return {};
       factory = cls_it->second->factory_;
     }
-    if (factory) return factory();
+    if (factory)
+      return factory();
     return dynamic_ptr{new dynamic(dynamic::instantiate(ns, klass))};
   }
 
@@ -1100,8 +1110,7 @@ class dynamic {
       if (fb != nullptr) {
         dynamic wrapper;
         wrapper[key_t{"__name"_key}] = name;
-        wrapper[key_t{"__params"_key}] =
-            dynamic_ptr{std::make_shared<dynamic>(params.clone())};
+        wrapper[key_t{"__params"_key}] = dynamic_ptr{std::make_shared<dynamic>(params.clone())};
         return fb->call(*this, wrapper);
       }
       throw std::runtime_error("Method not found");
@@ -1148,8 +1157,7 @@ class dynamic {
    * @param  klass  Hash of the class name.
    * @return `std::shared_ptr<T>` owning the new instance.
    */
-  template <typename T,
-            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  template <typename T, typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
   static std::shared_ptr<T> instantiate(const key_t ns, const key_t klass) {
     return std::make_shared<T>(dynamic::instantiate(ns, klass));
   }
@@ -1161,8 +1169,7 @@ class dynamic {
    * @param  klass Hash of the class name.
    * @return `std::shared_ptr<T>` owning the new instance.
    */
-  template <typename T,
-            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  template <typename T, typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
   static std::shared_ptr<T> instantiate(const key_t klass) {
     return instantiate<T>(key_t{0U}, klass);
   }
@@ -1203,15 +1210,13 @@ class dynamic {
    * @param  parent     Parent class name hash (`0U` for root).
    * @param  class_attrs Optional class-level attributes.
    */
-  template <typename T,
-            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  template <typename T, typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
   static bool addClass(
       const key_t ns,
       std::shared_ptr<T> klass,
       const key_t parent = key_t{0U},
       std::vector<std::shared_ptr<const attribute>> class_attrs = {}) {
-    return addClass(ns, dynamic_ptr{std::move(klass)}, parent,
-                    std::move(class_attrs));
+    return addClass(ns, dynamic_ptr{std::move(klass)}, parent, std::move(class_attrs));
   }
 
   /**
@@ -1232,8 +1237,7 @@ class dynamic {
    * @param factory Callable that returns a freshly constructed instance.
    * @return `true` on success, `false` on duplicate or cycle.
    */
-  static bool addClass(key_t ns, dynamic_ptr klass, key_t parent,
-                       factory_fn factory) {
+  static bool addClass(key_t ns, dynamic_ptr klass, key_t parent, factory_fn factory) {
     klass->factory_ = std::move(factory);
     return addClass(ns, std::move(klass), parent);
   }
@@ -1253,8 +1257,7 @@ class dynamic {
    * @param parent  Hash of the parent class name (`0U` for a root class).
    * @return `true` on success, `false` on duplicate or cycle.
    */
-  static bool
-  addClass(const key_t ns, dynamic_ptr klass, const key_t parent = key_t{0U}) {
+  static bool addClass(const key_t ns, dynamic_ptr klass, const key_t parent = key_t{0U}) {
     auto name = klass->as<key_t>(CLASS);
     (*klass)[PARENT] = parent;
     (*klass)[NAMESPACE] = ns;
@@ -1291,7 +1294,8 @@ class dynamic {
     // O(1): check the pointer cache first.
     {
       auto it = field_lookup_.find(name);
-      if (it != field_lookup_.end()) return it->second;
+      if (it != field_lookup_.end())
+        return it->second;
     }
 
     // O(log N): field present locally but not yet in the cache.
@@ -1445,8 +1449,7 @@ class dynamic {
    * @tparam F  Callable with signature `void(key_t, T&)`.
    * @param  fn Visitor invoked for each matching child.
    */
-  template <typename T, typename F,
-            typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
+  template <typename T, typename F, typename = std::enable_if_t<std::is_base_of_v<dynamic, T>>>
   void forEachChild(F&& fn) const {
     for (const auto& kv : fields_) {
       if (kv.second.is<dynamic_ptr>()) {
@@ -1479,7 +1482,7 @@ class dynamic {
   ///        stale pointers from the source object are never reused.
   mutable std::unordered_map<key_t, field*, key_t, key_t> field_lookup_;
   mutable std::shared_ptr<userdata> userdata_;
-  factory_fn factory_;  // set once by the factory-aware addClass; empty → plain-dynamic fallback
+  factory_fn factory_; // set once by the factory-aware addClass; empty → plain-dynamic fallback
 
   /**
    * @brief Resolve and cache the namespace for this instance's class chain.
@@ -1510,14 +1513,11 @@ inline dynamic method::call(dynamic& self, const dynamic& params) const {
   return fn_(self, params);
 }
 
-inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that)
-    : std::shared_ptr<dynamic>(that) {}
+inline dynamic_ptr::dynamic_ptr(const std::shared_ptr<dynamic>& that) : std::shared_ptr<dynamic>(that) {}
 
-inline dynamic_ptr::dynamic_ptr(std::shared_ptr<dynamic>&& that)
-    : std::shared_ptr<dynamic>(std::move(that)) {}
+inline dynamic_ptr::dynamic_ptr(std::shared_ptr<dynamic>&& that) : std::shared_ptr<dynamic>(std::move(that)) {}
 
-inline dynamic_ptr& dynamic_ptr::operator=(
-    const std::shared_ptr<dynamic>& that) {
+inline dynamic_ptr& dynamic_ptr::operator=(const std::shared_ptr<dynamic>& that) {
   std::shared_ptr<dynamic>::operator=(that);
   return *this;
 }
@@ -1527,8 +1527,7 @@ inline dynamic_ptr& dynamic_ptr::operator=(std::shared_ptr<dynamic>&& that) {
   return *this;
 }
 
-inline dynamic_ptr::dynamic_ptr(dynamic&& that)
-    : std::shared_ptr<dynamic>(new dynamic{std::move(that)}) {}
+inline dynamic_ptr::dynamic_ptr(dynamic&& that) : std::shared_ptr<dynamic>(new dynamic{std::move(that)}) {}
 
 inline dynamic_ptr::dynamic_ptr(key_t klass, std::map<key_t, field>&& fields)
     : std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)}) {}
@@ -1537,9 +1536,7 @@ inline void field::serialize(stream_serializer& out) const {
   buffer_serializer buffered;
   serialize(buffered);
   const auto& bytes = buffered.buffer();
-  out.write(
-      reinterpret_cast<const char*>(bytes.data()),
-      static_cast<std::streamsize>(bytes.size()));
+  out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
 inline field field::deserialize(stream_deserializer& in) {
@@ -1596,18 +1593,14 @@ inline void dynamic::serialize(stream_serializer& out) const {
   buffer_serializer buffered;
   serialize(buffered);
   const auto& bytes = buffered.buffer();
-  out.write(
-      reinterpret_cast<const char*>(bytes.data()),
-      static_cast<std::streamsize>(bytes.size()));
+  out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
 inline void dynamic::serializeWithSchema(stream_serializer& out) const {
   buffer_serializer buffered;
   serializeWithSchema(buffered);
   const auto& bytes = buffered.buffer();
-  out.write(
-      reinterpret_cast<const char*>(bytes.data()),
-      static_cast<std::streamsize>(bytes.size()));
+  out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
 inline dynamic dynamic::deserialize(stream_deserializer& in) {
@@ -1825,9 +1818,7 @@ dynamic_ptr from_yaml(std::string yaml);
  * @param indent  Indentation width in spaces; pass -1 for compact output.
  * @return UTF-8 JSON string representation of @p d.
  */
-std::string to_json(const dynamic& d,
-                    const std::unordered_map<uint32_t, std::string>& keys = {},
-                    int indent = 2);
+std::string to_json(const dynamic& d, const std::unordered_map<uint32_t, std::string>& keys = {}, int indent = 2);
 
 /**
  * @brief Serialize @p d to a YAML string.
@@ -1847,8 +1838,7 @@ std::string to_json(const dynamic& d,
  * @return UTF-8 YAML string representation of @p d.
  * @throws std::runtime_error on internal libyaml emitter failure.
  */
-std::string to_yaml(const dynamic& d,
-                    const std::unordered_map<uint32_t, std::string>& keys = {});
+std::string to_yaml(const dynamic& d, const std::unordered_map<uint32_t, std::string>& keys = {});
 
 } // namespace extensions
 

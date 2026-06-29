@@ -64,27 +64,28 @@ static key_name_map make_known_keys() {
   using namespace rmi::shared::constants;
   key_name_map m;
   auto add = [&](bison::key_t k, const char* s) { m[k.id] = s; };
-  add(FIELD_NAME,             "__name");
-  add(FIELD_FIELDS,           "__fields");
-  add(FIELD_METHODS,          "__methods");
-  add(FIELD_KLASS,            "__class");
-  add(FIELD_NAMESPACE,        "__namespace");
-  add(FIELD_PARAMS,           "__params");
-  add(FIELD_DISPLAY_NAME,     "__displayName");
-  add(FIELD_DESCRIPTION,      "__description");
-  add(FIELD_CATEGORY,         "__category");
-  add(FIELD_OBSOLETE,         "__obsolete");
+  add(FIELD_NAME, "__name");
+  add(FIELD_FIELDS, "__fields");
+  add(FIELD_METHODS, "__methods");
+  add(FIELD_KLASS, "__class");
+  add(FIELD_NAMESPACE, "__namespace");
+  add(FIELD_PARAMS, "__params");
+  add(FIELD_DISPLAY_NAME, "__displayName");
+  add(FIELD_DESCRIPTION, "__description");
+  add(FIELD_CATEGORY, "__category");
+  add(FIELD_OBSOLETE, "__obsolete");
   add(FIELD_OBSOLETE_MESSAGE, "__obsoleteMessage");
-  add(FIELD_REQUIRED,         "__required");
-  add(FIELD_ERROR,            "__error");
-  add(FIELD_ERROR_CODE,       "__code");
-  add(FIELD_ERROR_MESSAGE,    "__message");
+  add(FIELD_REQUIRED, "__required");
+  add(FIELD_ERROR, "__error");
+  add(FIELD_ERROR_CODE, "__code");
+  add(FIELD_ERROR_MESSAGE, "__message");
   return m;
 }
 
 static std::string trim(std::string_view s) {
   size_t a = s.find_first_not_of(" \t\r\n");
-  if (a == std::string_view::npos) return {};
+  if (a == std::string_view::npos)
+    return {};
   size_t b = s.find_last_not_of(" \t\r\n");
   return std::string(s.substr(a, b - a + 1));
 }
@@ -95,14 +96,23 @@ static std::string extract_parens(std::string_view s, size_t open_pos) {
   size_t start = open_pos + 1;
   for (size_t i = start; i < s.size(); ++i) {
     char c = s[i];
-    if (escape) { escape = false; continue; }
-    if (in_str) {
-      if (c == '\\') escape = true;
-      else if (c == '"') in_str = false;
+    if (escape) {
+      escape = false;
       continue;
     }
-    if (c == '"') { in_str = true; continue; }
-    if (c == '(' || c == '{' || c == '[') ++depth;
+    if (in_str) {
+      if (c == '\\')
+        escape = true;
+      else if (c == '"')
+        in_str = false;
+      continue;
+    }
+    if (c == '"') {
+      in_str = true;
+      continue;
+    }
+    if (c == '(' || c == '{' || c == '[')
+      ++depth;
     else if (c == ')' || c == '}' || c == ']') {
       if (--depth == 0)
         return std::string(s.substr(start, i - start));
@@ -118,23 +128,36 @@ static std::vector<std::string> split_args(std::string_view s) {
   size_t start = 0;
   for (size_t i = 0; i < s.size(); ++i) {
     char c = s[i];
-    if (escape) { escape = false; continue; }
-    if (in_str) {
-      if (c == '\\') escape = true;
-      else if (c == '"') in_str = false;
+    if (escape) {
+      escape = false;
       continue;
     }
-    if (c == '"') { in_str = true; continue; }
-    if (c == '{' || c == '[' || c == '(') ++depth;
-    else if (c == '}' || c == ']' || c == ')') { if (depth > 0) --depth; }
-    else if (c == ',' && depth == 0) {
+    if (in_str) {
+      if (c == '\\')
+        escape = true;
+      else if (c == '"')
+        in_str = false;
+      continue;
+    }
+    if (c == '"') {
+      in_str = true;
+      continue;
+    }
+    if (c == '{' || c == '[' || c == '(')
+      ++depth;
+    else if (c == '}' || c == ']' || c == ')') {
+      if (depth > 0)
+        --depth;
+    } else if (c == ',' && depth == 0) {
       auto a = trim(s.substr(start, i - start));
-      if (!a.empty()) result.push_back(a);
+      if (!a.empty())
+        result.push_back(a);
       start = i + 1;
     }
   }
   auto last = trim(s.substr(start));
-  if (!last.empty()) result.push_back(last);
+  if (!last.empty())
+    result.push_back(last);
   return result;
 }
 
@@ -161,11 +184,11 @@ static bison::dynamic parse_json_arg(const std::string& raw) {
   return ptr ? *ptr : bison::dynamic{};
 }
 
-static bison::dynamic parse_and_register(
-    repl_context& ctx, const std::string& raw) {
+static bison::dynamic parse_and_register(repl_context& ctx, const std::string& raw) {
   try {
     register_json_keys(ctx.km, nlohmann::json::parse(raw));
-  } catch (...) {}
+  } catch (...) {
+  }
   return parse_json_arg(raw);
 }
 
@@ -204,21 +227,18 @@ static void cmd_del(repl_context& ctx, std::string_view var) {
   ctx.client.destroy(std::move(node.mapped()));
 }
 
-static void cmd_instantiate(
-    repl_context& ctx,
-    const std::string& var,
-    const std::string& args_str) {
+static void cmd_instantiate(repl_context& ctx, const std::string& var, const std::string& args_str) {
   const auto args = split_args(args_str);
   if (args.size() < 2) {
     std::cerr << "error: instantiate requires namespace and class name\n";
     return;
   }
-  const auto ns_str    = unquote(trim(args[0]));
+  const auto ns_str = unquote(trim(args[0]));
   const auto class_str = unquote(trim(args[1]));
   register_key(ctx.km, ns_str);
   register_key(ctx.km, class_str);
 
-  bison::key_t ns_key    = ns_str.empty() ? bison::key_t{0u} : bison::key_t{ns_str};
+  bison::key_t ns_key = ns_str.empty() ? bison::key_t{0u} : bison::key_t{ns_str};
   bison::key_t class_key = bison::key_t{class_str};
 
   bison::dynamic params;
@@ -226,9 +246,7 @@ static void cmd_instantiate(
     params = parse_and_register(ctx, trim(args[2]));
 
   try {
-    auto proxy = get_future(
-        ctx.client.instantiate(ns_key, class_key, std::move(params)),
-        ctx.timeout);
+    auto proxy = get_future(ctx.client.instantiate(ns_key, class_key, std::move(params)), ctx.timeout);
     ctx.handles.try_emplace(var, std::move(proxy));
     std::cout << var << '\n';
   } catch (const std::exception& ex) {
@@ -236,25 +254,17 @@ static void cmd_instantiate(
   }
 }
 
-static void cmd_get(
-    repl_context& ctx,
-    rmi::proxy::dynamic& proxy,
-    const std::vector<std::string>& args) {
+static void cmd_get(repl_context& ctx, rmi::proxy::dynamic& proxy, const std::vector<std::string>& args) {
   try {
-    bison::dynamic result = args.empty()
-        ? get_future(proxy.get(), ctx.timeout)
-        : get_future(
-              proxy.get(parse_and_register(ctx, trim(args[0]))), ctx.timeout);
+    bison::dynamic result = args.empty() ? get_future(proxy.get(), ctx.timeout)
+                                         : get_future(proxy.get(parse_and_register(ctx, trim(args[0]))), ctx.timeout);
     std::cout << bison::extensions::to_json(result, ctx.km) << '\n';
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << '\n';
   }
 }
 
-static void cmd_set(
-    repl_context& ctx,
-    rmi::proxy::dynamic& proxy,
-    const std::vector<std::string>& args) {
+static void cmd_set(repl_context& ctx, rmi::proxy::dynamic& proxy, const std::vector<std::string>& args) {
   if (args.empty()) {
     std::cerr << "error: set requires a JSON object argument\n";
     return;
@@ -266,10 +276,7 @@ static void cmd_set(
   }
 }
 
-static void cmd_call(
-    repl_context& ctx,
-    rmi::proxy::dynamic& proxy,
-    const std::vector<std::string>& args) {
+static void cmd_call(repl_context& ctx, rmi::proxy::dynamic& proxy, const std::vector<std::string>& args) {
   if (args.empty()) {
     std::cerr << "error: call requires a method name\n";
     return;
@@ -282,16 +289,14 @@ static void cmd_call(
     params = parse_and_register(ctx, trim(args[1]));
 
   try {
-    auto result = get_future(
-        proxy.call(bison::key_t{method_name}, std::move(params)), ctx.timeout);
+    auto result = get_future(proxy.call(bison::key_t{method_name}, std::move(params)), ctx.timeout);
     std::cout << bison::extensions::to_json(result, ctx.km) << '\n';
   } catch (const std::exception& ex) {
     std::cerr << "error: " << ex.what() << '\n';
   }
 }
 
-static void cmd_describe(
-    repl_context& ctx, const std::vector<std::string>& args) {
+static void cmd_describe(repl_context& ctx, const std::vector<std::string>& args) {
   bison::key_t ns_key{0u}, class_key{0u};
   if (!args.empty()) {
     const auto ns_str = unquote(trim(args[0]));
@@ -328,20 +333,28 @@ static void cmd_info(repl_context& ctx) {
 static size_t find_first_paren(std::string_view s) {
   bool in_str = false, esc = false;
   for (size_t i = 0; i < s.size(); ++i) {
-    if (esc) { esc = false; continue; }
-    if (in_str) {
-      if (s[i] == '\\') esc = true;
-      else if (s[i] == '"') in_str = false;
+    if (esc) {
+      esc = false;
       continue;
     }
-    if (s[i] == '"') { in_str = true; continue; }
-    if (s[i] == '(') return i;
+    if (in_str) {
+      if (s[i] == '\\')
+        esc = true;
+      else if (s[i] == '"')
+        in_str = false;
+      continue;
+    }
+    if (s[i] == '"') {
+      in_str = true;
+      continue;
+    }
+    if (s[i] == '(')
+      return i;
   }
   return std::string::npos;
 }
 
-static void dispatch_assignment(
-    const std::string& s, repl_context& ctx, size_t eq_pos) {
+static void dispatch_assignment(const std::string& s, repl_context& ctx, size_t eq_pos) {
   const auto var = trim(s.substr(0, eq_pos));
   const auto rhs = trim(s.substr(eq_pos + 1));
   const size_t rhs_paren = rhs.find('(');
@@ -357,12 +370,10 @@ static void dispatch_assignment(
   cmd_instantiate(ctx, var, extract_parens(rhs, rhs_paren));
 }
 
-static void dispatch_proxy_op(
-    const std::string& s, repl_context& ctx,
-    size_t dot_pos, size_t first_paren) {
+static void dispatch_proxy_op(const std::string& s, repl_context& ctx, size_t dot_pos, size_t first_paren) {
   const auto obj_name = trim(s.substr(0, dot_pos));
-  const auto op       = trim(s.substr(dot_pos + 1, first_paren - dot_pos - 1));
-  const auto args     = split_args(extract_parens(s, first_paren));
+  const auto op = trim(s.substr(dot_pos + 1, first_paren - dot_pos - 1));
+  const auto args = split_args(extract_parens(s, first_paren));
 
   auto it = ctx.handles.find(obj_name);
   if (it == ctx.handles.end()) {
@@ -371,34 +382,48 @@ static void dispatch_proxy_op(
   }
   auto& proxy = it->second;
 
-  if      (op == "get")  cmd_get(ctx, proxy, args);
-  else if (op == "set")  cmd_set(ctx, proxy, args);
-  else if (op == "call") cmd_call(ctx, proxy, args);
+  if (op == "get")
+    cmd_get(ctx, proxy, args);
+  else if (op == "set")
+    cmd_set(ctx, proxy, args);
+  else if (op == "call")
+    cmd_call(ctx, proxy, args);
   else
-    std::cerr << "error: unknown operation '" << op
-              << "' (available: get, set, call)\n";
+    std::cerr << "error: unknown operation '" << op << "' (available: get, set, call)\n";
 }
 
-static void dispatch_paren_cmd(
-    const std::string& s, repl_context& ctx, size_t first_paren) {
-  const auto cmd  = trim(s.substr(0, first_paren));
+static void dispatch_paren_cmd(const std::string& s, repl_context& ctx, size_t first_paren) {
+  const auto cmd = trim(s.substr(0, first_paren));
   const auto args = split_args(extract_parens(s, first_paren));
   if (cmd == "describe")
     cmd_describe(ctx, args);
   else
-    std::cerr << "error: unknown command '" << cmd
-              << "' (type 'help' for available commands)\n";
+    std::cerr << "error: unknown command '" << cmd << "' (type 'help' for available commands)\n";
 }
 
 static bool dispatch(const std::string& line, repl_context& ctx) {
   const auto s = trim(line);
-  if (s.empty() || s.front() == '#') return true;
-  if (s == "exit" || s == "quit")    return false;
+  if (s.empty() || s.front() == '#')
+    return true;
+  if (s == "exit" || s == "quit")
+    return false;
 
-  if (s == "help")     { std::cout << k_help_text << '\n'; return true; }
-  if (s == "list")     { cmd_list(ctx);         return true; }
-  if (s == "describe") { cmd_describe(ctx, {}); return true; }
-  if (s == "info")     { cmd_info(ctx);         return true; }
+  if (s == "help") {
+    std::cout << k_help_text << '\n';
+    return true;
+  }
+  if (s == "list") {
+    cmd_list(ctx);
+    return true;
+  }
+  if (s == "describe") {
+    cmd_describe(ctx, {});
+    return true;
+  }
+  if (s == "info") {
+    cmd_info(ctx);
+    return true;
+  }
 
   if (s.size() > 4 && s.substr(0, 4) == "del ") {
     cmd_del(ctx, s.substr(4));
@@ -406,7 +431,7 @@ static bool dispatch(const std::string& line, repl_context& ctx) {
   }
 
   const size_t first_paren = find_first_paren(s);
-  const size_t eq_limit    = (first_paren != std::string::npos) ? first_paren : s.size();
+  const size_t eq_limit = (first_paren != std::string::npos) ? first_paren : s.size();
   for (size_t i = 0; i < eq_limit; ++i) {
     if (s[i] == '=') {
       dispatch_assignment(s, ctx, i);
@@ -423,8 +448,7 @@ static bool dispatch(const std::string& line, repl_context& ctx) {
     return true;
   }
 
-  std::cerr << "error: unknown command '" << s
-            << "' (type 'help' for available commands)\n";
+  std::cerr << "error: unknown command '" << s << "' (type 'help' for available commands)\n";
   return true;
 }
 
@@ -447,14 +471,17 @@ int cli_app::on_session(rmi::client& c) {
   try {
     auto dict = get_future(c.get_dictionary(), timeout_);
     merge_dictionary(km, dict);
-  } catch (...) {}
+  } catch (...) {
+  }
 
   repl_context ctx{c, handles, km, timeout_};
   std::string line;
   while (true) {
     std::cout << "> " << std::flush;
-    if (!std::getline(std::cin, line)) break;
-    if (!dispatch(line, ctx))          break;
+    if (!std::getline(std::cin, line))
+      break;
+    if (!dispatch(line, ctx))
+      break;
   }
 
   for (auto& [name, proxy] : handles)

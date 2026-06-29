@@ -48,18 +48,15 @@ static void example_hashing(void) {
   bison_hash k1 = bison_key("velocity");
   bison_hash k2 = bison_key("velocity");
 
-  printf("bison_key(\"velocity\") is stable: %s\n",
-         (k1 == k2) ? "true" : "false");
+  printf("bison_key(\"velocity\") is stable: %s\n", (k1 == k2) ? "true" : "false");
 
   // Named keys have the high bit set so they never collide with numeric
   // array indices (0, 1, 2, …).
-  printf("High bit set on named key: %s\n",
-         (k1 & 0x80000000u) ? "true" : "false");
+  printf("High bit set on named key: %s\n", (k1 & 0x80000000u) ? "true" : "false");
 
   // Different names produce different hashes.
   bison_hash kscore = bison_key("score");
-  printf("\"velocity\" != \"score\": %s\n",
-         (k1 != kscore) ? "true" : "false");
+  printf("\"velocity\" != \"score\": %s\n", (k1 != kscore) ? "true" : "false");
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -99,8 +96,7 @@ static void example_scalar_fields(void) {
   // ── Type mismatch returns BISON_ERR_TYPE ──────────────────────────────────
   int32_t wrong = 0;
   bison_error err = bison_get_int(h, bison_key("score"), &wrong);
-  printf("type mismatch error: %s\n",
-         (err == BISON_ERR_TYPE) ? "BISON_ERR_TYPE (expected)" : "unexpected");
+  printf("type mismatch error: %s\n", (err == BISON_ERR_TYPE) ? "BISON_ERR_TYPE (expected)" : "unexpected");
 
   bison_release(h);
 }
@@ -173,8 +169,7 @@ static void example_numeric_indexing(void) {
 
   // Fields are type-locked: assigning float to an int slot returns BISON_ERR_TYPE.
   bison_error type_err = bison_set_float_at(scores, 0, 1.1f);
-  printf("type mismatch at[0]: %s\n",
-         (type_err == BISON_ERR_TYPE) ? "BISON_ERR_TYPE (expected)" : "unexpected");
+  printf("type mismatch at[0]: %s\n", (type_err == BISON_ERR_TYPE) ? "BISON_ERR_TYPE (expected)" : "unexpected");
 
   // Use a separate object for float-typed indices.
   bison_handle fscores = bison_create(0);
@@ -198,8 +193,7 @@ static void example_numeric_indexing(void) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Method implementations are plain C functions (or static C++ functions).
-static void method_add(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_add(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)self;
   (void)user;
   int32_t a = 0, b = 0;
@@ -208,8 +202,7 @@ static void method_add(
   bison_set_int(result, bison_key("value"), a + b);
 }
 
-static void method_accumulate(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_accumulate(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)user;
   int32_t n = 0;
   bison_get_int(params, bison_key("n"), &n);
@@ -262,9 +255,7 @@ static void example_methods(void) {
   bison_handle dummy_params = bison_create(0);
   bison_handle dummy_result = NULL;
   bison_error err = bison_call(calc, bison_key("sqrt"), dummy_params, &dummy_result);
-  printf("call unknown method: %s\n",
-         (err == BISON_ERR_NOT_FOUND) ? "BISON_ERR_NOT_FOUND (expected)"
-                                      : "unexpected");
+  printf("call unknown method: %s\n", (err == BISON_ERR_NOT_FOUND) ? "BISON_ERR_NOT_FOUND (expected)" : "unexpected");
   bison_release(dummy_params);
 
   bison_release(calc);
@@ -278,8 +269,7 @@ static void example_methods(void) {
 // fields and methods.  Pass a parent_name hash to establish inheritance.
 // ─────────────────────────────────────────────────────────────────────────────
 
-static void method_describe(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_describe(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)params;
   (void)user;
   char color[64] = {0};
@@ -289,8 +279,7 @@ static void method_describe(
   bison_set_string(result, bison_key("text"), text);
 }
 
-static void method_area(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_area(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)params;
   (void)user;
   float r = 0.f;
@@ -343,16 +332,14 @@ static void example_inheritance(void) {
   // Inherited field from Shape available on a fresh instance.
   bison_handle c2 = bison_instantiate(0, bison_key("Circle"));
   char inherited_color[64] = {0};
-  bison_get_string(c2, bison_key("color"), inherited_color,
-                   sizeof(inherited_color), NULL);
+  bison_get_string(c2, bison_key("color"), inherited_color, sizeof(inherited_color), NULL);
   printf("Inherited color: %s\n", inherited_color);
   bison_release(c2);
 
   // Duplicate registration is rejected (BISON_ERR_DUPLICATE).
   bison_handle dup = bison_create(bison_key("Shape"));
   bison_error dup_err = bison_add_class(0, dup, 0, NULL);
-  printf("Duplicate addClass rejected: %s\n",
-         (dup_err == BISON_ERR_DUPLICATE) ? "true" : "false");
+  printf("Duplicate addClass rejected: %s\n", (dup_err == BISON_ERR_DUPLICATE) ? "true" : "false");
   bison_release(dup);
 
   // bison_find_class looks up the prototype in the registry.

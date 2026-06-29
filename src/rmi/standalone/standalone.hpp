@@ -99,9 +99,7 @@ class standalone : public proxy_backend {
    *              descriptors for all registered classes.
    * @return Future already resolved with the description payload.
    */
-  std::future<bison::dynamic> describe(
-      bison::key_t ns = 0U,
-      bison::key_t klass = 0U);
+  std::future<bison::dynamic> describe(bison::key_t ns = 0U, bison::key_t klass = 0U);
 
   /**
    * @brief Instantiate an object from the local class registry.
@@ -118,10 +116,8 @@ class standalone : public proxy_backend {
    *         object.
    * @throws std::runtime_error if the class is not registered.
    */
-  std::future<proxy::dynamic> instantiate(
-      bison::key_t ns,
-      bison::key_t klass,
-      bison::dynamic params = bison::dynamic{});
+  std::future<proxy::dynamic>
+  instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params = bison::dynamic{});
 
   /**
    * @brief Destroy an object owned by @p proxy.
@@ -179,11 +175,8 @@ class standalone : public proxy_backend {
    * @return Pending future resolved on the worker thread with the operation
    *         result.
    */
-  std::future<bison::dynamic> send_request(
-      bison::key_t op,
-      bison::key_t object_id,
-      bison::dynamic payload,
-      bool oneway) override;
+  std::future<bison::dynamic> send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway)
+      override;
 
   /**
    * @brief Register an event handler for a named event on an object.
@@ -195,10 +188,8 @@ class standalone : public proxy_backend {
    * @param name      Event name token.
    * @param handler   Callback invoked with the event payload.
    */
-  void register_event_handler(
-      bison::key_t object_id,
-      bison::key_t name,
-      std::function<void(bison::dynamic)> handler) override;
+  void register_event_handler(bison::key_t object_id, bison::key_t name, std::function<void(bison::dynamic)> handler)
+      override;
 
   /**
    * @brief Remove all event handlers registered for @p object_id.
@@ -262,15 +253,11 @@ class standalone : public proxy_backend {
   bison::dynamic handle_describe(bison::key_t ns, bison::key_t klass);
   bison::dynamic handle_dictionary();
   bison::dynamic handle_help();
-  bison::dynamic handle_instantiate(
-      bison::key_t ns,
-      bison::key_t klass,
-      bison::dynamic params);
+  bison::dynamic handle_instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params);
   bison::dynamic handle_clear(bison::key_t object_id);
   bison::dynamic handle_set(bison::key_t object_id, bison::dynamic payload);
   bison::dynamic handle_get(bison::key_t object_id, bison::dynamic projection);
-  bison::dynamic
-  handle_call(bison::key_t object_id, bison::dynamic payload, bool oneway);
+  bison::dynamic handle_call(bison::key_t object_id, bison::dynamic payload, bool oneway);
   bison::dynamic handle_destroy(bison::key_t object_id);
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -285,9 +272,8 @@ class standalone : public proxy_backend {
    * @brief Event handlers keyed first by object ID then by event name,
    *        wrapped for thread-safe concurrent registration and dispatch.
    */
-  bison::synchronized<std::unordered_map<
-      bison::hash_t,
-      std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
+  bison::synchronized<
+      std::unordered_map<bison::hash_t, std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
       event_handlers_;
 
   std::queue<task_item> queue_;

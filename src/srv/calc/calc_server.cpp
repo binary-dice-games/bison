@@ -18,10 +18,7 @@ void calc_server::register_classes() {
 
   // User-accessible accumulator field.
   proto->addField(
-      "memory"_key,
-      field{0.0f,
-            attr<DisplayName>("Memory"),
-            attr<Description>("User-accessible accumulator value")});
+      "memory"_key, field{0.0f, attr<DisplayName>("Memory"), attr<Description>("User-accessible accumulator value")});
 
   // ── Methods ───────────────────────────────────────────────────────────────
 
@@ -35,9 +32,9 @@ void calc_server::register_classes() {
             result["result"_key] = a + b;
             return result;
           },
-          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
-                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          /*input=*/
+          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
           attr<DisplayName>("Add"),
           attr<Description>("Return a + b")});
 
@@ -51,9 +48,9 @@ void calc_server::register_classes() {
             result["result"_key] = a - b;
             return result;
           },
-          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
-                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          /*input=*/
+          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
           attr<DisplayName>("Subtract"),
           attr<Description>("Return a - b")});
 
@@ -67,9 +64,9 @@ void calc_server::register_classes() {
             result["result"_key] = a * b;
             return result;
           },
-          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
-                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          /*input=*/
+          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
           attr<DisplayName>("Multiply"),
           attr<Description>("Return a * b")});
 
@@ -81,26 +78,27 @@ void calc_server::register_classes() {
             float b = params["b"_key];
             dynamic result;
             if (b == 0.0f) {
-              result["error"_key]  = std::string{"division by zero"};
+              result["error"_key] = std::string{"division by zero"};
               result["result"_key] = 0.0f;
             } else {
               result["result"_key] = a / b;
             }
             return result;
           },
-          /*input=*/  dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}},
-                                   {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/ dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}},
-                                   {"error"_key,  field{std::string{}, attr<DisplayName>("Error")}}}},
+          /*input=*/
+          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/
+          dynamic{
+              0U,
+              {{"result"_key, field{0.0f, attr<DisplayName>("Result")}},
+               {"error"_key, field{std::string{}, attr<DisplayName>("Error")}}}},
           attr<DisplayName>("Divide"),
           attr<Description>("Return a / b; sets error key on division by zero")});
 
   // ── Register in global namespace ──────────────────────────────────────────
 
   dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Calculator"),
-       attr<Description>("Stateful calculator with a memory field")});
+      0U, proto, 0U, {attr<DisplayName>("Calculator"), attr<Description>("Stateful calculator with a memory field")});
 }
 
 } // namespace bdg::bison::srv

@@ -65,7 +65,9 @@ struct client_transport_iface {
    * Returns `false` after the peer has closed the connection (EOF / reset).
    * Returns `true` by default for transports that do not track this state.
    */
-  virtual bool is_connected() const { return true; }
+  virtual bool is_connected() const {
+    return true;
+  }
 
   virtual ~client_transport_iface() = default;
 };
@@ -125,8 +127,7 @@ struct server_transport_iface {
    * @param timeout Maximum wait duration for the next connection.
    * @return A live connection on success, or `nullptr` on timeout.
    */
-  virtual std::unique_ptr<server_connection_iface> accept(
-      std::chrono::milliseconds timeout) = 0;
+  virtual std::unique_ptr<server_connection_iface> accept(std::chrono::milliseconds timeout) = 0;
 
   /** @brief Stop the listener and close all pending accept operations. */
   virtual void stop() = 0;

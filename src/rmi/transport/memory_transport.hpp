@@ -54,9 +54,7 @@ class memory_client_transport : public client_transport_iface {
    * @param timeout Maximum wait time before returning `false`.
    * @return `true` when a frame was received; otherwise `false`.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Close the endpoint and wake blocked waiters. */
   void shutdown() override;
@@ -82,9 +80,7 @@ class memory_server_connection : public server_connection_iface {
    * @param timeout Maximum wait time before returning `false`.
    * @return `true` when a frame was received; otherwise `false`.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Mark the connection as closed and notify waiters. */
   void close() override;

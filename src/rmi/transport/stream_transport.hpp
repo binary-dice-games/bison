@@ -83,10 +83,7 @@ class stream_client_transport : public client_transport_iface {
    * @param timeout Maximum wait before returning `false`.
    * @return `true` when a frame was received; `false` on timeout or EOF.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Mark the transport as shut down; subsequent receives return false. */
   void shutdown() override;
@@ -126,10 +123,7 @@ class stream_server_connection : public server_connection_iface {
    * @param timeout Maximum wait before returning `false`.
    * @return `true` when a frame was received; `false` on timeout or EOF.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Mark the connection closed; subsequent receives return false. */
   void close() override;
@@ -176,8 +170,7 @@ class stream_server_transport : public server_transport_iface {
    * @param timeout  Ignored; no blocking is needed for a pre-connected stream.
    */
   std::unique_ptr<server_connection_iface> accept(
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Mark the transport stopped; future accept calls return nullptr. */
   void stop() override;

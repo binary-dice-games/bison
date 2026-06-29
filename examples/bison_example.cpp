@@ -42,8 +42,7 @@ static void example_hashing() {
   // Runtime hash – produces the same value
   hash_t k2 = hash("velocity");
 
-  std::cout << "\"velocity\"_key == hash(\"velocity\"): " << std::boolalpha
-            << (k1 == k2) << "\n";
+  std::cout << "\"velocity\"_key == hash(\"velocity\"): " << std::boolalpha << (k1 == k2) << "\n";
 
   // key_t wraps a hash and is implicitly convertible to hash_t
   bdg::bison::key_t k3 = "score"_key;
@@ -51,15 +50,13 @@ static void example_hashing() {
 
   // Named keys always have the high bit set so they never collide with small
   // numeric array indices (0, 1, 2, …).
-  std::cout << "High bit set on named key: " << std::boolalpha
-            << bool(k3.id & 0x80000000u) << "\n";
+  std::cout << "High bit set on named key: " << std::boolalpha << bool(k3.id & 0x80000000u) << "\n";
 
   // key_t can also be constructed at runtime from a std::string or const char*,
   // producing the same hash as the compile-time _key literal.
   std::string field_name = "position";
   bdg::bison::key_t k4{field_name};
-  std::cout << "key_t from string matches _key: " << std::boolalpha
-            << (k4.id == "position"_key.id) << "\n";
+  std::cout << "key_t from string matches _key: " << std::boolalpha << (k4.id == "position"_key.id) << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,26 +118,21 @@ static void example_field() {
   // __class, __parent, and __namespace; also usable in application fields.
   field f_key{bdg::bison::key_t{"color"_key}};
   field f_hash{hash_t{0xDEADBEEFu}};
-  std::cout << "key field matches 'color': "
-            << (f_key.as<bdg::bison::key_t>().id == "color"_key.id) << "\n";
-  std::cout << "hash field (hex): 0x" << std::hex << f_hash.as<hash_t>()
-            << std::dec << "\n";
+  std::cout << "key field matches 'color': " << (f_key.as<bdg::bison::key_t>().id == "color"_key.id) << "\n";
+  std::cout << "hash field (hex): 0x" << std::hex << f_hash.as<hash_t>() << std::dec << "\n";
 
   // ── vector<uint8_t> – raw byte blob (tag 11) ──────────────────────────
   field f_bytes{std::vector<uint8_t>{0x00, 0xFF, 0x42}};
   const auto& blob = f_bytes.as<std::vector<uint8_t>>();
-  std::cout << "blob size: " << blob.size()
-            << "  blob[1]: 0x" << std::hex << static_cast<int>(blob[1])
-            << std::dec << "\n";
+  std::cout << "blob size: " << blob.size() << "  blob[1]: 0x" << std::hex << static_cast<int>(blob[1]) << std::dec
+            << "\n";
 
   // ── Null dynamic_ptr (tag 6, presence=0) – distinct from monostate ────
   // A null dynamic_ptr is a field that holds a pointer-to-absent-object,
   // not an unset field.  It serializes and deserializes correctly.
   field f_null_obj{std::shared_ptr<dynamic>{}};
-  std::cout << "null obj is dynamic_ptr: " << f_null_obj.is<dynamic_ptr>()
-            << "\n";
-  std::cout << "null obj is monostate  : "
-            << f_null_obj.is<std::monostate>() << "\n";
+  std::cout << "null obj is dynamic_ptr: " << f_null_obj.is<dynamic_ptr>() << "\n";
+  std::cout << "null obj is monostate  : " << f_null_obj.is<std::monostate>() << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,8 +155,7 @@ static void example_dynamic_basics() {
   std::cout << "active : " << obj["active"_key].as<bool>() << "\n";
 
   // obj.as<T>(key) is shorthand for obj[key].as<T>() – same result.
-  std::cout << "name (as shorthand): " << obj.as<std::string>("name"_key)
-            << "\n";
+  std::cout << "name (as shorthand): " << obj.as<std::string>("name"_key) << "\n";
 
   // ── Numeric (array-like) fields ───────────────────────────────────────────
   // Use a size_t index to store ordered sequences inside the same object.
@@ -179,22 +170,17 @@ static void example_dynamic_basics() {
   list["label"_key] = std::string{"colors"};
   list.clear();
   std::cout << "size after clear: " << list.size() << "\n";
-  std::cout << "label survives  : " << list["label"_key].as<std::string>()
-            << "\n";
+  std::cout << "label survives  : " << list["label"_key].as<std::string>() << "\n";
 
   // ── addField / addMethod guard against duplicates ─────────────────────────
   bool first_add = obj.addField("score"_key, field{int32_t{100}});
   bool second_add = obj.addField("score"_key, field{int32_t{999}});
   std::cout << "first addField succeeded : " << first_add << "\n";
   std::cout << "second addField rejected : " << !second_add << "\n";
-  std::cout << "score (first value kept): " << obj["score"_key].as<int32_t>()
-            << "\n";
+  std::cout << "score (first value kept): " << obj["score"_key].as<int32_t>() << "\n";
 
   // ── Nested dynamic objects ────────────────────────────────────────────────
-  dynamic_ptr address{
-      0U,
-      {{"street"_key, std::string{"123 Main St"}},
-       {"city"_key, std::string{"Springfield"}}}};
+  dynamic_ptr address{0U, {{"street"_key, std::string{"123 Main St"}}, {"city"_key, std::string{"Springfield"}}}};
   obj["address"_key] = dynamic_ptr{address};
 
   auto addr = obj["address"_key].as<dynamic_ptr>();
@@ -257,8 +243,7 @@ static void example_serialization() {
   stream_deserializer in2{ss2};
   auto restored = dynamic::deserialize(in2);
   auto meta = restored["meta"_key].as<dynamic_ptr>();
-  std::cout << "nested version: " << (*meta)["version"_key].as<int32_t>()
-            << "\n";
+  std::cout << "nested version: " << (*meta)["version"_key].as<int32_t>() << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,11 +263,7 @@ static void example_template_serialization() {
 
   // Register the class prototype.  The prototype defines the field layout.
   dynamic::addClass(
-      0U,
-      dynamic_ptr{
-          "Vector3"_key,
-          {{"x"_key, float{0}}, {"y"_key, float{0}}, {"z"_key, float{0}}}},
-      0U);
+      0U, dynamic_ptr{"Vector3"_key, {{"x"_key, float{0}}, {"y"_key, float{0}}, {"z"_key, float{0}}}}, 0U);
 
   // Create and populate an instance.
   dynamic v = dynamic::instantiate("Vector3"_key);
@@ -301,8 +282,7 @@ static void example_template_serialization() {
 
   stream_deserializer in{ss};
   auto restored = dynamic::deserializeWithSchema(in);
-  std::cout << "x=" << restored["x"_key].as<float>()
-            << " y=" << restored["y"_key].as<float>()
+  std::cout << "x=" << restored["x"_key].as<float>() << " y=" << restored["y"_key].as<float>()
             << " z=" << restored["z"_key].as<float>() << "\n";
 
   // Clean up
@@ -322,26 +302,24 @@ static void example_methods() {
   dynamic calc{"Calculator"_key};
 
   // Register an "add" method.
-  calc.addMethod(
-      "add"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        int32_t a = params["a"_key].as<int32_t>();
-        int32_t b = params["b"_key].as<int32_t>();
-        dynamic result;
-        result["value"_key] = a + b;
-        return result;
-      }});
+  calc.addMethod("add"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                   int32_t a = params["a"_key].as<int32_t>();
+                   int32_t b = params["b"_key].as<int32_t>();
+                   dynamic result;
+                   result["value"_key] = a + b;
+                   return result;
+                 }});
 
   // Register an "accumulate" method that mutates internal state via self.
   calc["total"_key] = int32_t{0};
-  calc.addMethod(
-      "accumulate"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        int32_t n = params["n"_key].as<int32_t>();
-        int32_t total = self["total"_key].as<int32_t>() + n;
-        self["total"_key] = total;
-        dynamic result;
-        result["total"_key] = total;
-        return result;
-      }});
+  calc.addMethod("accumulate"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                   int32_t n = params["n"_key].as<int32_t>();
+                   int32_t total = self["total"_key].as<int32_t>() + n;
+                   self["total"_key] = total;
+                   dynamic result;
+                   result["total"_key] = total;
+                   return result;
+                 }});
 
   // Call "add".
   dynamic args;
@@ -356,8 +334,7 @@ static void example_methods() {
     p["n"_key] = int32_t{i};
     calc.call("accumulate"_key, p);
   }
-  std::cout << "accumulated total (1+2+3+4+5): "
-            << calc["total"_key].as<int32_t>() << "\n";
+  std::cout << "accumulated total (1+2+3+4+5): " << calc["total"_key].as<int32_t>() << "\n";
 
   // Calling a non-existent method throws.
   try {
@@ -382,24 +359,22 @@ static void example_inheritance() {
 
   // ── Register a base class ─────────────────────────────────────────────────
   auto shape = dynamic_ptr{"Shape"_key, {{"color"_key, std::string{"black"}}}};
-  shape->addMethod(
-      "describe"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        dynamic result;
-        result["text"_key] = self["color"_key].as<std::string>() + " shape";
-        return result;
-      }});
+  shape->addMethod("describe"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                     dynamic result;
+                     result["text"_key] = self["color"_key].as<std::string>() + " shape";
+                     return result;
+                   }});
   dynamic::addClass(0U, shape, 0U);
 
   // ── Register a child class ────────────────────────────────────────────────
   auto circle = dynamic_ptr{"Circle"_key, {{"radius"_key, float{1.0f}}}};
-  circle->addMethod(
-      "area"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        const float pi = 3.14159265f;
-        float r = self["radius"_key].as<float>();
-        dynamic result;
-        result["area"_key] = pi * r * r;
-        return result;
-      }});
+  circle->addMethod("area"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                      const float pi = 3.14159265f;
+                      float r = self["radius"_key].as<float>();
+                      dynamic result;
+                      result["area"_key] = pi * r * r;
+                      return result;
+                    }});
   dynamic::addClass(0U, circle, "Shape"_key);
 
   // ── Instantiate and use ───────────────────────────────────────────────────
@@ -424,8 +399,7 @@ static void example_inheritance() {
   std::cout << "Circular addClass rejected: " << !ok << "\n";
 
   // findClass() walks the hierarchy.
-  std::cout << "c is-a Shape: " << (c.findClass("Shape"_key) != nullptr)
-            << "\n";
+  std::cout << "c is-a Shape: " << (c.findClass("Shape"_key) != nullptr) << "\n";
 
   // Clean up
   dynamic::getRegistry().wlock()->clear();
@@ -468,8 +442,7 @@ static void example_userdata() {
   stream_deserializer in{ss};
   auto restored = dynamic::deserialize(in);
 
-  std::cout << "vertex_count preserved: "
-            << restored["vertex_count"_key].as<int32_t>() << "\n";
+  std::cout << "vertex_count preserved: " << restored["vertex_count"_key].as<int32_t>() << "\n";
   std::cout << "userdata after deserialize (should be null): "
             << (restored.getUserdata() == nullptr ? "null" : "present") << "\n";
 }
@@ -567,14 +540,11 @@ static void example_namespaces() {
 
   // ── Register classes with the same name in different namespaces ───────────
   // "math" namespace: a table is a data structure with rows and columns.
-  auto math_table = dynamic_ptr{
-      "table"_key, {{"rows"_key, int32_t{0}}, {"cols"_key, int32_t{0}}}};
+  auto math_table = dynamic_ptr{"table"_key, {{"rows"_key, int32_t{0}}, {"cols"_key, int32_t{0}}}};
   dynamic::addClass("math"_key, math_table, 0U);
 
   // "ikea" namespace: a table is a piece of furniture with legs and a surface.
-  auto ikea_table = dynamic_ptr{
-      "table"_key,
-      {{"legs"_key, int32_t{4}}, {"material"_key, std::string{"wood"}}}};
+  auto ikea_table = dynamic_ptr{"table"_key, {{"legs"_key, int32_t{4}}, {"material"_key, std::string{"wood"}}}};
   dynamic::addClass("ikea"_key, ikea_table, 0U);
 
   std::cout << "Registered 'table' in both 'math' and 'ikea' namespaces\n";
@@ -588,8 +558,7 @@ static void example_namespaces() {
   it["legs"_key] = int32_t{4};
   it["material"_key] = std::string{"oak"};
 
-  std::cout << "math::table rows=" << mt["rows"_key].as<int32_t>()
-            << " cols=" << mt["cols"_key].as<int32_t>() << "\n";
+  std::cout << "math::table rows=" << mt["rows"_key].as<int32_t>() << " cols=" << mt["cols"_key].as<int32_t>() << "\n";
   std::cout << "ikea::table legs=" << it["legs"_key].as<int32_t>()
             << " material=" << it["material"_key].as<std::string>() << "\n";
 
@@ -598,8 +567,7 @@ static void example_namespaces() {
   auto* nsf = mt.findField(dynamic::NAMESPACE);
   if (nsf) {
     bdg::bison::key_t ns = nsf->as<bdg::bison::key_t>();
-    std::cout << "math::table __namespace matches 'math': " << std::boolalpha
-              << (ns.id == hash("math")) << "\n";
+    std::cout << "math::table __namespace matches 'math': " << std::boolalpha << (ns.id == hash("math")) << "\n";
   }
 
   // ── Inheritance within a namespace ───────────────────────────────────────
@@ -610,10 +578,9 @@ static void example_namespaces() {
   dynamic::addClass("ikea"_key, sofa, "Furniture"_key);
 
   dynamic s = dynamic::instantiate("ikea"_key, "Sofa"_key);
-  std::cout << "ikea::Sofa seats=" << s["seats"_key].as<int32_t>()
-            << " warranty=" << s["warranty"_key].as<int32_t>() << "\n";
-  std::cout << "s is-a Furniture: " << std::boolalpha
-            << (s.findClass("Furniture"_key) != nullptr) << "\n";
+  std::cout << "ikea::Sofa seats=" << s["seats"_key].as<int32_t>() << " warranty=" << s["warranty"_key].as<int32_t>()
+            << "\n";
+  std::cout << "s is-a Furniture: " << std::boolalpha << (s.findClass("Furniture"_key) != nullptr) << "\n";
 
   // Clean up
   dynamic::getRegistry().wlock()->clear();
@@ -644,15 +611,11 @@ static void example_buffer_serialization() {
 
   buffer_deserializer bdes{bytes};
   auto dst = dynamic::deserialize(bdes);
-  std::cout << "x=" << dst["x"_key].as<float>()
-            << " label=" << dst["label"_key].as<std::string>() << "\n";
+  std::cout << "x=" << dst["x"_key].as<float>() << " label=" << dst["label"_key].as<std::string>() << "\n";
 
   // ── Schema-driven (compact) mode ──────────────────────────────────────
   dynamic::getRegistry().wlock()->clear();
-  dynamic::addClass(
-      0U,
-      dynamic_ptr{"Point2D"_key,
-                  {{"x"_key, float{0}}, {"y"_key, float{0}}}});
+  dynamic::addClass(0U, dynamic_ptr{"Point2D"_key, {{"x"_key, float{0}}, {"y"_key, float{0}}}});
 
   dynamic pt = dynamic::instantiate("Point2D"_key);
   pt["x"_key] = float{3.0f};
@@ -666,8 +629,7 @@ static void example_buffer_serialization() {
 
   buffer_deserializer bdes2{bytes2};
   auto pt2 = dynamic::deserializeWithSchema(bdes2);
-  std::cout << "x=" << pt2["x"_key].as<float>()
-            << " y=" << pt2["y"_key].as<float>() << "\n";
+  std::cout << "x=" << pt2["x"_key].as<float>() << " y=" << pt2["y"_key].as<float>() << "\n";
 
   dynamic::getRegistry().wlock()->clear();
 }
@@ -698,8 +660,7 @@ static void example_iteration() {
     if (f.is<bdg::bison::key_t>())
       return;
     if (k.id < 0x80000000u) {
-      std::cout << "  [" << k.id << "] string = "
-                << f.as<std::string>() << "\n";
+      std::cout << "  [" << k.id << "] string = " << f.as<std::string>() << "\n";
     } else if (f.is<int32_t>()) {
       std::cout << "  [named] int32  = " << f.as<int32_t>() << "\n";
     } else if (f.is<float>()) {
@@ -716,8 +677,7 @@ static void example_iteration() {
   obj.clear();
   std::cout << "size after clear  : " << obj.size() << "\n"; // 0
   std::cout << "empty after clear : " << obj.empty() << "\n"; // false
-  std::cout << "count still present: "
-            << obj["count"_key].as<int32_t>() << "\n";
+  std::cout << "count still present: " << obj["count"_key].as<int32_t>() << "\n";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -358,11 +358,7 @@ TEST_F(ClassRegistryTests, AddClassNullHandleReturnsNull) {
 // 6. Methods
 // ═════════════════════════════════════════════════════════════════════════════
 
-static void double_counter_fn(
-    bison_handle self,
-    bison_handle /*params*/,
-    bison_handle result,
-    void* /*user*/) {
+static void double_counter_fn(bison_handle self, bison_handle /*params*/, bison_handle result, void* /*user*/) {
   int32_t n = 0;
   bison_get_int(self, H("n"), &n);
   bison_set_int(self, H("n"), n * 2);
@@ -372,9 +368,7 @@ static void double_counter_fn(
 TEST(MethodTests, AddAndCallMethod) {
   ScopedHandle h{bison_create(0)};
   bison_set_int(h, H("n"), 5);
-  EXPECT_EQ(
-      bison_add_method(h, H("double"), double_counter_fn, nullptr, nullptr),
-      BISON_OK);
+  EXPECT_EQ(bison_add_method(h, H("double"), double_counter_fn, nullptr, nullptr), BISON_OK);
 
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
@@ -390,18 +384,13 @@ TEST(MethodTests, CallMissingMethodReturnsNotFound) {
   ScopedHandle h{bison_create(0)};
   ScopedHandle params{bison_create(0)};
   bison_handle result = nullptr;
-  EXPECT_EQ(
-      bison_call(h, H("nonexistent"), params, &result), BISON_ERR_NOT_FOUND);
+  EXPECT_EQ(bison_call(h, H("nonexistent"), params, &result), BISON_ERR_NOT_FOUND);
 }
 
 TEST(MethodTests, AddDuplicateMethodFails) {
   ScopedHandle h{bison_create(0)};
-  EXPECT_EQ(
-      bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr),
-      BISON_OK);
-  EXPECT_EQ(
-      bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr),
-      BISON_ERR_DUPLICATE);
+  EXPECT_EQ(bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_method(h, H("fn"), double_counter_fn, nullptr, nullptr), BISON_ERR_DUPLICATE);
 }
 
 TEST(MethodTests, NullHandleReturnsNullError) {
@@ -521,11 +510,11 @@ TEST(PrintTests, DefaultOptionsProducesMultilineOutput) {
   const std::string s{out};
   // Default is multiline — must contain newlines and braces.
   EXPECT_NE(s.find('\n'), std::string::npos);
-  EXPECT_NE(s.find('{'),  std::string::npos);
-  EXPECT_NE(s.find('}'),  std::string::npos);
+  EXPECT_NE(s.find('{'), std::string::npos);
+  EXPECT_NE(s.find('}'), std::string::npos);
   // Values appear in the output.
   EXPECT_NE(s.find("\"Alice\""), std::string::npos);
-  EXPECT_NE(s.find("30"),        std::string::npos);
+  EXPECT_NE(s.find("30"), std::string::npos);
 
   free_and_null(&out);
 }
@@ -534,7 +523,7 @@ TEST(PrintTests, SingleLineOptionProducesNoNewlines) {
   ScopedHandle h{bison_create(0)};
   bison_set_float(h, bison_key("score"), 7.5f);
 
-  bison_print_options opts{0, nullptr};  // single-line, default indent
+  bison_print_options opts{0, nullptr}; // single-line, default indent
   char* out = nullptr;
   ASSERT_EQ(bison_print(h, &opts, &out), BISON_OK);
   ASSERT_NE(out, nullptr);
@@ -573,7 +562,7 @@ TEST(PrintTests, DisplayNameAttributeUsedAsFieldKey) {
 
   // DisplayName replaces the hash key in the output.
   EXPECT_NE(std::string{out}.find("Player Name"), std::string::npos);
-  EXPECT_NE(std::string{out}.find("\"Bob\""),      std::string::npos);
+  EXPECT_NE(std::string{out}.find("\"Bob\""), std::string::npos);
 
   free_and_null(&out);
 }
@@ -584,14 +573,10 @@ TEST(PrintTests, MethodsAppearsWithDisplayName) {
 
   bison_attributes m_meta{};
   m_meta.display_name = "Reset";
-  m_meta.description  = "Resets value to zero";
-  ASSERT_EQ(
-      bison_add_method(h, bison_key("reset"), double_counter_fn, nullptr, &m_meta),
-      BISON_OK);
+  m_meta.description = "Resets value to zero";
+  ASSERT_EQ(bison_add_method(h, bison_key("reset"), double_counter_fn, nullptr, &m_meta), BISON_OK);
   // Method without attributes.
-  ASSERT_EQ(
-      bison_add_method(h, bison_key("ping"), double_counter_fn, nullptr, nullptr),
-      BISON_OK);
+  ASSERT_EQ(bison_add_method(h, bison_key("ping"), double_counter_fn, nullptr, nullptr), BISON_OK);
 
   char* out = nullptr;
   ASSERT_EQ(bison_print(h, nullptr, &out), BISON_OK);
@@ -599,11 +584,11 @@ TEST(PrintTests, MethodsAppearsWithDisplayName) {
 
   const std::string s{out};
   // Named method key via DisplayName.
-  EXPECT_NE(s.find("Reset"),       std::string::npos);
+  EXPECT_NE(s.find("Reset"), std::string::npos);
   // Attribute summary in method value.
   EXPECT_NE(s.find("displayName"), std::string::npos);
   // Method without attrs uses sentinel.
-  EXPECT_NE(s.find("<method>"),    std::string::npos);
+  EXPECT_NE(s.find("<method>"), std::string::npos);
 
   free_and_null(&out);
 }
@@ -618,4 +603,3 @@ TEST(PrintTests, NullOutPointerReturnsNullError) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(bison_print(h, nullptr, nullptr), BISON_ERR_NULL);
 }
-

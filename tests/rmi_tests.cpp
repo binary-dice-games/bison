@@ -56,26 +56,19 @@ static void destroyMovedFromSocketClientTransport() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST(RmiConstants, KindTokensAreDistinct) {
-  EXPECT_NE(
-      static_cast<hash_t>(KIND_REQUEST), static_cast<hash_t>(KIND_RESPONSE));
-  EXPECT_NE(
-      static_cast<hash_t>(KIND_RESPONSE), static_cast<hash_t>(KIND_EVENT));
+  EXPECT_NE(static_cast<hash_t>(KIND_REQUEST), static_cast<hash_t>(KIND_RESPONSE));
+  EXPECT_NE(static_cast<hash_t>(KIND_RESPONSE), static_cast<hash_t>(KIND_EVENT));
 }
 
 TEST(RmiConstants, OperationTokensAreDistinct) {
-  EXPECT_NE(
-      static_cast<hash_t>(OP_CONNECT), static_cast<hash_t>(OP_DISCONNECT));
+  EXPECT_NE(static_cast<hash_t>(OP_CONNECT), static_cast<hash_t>(OP_DISCONNECT));
   EXPECT_NE(static_cast<hash_t>(OP_GET), static_cast<hash_t>(OP_SET));
   EXPECT_NE(static_cast<hash_t>(OP_CALL), static_cast<hash_t>(OP_DESTROY));
 }
 
 TEST(RmiConstants, ErrorCodesAreDistinct) {
-  EXPECT_NE(
-      static_cast<hash_t>(ERR_INVALID_REQUEST),
-      static_cast<hash_t>(ERR_INTERNAL_ERROR));
-  EXPECT_NE(
-      static_cast<hash_t>(ERR_CLASS_NOT_FOUND),
-      static_cast<hash_t>(ERR_OBJECT_NOT_FOUND));
+  EXPECT_NE(static_cast<hash_t>(ERR_INVALID_REQUEST), static_cast<hash_t>(ERR_INTERNAL_ERROR));
+  EXPECT_NE(static_cast<hash_t>(ERR_CLASS_NOT_FOUND), static_cast<hash_t>(ERR_OBJECT_NOT_FOUND));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -88,8 +81,7 @@ TEST(RmiIds, GenerateIdProducesNonZeroKey) {
 }
 
 TEST(RmiIds, ConsecutiveIdsAreDifferent) {
-  EXPECT_NE(
-      static_cast<hash_t>(generate_id()), static_cast<hash_t>(generate_id()));
+  EXPECT_NE(static_cast<hash_t>(generate_id()), static_cast<hash_t>(generate_id()));
 }
 
 TEST(RmiIds, ConsecutiveIdsAreNotSequentialValues) {
@@ -146,8 +138,7 @@ TEST_F(RmiEnvelopeTests, RoundtripRequest) {
 
   EXPECT_FALSE(env.payload.empty());
   EXPECT_EQ(env.payload.as<std::string>("msg"_key), std::string{"hello"});
-  EXPECT_EQ(
-      static_cast<hash_t>(env.error.as<bison_key_t>(FIELD_ERROR_CODE)), 0u);
+  EXPECT_EQ(static_cast<hash_t>(env.error.as<bison_key_t>(FIELD_ERROR_CODE)), 0u);
 
   bool oneway = env.oneway;
   EXPECT_FALSE(oneway);
@@ -243,8 +234,7 @@ TEST(SocketTransport, SendReceivePair) {
   client_t.send(frame);
 
   buffer received;
-  const bool ok =
-      server_conn->receive(received, std::chrono::milliseconds{500});
+  const bool ok = server_conn->receive(received, std::chrono::milliseconds{500});
   ASSERT_TRUE(ok);
   EXPECT_EQ(received, frame);
 
@@ -568,9 +558,7 @@ TEST_F(RmiE2E, ConnectAndDisconnect) {
 
 TEST_F(RmiE2E, DescribeAllClassesReturnsRegistered) {
   // Register a class before connecting.
-  auto proto = dynamic_ptr{
-      "TestWidget"_key,
-      {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{"TestWidget"_key, {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -644,8 +632,7 @@ TEST_F(RmiE2E, InstantiateWithExplicitNamespaceSucceeds) {
 }
 
 TEST_F(RmiE2E, SetAndGetField) {
-  auto proto =
-      dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -674,10 +661,7 @@ TEST_F(RmiE2E, SetAndGetField) {
 TEST_F(RmiE2E, GetProjection) {
   auto proto = dynamic_ptr{
       "Rect"_key,
-      {{"left"_key, int32_t{0}},
-       {"top"_key, int32_t{0}},
-       {"right"_key, int32_t{0}},
-       {"bottom"_key, int32_t{0}}}};
+      {{"left"_key, int32_t{0}}, {"top"_key, int32_t{0}}, {"right"_key, int32_t{0}}, {"bottom"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -704,8 +688,7 @@ TEST_F(RmiE2E, GetProjection) {
   EXPECT_EQ(right, 30);
   // "top" and "bottom" should NOT be present in the projection result.
   EXPECT_FALSE(
-      projection.findField("top"_key) != nullptr &&
-      projection["top"_key].is<int32_t>() &&
+      projection.findField("top"_key) != nullptr && projection["top"_key].is<int32_t>() &&
       static_cast<int32_t>(projection["top"_key]) == 20);
 
   c.destroy(std::move(proxy));
@@ -749,12 +732,12 @@ TEST_F(RmiE2E, CallMethod) {
   // Register a class with an "add" method.
   auto proto = dynamic_ptr{"Calc"_key, {{"result"_key, int32_t{0}}}};
   proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) {
-    int32_t a = params["a"_key];
-    int32_t b = params["b"_key];
-    dynamic ret;
-    ret["result"_key] = a + b;
-    return ret;
-  }});
+                     int32_t a = params["a"_key];
+                     int32_t b = params["b"_key];
+                     dynamic ret;
+                     ret["result"_key] = a + b;
+                     return ret;
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -777,9 +760,7 @@ TEST_F(RmiE2E, CallMethod) {
 
 TEST_F(RmiE2E, OnewayCallResolvesImmediately) {
   auto proto = dynamic_ptr{"Sink"_key, {}};
-  proto->addMethod("noop"_key, method{[](dynamic& /*s*/, const dynamic& /*p*/) {
-    return dynamic{};
-  }});
+  proto->addMethod("noop"_key, method{[](dynamic& /*s*/, const dynamic& /*p*/) { return dynamic{}; }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -807,16 +788,14 @@ TEST_F(RmiE2E, ConstructAndDestructHooksAreCalled) {
   std::atomic<int> destruct_count{0};
 
   auto proto = dynamic_ptr{"Hooked"_key, {{"x"_key, int32_t{0}}}};
-  proto->addMethod(
-      HOOK_CONSTRUCT, method{[&construct_count](dynamic& /*self*/, const dynamic&) {
-        ++construct_count;
-        return dynamic{};
-      }});
-  proto->addMethod(
-      HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
-        ++destruct_count;
-        return dynamic{};
-      }});
+  proto->addMethod(HOOK_CONSTRUCT, method{[&construct_count](dynamic& /*self*/, const dynamic&) {
+                     ++construct_count;
+                     return dynamic{};
+                   }});
+  proto->addMethod(HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
+                     ++destruct_count;
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -835,17 +814,17 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
   auto proto = dynamic_ptr{"Clamped"_key, {{"v"_key, int32_t{0}}}};
   // __setter clamps v to [0, 100].
   proto->addMethod(HOOK_SETTER, method{[](dynamic& /*self*/, const dynamic& patch) {
-    dynamic out = patch.clone();
-    auto* f = out.findField("v"_key);
-    if (f && f->is<int32_t>()) {
-      int32_t val = *f;
-      if (val > 100)
-        out["v"_key] = int32_t{100};
-      if (val < 0)
-        out["v"_key] = int32_t{0};
-    }
-    return out;
-  }});
+                     dynamic out = patch.clone();
+                     auto* f = out.findField("v"_key);
+                     if (f && f->is<int32_t>()) {
+                       int32_t val = *f;
+                       if (val > 100)
+                         out["v"_key] = int32_t{100};
+                       if (val < 0)
+                         out["v"_key] = int32_t{0};
+                     }
+                     return out;
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -869,14 +848,14 @@ TEST_F(RmiE2E, GetterHookTransformsResult) {
   auto proto = dynamic_ptr{"Doubled"_key, {{"n"_key, int32_t{0}}}};
   // __getter doubles the value of n in the response.
   proto->addMethod(HOOK_GETTER, method{[](dynamic& /*self*/, const dynamic& snap) {
-    dynamic out = snap.clone();
-    auto* f = out.findField("n"_key);
-    if (f && f->is<int32_t>()) {
-      int32_t val = *f;
-      out["n"_key] = val * 2;
-    }
-    return out;
-  }});
+                     dynamic out = snap.clone();
+                     auto* f = out.findField("n"_key);
+                     if (f && f->is<int32_t>()) {
+                       int32_t val = *f;
+                       out["n"_key] = val * 2;
+                     }
+                     return out;
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -947,20 +926,20 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
   // Register a class whose "trigger" method emits an event back to the client.
   auto proto = dynamic_ptr{"Emitter"_key, {}};
   proto->addMethod("trigger"_key, method{[](dynamic& self, const dynamic& params) {
-    // Retrieve the emit_event callback stored in userdata.
-    // For this test we smuggle it via a shared_ptr<userdata>.
-    struct emit_ud : bdg::bison::userdata {
-      std::function<void(bison_key_t, bison_key_t, dynamic)> fn;
-    };
-    auto ud = std::dynamic_pointer_cast<emit_ud>(self.getUserdata());
-    if (ud && ud->fn) {
-      // Emit "onTick" event with value = 77.
-      dynamic ev_params;
-      ev_params["value"_key] = int32_t{77};
-      ud->fn({}, "onTick"_key, std::move(ev_params));
-    }
-    return dynamic{};
-  }});
+                     // Retrieve the emit_event callback stored in userdata.
+                     // For this test we smuggle it via a shared_ptr<userdata>.
+                     struct emit_ud : bdg::bison::userdata {
+                       std::function<void(bison_key_t, bison_key_t, dynamic)> fn;
+                     };
+                     auto ud = std::dynamic_pointer_cast<emit_ud>(self.getUserdata());
+                     if (ud && ud->fn) {
+                       // Emit "onTick" event with value = 77.
+                       dynamic ev_params;
+                       ev_params["value"_key] = int32_t{77};
+                       ud->fn({}, "onTick"_key, std::move(ev_params));
+                     }
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   // Override instantiate so we can attach userdata with the emit callback.
@@ -994,8 +973,7 @@ TEST_F(RmiE2E, ServerEmitsEventReceivedByClient) {
   // Build an event frame manually.
   dynamic event_payload;
   event_payload[FIELD_NAME] = bison_key_t{"onTick"_key};
-  event_payload[FIELD_PARAMS] = std::make_shared<dynamic>(
-      dynamic{0U, {{"value"_key, field{int32_t{77}}}}});
+  event_payload[FIELD_PARAMS] = std::make_shared<dynamic>(dynamic{0U, {{"value"_key, field{int32_t{77}}}}});
 
   const bison_key_t oid = "obj_test_001";
   envelope out;
@@ -1094,11 +1072,10 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
   std::atomic<int> destruct_count{0};
 
   auto proto = dynamic_ptr{"Ephemeral"_key, {}};
-  proto->addMethod(
-      HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
-        ++destruct_count;
-        return dynamic{};
-      }});
+  proto->addMethod(HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
+                     ++destruct_count;
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -1122,9 +1099,8 @@ TEST_F(RmiE2E, DisconnectInvokesDestructOnRemainingObjects) {
 
 TEST_F(RmiE2E, ConcurrentCallsReturnCorrectResults) {
   auto proto = dynamic_ptr{"Echo"_key, {}};
-  proto->addMethod("echo"_key, method{[](dynamic& /*self*/, const dynamic& params) {
-    return dynamic{params.clone()};
-  }});
+  proto->addMethod(
+      "echo"_key, method{[](dynamic& /*self*/, const dynamic& params) { return dynamic{params.clone()}; }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -1176,8 +1152,7 @@ TEST_F(StandaloneTests, ConnectAndDisconnectAreNoOps) {
 }
 
 TEST_F(StandaloneTests, DescribeAllClassesReturnsRegistered) {
-  auto proto = dynamic_ptr{
-      "Widget"_key, {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{"Widget"_key, {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   standalone sa;
@@ -1228,8 +1203,7 @@ TEST_F(StandaloneTests, InstantiateAndDestroyRegisteredClass) {
 }
 
 TEST_F(StandaloneTests, SetAndGetField) {
-  auto proto =
-      dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   standalone sa;
@@ -1248,9 +1222,7 @@ TEST_F(StandaloneTests, SetAndGetField) {
 }
 
 TEST_F(StandaloneTests, GetProjection) {
-  auto proto = dynamic_ptr{
-      "Point"_key,
-      {{"a"_key, int32_t{0}}, {"b"_key, int32_t{0}}, {"c"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{"Point"_key, {{"a"_key, int32_t{0}}, {"b"_key, int32_t{0}}, {"c"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
 
   standalone sa;
@@ -1303,12 +1275,12 @@ TEST_F(StandaloneTests, ClearResetsFields) {
 TEST_F(StandaloneTests, CallMethod) {
   auto proto = dynamic_ptr{"Adder"_key, {}};
   proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) {
-    int32_t a = params["a"_key];
-    int32_t b = params["b"_key];
-    dynamic result;
-    result["sum"_key] = int32_t{a + b};
-    return result;
-  }});
+                     int32_t a = params["a"_key];
+                     int32_t b = params["b"_key];
+                     dynamic result;
+                     result["sum"_key] = int32_t{a + b};
+                     return result;
+                   }});
   dynamic::addClass(0U, proto);
 
   standalone sa;
@@ -1328,16 +1300,14 @@ TEST_F(StandaloneTests, ConstructAndDestructHooksAreCalled) {
   std::atomic<int> destructed{0};
 
   auto proto = dynamic_ptr{"Tracked"_key, {}};
-  proto->addMethod(
-      HOOK_CONSTRUCT, method{[&constructed](dynamic& /*self*/, const dynamic&) {
-        ++constructed;
-        return dynamic{};
-      }});
-  proto->addMethod(
-      HOOK_DESTRUCT, method{[&destructed](dynamic& /*self*/, const dynamic&) {
-        ++destructed;
-        return dynamic{};
-      }});
+  proto->addMethod(HOOK_CONSTRUCT, method{[&constructed](dynamic& /*self*/, const dynamic&) {
+                     ++constructed;
+                     return dynamic{};
+                   }});
+  proto->addMethod(HOOK_DESTRUCT, method{[&destructed](dynamic& /*self*/, const dynamic&) {
+                     ++destructed;
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto);
 
   {
@@ -1391,13 +1361,12 @@ TEST_F(StandaloneTests, TwoProxiesAreIsolated) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST_F(StandaloneTests, DescribeAllIncludesClassAttributes) {
-  auto proto = dynamic_ptr{"AnnotatedWidget"_key,
-                           {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
+  auto proto = dynamic_ptr{"AnnotatedWidget"_key, {{"width"_key, int32_t{0}}, {"height"_key, int32_t{0}}}};
   dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Annotated Widget"),
-       attr<Description>("A widget with metadata"),
-       attr<Category>("UI")});
+      0U,
+      proto,
+      0U,
+      {attr<DisplayName>("Annotated Widget"), attr<Description>("A widget with metadata"), attr<Category>("UI")});
 
   standalone sa;
   dynamic result = sa.describe().get();
@@ -1419,8 +1388,7 @@ TEST_F(StandaloneTests, DescribeAllIncludesClassAttributes) {
 }
 
 TEST_F(StandaloneTests, DescribeSpecificClassIncludesClassAndFieldAttributes) {
-  field width_field{int32_t{0}, attr<DisplayName>("Width"), attr<Description>("Pixel width"),
-                    attr<Required>()};
+  field width_field{int32_t{0}, attr<DisplayName>("Width"), attr<Description>("Pixel width"), attr<Required>()};
   field height_field{int32_t{0}, attr<DisplayName>("Height"), attr<Obsolete>("Use size instead")};
 
   auto proto = dynamic_ptr{"MetaBox"_key};
@@ -1428,9 +1396,13 @@ TEST_F(StandaloneTests, DescribeSpecificClassIncludesClassAndFieldAttributes) {
   proto->addField("height"_key, std::move(height_field));
 
   dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Meta Box"), attr<Description>("A box with rich metadata"),
-       attr<Category>("Geometry"), attr<Obsolete>()});
+      0U,
+      proto,
+      0U,
+      {attr<DisplayName>("Meta Box"),
+       attr<Description>("A box with rich metadata"),
+       attr<Category>("Geometry"),
+       attr<Obsolete>()});
 
   standalone sa;
   dynamic result = sa.describe(0U, "MetaBox"_key).get();
@@ -1485,9 +1457,7 @@ TEST_F(StandaloneTests, DescribeSpecificClassIncludesMethodList) {
           [](dynamic&, const dynamic&) -> dynamic { return {}; },
           attr<DisplayName>("Stop Service"),
           attr<Obsolete>("Use shutdown instead")});
-  proto->addMethod(
-      "ping"_key,
-      method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
+  proto->addMethod("ping"_key, method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
 
   dynamic::addClass(0U, proto);
 
@@ -1523,9 +1493,7 @@ TEST_F(RmiE2E, DescribeAllIncludesClassAttributes) {
   auto proto = dynamic_ptr{"RankedPlayer"_key};
   proto->addField("score"_key, std::move(score_field));
 
-  dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Ranked Player"), attr<Category>("Gameplay")});
+  dynamic::addClass(0U, proto, 0U, {attr<DisplayName>("Ranked Player"), attr<Category>("Gameplay")});
 
   auto c = make_client();
   c.connect();
@@ -1549,18 +1517,15 @@ TEST_F(RmiE2E, DescribeAllIncludesClassAttributes) {
 }
 
 TEST_F(RmiE2E, DescribeSpecificClassIncludesFieldAttributes) {
-  field name_field{std::string{}, attr<DisplayName>("Player Name"),
-                   attr<Description>("Full display name"), attr<Required>()};
-  field rank_field{int32_t{0}, attr<DisplayName>("Rank"),
-                   attr<Obsolete>("Use tier instead")};
+  field name_field{
+      std::string{}, attr<DisplayName>("Player Name"), attr<Description>("Full display name"), attr<Required>()};
+  field rank_field{int32_t{0}, attr<DisplayName>("Rank"), attr<Obsolete>("Use tier instead")};
 
   auto proto = dynamic_ptr{"PlayerCard"_key};
   proto->addField("name"_key, std::move(name_field));
   proto->addField("rank"_key, std::move(rank_field));
 
-  dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Player Card"), attr<Description>("A player identity card")});
+  dynamic::addClass(0U, proto, 0U, {attr<DisplayName>("Player Card"), attr<Description>("A player identity card")});
 
   auto c = make_client();
   c.connect();
@@ -1605,10 +1570,7 @@ TEST_F(RmiE2E, DescribeSpecificClassIncludesMethodAttributes) {
           attr<DisplayName>("Add"),
           attr<Description>("Returns the sum of a and b")});
   proto->addMethod(
-      "reset"_key,
-      method{
-          [](dynamic&, const dynamic&) -> dynamic { return {}; },
-          attr<Obsolete>("Use clear instead")});
+      "reset"_key, method{[](dynamic&, const dynamic&) -> dynamic { return {}; }, attr<Obsolete>("Use clear instead")});
 
   dynamic::addClass(0U, proto);
 
@@ -1650,19 +1612,14 @@ TEST_F(StandaloneTests, GetDictionaryEmptyForUnannotatedClasses) {
 }
 
 TEST_F(StandaloneTests, GetDictionaryReturnsDisplayNamesForAnnotatedClass) {
-  field score_field{int32_t{0}, attr<DisplayName>("Score"),
-                    attr<Description>("Player score")};
+  field score_field{int32_t{0}, attr<DisplayName>("Score"), attr<Description>("Player score")};
   auto proto = dynamic_ptr{"AnnotatedPlayer"_key};
   proto->addField("score"_key, std::move(score_field));
   proto->addMethod(
-      "reset"_key,
-      method{[](dynamic&, const dynamic&) -> dynamic { return {}; },
-             attr<DisplayName>("Reset Score")});
+      "reset"_key, method{[](dynamic&, const dynamic&) -> dynamic { return {}; }, attr<DisplayName>("Reset Score")});
 
   dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Annotated Player"),
-       attr<Description>("A player with annotations")});
+      0U, proto, 0U, {attr<DisplayName>("Annotated Player"), attr<Description>("A player with annotations")});
 
   standalone sa;
   dynamic dict = sa.get_dictionary().get();
@@ -1689,9 +1646,9 @@ TEST_F(StandaloneTests, GetDictionaryReturnsMethodParamDisplayNames) {
       "compute"_key,
       method{
           [](dynamic&, const dynamic&) -> dynamic { return {}; },
-          /*input=*/  dynamic{0U, {{"x"_key, field{0.0f, attr<DisplayName>("X")}},
-                                   {"y"_key, field{0.0f, attr<DisplayName>("Y")}}}},
-          /*output=*/ dynamic{0U, {{"sum"_key, field{0.0f, attr<DisplayName>("Sum")}}}},
+          /*input=*/
+          dynamic{0U, {{"x"_key, field{0.0f, attr<DisplayName>("X")}}, {"y"_key, field{0.0f, attr<DisplayName>("Y")}}}},
+          /*output=*/dynamic{0U, {{"sum"_key, field{0.0f, attr<DisplayName>("Sum")}}}},
           attr<DisplayName>("Compute")});
 
   dynamic::addClass(0U, proto, 0U, {attr<DisplayName>("Param Class")});
@@ -1724,8 +1681,7 @@ TEST_F(RmiE2E, GetDictionaryReturnsDisplayNamesEndToEnd) {
   auto proto = dynamic_ptr{"E2EHero"_key};
   proto->addField("hp"_key, std::move(hp_field));
 
-  dynamic::addClass(
-      0U, proto, 0U, {attr<DisplayName>("E2E Hero")});
+  dynamic::addClass(0U, proto, 0U, {attr<DisplayName>("E2E Hero")});
 
   auto c = make_client();
   c.connect();
@@ -1747,20 +1703,17 @@ TEST_F(RmiE2E, GetDictionaryReturnsDisplayNamesEndToEnd) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST_F(StandaloneTests, GetHelpReturnsDescriptionField) {
-  field score_field{int32_t{0}, attr<DisplayName>("Score"),
-                    attr<Description>("Player score")};
+  field score_field{int32_t{0}, attr<DisplayName>("Score"), attr<Description>("Player score")};
   auto proto = dynamic_ptr{"HelpWidget"_key};
   proto->addField("score"_key, std::move(score_field));
   proto->addMethod(
       "increment"_key,
-      method{[](dynamic&, const dynamic&) -> dynamic { return {}; },
-             attr<DisplayName>("Increment"),
-             attr<Description>("Increment the score")});
+      method{
+          [](dynamic&, const dynamic&) -> dynamic { return {}; },
+          attr<DisplayName>("Increment"),
+          attr<Description>("Increment the score")});
 
-  dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("Help Widget"),
-       attr<Description>("A widget for help tests")});
+  dynamic::addClass(0U, proto, 0U, {attr<DisplayName>("Help Widget"), attr<Description>("A widget for help tests")});
 
   standalone sa;
   dynamic result = sa.get_help().get();
@@ -1779,9 +1732,7 @@ TEST_F(StandaloneTests, GetHelpReturnsDescriptionField) {
 TEST_F(RmiE2E, GetHelpEndToEndContainsClassNames) {
   auto proto = dynamic_ptr{"E2EService"_key};
   dynamic::addClass(
-      0U, proto, 0U,
-      {attr<DisplayName>("E2E Service"),
-       attr<Description>("A service for end-to-end help tests")});
+      0U, proto, 0U, {attr<DisplayName>("E2E Service"), attr<Description>("A service for end-to-end help tests")});
 
   auto c = make_client();
   c.connect();
@@ -1801,14 +1752,13 @@ TEST_F(RmiE2E, GetHelpEndToEndContainsClassNames) {
 
 struct TraceRecord {
   bison_key_t op;
-  bool        is_error;
+  bool is_error;
   bison_key_t error_code;
 };
 
 class TracingServer : public server {
  public:
-  explicit TracingServer(transport::server_transport_iface& t)
-      : server(t) {}
+  explicit TracingServer(transport::server_transport_iface& t) : server(t) {}
 
   std::vector<bison_key_t> request_ops;
   std::vector<TraceRecord> response_records;
@@ -1833,9 +1783,7 @@ TEST(RmiRequestTrace, TraceHookFiresForEachOperation) {
   clearClassRegistry();
 
   auto proto = dynamic_ptr{"TraceTarget"_key, {{"v"_key, int32_t{0}}}};
-  proto->addMethod("noop"_key, method{[](dynamic& /*self*/, const dynamic&) {
-    return dynamic{};
-  }});
+  proto->addMethod("noop"_key, method{[](dynamic& /*self*/, const dynamic&) { return dynamic{}; }});
   dynamic::addClass(0U, proto, 0U);
 
   memory_server_transport mt;
@@ -1865,8 +1813,8 @@ TEST(RmiRequestTrace, TraceHookFiresForEachOperation) {
   const auto& ops = srv.request_ops;
   auto req_contains = [&](bison_key_t op) {
     return std::find_if(ops.begin(), ops.end(), [&](bison_key_t o) {
-      return static_cast<hash_t>(o) == static_cast<hash_t>(op);
-    }) != ops.end();
+             return static_cast<hash_t>(o) == static_cast<hash_t>(op);
+           }) != ops.end();
   };
 
   EXPECT_TRUE(req_contains(OP_CONNECT));
@@ -1903,9 +1851,8 @@ TEST(RmiResponseTrace, TraceHookFiresForEachResponse) {
   const auto& recs = srv.response_records;
   auto resp_contains = [&](bison_key_t op, bool is_error) {
     return std::find_if(recs.begin(), recs.end(), [&](const TraceRecord& r) {
-      return static_cast<hash_t>(r.op) == static_cast<hash_t>(op) &&
-             r.is_error == is_error;
-    }) != recs.end();
+             return static_cast<hash_t>(r.op) == static_cast<hash_t>(op) && r.is_error == is_error;
+           }) != recs.end();
   };
 
   EXPECT_TRUE(resp_contains(OP_CONNECT, false));
@@ -1933,8 +1880,7 @@ TEST(RmiResponseTrace, ErrorResponseIsTracedAsError) {
 
   const auto& recs = srv.response_records;
   bool found_error = std::find_if(recs.begin(), recs.end(), [](const TraceRecord& r) {
-    return static_cast<hash_t>(r.op) == static_cast<hash_t>(OP_INSTANTIATE) &&
-           r.is_error;
-  }) != recs.end();
+                       return static_cast<hash_t>(r.op) == static_cast<hash_t>(OP_INSTANTIATE) && r.is_error;
+                     }) != recs.end();
   EXPECT_TRUE(found_error);
 }

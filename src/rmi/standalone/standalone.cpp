@@ -29,9 +29,7 @@ namespace {
  * @throws std::runtime_error if the field is missing or has an incompatible
  *         type.
  */
-bison::key_t read_key_token(
-    const bison::dynamic& obj,
-    bison::key_t field_name) {
+bison::key_t read_key_token(const bison::dynamic& obj, bison::key_t field_name) {
   const auto* f = obj.findField(field_name);
   if (f == nullptr)
     throw std::runtime_error("Missing key token field");
@@ -77,9 +75,7 @@ static bool apply_attrs(bison::dynamic& desc, const bison::field& f) {
 
 /** @brief Apply attributes from a method_entry to @p desc.
  *  @return `true` if at least one attribute was written. */
-static bool apply_method_attrs(
-    bison::dynamic& desc,
-    const bison::method& e) {
+static bool apply_method_attrs(bison::dynamic& desc, const bison::method& e) {
   using namespace bison;
   bool applied = false;
   if (auto* dn = e.findAttribute<DisplayName>()) {
@@ -114,29 +110,27 @@ standalone::standalone() {
   {
     auto lp = ctx_.wlock();
     lp->session_id = shared::generate_id();
-    lp->emit_event =
-        [this](
-            bison::key_t object_id, bison::key_t name, bison::dynamic params) {
-          // Copy the handler out of the map before calling it so we do not
-          // hold event_handlers_ lock while the user callback runs.
-          std::function<void(bison::dynamic)> handler;
-          {
-            auto elp = event_handlers_.rlock();
-            auto obj_it = elp->find(object_id.id);
-            if (obj_it == elp->end())
-              return;
-            auto ev_it = obj_it->second.find(static_cast<bison::hash_t>(name));
-            if (ev_it == obj_it->second.end())
-              return;
-            handler = ev_it->second;
-          }
-          try {
-            handler(std::move(params));
-          } catch (...) {
-            // Silently discard exceptions from event handlers to maintain
-            // consistency with server-side event-dispatch behaviour.
-          }
-        };
+    lp->emit_event = [this](bison::key_t object_id, bison::key_t name, bison::dynamic params) {
+      // Copy the handler out of the map before calling it so we do not
+      // hold event_handlers_ lock while the user callback runs.
+      std::function<void(bison::dynamic)> handler;
+      {
+        auto elp = event_handlers_.rlock();
+        auto obj_it = elp->find(object_id.id);
+        if (obj_it == elp->end())
+          return;
+        auto ev_it = obj_it->second.find(static_cast<bison::hash_t>(name));
+        if (ev_it == obj_it->second.end())
+          return;
+        handler = ev_it->second;
+      }
+      try {
+        handler(std::move(params));
+      } catch (...) {
+        // Silently discard exceptions from event handlers to maintain
+        // consistency with server-side event-dispatch behaviour.
+      }
+    };
   }
 
   running_.store(true, std::memory_order_release);
@@ -171,16 +165,11 @@ void standalone::connect(bison::dynamic /*params*/) {
 }
 
 /** @copydoc bdg::bison::rmi::standalone::describe */
-std::future<bison::dynamic> standalone::describe(
-    bison::key_t ns,
-    bison::key_t klass) {
+std::future<bison::dynamic> standalone::describe(bison::key_t ns, bison::key_t klass) {
   return enqueue([this, ns, klass]() { return handle_describe(ns, klass); });
 }
 
-std::future<proxy::dynamic> standalone::instantiate(
-    bison::key_t ns,
-    bison::key_t klass,
-    bison::dynamic params) {
+std::future<proxy::dynamic> standalone::instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params) {
   auto f = enqueue([this, ns, klass, params = std::move(params)]() mutable {
     return handle_instantiate(ns, klass, std::move(params));
   });
@@ -219,31 +208,26 @@ std::future<bison::dynamic> standalone::get_help() {
 }
 
 /** @copydoc bdg::bison::rmi::standalone::send_request */
-std::future<bison::dynamic> standalone::send_request(
-    bison::key_t op,
-    bison::key_t object_id,
-    bison::dynamic payload,
-    bool oneway) {
-  return enqueue(
-      [this, op, object_id, payload = std::move(payload), oneway]() mutable
-          -> bison::dynamic {
-        if (op == OP_CLEAR) {
-          return handle_clear(object_id);
-        }
-        if (op == OP_SET) {
-          return handle_set(object_id, std::move(payload));
-        }
-        if (op == OP_GET) {
-          return handle_get(object_id, std::move(payload));
-        }
-        if (op == OP_CALL) {
-          return handle_call(object_id, std::move(payload), oneway);
-        }
-        if (op == OP_DESTROY) {
-          return handle_destroy(object_id);
-        }
-        throw std::runtime_error("Unsupported operation in standalone mode");
-      });
+std::future<bison::dynamic>
+standalone::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway) {
+  return enqueue([this, op, object_id, payload = std::move(payload), oneway]() mutable -> bison::dynamic {
+    if (op == OP_CLEAR) {
+      return handle_clear(object_id);
+    }
+    if (op == OP_SET) {
+      return handle_set(object_id, std::move(payload));
+    }
+    if (op == OP_GET) {
+      return handle_get(object_id, std::move(payload));
+    }
+    if (op == OP_CALL) {
+      return handle_call(object_id, std::move(payload), oneway);
+    }
+    if (op == OP_DESTROY) {
+      return handle_destroy(object_id);
+    }
+    throw std::runtime_error("Unsupported operation in standalone mode");
+  });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::register_event_handler */
@@ -251,8 +235,7 @@ void standalone::register_event_handler(
     bison::key_t object_id,
     bison::key_t name,
     std::function<void(bison::dynamic)> handler) {
-  event_handlers_.wlock()->operator[](
-      object_id.id)[static_cast<bison::hash_t>(name)] = std::move(handler);
+  event_handlers_.wlock()->operator[](object_id.id)[static_cast<bison::hash_t>(name)] = std::move(handler);
 }
 
 /** @copydoc bdg::bison::rmi::standalone::unregister_object_events */
@@ -263,13 +246,10 @@ void standalone::unregister_object_events(bison::key_t object_id) {
 // ── Worker ────────────────────────────────────────────────────────────────
 
 /** @brief Enqueue work and return a pending future. */
-std::future<bison::dynamic> standalone::enqueue(
-    std::function<bison::dynamic()> work) {
+std::future<bison::dynamic> standalone::enqueue(std::function<bison::dynamic()> work) {
   if (!running_.load(std::memory_order_acquire)) {
     std::promise<bison::dynamic> p;
-    p.set_exception(
-        std::make_exception_ptr(
-            std::runtime_error("standalone is not connected")));
+    p.set_exception(std::make_exception_ptr(std::runtime_error("standalone is not connected")));
     return p.get_future();
   }
 
@@ -292,9 +272,7 @@ std::future<bison::dynamic> standalone::enqueue(
 void standalone::worker_loop() {
   while (true) {
     std::unique_lock<std::mutex> lk(queue_mutex_);
-    queue_cv_.wait(lk, [this] {
-      return !queue_.empty() || !running_.load(std::memory_order_relaxed);
-    });
+    queue_cv_.wait(lk, [this] { return !queue_.empty() || !running_.load(std::memory_order_relaxed); });
 
     if (!running_.load(std::memory_order_relaxed) && queue_.empty())
       break;
@@ -328,9 +306,7 @@ void standalone::stop_worker() {
  *
  * Mirrors `server::handle_describe` without transport.
  */
-bison::dynamic standalone::handle_describe(
-    bison::key_t ns,
-    bison::key_t klass) {
+bison::dynamic standalone::handle_describe(bison::key_t ns, bison::key_t klass) {
   bison::dynamic resp;
   auto lp = bison::dynamic::getRegistry().rlock();
   const auto& classes = *lp;
@@ -374,8 +350,7 @@ bison::dynamic standalone::handle_describe(
     proto->forEach([&](bison::key_t k, const bison::field& v) {
       resp[k] = v;
       // Skip reserved internal fields in the per-field metadata map.
-      if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT ||
-          k == bison::dynamic::NAMESPACE)
+      if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT || k == bison::dynamic::NAMESPACE)
         return;
       bison::dynamic fmeta;
       if (apply_attrs(fmeta, v)) {
@@ -388,13 +363,12 @@ bison::dynamic standalone::handle_describe(
     // Collect per-method metadata (always emitted when methods are present).
     bison::dynamic methods_meta;
     bool has_methods = false;
-    proto->forEachMethod(
-        [&](bison::key_t k, const bison::method& e) {
-          bison::dynamic mmeta;
-          apply_method_attrs(mmeta, e);
-          methods_meta[k] = bison::dynamic_ptr{std::move(mmeta)};
-          has_methods = true;
-        });
+    proto->forEachMethod([&](bison::key_t k, const bison::method& e) {
+      bison::dynamic mmeta;
+      apply_method_attrs(mmeta, e);
+      methods_meta[k] = bison::dynamic_ptr{std::move(mmeta)};
+      has_methods = true;
+    });
     if (has_methods)
       resp[FIELD_METHODS] = bison::dynamic_ptr{std::move(methods_meta)};
   }
@@ -408,10 +382,7 @@ bison::dynamic standalone::handle_describe(
  * Mirrors `server::handle_instantiate` without transport.  Returns the
  * response payload containing the new object ID.
  */
-bison::dynamic standalone::handle_instantiate(
-    bison::key_t ns,
-    bison::key_t klass,
-    bison::dynamic params) {
+bison::dynamic standalone::handle_instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params) {
   {
     auto lp = bison::dynamic::getRegistry().rlock();
     auto nsIt = lp->find(ns);
@@ -421,8 +392,7 @@ bison::dynamic standalone::handle_instantiate(
           std::to_string(static_cast<bison::hash_t>(klass)));
   }
 
-  auto obj =
-      std::make_shared<bison::dynamic>(bison::dynamic::instantiate(ns, klass));
+  auto obj = std::make_shared<bison::dynamic>(bison::dynamic::instantiate(ns, klass));
 
   if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
     obj->call(HOOK_CONSTRUCT, params);
@@ -491,9 +461,7 @@ bison::dynamic standalone::handle_clear(bison::key_t object_id) {
  *
  * Mirrors `server::handle_set` without transport.
  */
-bison::dynamic standalone::handle_set(
-    bison::key_t object_id,
-    bison::dynamic payload) {
+bison::dynamic standalone::handle_set(bison::key_t object_id, bison::dynamic payload) {
   auto lp = ctx_.wlock();
 
   auto it = lp->objects.find(object_id.id);
@@ -520,9 +488,7 @@ bison::dynamic standalone::handle_set(
  *
  * Mirrors `server::handle_get` without transport.
  */
-bison::dynamic standalone::handle_get(
-    bison::key_t object_id,
-    bison::dynamic projection) {
+bison::dynamic standalone::handle_get(bison::key_t object_id, bison::dynamic projection) {
   auto lp = ctx_.wlock();
 
   auto it = lp->objects.find(object_id.id);
@@ -564,10 +530,7 @@ bison::dynamic standalone::handle_get(
  *
  * Mirrors `server::handle_call` without transport.
  */
-bison::dynamic standalone::handle_call(
-    bison::key_t object_id,
-    bison::dynamic payload,
-    bool oneway) {
+bison::dynamic standalone::handle_call(bison::key_t object_id, bison::dynamic payload, bool oneway) {
   auto lp = ctx_.wlock();
 
   auto it = lp->objects.find(object_id.id);
@@ -626,15 +589,16 @@ bison::dynamic standalone::handle_dictionary() {
     auto lp = dynamic::getRegistry().rlock();
     for (const auto& [ns_key, classes] : *lp) {
       for (const auto& [klass_key, proto] : classes) {
-        if (klass_key == CLASS_ENVELOPE) continue;
+        if (klass_key == CLASS_ENVELOPE)
+          continue;
         const auto* class_field = proto->findField(dynamic::CLASS);
         if (class_field) {
           if (auto* dn = class_field->findAttribute<DisplayName>())
             dict[klass_key] = dn->name();
         }
         proto->forEach([&](key_t k, const field& f) {
-          if (k == dynamic::CLASS || k == dynamic::PARENT ||
-              k == dynamic::NAMESPACE) return;
+          if (k == dynamic::CLASS || k == dynamic::PARENT || k == dynamic::NAMESPACE)
+            return;
           if (auto* dn = f.findAttribute<DisplayName>())
             dict[k] = dn->name();
         });
@@ -642,7 +606,8 @@ bison::dynamic standalone::handle_dictionary() {
           if (auto* dn = m.findAttribute<DisplayName>())
             dict[k] = dn->name();
           auto add_param_fields = [&](const dynamic* d) {
-            if (!d) return;
+            if (!d)
+              return;
             d->forEach([&](key_t fk, const field& f) {
               if (auto* dn = f.findAttribute<DisplayName>())
                 dict[fk] = dn->name();
@@ -671,22 +636,29 @@ bison::dynamic standalone::handle_help() {
     auto lp = dynamic::getRegistry().rlock();
     for (const auto& [ns_key, classes] : *lp) {
       for (const auto& [klass_key, proto] : classes) {
-        if (klass_key == CLASS_ENVELOPE) continue;
+        if (klass_key == CLASS_ENVELOPE)
+          continue;
         const auto* class_field = proto->findField(dynamic::CLASS);
-        if (!class_field) continue;
+        if (!class_field)
+          continue;
         auto* cdn = class_field->findAttribute<DisplayName>();
-        if (!cdn) continue;
+        if (!cdn)
+          continue;
         oss << "  " << cdn->name();
         if (auto* cd = class_field->findAttribute<Description>())
           oss << " -- " << cd->text();
         oss << '\n';
         bool first_field = true;
         proto->forEach([&](key_t k, const field& f) {
-          if (k == dynamic::CLASS || k == dynamic::PARENT ||
-              k == dynamic::NAMESPACE) return;
+          if (k == dynamic::CLASS || k == dynamic::PARENT || k == dynamic::NAMESPACE)
+            return;
           auto* dn = f.findAttribute<DisplayName>();
-          if (!dn) return;
-          if (first_field) { oss << "    Fields:\n"; first_field = false; }
+          if (!dn)
+            return;
+          if (first_field) {
+            oss << "    Fields:\n";
+            first_field = false;
+          }
           oss << "      " << dn->name();
           if (auto* d = f.findAttribute<Description>())
             oss << " -- " << d->text();
@@ -696,8 +668,12 @@ bison::dynamic standalone::handle_help() {
         proto->forEachMethod([&](key_t k, const method& m) {
           (void)k;
           auto* dn = m.findAttribute<DisplayName>();
-          if (!dn) return;
-          if (first_method) { oss << "    Methods:\n"; first_method = false; }
+          if (!dn)
+            return;
+          if (first_method) {
+            oss << "    Methods:\n";
+            first_method = false;
+          }
           oss << "      " << dn->name();
           if (auto* d = m.findAttribute<Description>())
             oss << " -- " << d->text();

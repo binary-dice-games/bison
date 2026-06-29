@@ -50,8 +50,7 @@ class server {
    * @brief Construct a server that takes ownership of @p transport.
    * @param transport Owned transport implementation.
    */
-  explicit server(
-      std::unique_ptr<transport::server_transport_iface> transport)
+  explicit server(std::unique_ptr<transport::server_transport_iface> transport)
       : transport_(transport.release(), transport_deleter{true}) {}
 
   /**
@@ -61,8 +60,7 @@ class server {
    *
    * @param transport Transport implementation owned by the caller.
    */
-  explicit server(transport::server_transport_iface& transport)
-      : transport_(&transport, transport_deleter{false}) {}
+  explicit server(transport::server_transport_iface& transport) : transport_(&transport, transport_deleter{false}) {}
 
   /**
    * @brief Convenience constructor for ownable concrete transport types.
@@ -75,14 +73,10 @@ class server {
   template <
       typename TTransport,
       std::enable_if_t<
-          std::is_base_of_v<
-              transport::server_transport_iface,
-              std::decay_t<TTransport>> &&
+          std::is_base_of_v<transport::server_transport_iface, std::decay_t<TTransport>> &&
               !std::is_lvalue_reference_v<TTransport>,
           int> = 0>
-  explicit server(TTransport&& transport)
-      : server(std::make_unique<std::decay_t<TTransport>>(
-            std::move(transport))) {}
+  explicit server(TTransport&& transport) : server(std::make_unique<std::decay_t<TTransport>>(std::move(transport))) {}
 
   /**
    * @brief Convenience constructor for borrowable concrete transport types.
@@ -94,13 +88,8 @@ class server {
    */
   template <
       typename TTransport,
-      std::enable_if_t<
-          std::is_base_of_v<
-              transport::server_transport_iface,
-              std::decay_t<TTransport>>,
-          int> = 0>
-  explicit server(TTransport& transport)
-      : server(static_cast<transport::server_transport_iface&>(transport)) {}
+      std::enable_if_t<std::is_base_of_v<transport::server_transport_iface, std::decay_t<TTransport>>, int> = 0>
+  explicit server(TTransport& transport) : server(static_cast<transport::server_transport_iface&>(transport)) {}
 
   server(const server&) = delete;
   server& operator=(const server&) = delete;
@@ -131,16 +120,12 @@ class server {
    *   for (auto& [id, ctx] : *lp) { ... }
    * @endcode
    */
-  bison::synchronized<
-      std::unordered_map<bison::hash_t, std::shared_ptr<context>>>&
-  session_contexts() {
+  bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<context>>>& session_contexts() {
     return session_contexts_;
   }
 
   /** @brief Const overload of `session_contexts()`. */
-  const bison::synchronized<
-      std::unordered_map<bison::hash_t, std::shared_ptr<context>>>&
-  session_contexts() const {
+  const bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<context>>>& session_contexts() const {
     return session_contexts_;
   }
 
@@ -154,7 +139,9 @@ class server {
    *
    * @param ctx Newly registered session context.
    */
-  virtual void on_session_created(context& ctx) { (void)ctx; }
+  virtual void on_session_created(context& ctx) {
+    (void)ctx;
+  }
 
   /**
    * @brief Called just before a session context is cleaned up.
@@ -165,7 +152,9 @@ class server {
    *
    * @param ctx Session context about to be destroyed.
    */
-  virtual void on_session_destroyed(context& ctx) { (void)ctx; }
+  virtual void on_session_destroyed(context& ctx) {
+    (void)ctx;
+  }
 
   /**
    * @brief Override to prepend a custom description to `OP_HELP` responses.
@@ -176,7 +165,9 @@ class server {
    *
    * @return Free-form text prepended before the auto-generated class listing.
    */
-  virtual std::string on_help_text() const { return {}; }
+  virtual std::string on_help_text() const {
+    return {};
+  }
 
   /**
    * @brief Guard hook called before class-registry lookup in
@@ -193,10 +184,7 @@ class server {
    * @param klass Class key of the requested type.
    * @return `true` when the request should proceed to `on_create_object`.
    */
-  virtual bool on_check_class(
-      context& ctx,
-      bison::key_t ns,
-      bison::key_t klass) {
+  virtual bool on_check_class(context& ctx, bison::key_t ns, bison::key_t klass) {
     (void)ctx;
     auto lp = bison::dynamic::getRegistry().rlock();
     const auto& nsmap = *lp;
@@ -219,10 +207,7 @@ class server {
    * @param klass Class key of the requested type.
    * @return Heap-allocated `dynamic` (or subclass) for the new object.
    */
-  virtual bison::dynamic_ptr on_create_object(
-      context& ctx,
-      bison::key_t ns,
-      bison::key_t klass) {
+  virtual bison::dynamic_ptr on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) {
     (void)ctx;
     return bison::dynamic::create_instance(ns, klass);
   }
@@ -286,7 +271,9 @@ class server {
    *
    * @param ctx Session context for the request.
    */
-  virtual void on_before_dispatch(context& ctx) { (void)ctx; }
+  virtual void on_before_dispatch(context& ctx) {
+    (void)ctx;
+  }
 
   /**
    * @brief Called on the worker thread immediately after each request
@@ -298,14 +285,15 @@ class server {
    *
    * @param ctx Session context for the request.
    */
-  virtual void on_after_dispatch(context& ctx) noexcept { (void)ctx; }
+  virtual void on_after_dispatch(context& ctx) noexcept {
+    (void)ctx;
+  }
 
  private:
   // ── Private methods (defined in server.cpp) ───────────────────────────────
 
   void accept_loop();
-  void client_worker(
-      std::unique_ptr<transport::server_connection_iface> conn);
+  void client_worker(std::unique_ptr<transport::server_connection_iface> conn);
   void join_workers();
 
   void send_response(
@@ -323,65 +311,29 @@ class server {
       bison::key_t code,
       const std::string& message);
 
-  void handle_request(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_request(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_connect(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_connect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_describe(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_describe(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_instantiate(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_instantiate(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_clear(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_clear(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_set(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_set(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_get(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_get(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_call(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_call(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_destroy(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_destroy(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_disconnect(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_disconnect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_dictionary(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_dictionary(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
-  void handle_help(
-      context& ctx,
-      const shared::envelope& env,
-      transport::server_connection_iface& conn);
+  void handle_help(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
   static void cleanup_context(context& ctx);
 
@@ -390,20 +342,18 @@ class server {
   struct transport_deleter {
     bool owns;
     void operator()(transport::server_transport_iface* p) const {
-      if (owns) delete p;
+      if (owns)
+        delete p;
     }
   };
-  std::unique_ptr<transport::server_transport_iface, transport_deleter>
-      transport_;
+  std::unique_ptr<transport::server_transport_iface, transport_deleter> transport_;
 
   std::thread accept_thread_;
   std::atomic<bool> running_{false};
 
   bison::synchronized<std::vector<std::thread>> workers_;
 
-  bison::synchronized<
-      std::unordered_map<bison::hash_t, std::shared_ptr<context>>>
-      session_contexts_;
+  bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<context>>> session_contexts_;
 };
 
 } // namespace bdg::bison::rmi

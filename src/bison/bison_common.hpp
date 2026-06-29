@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -32,12 +33,11 @@
 #include <set>
 #include <shared_mutex>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <iomanip>
-#include <sstream>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -54,7 +54,7 @@ class dynamic;
 
 /** @brief Endianness constants and a compile-time native-endian probe. */
 namespace endian {
-const size_t big = 1;    /**< Big-endian sentinel value. */
+const size_t big = 1; /**< Big-endian sentinel value. */
 const size_t little = 0; /**< Little-endian sentinel value. */
 /** @brief Runtime-detected native byte order; equals `little` or `big`. */
 const size_t native = []() {
@@ -112,8 +112,7 @@ constexpr T byte_swap(T value) {
   T result{};
   const size_t size = sizeof(T);
   for (size_t i = 0; i < size; ++i) {
-    reinterpret_cast<unsigned char*>(&result)[size - i - 1] =
-        reinterpret_cast<const unsigned char*>(&value)[i];
+    reinterpret_cast<unsigned char*>(&result)[size - i - 1] = reinterpret_cast<const unsigned char*>(&value)[i];
   }
   return result;
 }
@@ -241,8 +240,10 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {});
 
   /// @brief Field access: `ptr[key] = value` without needing `(*ptr)[key]`.
-  template<typename K>
-  decltype(auto) operator[](K key) const { return (**this)[key]; }
+  template <typename K>
+  decltype(auto) operator[](K key) const {
+    return (**this)[key];
+  }
 };
 
 /**
@@ -252,8 +253,7 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
  * (`self`) and a read-only `dynamic` containing call arguments (`params`),
  * and return a `dynamic` result.
  */
-using method_fn =
-    std::function<dynamic(dynamic& /*self*/, const dynamic& /*params*/)>;
+using method_fn = std::function<dynamic(dynamic& /*self*/, const dynamic& /*params*/)>;
 
 /**
  * @brief Variant base that enumerates all value types a `field` can hold.
@@ -263,18 +263,18 @@ using method_fn =
  * corresponding wire-format version bump.
  */
 using field_base = std::variant<
-    std::monostate,       /**< Empty / null field. */
-    hash_t,               /**< Raw 32-bit hash value. */
-    key_t,                /**< Hashed name key. */
-    bool,                 /**< Boolean value. */
-    int32_t,              /**< 32-bit signed integer. */
-    float,                /**< Single-precision float. */
-    dynamic_ptr,          /**< Nested dynamic object (may be null). */
-    std::string,          /**< UTF-8 string. */
-    std::vector<bool>,    /**< Homogeneous bool array. */
+    std::monostate, /**< Empty / null field. */
+    hash_t, /**< Raw 32-bit hash value. */
+    key_t, /**< Hashed name key. */
+    bool, /**< Boolean value. */
+    int32_t, /**< 32-bit signed integer. */
+    float, /**< Single-precision float. */
+    dynamic_ptr, /**< Nested dynamic object (may be null). */
+    std::string, /**< UTF-8 string. */
+    std::vector<bool>, /**< Homogeneous bool array. */
     std::vector<int32_t>, /**< Homogeneous int32 array. */
-    std::vector<float>,   /**< Homogeneous float array. */
-    std::vector<uint8_t>  /**< Raw byte array. */
+    std::vector<float>, /**< Homogeneous float array. */
+    std::vector<uint8_t> /**< Raw byte array. */
     >;
 
 /**

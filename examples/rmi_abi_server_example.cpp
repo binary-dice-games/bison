@@ -19,8 +19,7 @@
 
 // ── Method implementations ────────────────────────────────────────────────────
 
-static void method_add(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_add(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)self;
   (void)user;
   float a = 0.f, b = 0.f;
@@ -29,8 +28,7 @@ static void method_add(
   bison_set_float(result, bison_key("result"), a + b);
 }
 
-static void method_subtract(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_subtract(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)self;
   (void)user;
   float a = 0.f, b = 0.f;
@@ -39,8 +37,7 @@ static void method_subtract(
   bison_set_float(result, bison_key("result"), a - b);
 }
 
-static void method_multiply(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_multiply(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)self;
   (void)user;
   float a = 0.f, b = 0.f;
@@ -49,8 +46,7 @@ static void method_multiply(
   bison_set_float(result, bison_key("result"), a * b);
 }
 
-static void method_divide(
-    bison_handle self, bison_handle params, bison_handle result, void* user) {
+static void method_divide(bison_handle self, bison_handle params, bison_handle result, void* user) {
   (void)self;
   (void)user;
   float a = 0.f, b = 0.f;
@@ -68,10 +64,10 @@ static void method_divide(
 
 static void register_calculator(void) {
   bison_handle proto = bison_create(bison_key("Calculator"));
-  bison_add_method(proto, bison_key("add"),      method_add,      NULL, NULL);
+  bison_add_method(proto, bison_key("add"), method_add, NULL, NULL);
   bison_add_method(proto, bison_key("subtract"), method_subtract, NULL, NULL);
   bison_add_method(proto, bison_key("multiply"), method_multiply, NULL, NULL);
-  bison_add_method(proto, bison_key("divide"),   method_divide,   NULL, NULL);
+  bison_add_method(proto, bison_key("divide"), method_divide, NULL, NULL);
   bison_add_class(0, proto, 0, NULL);
   bison_release(proto);
 }

@@ -361,9 +361,7 @@ TEST(BufferSerializerTests, BufferEquivalentToStream) {
   auto buf_bytes = buf_out.release();
 
   ASSERT_EQ(stream_bytes.size(), buf_bytes.size());
-  EXPECT_EQ(
-      0,
-      std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
+  EXPECT_EQ(0, std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
 }
 
 TEST(BufferSerializerTests, DynamicObjectRoundTrip) {
@@ -849,9 +847,7 @@ TEST(DynamicSerializationTests, VectorFields) {
   src["bools"_key] = std::vector<bool>{true, false};
 
   auto dst = dynamic_roundtrip(src);
-  EXPECT_EQ(
-      dst["ints"_key].as<std::vector<int32_t>>(),
-      (std::vector<int32_t>{1, 2, 3}));
+  EXPECT_EQ(dst["ints"_key].as<std::vector<int32_t>>(), (std::vector<int32_t>{1, 2, 3}));
 }
 
 TEST(DynamicSerializationTests, IndexedElements) {
@@ -892,12 +888,11 @@ TEST(DynamicSerializationTests, NullNestedPointer) {
 
 TEST(DynamicMethodTests, AddAndCallMethod) {
   dynamic obj;
-  obj.addMethod(
-      "greet"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        dynamic result;
-        result["msg"_key] = std::string{"hello"};
-        return result;
-      }});
+  obj.addMethod("greet"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                  dynamic result;
+                  result["msg"_key] = std::string{"hello"};
+                  return result;
+                }});
   dynamic result = obj.call("greet"_key, dynamic{});
   EXPECT_EQ(result["msg"_key].as<std::string>(), "hello");
 }
@@ -905,12 +900,12 @@ TEST(DynamicMethodTests, AddAndCallMethod) {
 TEST(DynamicMethodTests, MethodReceivesParams) {
   dynamic obj;
   obj.addMethod("add"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-    int32_t a = params["a"_key].as<int32_t>();
-    int32_t b = params["b"_key].as<int32_t>();
-    dynamic result;
-    result["sum"_key] = a + b;
-    return result;
-  }});
+                  int32_t a = params["a"_key].as<int32_t>();
+                  int32_t b = params["b"_key].as<int32_t>();
+                  dynamic result;
+                  result["sum"_key] = a + b;
+                  return result;
+                }});
 
   dynamic args;
   args["a"_key] = int32_t{3};
@@ -923,9 +918,9 @@ TEST(DynamicMethodTests, MethodCanMutateSelf) {
   dynamic obj;
   obj["counter"_key] = int32_t{0};
   obj.addMethod("inc"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-    self["counter"_key] = int32_t{self["counter"_key].as<int32_t>() + 1};
-    return dynamic{};
-  }});
+                  self["counter"_key] = int32_t{self["counter"_key].as<int32_t>() + 1};
+                  return dynamic{};
+                }});
   obj.call("inc"_key, dynamic{});
   obj.call("inc"_key, dynamic{});
   EXPECT_EQ(obj["counter"_key].as<int32_t>(), 2);
@@ -1000,12 +995,11 @@ TEST_F(InheritanceTest, FieldInheritedFromParent) {
 
 TEST_F(InheritanceTest, MethodInheritedFromParent) {
   auto base = dynamic_ptr{"Animal2"_key};
-  base->addMethod(
-      "speak"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        dynamic r;
-        r["sound"_key] = std::string{"..."};
-        return r;
-      }});
+  base->addMethod("speak"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                    dynamic r;
+                    r["sound"_key] = std::string{"..."};
+                    return r;
+                  }});
   dynamic::addClass(0U, base, 0U);
 
   auto child = dynamic_ptr{"Dog"_key};
@@ -1377,8 +1371,7 @@ TEST_F(NamespaceTest, CircularInheritanceCheckedWithinNamespace) {
 }
 
 TEST_F(NamespaceTest, InheritanceWorksWithinNamespace) {
-  auto base =
-      dynamic_ptr{"Furniture"_key, {{"material"_key, std::string{"wood"}}}};
+  auto base = dynamic_ptr{"Furniture"_key, {{"material"_key, std::string{"wood"}}}};
   auto derived = dynamic_ptr{"Chair"_key, {{"backrest"_key, true}}};
   ASSERT_TRUE(dynamic::addClass("ikea"_key, base, 0U));
   ASSERT_TRUE(dynamic::addClass("ikea"_key, derived, "Furniture"_key));
@@ -1456,16 +1449,16 @@ TEST_F(InheritanceTest, SingleClassOperatorBracket) {
 TEST(PrintTest, MultilineContainsFieldValues) {
   dynamic obj;
   obj["name"_key] = field{std::string{"Alice"}, attr<DisplayName>("name")};
-  obj["age"_key]  = field{int32_t{30},          attr<DisplayName>("age")};
-  obj["active"_key] = field{bool{true},          attr<DisplayName>("active")};
+  obj["age"_key] = field{int32_t{30}, attr<DisplayName>("age")};
+  obj["active"_key] = field{bool{true}, attr<DisplayName>("active")};
 
   const std::string out = print(obj);
   EXPECT_NE(out.find("\"Alice\""), std::string::npos);
-  EXPECT_NE(out.find("30"),        std::string::npos);
-  EXPECT_NE(out.find("true"),      std::string::npos);
+  EXPECT_NE(out.find("30"), std::string::npos);
+  EXPECT_NE(out.find("true"), std::string::npos);
   // DisplayName attributes cause fields to print with their names.
-  EXPECT_NE(out.find("name"),   std::string::npos);
-  EXPECT_NE(out.find("age"),    std::string::npos);
+  EXPECT_NE(out.find("name"), std::string::npos);
+  EXPECT_NE(out.find("age"), std::string::npos);
   EXPECT_NE(out.find("active"), std::string::npos);
 }
 
@@ -1488,8 +1481,8 @@ TEST(PrintTest, SingleLineHasNoBrokenLines) {
   const std::string out = print(obj, opts);
   EXPECT_EQ(out.find('\n'), std::string::npos);
   EXPECT_NE(out.find("9.5"), std::string::npos);
-  EXPECT_NE(out.find('{'),   std::string::npos);
-  EXPECT_NE(out.find('}'),   std::string::npos);
+  EXPECT_NE(out.find('{'), std::string::npos);
+  EXPECT_NE(out.find('}'), std::string::npos);
 }
 
 TEST(PrintTest, CustomIndentIsHonoured) {
@@ -1498,7 +1491,7 @@ TEST(PrintTest, CustomIndentIsHonoured) {
 
   print_options opts;
   opts.multiline = true;
-  opts.indent    = "\t";
+  opts.indent = "\t";
   const std::string out = print(obj, opts);
   EXPECT_NE(out.find("\tv"), std::string::npos);
 }
@@ -1508,14 +1501,12 @@ TEST(PrintTest, NestedObjectPrintsRecursively) {
   inner["city"_key] = field{std::string{"Springfield"}, attr<DisplayName>("city")};
 
   dynamic outer;
-  outer["addr"_key] = field{
-      dynamic_ptr{std::make_shared<dynamic>(std::move(inner))},
-      attr<DisplayName>("addr")};
+  outer["addr"_key] = field{dynamic_ptr{std::make_shared<dynamic>(std::move(inner))}, attr<DisplayName>("addr")};
 
   const std::string out = print(outer);
   EXPECT_NE(out.find("\"Springfield\""), std::string::npos);
-  EXPECT_NE(out.find("city"),            std::string::npos);
-  EXPECT_NE(out.find("addr"),            std::string::npos);
+  EXPECT_NE(out.find("city"), std::string::npos);
+  EXPECT_NE(out.find("addr"), std::string::npos);
 }
 
 TEST(PrintTest, ArrayFieldsAppearInOutput) {
@@ -1538,20 +1529,19 @@ TEST(PrintTest, MethodsAppearsInOutput) {
       "reset"_key,
       method{
           [](dynamic&, const dynamic&) -> dynamic { return {}; },
-          attr<DisplayName>("Reset"), attr<Description>("Resets to zero")});
-  obj.addMethod(
-      "noop"_key,
-      method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
+          attr<DisplayName>("Reset"),
+          attr<Description>("Resets to zero")});
+  obj.addMethod("noop"_key, method{[](dynamic&, const dynamic&) -> dynamic { return {}; }});
 
   const std::string out = print(obj);
   // Method with DisplayName uses that name as the key.
-  EXPECT_NE(out.find("Reset"),           std::string::npos);
+  EXPECT_NE(out.find("Reset"), std::string::npos);
   // Method attrs summary appears in value.
-  EXPECT_NE(out.find("displayName"),     std::string::npos);
+  EXPECT_NE(out.find("displayName"), std::string::npos);
   // Method without DisplayName falls back to hash key format.
-  EXPECT_NE(out.find("<method>"),        std::string::npos);
+  EXPECT_NE(out.find("<method>"), std::string::npos);
   // Field is still present.
-  EXPECT_NE(out.find("value"),           std::string::npos);
+  EXPECT_NE(out.find("value"), std::string::npos);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1574,8 +1564,12 @@ struct BarChild : public dynamic {
 
 class SubclassTest : public ::testing::Test {
  protected:
-  void SetUp() override { clearClassRegistry(); }
-  void TearDown() override { clearClassRegistry(); }
+  void SetUp() override {
+    clearClassRegistry();
+  }
+  void TearDown() override {
+    clearClassRegistry();
+  }
 };
 
 // ── to_field_value: shared_ptr<T> where T derives from dynamic ───────────────
@@ -1606,17 +1600,14 @@ TEST(SubclassFieldCoercionTests, AssignSharedPtrSubclassToMonostateField) {
 TEST_F(SubclassTest, InstantiateTypedSubclassGlobalNamespace) {
   auto ptr = dynamic::instantiate<Widget>("Widget"_key);
   ASSERT_NE(ptr, nullptr);
-  EXPECT_EQ(
-      (*ptr)["__class"_key].as<bison_key_t>().id, hash_t("Widget"_key));
+  EXPECT_EQ((*ptr)["__class"_key].as<bison_key_t>().id, hash_t("Widget"_key));
 }
 
 TEST_F(SubclassTest, InstantiateTypedSubclassWithNamespace) {
   auto ptr = dynamic::instantiate<Widget>("ui"_key, "Widget"_key);
   ASSERT_NE(ptr, nullptr);
-  EXPECT_EQ(
-      (*ptr)["__class"_key].as<bison_key_t>().id, hash_t("Widget"_key));
-  EXPECT_EQ(
-      (*ptr)["__namespace"_key].as<bison_key_t>().id, hash("ui"));
+  EXPECT_EQ((*ptr)["__class"_key].as<bison_key_t>().id, hash_t("Widget"_key));
+  EXPECT_EQ((*ptr)["__namespace"_key].as<bison_key_t>().id, hash("ui"));
 }
 
 TEST_F(SubclassTest, InstantiateTypedSubclassInheritsFields) {
@@ -1647,9 +1638,8 @@ TEST_F(SubclassTest, AddClassWithTypedSharedPtrDuplicateFails) {
 TEST_F(SubclassTest, AddClassWithTypedSharedPtrAndClassAttrs) {
   auto proto = std::make_shared<Widget>(dynamic::instantiate("WProto3"_key));
   Widget* raw = proto.get();
-  ASSERT_TRUE(dynamic::addClass(
-      "ui"_key, proto, bison_key_t{0U},
-      {attr<DisplayName>("My Widget"), attr<Description>("hint")}));
+  ASSERT_TRUE(
+      dynamic::addClass("ui"_key, proto, bison_key_t{0U}, {attr<DisplayName>("My Widget"), attr<Description>("hint")}));
 
   // proto was moved; raw still valid via the registry's shared ownership.
   auto* dn = (*raw)[dynamic::CLASS].findAttribute<DisplayName>();
@@ -1677,12 +1667,9 @@ TEST_F(SubclassTest, AddClassWithTypedSharedPtrFieldsInheritable) {
 
 TEST(ForEachChildTests, VisitsOnlyMatchingSubtype) {
   dynamic parent;
-  parent["a"_key] =
-      dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
-  parent["b"_key] =
-      dynamic_ptr(std::make_shared<BarChild>(dynamic::instantiate(bison_key_t{0U})));
-  parent["c"_key] =
-      dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
+  parent["a"_key] = dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
+  parent["b"_key] = dynamic_ptr(std::make_shared<BarChild>(dynamic::instantiate(bison_key_t{0U})));
+  parent["c"_key] = dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
 
   int count = 0;
   parent.forEachChild<FooChild>([&count](bison_key_t, FooChild&) { ++count; });
@@ -1710,8 +1697,7 @@ TEST(ForEachChildTests, SkipsNullDynamicPtr) {
 
 TEST(ForEachChildTests, VisitorReceivesCorrectKeyAndRef) {
   dynamic parent;
-  auto child =
-      std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U}));
+  auto child = std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U}));
   (*child)["val"_key] = int32_t{99};
   parent["child"_key] = dynamic_ptr(child);
 

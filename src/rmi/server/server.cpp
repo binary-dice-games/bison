@@ -25,17 +25,28 @@ using namespace transport;
 namespace {
 
 static const char* op_to_label(bison::key_t op) {
-  if (op == OP_CONNECT)     return "connect    ";
-  if (op == OP_DISCONNECT)  return "disconnect ";
-  if (op == OP_INSTANTIATE) return "instantiate";
-  if (op == OP_CALL)        return "call       ";
-  if (op == OP_GET)         return "get        ";
-  if (op == OP_SET)         return "set        ";
-  if (op == OP_DESTROY)     return "destroy    ";
-  if (op == OP_CLEAR)       return "clear      ";
-  if (op == OP_DESCRIBE)    return "describe   ";
-  if (op == OP_DICTIONARY)  return "dictionary ";
-  if (op == OP_HELP)        return "help       ";
+  if (op == OP_CONNECT)
+    return "connect    ";
+  if (op == OP_DISCONNECT)
+    return "disconnect ";
+  if (op == OP_INSTANTIATE)
+    return "instantiate";
+  if (op == OP_CALL)
+    return "call       ";
+  if (op == OP_GET)
+    return "get        ";
+  if (op == OP_SET)
+    return "set        ";
+  if (op == OP_DESTROY)
+    return "destroy    ";
+  if (op == OP_CLEAR)
+    return "clear      ";
+  if (op == OP_DESCRIBE)
+    return "describe   ";
+  if (op == OP_DICTIONARY)
+    return "dictionary ";
+  if (op == OP_HELP)
+    return "help       ";
   return "unknown    ";
 }
 
@@ -48,13 +59,14 @@ static const std::unordered_map<bison::hash_t, std::string>& trace_dict() {
 static std::string resolve(bison::hash_t h) {
   const auto& d = trace_dict();
   auto it = d.find(h);
-  return it != d.end() ? it->second
-       : ("#" + [&]{ std::ostringstream s; s << std::hex << std::setw(8)
-                                               << std::setfill('0') << h;
-                     return s.str(); }());
+  return it != d.end() ? it->second : ("#" + [&] {
+    std::ostringstream s;
+    s << std::hex << std::setw(8) << std::setfill('0') << h;
+    return s.str();
+  }());
 }
 
-} // namespace (trace helpers)
+} // namespace
 
 void server::on_request_trace(context& ctx, const shared::envelope& env) {
   bison::print_options popts;
@@ -63,8 +75,7 @@ void server::on_request_trace(context& ctx, const shared::envelope& env) {
   popts.hide_internal = true;
 
   std::ostringstream oss;
-  oss << "[rmi] " << op_to_label(env.op)
-      << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
+  oss << "[rmi] " << op_to_label(env.op) << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
       << ctx.session_id.id;
 
   const bison::key_t op = env.op;
@@ -73,8 +84,7 @@ void server::on_request_trace(context& ctx, const shared::envelope& env) {
     if (f && f->is<bison::key_t>())
       oss << " class=" << resolve(f->as<bison::key_t>().id);
   } else if (op == OP_CALL) {
-    oss << std::dec << " obj=0x" << std::hex << std::setw(8)
-        << std::setfill('0') << env.object_id.id;
+    oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << env.object_id.id;
     const auto* f = env.payload.findField(FIELD_NAME);
     if (f && f->is<bison::key_t>())
       oss << " method=" << resolve(f->as<bison::key_t>().id);
@@ -85,13 +95,11 @@ void server::on_request_trace(context& ctx, const shared::envelope& env) {
         oss << " args=" << bison::print(*ptr, popts);
     }
   } else if (op == OP_SET) {
-    oss << std::dec << " obj=0x" << std::hex << std::setw(8)
-        << std::setfill('0') << env.object_id.id;
+    oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << env.object_id.id;
     if (!env.payload.empty())
       oss << " " << bison::print(env.payload, popts);
   } else if (op == OP_GET || op == OP_DESTROY || op == OP_CLEAR) {
-    oss << std::dec << " obj=0x" << std::hex << std::setw(8)
-        << std::setfill('0') << env.object_id.id;
+    oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << env.object_id.id;
   }
 
   on_print(ctx.session_id, oss.str());
@@ -110,10 +118,8 @@ void server::on_response_trace(
   popts.hide_internal = true;
 
   std::ostringstream oss;
-  oss << "[rmi] " << op_to_label(op)
-      << (is_error ? " ERROR" : " ok   ")
-      << " sid=0x" << std::hex << std::setw(8) << std::setfill('0')
-      << ctx.session_id.id;
+  oss << "[rmi] " << op_to_label(op) << (is_error ? " ERROR" : " ok   ") << " sid=0x" << std::hex << std::setw(8)
+      << std::setfill('0') << ctx.session_id.id;
 
   if (is_error) {
     oss << " code=0x" << error_code.id;
@@ -124,11 +130,9 @@ void server::on_response_trace(
         oss << " class=" << resolve(kf->as<bison::key_t>().id);
       const auto* of = response_payload.findField(FIELD_OBJECT_ID);
       if (of && of->is<bison::key_t>())
-        oss << std::dec << " obj=0x" << std::hex << std::setw(8)
-            << std::setfill('0') << of->as<bison::key_t>().id;
+        oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << of->as<bison::key_t>().id;
     } else if (op == OP_CALL || op == OP_GET) {
-      oss << std::dec << " obj=0x" << std::hex << std::setw(8)
-          << std::setfill('0') << request_env.object_id.id;
+      oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << request_env.object_id.id;
       if (!response_payload.empty())
         oss << " " << bison::print(response_payload, popts);
     }
@@ -148,9 +152,7 @@ namespace {
  * @return Parsed key token.
  * @throws std::runtime_error if the field is missing or incompatible.
  */
-bison::key_t read_key_token(
-    const bison::dynamic& obj,
-    bison::key_t field_name) {
+bison::key_t read_key_token(const bison::dynamic& obj, bison::key_t field_name) {
   const auto* f = obj.findField(field_name);
   if (f == nullptr) {
     throw std::runtime_error("Missing key token field");
@@ -199,9 +201,7 @@ static bool apply_attrs(bison::dynamic& desc, const bison::field& f) {
 
 /** @brief Apply attributes from a method_entry to @p desc.
  *  @return `true` if at least one attribute was written. */
-static bool apply_method_attrs(
-    bison::dynamic& desc,
-    const bison::method& e) {
+static bool apply_method_attrs(bison::dynamic& desc, const bison::method& e) {
   using namespace bison;
   bool applied = false;
   if (auto* dn = e.findAttribute<DisplayName>()) {
@@ -281,8 +281,7 @@ void server::accept_loop() {
     auto conn = transport_.get()->accept(std::chrono::milliseconds{100});
     if (!conn)
       continue;
-    workers_.wlock()->emplace_back(
-        std::thread(&server::client_worker, this, std::move(conn)));
+    workers_.wlock()->emplace_back(std::thread(&server::client_worker, this, std::move(conn)));
   }
 }
 
@@ -297,20 +296,19 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
   auto ctx_ptr = std::make_shared<context>();
   context& ctx = *ctx_ptr;
   ctx.session_id = shared::generate_id();
-  ctx.emit_event =
-      [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
-        bison::dynamic ev_payload;
-        ev_payload[FIELD_NAME] = name;
-        ev_payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
-        shared::envelope event_env;
-        event_env.kind = KIND_EVENT;
-        event_env.op = OP_EVENT;
-        event_env.object_id = oid;
-        event_env.oneway = true;
-        event_env.payload = std::move(ev_payload);
-        auto frame = event_env.encode();
-        conn->send(std::move(frame));
-      };
+  ctx.emit_event = [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
+    bison::dynamic ev_payload;
+    ev_payload[FIELD_NAME] = name;
+    ev_payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
+    shared::envelope event_env;
+    event_env.kind = KIND_EVENT;
+    event_env.op = OP_EVENT;
+    event_env.object_id = oid;
+    event_env.oneway = true;
+    event_env.payload = std::move(ev_payload);
+    auto frame = event_env.encode();
+    conn->send(std::move(frame));
+  };
 
   // Register the context so external observers can access it.
   session_contexts_.wlock()->emplace(ctx.session_id.id, ctx_ptr);
@@ -416,36 +414,20 @@ void server::send_error(
 /**
  * @brief Validate and route one request envelope to its operation handler.
  */
-void server::handle_request(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_request(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   if (env.op == 0u) {
-    send_error(
-        ctx, conn, env, OP_CONNECT, ERR_INVALID_REQUEST, "Missing operation token");
+    send_error(ctx, conn, env, OP_CONNECT, ERR_INVALID_REQUEST, "Missing operation token");
     return;
   }
 
   if (env.kind != KIND_REQUEST) {
-    send_error(
-        ctx,
-        conn,
-        env,
-        OP_CONNECT,
-        ERR_INVALID_REQUEST,
-        "Unexpected non-request envelope");
+    send_error(ctx, conn, env, OP_CONNECT, ERR_INVALID_REQUEST, "Unexpected non-request envelope");
     return;
   }
 
   int32_t version = env.version;
   if (version != PROTOCOL_VERSION) {
-    send_error(
-        ctx,
-        conn,
-        env,
-        OP_CONNECT,
-        ERR_UNSUPPORTED_VERSION,
-        "Unsupported protocol version");
+    send_error(ctx, conn, env, OP_CONNECT, ERR_UNSUPPORTED_VERSION, "Unsupported protocol version");
     return;
   }
 
@@ -483,20 +465,14 @@ void server::handle_request(
 // ────────────────────────────────────────────────────────
 
 /** @brief Handle `connect` handshake requests. */
-void server::handle_connect(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_connect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   bison::dynamic resp;
   resp[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
   send_response(ctx, conn, env, OP_CONNECT, std::move(resp));
 }
 
 /** @brief Handle class metadata requests. */
-void server::handle_describe(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_describe(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   const auto& p = env.payload;
 
   bison::key_t requested = p.as<bison::key_t>(FIELD_KLASS);
@@ -534,8 +510,7 @@ void server::handle_describe(
       }
       if (!proto) {
         lp.unlock();
-        send_error(
-            ctx, conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
+        send_error(ctx, conn, env, OP_DESCRIBE, ERR_CLASS_NOT_FOUND, "Class not found");
         return;
       }
       resp[FIELD_KLASS] = requested;
@@ -549,8 +524,7 @@ void server::handle_describe(
       proto->forEach([&](bison::key_t k, const bison::field& v) {
         resp[k] = v;
         // Skip reserved internal fields in the per-field metadata map.
-        if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT ||
-            k == bison::dynamic::NAMESPACE)
+        if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT || k == bison::dynamic::NAMESPACE)
           return;
         bison::dynamic fmeta;
         if (apply_attrs(fmeta, v)) {
@@ -578,10 +552,7 @@ void server::handle_describe(
 }
 
 /** @brief Handle server-side object instantiation requests. */
-void server::handle_instantiate(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_instantiate(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   const auto& p = env.payload;
 
   bison::key_t klass = p.as<bison::key_t>(FIELD_KLASS);
@@ -598,13 +569,7 @@ void server::handle_instantiate(
 
   // Allow subclasses (e.g. rmi::bridge) to bypass the registry check.
   if (!on_check_class(ctx, ns, klass)) {
-    send_error(
-        ctx,
-        conn,
-        env,
-        OP_INSTANTIATE,
-        ERR_CLASS_NOT_FOUND,
-        "Class not registered in requested namespace");
+    send_error(ctx, conn, env, OP_INSTANTIATE, ERR_CLASS_NOT_FOUND, "Class not registered in requested namespace");
     return;
   }
 
@@ -617,9 +582,7 @@ void server::handle_instantiate(
   }
 
   if (!obj) {
-    send_error(
-        ctx, conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR,
-        "on_create_object returned null");
+    send_error(ctx, conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR, "on_create_object returned null");
     return;
   }
 
@@ -634,13 +597,7 @@ void server::handle_instantiate(
       }
       obj->call(HOOK_CONSTRUCT, construct_params);
     } catch (const std::exception& e) {
-      send_error(
-          ctx,
-          conn,
-          env,
-          OP_INSTANTIATE,
-          ERR_INTERNAL_ERROR,
-          std::string("__construct failed: ") + e.what());
+      send_error(ctx, conn, env, OP_INSTANTIATE, ERR_INTERNAL_ERROR, std::string("__construct failed: ") + e.what());
       return;
     }
   }
@@ -655,10 +612,7 @@ void server::handle_instantiate(
 }
 
 /** @brief Handle clear requests for a live remote object. */
-void server::handle_clear(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_clear(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -701,10 +655,7 @@ void server::handle_clear(
 }
 
 /** @brief Handle partial field updates for a live remote object. */
-void server::handle_set(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_set(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -719,13 +670,7 @@ void server::handle_set(
     try {
       patch = obj.call(HOOK_SETTER, patch);
     } catch (const std::exception& e) {
-      send_error(
-          ctx,
-          conn,
-          env,
-          OP_SET,
-          ERR_INTERNAL_ERROR,
-          std::string("__setter failed: ") + e.what());
+      send_error(ctx, conn, env, OP_SET, ERR_INTERNAL_ERROR, std::string("__setter failed: ") + e.what());
       return;
     }
   }
@@ -739,10 +684,7 @@ void server::handle_set(
 }
 
 /** @brief Handle object reads with optional projection payload. */
-void server::handle_get(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_get(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -783,10 +725,7 @@ void server::handle_get(
 }
 
 /** @brief Handle method invocation requests. */
-void server::handle_call(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_call(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -819,10 +758,7 @@ void server::handle_call(
 }
 
 /** @brief Handle explicit object destruction requests. */
-void server::handle_destroy(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_destroy(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   bison::key_t oid = env.object_id;
   auto it = ctx.objects.find(oid.id);
   if (it == ctx.objects.end()) {
@@ -842,26 +778,21 @@ void server::handle_destroy(
 }
 
 /** @brief Handle disconnect requests and close the connection context. */
-void server::handle_disconnect(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_disconnect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   cleanup_context(ctx);
   conn.close();
 }
 
 /** @brief Handle hash→display-name dictionary requests. */
-void server::handle_dictionary(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_dictionary(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   using namespace bison;
   dynamic dict;
   {
     auto lp = dynamic::getRegistry().rlock();
     for (const auto& [ns_key, classes] : *lp) {
       for (const auto& [klass_key, proto] : classes) {
-        if (klass_key == CLASS_ENVELOPE) continue;
+        if (klass_key == CLASS_ENVELOPE)
+          continue;
         // Class-level DisplayName
         const auto* class_field = proto->findField(dynamic::CLASS);
         if (class_field) {
@@ -870,8 +801,8 @@ void server::handle_dictionary(
         }
         // Field DisplayNames
         proto->forEach([&](key_t k, const field& f) {
-          if (k == dynamic::CLASS || k == dynamic::PARENT ||
-              k == dynamic::NAMESPACE) return;
+          if (k == dynamic::CLASS || k == dynamic::PARENT || k == dynamic::NAMESPACE)
+            return;
           if (auto* dn = f.findAttribute<DisplayName>())
             dict[k] = dn->name();
         });
@@ -880,7 +811,8 @@ void server::handle_dictionary(
           if (auto* dn = m.findAttribute<DisplayName>())
             dict[k] = dn->name();
           auto add_param_fields = [&](const dynamic* d) {
-            if (!d) return;
+            if (!d)
+              return;
             d->forEach([&](key_t fk, const field& f) {
               if (auto* dn = f.findAttribute<DisplayName>())
                 dict[fk] = dn->name();
@@ -896,10 +828,7 @@ void server::handle_dictionary(
 }
 
 /** @brief Handle human-readable help text requests. */
-void server::handle_help(
-    context& ctx,
-    const shared::envelope& env,
-    transport::server_connection_iface& conn) {
+void server::handle_help(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   using namespace bison;
   std::string preamble = on_help_text();
   std::ostringstream oss;
@@ -911,12 +840,15 @@ void server::handle_help(
     auto lp = dynamic::getRegistry().rlock();
     for (const auto& [ns_key, classes] : *lp) {
       for (const auto& [klass_key, proto] : classes) {
-        if (klass_key == CLASS_ENVELOPE) continue;
+        if (klass_key == CLASS_ENVELOPE)
+          continue;
         // Only show classes that have a DisplayName.
         const auto* class_field = proto->findField(dynamic::CLASS);
-        if (!class_field) continue;
+        if (!class_field)
+          continue;
         auto* cdn = class_field->findAttribute<DisplayName>();
-        if (!cdn) continue;
+        if (!cdn)
+          continue;
         oss << "  " << cdn->name();
         if (auto* cd = class_field->findAttribute<Description>())
           oss << " -- " << cd->text();
@@ -924,11 +856,15 @@ void server::handle_help(
         // Fields with DisplayName
         bool first_field = true;
         proto->forEach([&](key_t k, const field& f) {
-          if (k == dynamic::CLASS || k == dynamic::PARENT ||
-              k == dynamic::NAMESPACE) return;
+          if (k == dynamic::CLASS || k == dynamic::PARENT || k == dynamic::NAMESPACE)
+            return;
           auto* dn = f.findAttribute<DisplayName>();
-          if (!dn) return;
-          if (first_field) { oss << "    Fields:\n"; first_field = false; }
+          if (!dn)
+            return;
+          if (first_field) {
+            oss << "    Fields:\n";
+            first_field = false;
+          }
           oss << "      " << dn->name();
           if (auto* d = f.findAttribute<Description>())
             oss << " -- " << d->text();
@@ -939,8 +875,12 @@ void server::handle_help(
         proto->forEachMethod([&](key_t k, const method& m) {
           (void)k;
           auto* dn = m.findAttribute<DisplayName>();
-          if (!dn) return;
-          if (first_method) { oss << "    Methods:\n"; first_method = false; }
+          if (!dn)
+            return;
+          if (first_method) {
+            oss << "    Methods:\n";
+            first_method = false;
+          }
           oss << "      " << dn->name();
           if (auto* d = m.findAttribute<Description>())
             oss << " -- " << d->text();

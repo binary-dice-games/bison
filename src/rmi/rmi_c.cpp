@@ -30,7 +30,9 @@ struct client_state {
   bool owns_resource = true;
   bool released = false;
 
-  bool is_standalone() const { return standalone_owner != nullptr; }
+  bool is_standalone() const {
+    return standalone_owner != nullptr;
+  }
 
   bool is_valid() const {
     if (released)
@@ -68,15 +70,13 @@ static inline dynamic bison_handle_to_dynamic(bison_handle h) {
 
 static inline rmi_error map_runtime_error(const std::runtime_error& e) {
   std::string msg = e.what();
-  if (msg.find("remote") != std::string::npos ||
-      msg.find("server") != std::string::npos)
+  if (msg.find("remote") != std::string::npos || msg.find("server") != std::string::npos)
     return RMI_ERR_REMOTE_EXCEPTION;
   return RMI_ERR_INVALID_STATE;
 }
 
 /** Create an owning transport-backed client handle. */
-static inline rmi_client_handle make_owned_client_handle(
-    std::unique_ptr<client>&& owned_client) {
+static inline rmi_client_handle make_owned_client_handle(std::unique_ptr<client>&& owned_client) {
   auto* state = new client_state{};
   state->client_owner = std::move(owned_client);
   state->owns_resource = true;
@@ -85,8 +85,7 @@ static inline rmi_client_handle make_owned_client_handle(
 }
 
 /** Create an owning standalone handle. */
-static inline rmi_client_handle make_owned_standalone_handle(
-    std::unique_ptr<standalone>&& sa) {
+static inline rmi_client_handle make_owned_standalone_handle(std::unique_ptr<standalone>&& sa) {
   auto* state = new client_state{};
   state->standalone_owner = std::move(sa);
   state->owns_resource = true;
@@ -107,8 +106,7 @@ static inline client* client_deref(rmi_client_handle h) {
   client_state* state = as_client_state(h);
   if (!state || state->released || state->is_standalone())
     return nullptr;
-  return state->owns_resource ? state->client_owner.get()
-                              : state->borrowed_client;
+  return state->owns_resource ? state->client_owner.get() : state->borrowed_client;
 }
 
 /**
@@ -197,9 +195,7 @@ static inline bison_handle dynamic_to_bison_handle(dynamic val) {
 }
 
 template <typename T>
-static inline rmi_error wait_future_ready(
-    std::future<T>& fut,
-    int64_t timeout_ms) {
+static inline rmi_error wait_future_ready(std::future<T>& fut, int64_t timeout_ms) {
   try {
     std::chrono::milliseconds wait_time{timeout_ms < 0 ? 5000 : timeout_ms};
     auto wait_status = fut.wait_for(wait_time);
@@ -228,8 +224,7 @@ struct future_state_base {
 };
 
 struct bool_future_state final : future_state_base {
-  explicit bool_future_state(std::future<bool>&& future)
-      : future_(std::move(future)) {}
+  explicit bool_future_state(std::future<bool>&& future) : future_(std::move(future)) {}
 
   rmi_error wait(int64_t timeout_ms) override {
     return wait_future_ready(future_, timeout_ms);
@@ -239,8 +234,7 @@ struct bool_future_state final : future_state_base {
 };
 
 struct dynamic_future_state final : future_state_base {
-  explicit dynamic_future_state(std::future<dynamic>&& future)
-      : future_(std::move(future)) {}
+  explicit dynamic_future_state(std::future<dynamic>&& future) : future_(std::move(future)) {}
 
   rmi_error wait(int64_t timeout_ms) override {
     return wait_future_ready(future_, timeout_ms);
@@ -265,8 +259,7 @@ struct dynamic_future_state final : future_state_base {
 };
 
 struct proxy_future_state final : future_state_base {
-  explicit proxy_future_state(std::future<proxy::dynamic>&& future)
-      : future_(std::move(future)) {}
+  explicit proxy_future_state(std::future<proxy::dynamic>&& future) : future_(std::move(future)) {}
 
   rmi_error wait(int64_t timeout_ms) override {
     return wait_future_ready(future_, timeout_ms);
@@ -277,8 +270,7 @@ struct proxy_future_state final : future_state_base {
       return RMI_ERR_NULL;
     try {
       auto proxy = future_.get();
-      auto* pp =
-          new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy)));
+      auto* pp = new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy)));
       *out_proxy = as_proxy_handle(pp);
       return RMI_OK;
     } catch (const std::runtime_error& e) {
@@ -294,9 +286,7 @@ struct proxy_future_state final : future_state_base {
 };
 
 template <typename TState, typename TFuture>
-static inline rmi_error store_future_handle(
-    rmi_future_handle* out_future,
-    TFuture&& future) {
+static inline rmi_error store_future_handle(rmi_future_handle* out_future, TFuture&& future) {
   if (!out_future)
     return RMI_ERR_NULL;
   try {
@@ -308,9 +298,7 @@ static inline rmi_error store_future_handle(
 }
 
 template <typename TConsume>
-static inline rmi_error consume_future_handle(
-    rmi_future_handle* future,
-    TConsume&& consume) {
+static inline rmi_error consume_future_handle(rmi_future_handle* future, TConsume&& consume) {
   if (!future || !*future)
     return RMI_ERR_NULL;
 
@@ -320,8 +308,7 @@ static inline rmi_error consume_future_handle(
 }
 
 template <typename T>
-static inline rmi_error
-wait_future_result(std::future<T>& fut, int64_t timeout_ms, T* out = nullptr) {
+static inline rmi_error wait_future_result(std::future<T>& fut, int64_t timeout_ms, T* out = nullptr) {
   rmi_error err = wait_future_ready(fut, timeout_ms);
   if (err != RMI_OK)
     return err;
@@ -332,9 +319,7 @@ wait_future_result(std::future<T>& fut, int64_t timeout_ms, T* out = nullptr) {
   return RMI_OK;
 }
 
-static inline rmi_error wait_future_bool(
-    std::future<bool>& fut,
-    int64_t timeout_ms) {
+static inline rmi_error wait_future_bool(std::future<bool>& fut, int64_t timeout_ms) {
   rmi_error err = wait_future_ready(fut, timeout_ms);
   if (err != RMI_OK)
     return err;
@@ -343,76 +328,55 @@ static inline rmi_error wait_future_bool(
   return RMI_OK;
 }
 
-static inline std::future<dynamic>
-make_describe_future(rmi_client_handle h, bison_hash ns, bison_hash klass) {
+static inline std::future<dynamic> make_describe_future(rmi_client_handle h, bison_hash ns, bison_hash klass) {
   if (auto* sa = standalone_deref(h))
     return sa->describe(bdg::bison::key_t{ns}, bdg::bison::key_t{klass});
-  return client_deref(h)->describe(
-      bdg::bison::key_t{ns}, bdg::bison::key_t{klass});
+  return client_deref(h)->describe(bdg::bison::key_t{ns}, bdg::bison::key_t{klass});
 }
 
-static inline std::future<proxy::dynamic> make_instantiate_future(
-    rmi_client_handle h,
-    bison_hash ns,
-    bison_hash klass,
-    bison_handle params) {
+static inline std::future<proxy::dynamic>
+make_instantiate_future(rmi_client_handle h, bison_hash ns, bison_hash klass, bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
   if (auto* sa = standalone_deref(h))
-    return sa->instantiate(
-        bdg::bison::key_t{ns}, bdg::bison::key_t{klass}, std::move(dyn_params));
+    return sa->instantiate(bdg::bison::key_t{ns}, bdg::bison::key_t{klass}, std::move(dyn_params));
 
   client* c = client_deref(h);
-  return c->instantiate(
-      bdg::bison::key_t{ns}, bdg::bison::key_t{klass}, std::move(dyn_params));
+  return c->instantiate(bdg::bison::key_t{ns}, bdg::bison::key_t{klass}, std::move(dyn_params));
 }
 
 static inline std::future<bool> make_proxy_clear_future(proxy::dynamic* px) {
   return px->clear();
 }
 
-static inline std::future<bool> make_proxy_set_future(
-    proxy::dynamic* px,
-    bison_handle fields) {
+static inline std::future<bool> make_proxy_set_future(proxy::dynamic* px, bison_handle fields) {
   dynamic patch = bison_handle_to_dynamic(fields);
   return px->set(std::move(patch));
 }
 
-static inline std::future<dynamic> make_proxy_get_future(
-    proxy::dynamic* px,
-    bison_handle projection) {
+static inline std::future<dynamic> make_proxy_get_future(proxy::dynamic* px, bison_handle projection) {
   dynamic query = bison_handle_to_dynamic(projection);
   return projection ? px->get(std::move(query)) : px->get();
 }
 
-static inline std::future<dynamic> make_proxy_call_future(
-    proxy::dynamic* px,
-    bison_hash method,
-    bison_handle params) {
+static inline std::future<dynamic> make_proxy_call_future(proxy::dynamic* px, bison_hash method, bison_handle params) {
   dynamic dyn_params = bison_handle_to_dynamic(params);
   return px->call(bdg::bison::key_t{method}, std::move(dyn_params));
 }
 
 // ─── Async futures ────────────────────────────────────────────────────────
 
-RMI_API rmi_error
-rmi_future_wait(rmi_future_handle future, int64_t timeout_ms) {
+RMI_API rmi_error rmi_future_wait(rmi_future_handle future, int64_t timeout_ms) {
   if (!future)
     return RMI_ERR_NULL;
   return as_future_state(future)->wait(timeout_ms);
 }
 
-RMI_API rmi_error
-rmi_future_get_dynamic(rmi_future_handle* future, bison_handle* out_value) {
-  return consume_future_handle(future, [out_value](future_state_base& state) {
-    return state.take_dynamic(out_value);
-  });
+RMI_API rmi_error rmi_future_get_dynamic(rmi_future_handle* future, bison_handle* out_value) {
+  return consume_future_handle(future, [out_value](future_state_base& state) { return state.take_dynamic(out_value); });
 }
 
-RMI_API rmi_error
-rmi_future_get_proxy(rmi_future_handle* future, rmi_proxy_handle* out_proxy) {
-  return consume_future_handle(future, [out_proxy](future_state_base& state) {
-    return state.take_proxy(out_proxy);
-  });
+RMI_API rmi_error rmi_future_get_proxy(rmi_future_handle* future, rmi_proxy_handle* out_proxy) {
+  return consume_future_handle(future, [out_proxy](future_state_base& state) { return state.take_proxy(out_proxy); });
 }
 
 RMI_API void rmi_future_release(rmi_future_handle future) {
@@ -423,14 +387,11 @@ RMI_API void rmi_future_release(rmi_future_handle future) {
 
 // ─── Client ────────────────────────────────────────────────────────────────
 
-RMI_API rmi_client_handle
-rmi_client_tcp_create(const char* host, uint16_t port) {
+RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port) {
   if (!host)
     return nullptr;
   try {
-    return make_owned_client_handle(
-        std::make_unique<client>(
-            std::make_unique<socket_client_transport>(host, port)));
+    return make_owned_client_handle(std::make_unique<client>(std::make_unique<socket_client_transport>(host, port)));
   } catch (...) {
     return nullptr;
   }
@@ -466,11 +427,7 @@ RMI_API rmi_error rmi_client_connect(rmi_client_handle h, bison_handle params) {
   }
 }
 
-RMI_API rmi_error rmi_client_describe(
-    rmi_client_handle h,
-    bison_hash ns,
-    bison_hash klass,
-    bison_handle* out_desc) {
+RMI_API rmi_error rmi_client_describe(rmi_client_handle h, bison_hash ns, bison_hash klass, bison_handle* out_desc) {
   if (!out_desc)
     return RMI_ERR_NULL;
   if (!client_handle_is_valid(h))
@@ -486,16 +443,12 @@ RMI_API rmi_error rmi_client_describe(
   }
 }
 
-RMI_API rmi_error rmi_client_describe_async(
-    rmi_client_handle h,
-    bison_hash ns,
-    bison_hash klass,
-    rmi_future_handle* out_future) {
+RMI_API rmi_error
+rmi_client_describe_async(rmi_client_handle h, bison_hash ns, bison_hash klass, rmi_future_handle* out_future) {
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    return store_future_handle<dynamic_future_state>(
-        out_future, make_describe_future(h, ns, klass));
+    return store_future_handle<dynamic_future_state>(out_future, make_describe_future(h, ns, klass));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -514,10 +467,8 @@ RMI_API rmi_error rmi_client_instantiate(
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    proxy::dynamic proxy_obj =
-        make_instantiate_future(h, ns, klass, params).get();
-    auto* pp =
-        new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy_obj)));
+    proxy::dynamic proxy_obj = make_instantiate_future(h, ns, klass, params).get();
+    auto* pp = new proxy_ptr(std::make_unique<proxy::dynamic>(std::move(proxy_obj)));
     *out_proxy = as_proxy_handle(pp);
     return RMI_OK;
   } catch (const std::runtime_error&) {
@@ -536,8 +487,7 @@ RMI_API rmi_error rmi_client_instantiate_async(
   if (!client_handle_is_valid(h))
     return RMI_ERR_NULL;
   try {
-    return store_future_handle<proxy_future_state>(
-        out_future, make_instantiate_future(h, ns, klass, params));
+    return store_future_handle<proxy_future_state>(out_future, make_instantiate_future(h, ns, klass, params));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -593,11 +543,8 @@ RMI_API void rmi_proxy_release(rmi_proxy_handle proxy) {
   delete as_proxy_ptr(proxy);
 }
 
-RMI_API rmi_error rmi_proxy_on_event(
-    rmi_proxy_handle proxy,
-    bison_hash event_name,
-    rmi_proxy_event_fn handler,
-    void* user) {
+RMI_API rmi_error
+rmi_proxy_on_event(rmi_proxy_handle proxy, bison_hash event_name, rmi_proxy_event_fn handler, void* user) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px || !handler)
     return RMI_ERR_NULL;
@@ -617,9 +564,7 @@ RMI_API rmi_error rmi_proxy_on_event(
   }
 }
 
-RMI_API rmi_error rmi_proxy_clear(
-    rmi_proxy_handle proxy,
-    int64_t timeout_ms) {
+RMI_API rmi_error rmi_proxy_clear(rmi_proxy_handle proxy, int64_t timeout_ms) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -634,16 +579,13 @@ RMI_API rmi_error rmi_proxy_clear(
   }
 }
 
-RMI_API rmi_error rmi_proxy_clear_async(
-    rmi_proxy_handle proxy,
-    rmi_future_handle* out_future) {
+RMI_API rmi_error rmi_proxy_clear_async(rmi_proxy_handle proxy, rmi_future_handle* out_future) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
 
   try {
-    return store_future_handle<bool_future_state>(
-        out_future, make_proxy_clear_future(px));
+    return store_future_handle<bool_future_state>(out_future, make_proxy_clear_future(px));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -651,10 +593,7 @@ RMI_API rmi_error rmi_proxy_clear_async(
   }
 }
 
-RMI_API rmi_error rmi_proxy_set(
-    rmi_proxy_handle proxy,
-    bison_handle fields,
-    int64_t timeout_ms) {
+RMI_API rmi_error rmi_proxy_set(rmi_proxy_handle proxy, bison_handle fields, int64_t timeout_ms) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
@@ -669,17 +608,13 @@ RMI_API rmi_error rmi_proxy_set(
   }
 }
 
-RMI_API rmi_error rmi_proxy_set_async(
-    rmi_proxy_handle proxy,
-    bison_handle fields,
-    rmi_future_handle* out_future) {
+RMI_API rmi_error rmi_proxy_set_async(rmi_proxy_handle proxy, bison_handle fields, rmi_future_handle* out_future) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
 
   try {
-    return store_future_handle<bool_future_state>(
-        out_future, make_proxy_set_future(px, fields));
+    return store_future_handle<bool_future_state>(out_future, make_proxy_set_future(px, fields));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -687,11 +622,8 @@ RMI_API rmi_error rmi_proxy_set_async(
   }
 }
 
-RMI_API rmi_error rmi_proxy_get(
-    rmi_proxy_handle proxy,
-    bison_handle projection,
-    bison_handle* out_result,
-    int64_t timeout_ms) {
+RMI_API rmi_error
+rmi_proxy_get(rmi_proxy_handle proxy, bison_handle projection, bison_handle* out_result, int64_t timeout_ms) {
   if (!out_result)
     return RMI_ERR_NULL;
   proxy::dynamic* px = proxy_deref(proxy);
@@ -715,17 +647,13 @@ RMI_API rmi_error rmi_proxy_get(
   }
 }
 
-RMI_API rmi_error rmi_proxy_get_async(
-    rmi_proxy_handle proxy,
-    bison_handle projection,
-    rmi_future_handle* out_future) {
+RMI_API rmi_error rmi_proxy_get_async(rmi_proxy_handle proxy, bison_handle projection, rmi_future_handle* out_future) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
 
   try {
-    return store_future_handle<dynamic_future_state>(
-        out_future, make_proxy_get_future(px, projection));
+    return store_future_handle<dynamic_future_state>(out_future, make_proxy_get_future(px, projection));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -762,18 +690,14 @@ RMI_API rmi_error rmi_proxy_call(
   }
 }
 
-RMI_API rmi_error rmi_proxy_call_async(
-    rmi_proxy_handle proxy,
-    bison_hash method,
-    bison_handle params,
-    rmi_future_handle* out_future) {
+RMI_API rmi_error
+rmi_proxy_call_async(rmi_proxy_handle proxy, bison_hash method, bison_handle params, rmi_future_handle* out_future) {
   proxy::dynamic* px = proxy_deref(proxy);
   if (!px)
     return RMI_ERR_NULL;
 
   try {
-    return store_future_handle<dynamic_future_state>(
-        out_future, make_proxy_call_future(px, method, params));
+    return store_future_handle<dynamic_future_state>(out_future, make_proxy_call_future(px, method, params));
   } catch (const std::runtime_error& e) {
     return map_runtime_error(e);
   } catch (...) {
@@ -783,14 +707,11 @@ RMI_API rmi_error rmi_proxy_call_async(
 
 // ─── Server ───────────────────────────────────────────────────────────────
 
-RMI_API rmi_server_handle
-rmi_server_tcp_create(const char* host, uint16_t port) {
+RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port) {
   if (!host)
     return nullptr;
   try {
-    auto* sp = new server_ptr(
-        std::make_unique<server>(
-            std::make_unique<socket_server_transport>(host, port)));
+    auto* sp = new server_ptr(std::make_unique<server>(std::make_unique<socket_server_transport>(host, port)));
     return as_server_handle(sp);
   } catch (...) {
     return nullptr;
@@ -835,4 +756,3 @@ RMI_API void rmi_server_release(rmi_server_handle h) {
   }
   delete as_server_ptr(h);
 }
-

@@ -109,8 +109,7 @@ typedef enum bison_error {
   BISON_ERR_NULL = -1, /**< A required handle or pointer argument was NULL. */
   BISON_ERR_TYPE = -2, /**< The field holds a different type than requested. */
   BISON_ERR_NOT_FOUND = -3, /**< Method or field not found. */
-  BISON_ERR_DUPLICATE =
-      -4, /**< Attempted to add a duplicate class or method. */
+  BISON_ERR_DUPLICATE = -4, /**< Attempted to add a duplicate class or method. */
   BISON_ERR_EXCEPTION = -5, /**< An unexpected C++ exception was caught. */
   BISON_ERR_PARSE = -6, /**< Input string failed to parse (JSON / YAML). */
 } bison_error;
@@ -128,12 +127,7 @@ typedef enum bison_error {
  *                release @p result (the library takes ownership).
  * @param user    User-defined context pointer passed to `bison_add_method`.
  */
-typedef void (*bison_method_fn)(
-    bison_handle self,
-    bison_handle params,
-    bison_handle result,
-    void* user);
-
+typedef void (*bison_method_fn)(bison_handle self, bison_handle params, bison_handle result, void* user);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Lifecycle
@@ -166,8 +160,7 @@ BISON_API bison_handle bison_create(bison_hash klass_name);
  * @param klass_name  Hashed class name (use `bison_key()` to compute).
  * @return New handle (ref-count 1) or `NULL` on allocation failure.
  */
-BISON_API bison_handle
-bison_instantiate(bison_hash ns_name, bison_hash klass_name);
+BISON_API bison_handle bison_instantiate(bison_hash ns_name, bison_hash klass_name);
 
 /**
  * @brief Increment the reference count of @p h and return a new handle.
@@ -310,8 +303,7 @@ typedef struct bison_print_options {
  * @param out   Receives a pointer to the allocated string.
  * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_EXCEPTION`.
  */
-BISON_API bison_error bison_print(
-    bison_handle h, const bison_print_options* opts, char** out);
+BISON_API bison_error bison_print(bison_handle h, const bison_print_options* opts, char** out);
 
 /**
  * @brief Release a string returned by `bison_print`.
@@ -332,12 +324,12 @@ BISON_API void bison_free_string(char* s);
  * Pass `NULL` for the whole struct to register without any attributes.
  */
 typedef struct bison_attributes {
-  const char* display_name;     /**< Human-readable name, or `NULL`. */
-  const char* description;      /**< Human-readable description, or `NULL`. */
-  const char* category;         /**< Category group name, or `NULL`. */
-  int         obsolete;         /**< Non-zero if deprecated. */
+  const char* display_name; /**< Human-readable name, or `NULL`. */
+  const char* description; /**< Human-readable description, or `NULL`. */
+  const char* category; /**< Category group name, or `NULL`. */
+  int obsolete; /**< Non-zero if deprecated. */
   const char* obsolete_message; /**< Deprecation message, or `NULL`. */
-  int         required;         /**< Non-zero if required. */
+  int required; /**< Non-zero if required. */
 } bison_attributes;
 
 /**
@@ -358,11 +350,8 @@ typedef struct bison_attributes {
  *         same name is already registered in @p ns_name, or `BISON_ERR_NULL`
  *         if @p klass is `NULL`.
  */
-BISON_API bison_error bison_add_class(
-    bison_hash ns_name,
-    bison_handle klass,
-    bison_hash parent_name,
-    const bison_attributes* meta);
+BISON_API bison_error
+bison_add_class(bison_hash ns_name, bison_handle klass, bison_hash parent_name, const bison_attributes* meta);
 
 /**
  * @brief Look up a class in a namespace.
@@ -376,8 +365,7 @@ BISON_API bison_error bison_add_class(
  * @return A **non-owning** handle for the found prototype, or `NULL` if not
  *         found.  Do **not** call `bison_release` on the returned handle.
  */
-BISON_API bison_handle
-bison_find_class(bison_hash ns_name, bison_hash klass_name);
+BISON_API bison_handle bison_find_class(bison_hash ns_name, bison_hash klass_name);
 
 /**
  * @brief Clear the entire class registry.
@@ -398,8 +386,7 @@ BISON_API void bison_clear_registry(void);
  * @param out        Receives the class attribute metadata.
  * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_class_attributes(
-    bison_hash ns_name, bison_hash klass_name, bison_attributes* out);
+BISON_API bison_error bison_get_class_attributes(bison_hash ns_name, bison_hash klass_name, bison_attributes* out);
 
 /**
  * @brief Read the attributes of a named field on an object handle.
@@ -413,8 +400,7 @@ BISON_API bison_error bison_get_class_attributes(
  * @param out        Receives the field attribute metadata.
  * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_field_attributes(
-    bison_handle h, bison_hash field_key, bison_attributes* out);
+BISON_API bison_error bison_get_field_attributes(bison_handle h, bison_hash field_key, bison_attributes* out);
 
 /**
  * @brief Read the attributes of a named method on an object handle.
@@ -427,8 +413,7 @@ BISON_API bison_error bison_get_field_attributes(
  * @param out         Receives the method attribute metadata.
  * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_method_attributes(
-    bison_handle h, bison_hash method_key, bison_attributes* out);
+BISON_API bison_error bison_get_method_attributes(bison_handle h, bison_hash method_key, bison_attributes* out);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar setters
@@ -441,8 +426,7 @@ BISON_API bison_error bison_get_method_attributes(
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_int(bison_handle h, bison_hash name, int32_t value);
+BISON_API bison_error bison_set_int(bison_handle h, bison_hash name, int32_t value);
 
 /**
  * @brief Set a `float` field by hash key.
@@ -451,8 +435,7 @@ bison_set_int(bison_handle h, bison_hash name, int32_t value);
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_float(bison_handle h, bison_hash name, float value);
+BISON_API bison_error bison_set_float(bison_handle h, bison_hash name, float value);
 
 /**
  * @brief Set a `bool` field by hash key.
@@ -461,8 +444,7 @@ bison_set_float(bison_handle h, bison_hash name, float value);
  * @param value New value (non-zero = true).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_bool(bison_handle h, bison_hash name, int value);
+BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value);
 
 /**
  * @brief Set a `std::string` field by hash key.
@@ -471,8 +453,7 @@ bison_set_bool(bison_handle h, bison_hash name, int value);
  * @param value Null-terminated string value (copied internally).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_string(bison_handle h, bison_hash name, const char* value);
+BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const char* value);
 
 /**
  * @brief Set a nested `dynamic` object field by hash key.
@@ -485,8 +466,7 @@ bison_set_string(bison_handle h, bison_hash name, const char* value);
  * @param value Handle to set as the field value (may be `NULL` for a null ref).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_object(bison_handle h, bison_hash name, bison_handle value);
+BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value);
 
 /**
  * @brief Set an `int32_t` field by numeric (array) index.
@@ -495,8 +475,7 @@ bison_set_object(bison_handle h, bison_hash name, bison_handle value);
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_int_at(bison_handle h, size_t index, int32_t value);
+BISON_API bison_error bison_set_int_at(bison_handle h, size_t index, int32_t value);
 
 /**
  * @brief Set a `float` field by numeric index.
@@ -505,8 +484,7 @@ bison_set_int_at(bison_handle h, size_t index, int32_t value);
  * @param value New value.
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_float_at(bison_handle h, size_t index, float value);
+BISON_API bison_error bison_set_float_at(bison_handle h, size_t index, float value);
 
 /**
  * @brief Set a string field by numeric index.
@@ -515,8 +493,7 @@ bison_set_float_at(bison_handle h, size_t index, float value);
  * @param value Null-terminated string (copied internally).
  * @return `BISON_OK` or an error code.
  */
-BISON_API bison_error
-bison_set_string_at(bison_handle h, size_t index, const char* value);
+BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const char* value);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar getters
@@ -529,8 +506,7 @@ bison_set_string_at(bison_handle h, size_t index, const char* value);
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error
-bison_get_int(bison_handle h, bison_hash name, int32_t* out);
+BISON_API bison_error bison_get_int(bison_handle h, bison_hash name, int32_t* out);
 
 /**
  * @brief Read a `float` field by hash key.
@@ -539,8 +515,7 @@ bison_get_int(bison_handle h, bison_hash name, int32_t* out);
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error
-bison_get_float(bison_handle h, bison_hash name, float* out);
+BISON_API bison_error bison_get_float(bison_handle h, bison_hash name, float* out);
 
 /**
  * @brief Read a `bool` field by hash key.
@@ -567,12 +542,7 @@ BISON_API bison_error bison_get_bool(bison_handle h, bison_hash name, int* out);
  * @param[out] len_out  Set to the string length (excluding null terminator).
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_string(
-    bison_handle h,
-    bison_hash name,
-    char* buf,
-    size_t buf_len,
-    size_t* len_out);
+BISON_API bison_error bison_get_string(bison_handle h, bison_hash name, char* buf, size_t buf_len, size_t* len_out);
 
 /**
  * @brief Read a nested object field by hash key.
@@ -585,8 +555,7 @@ BISON_API bison_error bison_get_string(
  *                  dynamic refs).
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error
-bison_get_object(bison_handle h, bison_hash name, bison_handle* out);
+BISON_API bison_error bison_get_object(bison_handle h, bison_hash name, bison_handle* out);
 
 /**
  * @brief Read an `int32_t` field by numeric index.
@@ -595,8 +564,7 @@ bison_get_object(bison_handle h, bison_hash name, bison_handle* out);
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error
-bison_get_int_at(bison_handle h, size_t index, int32_t* out);
+BISON_API bison_error bison_get_int_at(bison_handle h, size_t index, int32_t* out);
 
 /**
  * @brief Read a `float` field by numeric index.
@@ -605,8 +573,7 @@ bison_get_int_at(bison_handle h, size_t index, int32_t* out);
  * @param[out] out  Receives the value on success.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error
-bison_get_float_at(bison_handle h, size_t index, float* out);
+BISON_API bison_error bison_get_float_at(bison_handle h, size_t index, float* out);
 
 /**
  * @brief Read a string field by numeric index.
@@ -620,12 +587,7 @@ bison_get_float_at(bison_handle h, size_t index, float* out);
  * @param[out] len_out  Set to the string length.
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_get_string_at(
-    bison_handle h,
-    size_t index,
-    char* buf,
-    size_t buf_len,
-    size_t* len_out);
+BISON_API bison_error bison_get_string_at(bison_handle h, size_t index, char* buf, size_t buf_len, size_t* len_out);
 
 /**
  * @brief Return the number of array-like (numeric-key) elements.
@@ -650,12 +612,8 @@ BISON_API size_t bison_size(bison_handle h);
  * @param meta     Optional attribute annotations; pass `NULL` for none.
  * @return `BISON_OK`, `BISON_ERR_DUPLICATE`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_add_method(
-    bison_handle h,
-    bison_hash name,
-    bison_method_fn fn,
-    void* user,
-    const bison_attributes* meta);
+BISON_API bison_error
+bison_add_method(bison_handle h, bison_hash name, bison_method_fn fn, void* user, const bison_attributes* meta);
 
 /**
  * @brief Invoke a named method on @p h.
@@ -667,11 +625,7 @@ BISON_API bison_error bison_add_method(
  *                     value.  Caller must release it.
  * @return `BISON_OK`, `BISON_ERR_NOT_FOUND`, or `BISON_ERR_NULL`.
  */
-BISON_API bison_error bison_call(
-    bison_handle h,
-    bison_hash name,
-    bison_handle params,
-    bison_handle* result);
+BISON_API bison_error bison_call(bison_handle h, bison_hash name, bison_handle params, bison_handle* result);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field registration with optional attribute metadata
@@ -687,9 +641,8 @@ BISON_API bison_error bison_call(
  * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
  *         `BISON_ERR_EXCEPTION`.
  */
-BISON_API bison_error bison_add_field_int(
-    bison_handle obj, bison_hash key, int32_t value,
-    const bison_attributes* meta);
+BISON_API bison_error
+bison_add_field_int(bison_handle obj, bison_hash key, int32_t value, const bison_attributes* meta);
 
 /**
  * @brief Add a `float` field to @p obj with optional attribute metadata.
@@ -701,9 +654,8 @@ BISON_API bison_error bison_add_field_int(
  * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
  *         `BISON_ERR_EXCEPTION`.
  */
-BISON_API bison_error bison_add_field_float(
-    bison_handle obj, bison_hash key, float value,
-    const bison_attributes* meta);
+BISON_API bison_error
+bison_add_field_float(bison_handle obj, bison_hash key, float value, const bison_attributes* meta);
 
 /**
  * @brief Add a `bool` field to @p obj with optional attribute metadata.
@@ -715,9 +667,7 @@ BISON_API bison_error bison_add_field_float(
  * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
  *         `BISON_ERR_EXCEPTION`.
  */
-BISON_API bison_error bison_add_field_bool(
-    bison_handle obj, bison_hash key, int value,
-    const bison_attributes* meta);
+BISON_API bison_error bison_add_field_bool(bison_handle obj, bison_hash key, int value, const bison_attributes* meta);
 
 /**
  * @brief Add a `string` field to @p obj with optional attribute metadata.
@@ -729,9 +679,8 @@ BISON_API bison_error bison_add_field_bool(
  * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
  *         `BISON_ERR_EXCEPTION`.
  */
-BISON_API bison_error bison_add_field_string(
-    bison_handle obj, bison_hash key, const char* value,
-    const bison_attributes* meta);
+BISON_API bison_error
+bison_add_field_string(bison_handle obj, bison_hash key, const char* value, const bison_attributes* meta);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility

@@ -109,7 +109,9 @@ class bridge : public server {
    *
    * @param ctx Newly registered downstream session context.
    */
-  virtual void on_client_connected(context& ctx) { (void)ctx; }
+  virtual void on_client_connected(context& ctx) {
+    (void)ctx;
+  }
 
   /**
    * @brief Called just before a downstream client session is cleaned up.
@@ -119,7 +121,9 @@ class bridge : public server {
    *
    * @param ctx Downstream session context about to be destroyed.
    */
-  virtual void on_client_disconnected(context& ctx) { (void)ctx; }
+  virtual void on_client_disconnected(context& ctx) {
+    (void)ctx;
+  }
 
   /**
    * @brief Access the upstream RMI client.
@@ -130,7 +134,9 @@ class bridge : public server {
    *
    * Only valid after `start()` has been called and before `stop()` returns.
    */
-  rmi::client& upstream() { return upstream_client_; }
+  rmi::client& upstream() {
+    return upstream_client_;
+  }
 
   // ── server hook overrides ─────────────────────────────────────────────────
 
@@ -141,20 +147,17 @@ class bridge : public server {
    * Always returns true: the bridge accepts any class instantiation and
    * forwards it to the upstream server, bypassing the local class registry.
    */
-  bool on_check_class(
-      context& ctx, bison::key_t ns, bison::key_t klass) override;
+  bool on_check_class(context& ctx, bison::key_t ns, bison::key_t klass) override;
 
   /** Intercepts object instantiation to create upstream proxy objects. */
-  bison::dynamic_ptr on_create_object(
-      context& ctx, bison::key_t ns, bison::key_t klass) override;
+  bison::dynamic_ptr on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) override;
 
   /**
    * Saves the current request ID for use in `on_create_object` and handles
    * OP_CLEAR forwarding to upstream before `handle_clear` resets the local
    * proxy.
    */
-  void on_request_trace(
-      context& ctx, const shared::envelope& env) override;
+  void on_request_trace(context& ctx, const shared::envelope& env) override;
 
   /**
    * Finalizes the upstream ↔ local object ID mapping after OP_INSTANTIATE,
@@ -199,14 +202,10 @@ class bridge : public server {
     std::function<void(bison::key_t, bison::key_t, bison::dynamic)> emit;
 
     /** downstream local_oid → upstream_oid */
-    bison::synchronized<
-        std::unordered_map<bison::hash_t, bison::key_t>>
-        local_to_upstream;
+    bison::synchronized<std::unordered_map<bison::hash_t, bison::key_t>> local_to_upstream;
 
     /** upstream_oid → downstream local_oid */
-    bison::synchronized<
-        std::unordered_map<bison::hash_t, bison::key_t>>
-        upstream_to_local;
+    bison::synchronized<std::unordered_map<bison::hash_t, bison::key_t>> upstream_to_local;
   };
 
   // ── Temporary state during OP_INSTANTIATE dispatch ───────────────────────
@@ -266,18 +265,14 @@ class bridge : public server {
    * cleanup_context.  HOOK_DESTRUCT lambdas hold a weak_ptr so they become
    * no-ops once the entry is removed.
    */
-  bison::synchronized<
-      std::unordered_map<bison::hash_t, std::shared_ptr<session_state>>>
-      sessions_;
+  bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<session_state>>> sessions_;
 
   /**
    * Global reverse lookup: upstream_oid_hash → (session_id, local_oid).
    * Used by route_event to find which downstream session owns a given upstream
    * object in O(1).  Updated in on_response_trace and HOOK_DESTRUCT.
    */
-  bison::synchronized<std::unordered_map<
-      bison::hash_t,
-      std::pair<bison::key_t, bison::key_t>>> // session_id, local_oid
+  bison::synchronized<std::unordered_map<bison::hash_t, std::pair<bison::key_t, bison::key_t>>> // session_id, local_oid
       upstream_to_session_;
 
   /**
@@ -286,9 +281,7 @@ class bridge : public server {
    * accesses happen on the same server worker thread, so the synchronized<>
    * lock is never recursively nested.
    */
-  bison::synchronized<
-      std::unordered_map<bison::hash_t, pending_relay>>
-      pending_relays_;
+  bison::synchronized<std::unordered_map<bison::hash_t, pending_relay>> pending_relays_;
 
   /** Single upstream RMI connection (wraps a bridge_upstream_transport). */
   client upstream_client_;

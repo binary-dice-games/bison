@@ -41,11 +41,8 @@ struct proxy_backend {
    * @param oneway    When true, no response is expected.
    * @return Future resolved with the response payload.
    */
-  virtual std::future<bison::dynamic> send_request(
-      bison::key_t op,
-      bison::key_t object_id,
-      bison::dynamic payload,
-      bool oneway) = 0;
+  virtual std::future<bison::dynamic>
+  send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway) = 0;
 
   /**
    * @brief Register an event handler for server-initiated events.
@@ -54,10 +51,8 @@ struct proxy_backend {
    * @param name       Event name token.
    * @param handler    Callback invoked with the event payload.
    */
-  virtual void register_event_handler(
-      bison::key_t object_id,
-      bison::key_t name,
-      std::function<void(bison::dynamic)> handler) = 0;
+  virtual void
+  register_event_handler(bison::key_t object_id, bison::key_t name, std::function<void(bison::dynamic)> handler) = 0;
 
   virtual ~proxy_backend() = default;
 };
@@ -88,9 +83,7 @@ class dynamic {
   dynamic& operator=(const dynamic&) = delete;
 
   dynamic(dynamic&& other) noexcept
-      : backend_(other.backend_),
-        object_id_(std::move(other.object_id_)),
-        valid_(other.valid_) {
+      : backend_(other.backend_), object_id_(std::move(other.object_id_)), valid_(other.valid_) {
     other.valid_ = false;
     other.backend_ = nullptr;
   }
@@ -152,8 +145,7 @@ class dynamic {
    *                returned future resolves immediately with an empty result.
    * @return Future that resolves with the call result (or empty if oneway).
    */
-  std::future<bison::dynamic>
-  call(bison::key_t name, bison::dynamic&& params, bool oneway = false);
+  std::future<bison::dynamic> call(bison::key_t name, bison::dynamic&& params, bool oneway = false);
 
   /**
    * @brief Register a handler for a named server-initiated event.
@@ -189,8 +181,7 @@ class dynamic {
 
  private:
   // Only client and standalone can construct proxies.
-  dynamic(proxy_backend* backend, bison::key_t id)
-      : backend_(backend), object_id_(std::move(id)), valid_(true) {}
+  dynamic(proxy_backend* backend, bison::key_t id) : backend_(backend), object_id_(std::move(id)), valid_(true) {}
 
   proxy_backend* backend_{nullptr};
   bison::key_t object_id_;

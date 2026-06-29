@@ -47,9 +47,7 @@ class BridgeTest : public ::testing::Test {
     // Construct the bridge: upstream transport connects to upstream_transport_,
     // downstream clients connect via downstream_transport_.
     br_ = std::make_unique<bridge>(
-        downstream_transport_,
-        std::make_unique<memory_client_transport>(
-            upstream_transport_.connect()));
+        downstream_transport_, std::make_unique<memory_client_transport>(upstream_transport_.connect()));
     br_->start();
   }
 
@@ -131,8 +129,7 @@ TEST_F(BridgeTest, DestroyRemovesObjectFromUpstream) {
   {
     auto lp = upstream_srv_->session_contexts().rlock();
     for (auto& [id, ctx] : *lp) {
-      EXPECT_TRUE(ctx->objects.empty())
-          << "upstream session still holds objects after destroy";
+      EXPECT_TRUE(ctx->objects.empty()) << "upstream session still holds objects after destroy";
     }
   }
 
@@ -170,11 +167,11 @@ TEST_F(BridgeTest, SetAndGetForwardedToUpstream) {
 TEST_F(BridgeTest, MethodCallForwardedToUpstream) {
   auto proto = dynamic_ptr{"Adder"_key, {{"val"_key, int32_t{0}}}};
   proto->addMethod("add"_key, method{[](dynamic& self, const dynamic& p) {
-    int32_t x = self["val"_key];
-    int32_t y = p.as<int32_t>("y"_key);
-    self["val"_key] = int32_t{x + y};
-    return dynamic{};
-  }});
+                     int32_t x = self["val"_key];
+                     int32_t y = p.as<int32_t>("y"_key);
+                     self["val"_key] = int32_t{x + y};
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -207,21 +204,19 @@ TEST_F(BridgeTest, MethodCallForwardedToUpstream) {
 TEST_F(BridgeTest, EventRoutedToCorrectClient) {
   // A class whose "fire" method emits an event back to the caller's session.
   auto proto = dynamic_ptr{"Emitter"_key, {}};
-  proto->addMethod(
-      "fire"_key,
-      method{[](dynamic& self, const dynamic& /*p*/) {
-        // Retrieve emit callback from userdata.
-        struct emit_ud : userdata {
-          std::function<void(bison_key_t, bison_key_t, dynamic)> fn;
-        };
-        auto ud = std::dynamic_pointer_cast<emit_ud>(self.getUserdata());
-        if (ud && ud->fn) {
-          dynamic ev;
-          ev["tick"_key] = int32_t{1};
-          ud->fn({}, "onTick"_key, std::move(ev));
-        }
-        return dynamic{};
-      }});
+  proto->addMethod("fire"_key, method{[](dynamic& self, const dynamic& /*p*/) {
+                     // Retrieve emit callback from userdata.
+                     struct emit_ud : userdata {
+                       std::function<void(bison_key_t, bison_key_t, dynamic)> fn;
+                     };
+                     auto ud = std::dynamic_pointer_cast<emit_ud>(self.getUserdata());
+                     if (ud && ud->fn) {
+                       dynamic ev;
+                       ev["tick"_key] = int32_t{1};
+                       ud->fn({}, "onTick"_key, std::move(ev));
+                     }
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   // We need access to the upstream server's on_create_object to stash
@@ -346,12 +341,10 @@ TEST_F(BridgeTest, ClearAndSubsequentSetGetWork) {
 TEST_F(BridgeTest, DisconnectDestroysUpstreamObjects) {
   std::atomic<int> destruct_count{0};
   auto proto = dynamic_ptr{"Tracked"_key, {}};
-  proto->addMethod(
-      HOOK_DESTRUCT,
-      method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
-        ++destruct_count;
-        return dynamic{};
-      }});
+  proto->addMethod(HOOK_DESTRUCT, method{[&destruct_count](dynamic& /*self*/, const dynamic&) {
+                     ++destruct_count;
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   auto c = make_client();
@@ -364,8 +357,7 @@ TEST_F(BridgeTest, DisconnectDestroysUpstreamObjects) {
   c.disconnect();
   std::this_thread::sleep_for(std::chrono::milliseconds{120});
 
-  EXPECT_EQ(destruct_count.load(), 2)
-      << "expected both upstream objects destroyed on disconnect";
+  EXPECT_EQ(destruct_count.load(), 2) << "expected both upstream objects destroyed on disconnect";
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -379,17 +371,14 @@ TEST(CallFallback, KnownMethodTakesPriorityOverFallback) {
   std::atomic<int> known_calls{0};
 
   auto proto = dynamic_ptr{"Dual"_key, {}};
-  proto->addMethod("knownMethod"_key,
-                   method{[&known_calls](dynamic&, const dynamic&) {
+  proto->addMethod("knownMethod"_key, method{[&known_calls](dynamic&, const dynamic&) {
                      ++known_calls;
                      return dynamic{};
                    }});
-  proto->addMethod(
-      bison_key_t{dynamic::CALL_FALLBACK},
-      method{[&fallback_calls](dynamic&, const dynamic&) {
-        ++fallback_calls;
-        return dynamic{};
-      }});
+  proto->addMethod(bison_key_t{dynamic::CALL_FALLBACK}, method{[&fallback_calls](dynamic&, const dynamic&) {
+                     ++fallback_calls;
+                     return dynamic{};
+                   }});
   dynamic::addClass(0U, proto, 0U);
 
   memory_server_transport t;

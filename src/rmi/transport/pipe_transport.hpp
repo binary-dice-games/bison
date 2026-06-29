@@ -59,10 +59,7 @@ class pipe_client_transport : public client_transport_iface {
    * @param timeout Maximum wait before returning `false`.
    * @return `true` on success; `false` on timeout, EOF, or shutdown.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Signal shutdown; pending and future receives return `false`. */
   void shutdown() override;
@@ -97,10 +94,7 @@ class pipe_server_connection : public server_connection_iface {
    * @param timeout Maximum wait before returning `false`.
    * @return `true` on success; `false` on timeout, EOF, or close.
    */
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Mark the connection closed; pending and future receives return `false`. */
   void close() override;
@@ -145,8 +139,7 @@ class pipe_server_transport : public server_transport_iface {
    * @return Server connection on success; `nullptr` on timeout or stop.
    */
   std::unique_ptr<server_connection_iface> accept(
-      std::chrono::milliseconds timeout =
-          std::chrono::milliseconds{5000}) override;
+      std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /** @brief Stop the transport; pending and future accepts return `nullptr`. */
   void stop() override;

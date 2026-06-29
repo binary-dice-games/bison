@@ -69,8 +69,7 @@ class client : public proxy_backend {
    * @brief Construct a client that takes ownership of @p transport.
    * @param transport Transport implementation to use.
    */
-  explicit client(std::unique_ptr<transport::client_transport_iface> transport)
-      : transport_(std::move(transport)) {}
+  explicit client(std::unique_ptr<transport::client_transport_iface> transport) : transport_(std::move(transport)) {}
 
   /**
    * @brief Convenience constructor for concrete transport types.
@@ -83,15 +82,9 @@ class client : public proxy_backend {
    */
   template <
       typename TTransport,
-      std::enable_if_t<
-          std::is_base_of_v<
-              transport::client_transport_iface,
-              std::decay_t<TTransport>>,
-          int> = 0>
+      std::enable_if_t<std::is_base_of_v<transport::client_transport_iface, std::decay_t<TTransport>>, int> = 0>
   explicit client(TTransport&& transport)
-      : client(
-            std::make_unique<std::decay_t<TTransport>>(
-                std::forward<TTransport>(transport))) {}
+      : client(std::make_unique<std::decay_t<TTransport>>(std::forward<TTransport>(transport))) {}
 
   client(const client&) = delete;
   client& operator=(const client&) = delete;
@@ -117,7 +110,9 @@ class client : public proxy_backend {
    *
    * @param proxy The newly created proxy (valid, not yet returned to caller).
    */
-  virtual void on_instantiate(const proxy::dynamic& proxy) { (void)proxy; }
+  virtual void on_instantiate(const proxy::dynamic& proxy) {
+    (void)proxy;
+  }
 
   /**
    * @brief Called at the start of `destroy()`, before the proxy is invalidated
@@ -128,7 +123,9 @@ class client : public proxy_backend {
    *
    * @param object_id The ID of the object about to be destroyed.
    */
-  virtual void on_destroy(bison::key_t object_id) { (void)object_id; }
+  virtual void on_destroy(bison::key_t object_id) {
+    (void)object_id;
+  }
 
   /**
    * @brief Called inside `disconnect()` after the worker thread has stopped
@@ -154,9 +151,7 @@ class client : public proxy_backend {
    * @param klass Optional class key. Pass `0` to request full metadata.
    * @return Future resolved with the description payload from the server.
    */
-  std::future<bison::dynamic> describe(
-      bison::key_t ns = 0U,
-      bison::key_t klass = 0U);
+  std::future<bison::dynamic> describe(bison::key_t ns = 0U, bison::key_t klass = 0U);
 
   /**
    * @brief Request the server's hash→display-name dictionary.
@@ -189,10 +184,8 @@ class client : public proxy_backend {
    * @return Future resolved with a move-only proxy referencing the server-side
    * object.
    */
-  std::future<proxy::dynamic> instantiate(
-      bison::key_t ns,
-      bison::key_t klass,
-      bison::dynamic params = bison::dynamic{});
+  std::future<proxy::dynamic>
+  instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params = bison::dynamic{});
 
   /**
    * @brief Destroy a remote object represented by @p proxy.
@@ -212,11 +205,8 @@ class client : public proxy_backend {
    * @return Future resolved with response payload (or empty dynamic for
    * oneway).
    */
-  std::future<bison::dynamic> send_request(
-      bison::key_t op,
-      bison::key_t object_id,
-      bison::dynamic payload,
-      bool oneway) override;
+  std::future<bison::dynamic> send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway)
+      override;
 
   /**
    * @brief Register a handler for server-sent events on an object.
@@ -224,10 +214,8 @@ class client : public proxy_backend {
    * @param name Event name token.
    * @param handler Callback invoked with event payload.
    */
-  void register_event_handler(
-      bison::key_t object_id,
-      bison::key_t name,
-      std::function<void(bison::dynamic)> handler) override;
+  void register_event_handler(bison::key_t object_id, bison::key_t name, std::function<void(bison::dynamic)> handler)
+      override;
 
   /**
    * @brief Remove all event handlers associated with an object ID.
@@ -269,13 +257,10 @@ class client : public proxy_backend {
   std::mutex event_queue_mtx_;
   std::condition_variable event_queue_cv_;
 
-  bison::synchronized<
-      std::unordered_map<bison::hash_t, std::promise<bison::dynamic>>>
-      pending_;
+  bison::synchronized<std::unordered_map<bison::hash_t, std::promise<bison::dynamic>>> pending_;
 
-  bison::synchronized<std::unordered_map<
-      bison::hash_t,
-      std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
+  bison::synchronized<
+      std::unordered_map<bison::hash_t, std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
       event_handlers_;
 
   std::mutex send_mutex_;

@@ -95,8 +95,7 @@ void consume_bool(bool value) {
 void consume_string(std::string_view value) {
   consume_u64(static_cast<std::uint64_t>(value.size()));
   if (!value.empty()) {
-    consume_u64(
-        static_cast<std::uint64_t>(static_cast<unsigned char>(value.front())));
+    consume_u64(static_cast<std::uint64_t>(static_cast<unsigned char>(value.front())));
   }
 }
 
@@ -133,8 +132,7 @@ struct NativeRecord {
     score += params.delta;
     level += params.step;
     active = !active;
-    return id + age + level + params.a + params.b +
-        static_cast<std::int32_t>(score + ratio) +
+    return id + age + level + params.a + params.b + static_cast<std::int32_t>(score + ratio) +
         static_cast<std::int32_t>(name.size()) + (active ? 1 : 0);
   }
 };
@@ -196,9 +194,8 @@ T read_bytes(const std::string& buffer, std::size_t& offset) {
 std::string serialize_native_record(const NativeRecord& obj) {
   std::string buffer;
   buffer.reserve(
-      sizeof(obj.id) + sizeof(obj.age) + sizeof(obj.score) + sizeof(obj.ratio) +
-      sizeof(std::uint8_t) + sizeof(obj.level) + sizeof(std::uint32_t) +
-      obj.name.size());
+      sizeof(obj.id) + sizeof(obj.age) + sizeof(obj.score) + sizeof(obj.ratio) + sizeof(std::uint8_t) +
+      sizeof(obj.level) + sizeof(std::uint32_t) + obj.name.size());
   append_bytes(buffer, obj.id);
   append_bytes(buffer, obj.age);
   append_bytes(buffer, obj.score);
@@ -309,14 +306,10 @@ benchmark_pool build_serialization_pool(std::size_t pool_size) {
 
   // Then build payload fixtures derived from those objects.
   for (std::size_t iteration = 0; iteration < pool_size; ++iteration) {
-    pool.native_payloads.push_back(
-        serialize_native_record(pool.native_records[iteration]));
-    pool.dynamic_payloads.push_back(
-        serialize_dynamic_record(pool.dynamic_records[iteration]));
-    pool.dynamic_buf_payloads.push_back(
-        serialize_dynamic_record_buf(pool.dynamic_records[iteration]));
-    pool.json_payloads.push_back(
-        serialize_json_record(pool.json_records[iteration]));
+    pool.native_payloads.push_back(serialize_native_record(pool.native_records[iteration]));
+    pool.dynamic_payloads.push_back(serialize_dynamic_record(pool.dynamic_records[iteration]));
+    pool.dynamic_buf_payloads.push_back(serialize_dynamic_record_buf(pool.dynamic_records[iteration]));
+    pool.json_payloads.push_back(serialize_json_record(pool.json_records[iteration]));
   }
 
   return pool;
@@ -354,19 +347,14 @@ json make_json_params(std::size_t iteration) {
  */
 std::int32_t json_compute(json& obj, const json& params) {
   double score = obj["score"].get<double>() + params["delta"].get<double>();
-  std::int32_t level =
-      obj["level"].get<std::int32_t>() + params["step"].get<std::int32_t>();
+  std::int32_t level = obj["level"].get<std::int32_t>() + params["step"].get<std::int32_t>();
   bool active = !obj["active"].get<bool>();
   obj["score"] = score;
   obj["level"] = level;
   obj["active"] = active;
-  return obj["id"].get<std::int32_t>() + obj["age"].get<std::int32_t>() +
-      level + params["a"].get<std::int32_t>() +
-      params["b"].get<std::int32_t>() +
-      static_cast<std::int32_t>(score + obj["ratio"].get<double>()) +
-      static_cast<std::int32_t>(
-             obj["name"].get_ref<const std::string&>().size()) +
-      (active ? 1 : 0);
+  return obj["id"].get<std::int32_t>() + obj["age"].get<std::int32_t>() + level + params["a"].get<std::int32_t>() +
+      params["b"].get<std::int32_t>() + static_cast<std::int32_t>(score + obj["ratio"].get<double>()) +
+      static_cast<std::int32_t>(obj["name"].get_ref<const std::string&>().size()) + (active ? 1 : 0);
 }
 
 /**
@@ -374,27 +362,21 @@ std::int32_t json_compute(json& obj, const json& params) {
  */
 dynamic make_dynamic_method_record(std::size_t iteration) {
   dynamic obj = make_dynamic_record(iteration);
-  obj.addMethod(
-      "compute"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
-        const float score =
-            self[KEY_SCORE].as<float>() + params[KEY_DELTA].as<float>();
-        const std::int32_t level = self[KEY_LEVEL].as<std::int32_t>() +
-            params[KEY_STEP].as<std::int32_t>();
-        const bool active = !self[KEY_ACTIVE].as<bool>();
-        self[KEY_SCORE] = score;
-        self[KEY_LEVEL] = level;
-        self[KEY_ACTIVE] = active;
+  obj.addMethod("compute"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {
+                  const float score = self[KEY_SCORE].as<float>() + params[KEY_DELTA].as<float>();
+                  const std::int32_t level = self[KEY_LEVEL].as<std::int32_t>() + params[KEY_STEP].as<std::int32_t>();
+                  const bool active = !self[KEY_ACTIVE].as<bool>();
+                  self[KEY_SCORE] = score;
+                  self[KEY_LEVEL] = level;
+                  self[KEY_ACTIVE] = active;
 
-        dynamic result;
-        result[KEY_VALUE] = self[KEY_ID].as<std::int32_t>() +
-            self[KEY_AGE].as<std::int32_t>() + level +
-            params[KEY_A].as<std::int32_t>() +
-            params[KEY_B].as<std::int32_t>() +
-            static_cast<std::int32_t>(score + self[KEY_RATIO].as<float>()) +
-            static_cast<std::int32_t>(self[KEY_NAME].as<std::string>().size()) +
-            (active ? 1 : 0);
-        return result;
-      }});
+                  dynamic result;
+                  result[KEY_VALUE] = self[KEY_ID].as<std::int32_t>() + self[KEY_AGE].as<std::int32_t>() + level +
+                      params[KEY_A].as<std::int32_t>() + params[KEY_B].as<std::int32_t>() +
+                      static_cast<std::int32_t>(score + self[KEY_RATIO].as<float>()) +
+                      static_cast<std::int32_t>(self[KEY_NAME].as<std::string>().size()) + (active ? 1 : 0);
+                  return result;
+                }});
   return obj;
 }
 
@@ -483,8 +465,7 @@ output_format parse_format(const std::string& value) {
 
 /** @brief Print benchmark CLI usage help text. */
 void print_usage(const char* program) {
-  std::cout << "Usage: " << program
-            << " [iterations] [--iterations=N] [--samples=N]"
+  std::cout << "Usage: " << program << " [iterations] [--iterations=N] [--samples=N]"
             << " [--warmup=N] [--format=table|csv|markdown]\n";
 }
 
@@ -550,9 +531,8 @@ sample_stats summarize_samples(std::vector<double> samples) {
   std::sort(samples.begin(), samples.end());
   const double min_ms = samples.front();
   const std::size_t middle = samples.size() / 2u;
-  const double median_ms = (samples.size() & 1u) != 0u
-      ? samples[middle]
-      : (samples[middle - 1u] + samples[middle]) * 0.5;
+  const double median_ms =
+      (samples.size() & 1u) != 0u ? samples[middle] : (samples[middle - 1u] + samples[middle]) * 0.5;
   return sample_stats{min_ms, median_ms};
 }
 
@@ -577,40 +557,30 @@ sample_stats measure_stats(const benchmark_config& config, Fn&& fn) {
  * inside `body(state, iteration)` does not leak across samples.
  */
 template <typename StateFactory, typename Body>
-sample_stats measure_stats_stateful(
-    const benchmark_config& config,
-    StateFactory&& create_state,
-    Body&& body) {
+sample_stats measure_stats_stateful(const benchmark_config& config, StateFactory&& create_state, Body&& body) {
   for (std::size_t warmup = 0; warmup < config.warmup_samples; ++warmup) {
     auto state = create_state();
-    (void)measure_ms(config.iterations, [&](std::size_t iteration) {
-      body(state, iteration);
-    });
+    (void)measure_ms(config.iterations, [&](std::size_t iteration) { body(state, iteration); });
   }
 
   std::vector<double> samples;
   samples.reserve(config.samples);
   for (std::size_t sample = 0; sample < config.samples; ++sample) {
     auto state = create_state();
-    samples.push_back(measure_ms(config.iterations, [&](std::size_t iteration) {
-      body(state, iteration);
-    }));
+    samples.push_back(measure_ms(config.iterations, [&](std::size_t iteration) { body(state, iteration); }));
   }
   return summarize_samples(std::move(samples));
 }
 
 std::string format_stats(sample_stats stats) {
   std::ostringstream out;
-  out << std::fixed << std::setprecision(1) << stats.min_ms << "/"
-      << stats.median_ms;
+  out << std::fixed << std::setprecision(1) << stats.min_ms << "/" << stats.median_ms;
   return out.str();
 }
 
 /** @brief Print benchmark results in human-readable fixed-width table format.
  */
-void print_table(
-    const benchmark_config& config,
-    const std::vector<benchmark_row>& rows) {
+void print_table(const benchmark_config& config, const std::vector<benchmark_row>& rows) {
   struct display_row {
     std::string operation;
     std::string cpp;
@@ -633,10 +603,8 @@ void print_table(
   for (const auto& row : rows) {
     std::ostringstream dyn_ratio_stream;
     std::ostringstream json_ratio_stream;
-    dyn_ratio_stream << std::fixed << std::setprecision(2)
-                     << ratio(row.native.median_ms, row.dynamic.median_ms);
-    json_ratio_stream << std::fixed << std::setprecision(2)
-                      << ratio(row.native.median_ms, row.json.median_ms);
+    dyn_ratio_stream << std::fixed << std::setprecision(2) << ratio(row.native.median_ms, row.dynamic.median_ms);
+    json_ratio_stream << std::fixed << std::setprecision(2) << ratio(row.native.median_ms, row.json.median_ms);
 
     display_row rendered{
         row.operation,
@@ -656,9 +624,8 @@ void print_table(
     display_rows.push_back(std::move(rendered));
   }
 
-  const std::size_t border_width = 1 + operation_width + 1 + cpp_width + 1 +
-      dyn_width + 1 + json_width + 1 + dyn_ratio_width + 1 + json_ratio_width +
-      1;
+  const std::size_t border_width = 1 + operation_width + 1 + cpp_width + 1 + dyn_width + 1 + json_width + 1 +
+      dyn_ratio_width + 1 + json_ratio_width + 1;
 
   std::cout << "Bison performance comparison\n";
   std::cout << "Iterations per sample: " << config.iterations << "\n";
@@ -669,14 +636,11 @@ void print_table(
 #else
   std::cout << "Build mode: Debug (use Release for meaningful comparisons)\n";
 #endif
-  std::cout
-      << "Stat cells show min/median milliseconds. Ratios use median times.\n\n";
+  std::cout << "Stat cells show min/median milliseconds. Ratios use median times.\n\n";
 
   std::cout << std::string(border_width, '-') << "\n";
-  std::cout << "|" << std::left << std::setw(static_cast<int>(operation_width))
-            << "op"
-            << "|" << std::right << std::setw(static_cast<int>(cpp_width))
-            << "cpp"
+  std::cout << "|" << std::left << std::setw(static_cast<int>(operation_width)) << "op"
+            << "|" << std::right << std::setw(static_cast<int>(cpp_width)) << "cpp"
             << "|" << std::setw(static_cast<int>(dyn_width)) << "dyn"
             << "|" << std::setw(static_cast<int>(json_width)) << "json"
             << "|" << std::setw(static_cast<int>(dyn_ratio_width)) << "d/c"
@@ -685,15 +649,11 @@ void print_table(
   std::cout << std::string(border_width, '-') << "\n";
 
   for (const auto& row : display_rows) {
-    std::cout << "|" << std::left
-              << std::setw(static_cast<int>(operation_width)) << row.operation
-              << "|" << std::right << std::setw(static_cast<int>(cpp_width))
-              << row.cpp << "|" << std::setw(static_cast<int>(dyn_width))
-              << row.dyn << "|" << std::setw(static_cast<int>(json_width))
-              << row.js << "|" << std::setw(static_cast<int>(dyn_ratio_width))
-              << row.dyn_ratio << "|"
-              << std::setw(static_cast<int>(json_ratio_width)) << row.json_ratio
-              << "|\n";
+    std::cout << "|" << std::left << std::setw(static_cast<int>(operation_width)) << row.operation << "|" << std::right
+              << std::setw(static_cast<int>(cpp_width)) << row.cpp << "|" << std::setw(static_cast<int>(dyn_width))
+              << row.dyn << "|" << std::setw(static_cast<int>(json_width)) << row.js << "|"
+              << std::setw(static_cast<int>(dyn_ratio_width)) << row.dyn_ratio << "|"
+              << std::setw(static_cast<int>(json_ratio_width)) << row.json_ratio << "|\n";
   }
   std::cout << std::string(border_width, '-') << "\n";
 
@@ -701,40 +661,30 @@ void print_table(
 }
 
 /** @brief Print benchmark results as CSV for tooling/automation. */
-void print_csv(
-    const benchmark_config& config,
-    const std::vector<benchmark_row>& rows) {
+void print_csv(const benchmark_config& config, const std::vector<benchmark_row>& rows) {
   std::cout << "iterations,warmup_samples,measured_samples,operation,"
             << "cpp_min_ms,cpp_median_ms,dynamic_min_ms,dynamic_median_ms,"
             << "json_min_ms,json_median_ms,dynamic_vs_cpp,json_vs_cpp\n";
   for (const auto& row : rows) {
-    std::cout << config.iterations << "," << config.warmup_samples << ","
-              << config.samples << "," << row.operation << "," << std::fixed
-              << std::setprecision(6) << row.native.min_ms << ","
-              << row.native.median_ms << "," << row.dynamic.min_ms << ","
-              << row.dynamic.median_ms << "," << row.json.min_ms << ","
-              << row.json.median_ms << ","
-              << ratio(row.native.median_ms, row.dynamic.median_ms) << ","
+    std::cout << config.iterations << "," << config.warmup_samples << "," << config.samples << "," << row.operation
+              << "," << std::fixed << std::setprecision(6) << row.native.min_ms << "," << row.native.median_ms << ","
+              << row.dynamic.min_ms << "," << row.dynamic.median_ms << "," << row.json.min_ms << ","
+              << row.json.median_ms << "," << ratio(row.native.median_ms, row.dynamic.median_ms) << ","
               << ratio(row.native.median_ms, row.json.median_ms) << "\n";
   }
 }
 
 /** @brief Print benchmark results as Markdown for docs/issues/PR comments. */
-void print_markdown(
-    const benchmark_config& config,
-    const std::vector<benchmark_row>& rows) {
+void print_markdown(const benchmark_config& config, const std::vector<benchmark_row>& rows) {
   std::cout << "Bison performance comparison\n\n";
   std::cout << "Iterations per sample: " << config.iterations << "  \n";
   std::cout << "Warmup samples: " << config.warmup_samples << "  \n";
   std::cout << "Measured samples: " << config.samples << "\n\n";
-  std::cout
-      << "| Operation | C++ min/med | dynamic min/med | json min/med | dyn x | json x |\n";
+  std::cout << "| Operation | C++ min/med | dynamic min/med | json min/med | dyn x | json x |\n";
   std::cout << "|---|---:|---:|---:|---:|---:|\n";
   for (const auto& row : rows) {
-    std::cout << "| " << row.operation << " | " << format_stats(row.native)
-              << " | " << format_stats(row.dynamic) << " | "
-              << format_stats(row.json) << " | " << std::fixed
-              << std::setprecision(2)
+    std::cout << "| " << row.operation << " | " << format_stats(row.native) << " | " << format_stats(row.dynamic)
+              << " | " << format_stats(row.json) << " | " << std::fixed << std::setprecision(2)
               << ratio(row.native.median_ms, row.dynamic.median_ms) << " | "
               << ratio(row.native.median_ms, row.json.median_ms) << " |\n";
   }
@@ -764,15 +714,12 @@ int main(int argc, char** argv) {
            config,
            [](std::size_t iteration) {
              auto obj = make_dynamic_record(iteration);
-             consume_i32(
-                 obj[KEY_ID].as<std::int32_t>() +
-                 obj[KEY_LEVEL].as<std::int32_t>());
+             consume_i32(obj[KEY_ID].as<std::int32_t>() + obj[KEY_LEVEL].as<std::int32_t>());
              consume_string(obj[KEY_NAME].as<std::string>());
            }),
        measure_stats(config, [](std::size_t iteration) {
          auto obj = make_json_record(iteration);
-         consume_i32(
-             obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
+         consume_i32(obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
          consume_string(obj["name"].get_ref<const std::string&>());
        })});
 
@@ -801,19 +748,14 @@ int main(int argc, char** argv) {
            [](dynamic& obj, std::size_t iteration) {
              obj[KEY_ID] = static_cast<std::int32_t>(iteration);
              obj[KEY_AGE] = 18 + static_cast<std::int32_t>(iteration % 70u);
-             obj[KEY_SCORE] =
-                 10.0f + static_cast<float>(iteration % 100u) * 0.5f;
-             obj[KEY_RATIO] =
-                 0.1f + static_cast<float>(iteration % 25u) * 0.02f;
+             obj[KEY_SCORE] = 10.0f + static_cast<float>(iteration % 100u) * 0.5f;
+             obj[KEY_RATIO] = 0.1f + static_cast<float>(iteration % 25u) * 0.02f;
              obj[KEY_ACTIVE] = (iteration & 1u) == 0u;
              obj[KEY_LEVEL] = static_cast<std::int32_t>(iteration % 12u);
              obj[KEY_NAME] = std::string{benchmark_name(iteration)};
              consume_i32(
-                 obj[KEY_ID].as<std::int32_t>() +
-                 obj[KEY_AGE].as<std::int32_t>() +
-                 obj[KEY_LEVEL].as<std::int32_t>());
-             consume_f32(
-                 obj[KEY_SCORE].as<float>() + obj[KEY_RATIO].as<float>());
+                 obj[KEY_ID].as<std::int32_t>() + obj[KEY_AGE].as<std::int32_t>() + obj[KEY_LEVEL].as<std::int32_t>());
+             consume_f32(obj[KEY_SCORE].as<float>() + obj[KEY_RATIO].as<float>());
              consume_bool(obj[KEY_ACTIVE].as<bool>());
              consume_string(obj[KEY_NAME].as<std::string>());
            }),
@@ -829,12 +771,8 @@ int main(int argc, char** argv) {
              obj["level"] = static_cast<std::int32_t>(iteration % 12u);
              obj["name"] = benchmark_name(iteration);
              consume_i32(
-                 obj["id"].get<std::int32_t>() +
-                 obj["age"].get<std::int32_t>() +
-                 obj["level"].get<std::int32_t>());
-             consume_f32(
-                 static_cast<float>(
-                     obj["score"].get<double>() + obj["ratio"].get<double>()));
+                 obj["id"].get<std::int32_t>() + obj["age"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
+             consume_f32(static_cast<float>(obj["score"].get<double>() + obj["ratio"].get<double>()));
              consume_bool(obj["active"].get<bool>());
              consume_string(obj["name"].get_ref<const std::string&>());
            })});
@@ -872,22 +810,19 @@ int main(int argc, char** argv) {
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const NativeRecord& obj =
-                 pool.native_records[iteration % pool.native_records.size()];
+             const NativeRecord& obj = pool.native_records[iteration % pool.native_records.size()];
              const std::string payload = serialize_native_record(obj);
              consume_u64(static_cast<std::uint64_t>(payload.size()));
            }),
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const dynamic& obj =
-                 pool.dynamic_records[iteration % pool.dynamic_records.size()];
+             const dynamic& obj = pool.dynamic_records[iteration % pool.dynamic_records.size()];
              const std::string payload = serialize_dynamic_record(obj);
              consume_u64(static_cast<std::uint64_t>(payload.size()));
            }),
        measure_stats(config, [&pool](std::size_t iteration) {
-         const json& obj =
-             pool.json_records[iteration % pool.json_records.size()];
+         const json& obj = pool.json_records[iteration % pool.json_records.size()];
          const std::string payload = serialize_json_record(obj);
          consume_u64(static_cast<std::uint64_t>(payload.size()));
        })});
@@ -898,22 +833,19 @@ int main(int argc, char** argv) {
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const NativeRecord& obj =
-                 pool.native_records[iteration % pool.native_records.size()];
+             const NativeRecord& obj = pool.native_records[iteration % pool.native_records.size()];
              const std::string payload = serialize_native_record(obj);
              consume_u64(static_cast<std::uint64_t>(payload.size()));
            }),
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const dynamic& obj =
-                 pool.dynamic_records[iteration % pool.dynamic_records.size()];
+             const dynamic& obj = pool.dynamic_records[iteration % pool.dynamic_records.size()];
              const auto payload = serialize_dynamic_record_buf(obj);
              consume_u64(static_cast<std::uint64_t>(payload.size()));
            }),
        measure_stats(config, [&pool](std::size_t iteration) {
-         const json& obj =
-             pool.json_records[iteration % pool.json_records.size()];
+         const json& obj = pool.json_records[iteration % pool.json_records.size()];
          const std::string payload = serialize_json_record(obj);
          consume_u64(static_cast<std::uint64_t>(payload.size()));
        })});
@@ -924,8 +856,7 @@ int main(int argc, char** argv) {
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const std::string& payload =
-                 pool.native_payloads[iteration % pool.native_payloads.size()];
+             const std::string& payload = pool.native_payloads[iteration % pool.native_payloads.size()];
              const NativeRecord obj = deserialize_native_record(payload);
              consume_i32(obj.id + obj.level);
              consume_string(obj.name);
@@ -933,21 +864,15 @@ int main(int argc, char** argv) {
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const std::string& payload =
-                 pool.dynamic_payloads
-                     [iteration % pool.dynamic_payloads.size()];
+             const std::string& payload = pool.dynamic_payloads[iteration % pool.dynamic_payloads.size()];
              const auto obj = deserialize_dynamic_record(payload);
-             consume_i32(
-               obj[KEY_ID].as<std::int32_t>() +
-               obj[KEY_LEVEL].as<std::int32_t>());
+             consume_i32(obj[KEY_ID].as<std::int32_t>() + obj[KEY_LEVEL].as<std::int32_t>());
              consume_string(obj[KEY_NAME].as<std::string>());
            }),
        measure_stats(config, [&pool](std::size_t iteration) {
-         const std::string& payload =
-             pool.json_payloads[iteration % pool.json_payloads.size()];
+         const std::string& payload = pool.json_payloads[iteration % pool.json_payloads.size()];
          const json obj = deserialize_json_record(payload);
-         consume_i32(
-             obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
+         consume_i32(obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
          consume_string(obj["name"].get_ref<const std::string&>());
        })});
 
@@ -957,8 +882,7 @@ int main(int argc, char** argv) {
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const std::string& payload =
-                 pool.native_payloads[iteration % pool.native_payloads.size()];
+             const std::string& payload = pool.native_payloads[iteration % pool.native_payloads.size()];
              const NativeRecord obj = deserialize_native_record(payload);
              consume_i32(obj.id + obj.level);
              consume_string(obj.name);
@@ -966,21 +890,15 @@ int main(int argc, char** argv) {
        measure_stats(
            config,
            [&pool](std::size_t iteration) {
-             const buffer& payload =
-                 pool.dynamic_buf_payloads
-                     [iteration % pool.dynamic_buf_payloads.size()];
+             const buffer& payload = pool.dynamic_buf_payloads[iteration % pool.dynamic_buf_payloads.size()];
              const auto obj = deserialize_dynamic_record_buf(payload);
-             consume_i32(
-               obj[KEY_ID].as<std::int32_t>() +
-               obj[KEY_LEVEL].as<std::int32_t>());
+             consume_i32(obj[KEY_ID].as<std::int32_t>() + obj[KEY_LEVEL].as<std::int32_t>());
              consume_string(obj[KEY_NAME].as<std::string>());
            }),
        measure_stats(config, [&pool](std::size_t iteration) {
-         const std::string& payload =
-             pool.json_payloads[iteration % pool.json_payloads.size()];
+         const std::string& payload = pool.json_payloads[iteration % pool.json_payloads.size()];
          const json obj = deserialize_json_record(payload);
-         consume_i32(
-             obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
+         consume_i32(obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
          consume_string(obj["name"].get_ref<const std::string&>());
        })});
 

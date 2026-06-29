@@ -39,29 +39,33 @@ class bridge_upstream_transport : public transport::client_transport_iface {
   bridge_upstream_transport(
       std::unique_ptr<transport::client_transport_iface> inner,
       std::function<void(const shared::envelope&)> event_handler)
-      : inner_(std::move(inner)),
-        event_handler_(std::move(event_handler)) {}
+      : inner_(std::move(inner)), event_handler_(std::move(event_handler)) {}
 
-  void open(bison::dynamic params) override { inner_->open(std::move(params)); }
-  void send(bison::buffer frame) override { inner_->send(std::move(frame)); }
-  void shutdown() override { inner_->shutdown(); }
+  void open(bison::dynamic params) override {
+    inner_->open(std::move(params));
+  }
+  void send(bison::buffer frame) override {
+    inner_->send(std::move(frame));
+  }
+  void shutdown() override {
+    inner_->shutdown();
+  }
 
-  bool receive(
-      bison::buffer& frame,
-      std::chrono::milliseconds timeout) override {
+  bool receive(bison::buffer& frame, std::chrono::milliseconds timeout) override {
     auto deadline = std::chrono::steady_clock::now() + timeout;
     while (true) {
       auto now = std::chrono::steady_clock::now();
-      if (now >= deadline) return false;
-      auto remaining =
-          std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-      if (!inner_->receive(frame, remaining)) return false;
+      if (now >= deadline)
+        return false;
+      auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+      if (!inner_->receive(frame, remaining))
+        return false;
       try {
         auto env = shared::envelope::decode(frame);
-        if (static_cast<bison::hash_t>(env.kind) ==
-            static_cast<bison::hash_t>(KIND_EVENT)) {
-          if (event_handler_) event_handler_(env);
-          continue;  // Don't expose event frames to rmi::client.
+        if (static_cast<bison::hash_t>(env.kind) == static_cast<bison::hash_t>(KIND_EVENT)) {
+          if (event_handler_)
+            event_handler_(env);
+          continue; // Don't expose event frames to rmi::client.
         }
       } catch (...) {
         // Decoding failed; pass the raw frame through unchanged.
@@ -82,9 +86,10 @@ bridge::bridge(
     std::unique_ptr<transport::client_transport_iface> upstream_transport,
     bison::dynamic upstream_params)
     : server(downstream),
-      upstream_client_(std::make_unique<bridge_upstream_transport>(
-          std::move(upstream_transport),
-          [this](const shared::envelope& env) { route_event(env); })),
+      upstream_client_(
+          std::make_unique<bridge_upstream_transport>(
+              std::move(upstream_transport),
+              [this](const shared::envelope& env) { route_event(env); })),
       upstream_params_(std::move(upstream_params)) {}
 
 bridge::bridge(
@@ -92,9 +97,10 @@ bridge::bridge(
     std::unique_ptr<transport::client_transport_iface> upstream_transport,
     bison::dynamic upstream_params)
     : server(std::move(downstream)),
-      upstream_client_(std::make_unique<bridge_upstream_transport>(
-          std::move(upstream_transport),
-          [this](const shared::envelope& env) { route_event(env); })),
+      upstream_client_(
+          std::make_unique<bridge_upstream_transport>(
+              std::move(upstream_transport),
+              [this](const shared::envelope& env) { route_event(env); })),
       upstream_params_(std::move(upstream_params)) {}
 
 bridge::~bridge() {
@@ -105,13 +111,15 @@ bridge::~bridge() {
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 void bridge::start(bison::dynamic downstream_params) {
-  if (started_.exchange(true)) return;
+  if (started_.exchange(true))
+    return;
   upstream_client_.connect(upstream_params_);
   listen(std::move(downstream_params));
 }
 
 void bridge::stop() {
-  if (!started_.exchange(false)) return;
+  if (!started_.exchange(false))
+    return;
   server::stop();
   upstream_client_.disconnect();
 }
@@ -142,7 +150,8 @@ void bridge::teardown_session(bison::key_t session_id) {
   {
     auto wp = sessions_.wlock();
     auto it = wp->find(session_id.id);
-    if (it == wp->end()) return;
+    if (it == wp->end())
+      return;
     ss = std::move(it->second);
     wp->erase(it);
   }
@@ -160,11 +169,11 @@ void bridge::teardown_session(bison::key_t session_id) {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-std::shared_ptr<bridge::session_state> bridge::find_session(
-    bison::key_t id) const {
+std::shared_ptr<bridge::session_state> bridge::find_session(bison::key_t id) const {
   auto lp = sessions_.rlock();
   auto it = lp->find(id.id);
-  if (it == lp->end()) return nullptr;
+  if (it == lp->end())
+    return nullptr;
   return it->second;
 }
 
@@ -180,12 +189,9 @@ bison::dynamic_ptr bridge::make_proxy_obj(
   // no local field changes.
   proxy->addMethod(
       bison::key_t{HOOK_SETTER},
-      bison::method{[this, upstream_oid](
-          bison::dynamic& /*self*/, const bison::dynamic& patch) {
+      bison::method{[this, upstream_oid](bison::dynamic& /*self*/, const bison::dynamic& patch) {
         try {
-          upstream_client_
-              .send_request(OP_SET, upstream_oid, patch.clone(), false)
-              .get();
+          upstream_client_.send_request(OP_SET, upstream_oid, patch.clone(), false).get();
         } catch (...) {
         }
         return bison::dynamic{};
@@ -195,12 +201,9 @@ bison::dynamic_ptr bridge::make_proxy_obj(
   // GET response, overriding handle_get's locally-built snapshot.
   proxy->addMethod(
       bison::key_t{HOOK_GETTER},
-      bison::method{[this, upstream_oid](
-          bison::dynamic& /*self*/, const bison::dynamic& /*snap*/) {
+      bison::method{[this, upstream_oid](bison::dynamic& /*self*/, const bison::dynamic& /*snap*/) {
         try {
-          return upstream_client_
-              .send_request(OP_GET, upstream_oid, bison::dynamic{}, false)
-              .get();
+          return upstream_client_.send_request(OP_GET, upstream_oid, bison::dynamic{}, false).get();
         } catch (...) {
           return bison::dynamic{};
         }
@@ -211,11 +214,8 @@ bison::dynamic_ptr bridge::make_proxy_obj(
   // format.  Forward it directly to upstream.
   proxy->addMethod(
       bison::key_t{bison::dynamic::CALL_FALLBACK},
-      bison::method{[this, upstream_oid](
-          bison::dynamic& /*self*/, const bison::dynamic& wrapper) {
-        return upstream_client_
-            .send_request(OP_CALL, upstream_oid, wrapper.clone(), false)
-            .get();
+      bison::method{[this, upstream_oid](bison::dynamic& /*self*/, const bison::dynamic& wrapper) {
+        return upstream_client_.send_request(OP_CALL, upstream_oid, wrapper.clone(), false).get();
       }});
 
   // HOOK_DESTRUCT: called by handle_destroy (explicit destroy) and by
@@ -223,9 +223,7 @@ bison::dynamic_ptr bridge::make_proxy_obj(
   // object.  Cleans up translation tables while the session is still alive.
   proxy->addMethod(
       bison::key_t{HOOK_DESTRUCT},
-      bison::method{[this, upstream_oid, ws,
-                     local_oid_slot](bison::dynamic& /*self*/,
-                                     const bison::dynamic& /*p*/) {
+      bison::method{[this, upstream_oid, ws, local_oid_slot](bison::dynamic& /*self*/, const bison::dynamic& /*p*/) {
         // Remove from the global event routing table unconditionally.
         upstream_to_session_.wlock()->erase(upstream_oid.id);
 
@@ -240,9 +238,7 @@ bison::dynamic_ptr bridge::make_proxy_obj(
 
         // Destroy the upstream object (fire-and-forget oneway).
         try {
-          upstream_client_
-              .send_request(OP_DESTROY, upstream_oid, bison::dynamic{}, true)
-              .get();
+          upstream_client_.send_request(OP_DESTROY, upstream_oid, bison::dynamic{}, true).get();
         } catch (...) {
         }
 
@@ -254,8 +250,7 @@ bison::dynamic_ptr bridge::make_proxy_obj(
 
 // ── on_check_class ────────────────────────────────────────────────────────────
 
-bool bridge::on_check_class(
-    context& /*ctx*/, bison::key_t /*ns*/, bison::key_t /*klass*/) {
+bool bridge::on_check_class(context& /*ctx*/, bison::key_t /*ns*/, bison::key_t /*klass*/) {
   // The bridge accepts any class and forwards instantiation to the upstream
   // server.  No local registry check is needed.
   return true;
@@ -263,19 +258,16 @@ bool bridge::on_check_class(
 
 // ── on_create_object ─────────────────────────────────────────────────────────
 
-bison::dynamic_ptr bridge::on_create_object(
-    context& ctx, bison::key_t ns, bison::key_t klass) {
+bison::dynamic_ptr bridge::on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) {
   auto ss = find_session(ctx.session_id);
   if (!ss) {
-    throw std::runtime_error(
-        "bridge: session not found in on_create_object");
+    throw std::runtime_error("bridge: session not found in on_create_object");
   }
 
   // Instantiate the object on the upstream server.  This blocks the server
   // worker thread while the upstream client's worker thread processes the
   // response.
-  proxy::dynamic upstream_proxy =
-      upstream_client_.instantiate(ns, klass).get();
+  proxy::dynamic upstream_proxy = upstream_client_.instantiate(ns, klass).get();
   bison::key_t upstream_oid = upstream_proxy.object_id();
   // Drop upstream_proxy: ~proxy::dynamic() is default and does NOT send
   // OP_DESTROY.  The bridge proxy's HOOK_DESTRUCT sends it instead.
@@ -286,26 +278,22 @@ bison::dynamic_ptr bridge::on_create_object(
   // on_response_trace will consume it to finalise the local↔upstream mapping.
   {
     auto wp = pending_relays_.wlock();
-    (*wp)[current_request_id_.id] = pending_relay{
-        upstream_oid, ctx.session_id, local_oid_slot};
+    (*wp)[current_request_id_.id] = pending_relay{upstream_oid, ctx.session_id, local_oid_slot};
   }
 
-  return make_proxy_obj(
-      upstream_oid, std::weak_ptr<session_state>{ss}, local_oid_slot);
+  return make_proxy_obj(upstream_oid, std::weak_ptr<session_state>{ss}, local_oid_slot);
 }
 
 // ── on_request_trace ─────────────────────────────────────────────────────────
 
-void bridge::on_request_trace(
-    context& ctx, const shared::envelope& env) {
+void bridge::on_request_trace(context& ctx, const shared::envelope& env) {
   // Save the request_id for on_create_object to key pending_relays_.
   current_request_id_ = env.request_id;
 
   // OP_CLEAR: handle_clear resets the local proxy object (destroying its hooks)
   // before on_response_trace fires.  Forward the clear to upstream now, then
   // stash state so on_response_trace can re-install a fresh proxy afterward.
-  if (static_cast<bison::hash_t>(env.op) ==
-      static_cast<bison::hash_t>(OP_CLEAR)) {
+  if (static_cast<bison::hash_t>(env.op) == static_cast<bison::hash_t>(OP_CLEAR)) {
     pending_clear_ = {};
     auto ss = find_session(ctx.session_id);
     if (ss) {
@@ -314,13 +302,12 @@ void bridge::on_request_trace(
       {
         auto lp = ss->local_to_upstream.rlock();
         auto it = lp->find(local_oid.id);
-        if (it != lp->end()) upstream_oid = it->second;
+        if (it != lp->end())
+          upstream_oid = it->second;
       }
       if (upstream_oid.id != 0u) {
         try {
-          upstream_client_
-              .send_request(OP_CLEAR, upstream_oid, bison::dynamic{}, false)
-              .get();
+          upstream_client_.send_request(OP_CLEAR, upstream_oid, bison::dynamic{}, false).get();
         } catch (...) {
         }
         pending_clear_.active = true;
@@ -341,21 +328,21 @@ void bridge::on_response_trace(
     bool is_error,
     bison::key_t /*error_code*/,
     const bison::dynamic& response_payload) {
-
   // ── OP_INSTANTIATE: finalise local↔upstream mapping ─────────────────────
-  if (static_cast<bison::hash_t>(op) ==
-      static_cast<bison::hash_t>(OP_INSTANTIATE) && !is_error) {
+  if (static_cast<bison::hash_t>(op) == static_cast<bison::hash_t>(OP_INSTANTIATE) && !is_error) {
     pending_relay relay;
     {
       auto wp = pending_relays_.wlock();
       auto it = wp->find(request_env.request_id.id);
-      if (it == wp->end()) return;
+      if (it == wp->end())
+        return;
       relay = std::move(it->second);
       wp->erase(it);
     }
 
     const auto* oid_field = response_payload.findField(FIELD_OBJECT_ID);
-    if (!oid_field || !oid_field->is<bison::key_t>()) return;
+    if (!oid_field || !oid_field->is<bison::key_t>())
+      return;
     const bison::key_t local_oid = oid_field->as<bison::key_t>();
 
     // Fill the shared slot so HOOK_DESTRUCT can remove table entries later.
@@ -368,23 +355,18 @@ void bridge::on_response_trace(
     }
 
     // Register the global reverse lookup so route_event can find this object.
-    upstream_to_session_.wlock()->emplace(
-        relay.upstream_oid.id,
-        std::make_pair(relay.session_id, local_oid));
+    upstream_to_session_.wlock()->emplace(relay.upstream_oid.id, std::make_pair(relay.session_id, local_oid));
   }
 
   // ── OP_CLEAR: re-install the proxy that handle_clear destroyed ───────────
-  if (static_cast<bison::hash_t>(op) ==
-      static_cast<bison::hash_t>(OP_CLEAR) && !is_error &&
-      pending_clear_.active) {
+  if (static_cast<bison::hash_t>(op) == static_cast<bison::hash_t>(OP_CLEAR) && !is_error && pending_clear_.active) {
     const auto pcs = pending_clear_;
     pending_clear_ = {};
 
     auto ss = find_session(pcs.session_id);
     if (ss) {
       auto slot = std::make_shared<bison::key_t>(pcs.local_oid);
-      auto new_proxy = make_proxy_obj(
-          pcs.upstream_oid, std::weak_ptr<session_state>{ss}, std::move(slot));
+      auto new_proxy = make_proxy_obj(pcs.upstream_oid, std::weak_ptr<session_state>{ss}, std::move(slot));
       ctx.objects[pcs.local_oid.id] = std::move(new_proxy);
     }
   }
@@ -414,7 +396,8 @@ void bridge::route_event(const shared::envelope& env) {
   {
     auto lp = upstream_to_session_.rlock();
     auto it = lp->find(upstream_oid.id);
-    if (it == lp->end()) return;
+    if (it == lp->end())
+      return;
     session_id = it->second.first;
     local_oid = it->second.second;
   }
@@ -427,13 +410,15 @@ void bridge::route_event(const shared::envelope& env) {
   {
     auto lp = sessions_.rlock();
     auto it = lp->find(session_id.id);
-    if (it == lp->end()) return;
+    if (it == lp->end())
+      return;
     ss = it->second;
   }
 
   {
     std::lock_guard<std::mutex> lg(ss->emit_mtx);
-    if (!ss->emit_active || !ss->emit) return;
+    if (!ss->emit_active || !ss->emit)
+      return;
     ss->emit(local_oid, event_name, std::move(params));
   }
 }

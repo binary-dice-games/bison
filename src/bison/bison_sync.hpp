@@ -126,8 +126,7 @@ class synchronized {
   ///
   /// Example: `synchronized<session>(std::in_place, session_id)`.
   template <typename... Args>
-  explicit synchronized(std::in_place_t, Args&&... args)
-      : data_(std::forward<Args>(args)...) {}
+  explicit synchronized(std::in_place_t, Args&&... args) : data_(std::forward<Args>(args)...) {}
 
   synchronized(const synchronized& other) {
     if constexpr (detail::shared_mutex_c<Mutex>) {
@@ -166,8 +165,7 @@ class synchronized {
 
   /** @brief Acquire an exclusive write lock and return a mutable `locked_ptr`. */
   auto wlock() {
-    return locked_ptr<T, std::unique_lock<Mutex>>{
-        &data_, std::unique_lock<Mutex>(mutex_)};
+    return locked_ptr<T, std::unique_lock<Mutex>>{&data_, std::unique_lock<Mutex>(mutex_)};
   }
 
   /** @brief Alias for `wlock()`. */
@@ -203,8 +201,7 @@ class synchronized {
   auto rlock() const
     requires detail::shared_mutex_c<Mutex>
   {
-    return locked_ptr<const T, std::shared_lock<Mutex>>{
-        &data_, std::shared_lock<Mutex>(mutex_)};
+    return locked_ptr<const T, std::shared_lock<Mutex>>{&data_, std::shared_lock<Mutex>(mutex_)};
   }
 
   /**

@@ -32,22 +32,22 @@
 #include <vector>
 
 #if defined(_WIN32)
-#  include <windows.h>
+#include <windows.h>
 #else
-#  include <unistd.h>
+#include <unistd.h>
 #endif
 
 namespace bdg::bison::rmi::transport::dcs {
 
 // ── Protocol constants ────────────────────────────────────────────────────────
 
-inline constexpr char        kEsc          = '\x1b';
-inline constexpr const char* kDcsStart     = "\x1bP";
-inline constexpr const char* kDcsEnd       = "\x1b\\";
+inline constexpr char kEsc = '\x1b';
+inline constexpr const char* kDcsStart = "\x1bP";
+inline constexpr const char* kDcsEnd = "\x1b\\";
 inline constexpr const char* kProtoVersion = "BISON_RMI/1";
-inline constexpr const char* kTypeData     = "DATA";
-inline constexpr const char* kTypeHello    = "HELLO";
-inline constexpr const char* kTypeEnd      = "END";
+inline constexpr const char* kTypeData = "DATA";
+inline constexpr const char* kTypeHello = "HELLO";
+inline constexpr const char* kTypeEnd = "END";
 
 // ── Reassembly record ─────────────────────────────────────────────────────────
 
@@ -87,8 +87,10 @@ inline bool write_all_fd(HANDLE h, const void* data, size_t size) {
   DWORD rem = static_cast<DWORD>(size), off = 0;
   while (rem > 0) {
     DWORD w = 0;
-    if (!WriteFile(h, p + off, rem, &w, nullptr) || w == 0) return false;
-    off += w; rem -= w;
+    if (!WriteFile(h, p + off, rem, &w, nullptr) || w == 0)
+      return false;
+    off += w;
+    rem -= w;
   }
   return true;
 }
@@ -98,29 +100,33 @@ inline bool write_all_fd(HANDLE h, const void* data, size_t size) {
 
 /** @brief Decode one RFC 4648 base64 character; returns -1 for invalid input. */
 inline int from_b64(char c) {
-  if (c >= 'A' && c <= 'Z') return c - 'A';
-  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
-  if (c >= '0' && c <= '9') return c - '0' + 52;
-  if (c == '+') return 62;
-  if (c == '/') return 63;
+  if (c >= 'A' && c <= 'Z')
+    return c - 'A';
+  if (c >= 'a' && c <= 'z')
+    return c - 'a' + 26;
+  if (c >= '0' && c <= '9')
+    return c - '0' + 52;
+  if (c == '+')
+    return 62;
+  if (c == '/')
+    return 63;
   return -1;
 }
 
 /** @brief Encode @p size bytes at @p data as RFC 4648 base64. */
 inline std::string b64_encode(const uint8_t* data, size_t size) {
-  static constexpr char kAlpha[] =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  static constexpr char kAlpha[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   std::string out;
   out.reserve(((size + 2) / 3) * 4);
   for (size_t i = 0; i < size; i += 3) {
     const uint32_t b0 = data[i];
     const uint32_t b1 = (i + 1 < size) ? data[i + 1] : 0u;
     const uint32_t b2 = (i + 2 < size) ? data[i + 2] : 0u;
-    const uint32_t n  = (b0 << 16) | (b1 << 8) | b2;
+    const uint32_t n = (b0 << 16) | (b1 << 8) | b2;
     out.push_back(kAlpha[(n >> 18) & 0x3f]);
     out.push_back(kAlpha[(n >> 12) & 0x3f]);
     out.push_back((i + 1 < size) ? kAlpha[(n >> 6) & 0x3f] : '=');
-    out.push_back((i + 2 < size) ? kAlpha[n & 0x3f]        : '=');
+    out.push_back((i + 2 < size) ? kAlpha[n & 0x3f] : '=');
   }
   return out;
 }
@@ -143,15 +149,12 @@ inline bool b64_decode(const std::string& input, bison::buffer& out) {
       return false;
     const bool p2 = (input[i + 2] == '=');
     const bool p3 = (input[i + 3] == '=');
-    const int  v2 = p2 ? 0 : from_b64(input[i + 2]);
-    const int  v3 = p3 ? 0 : from_b64(input[i + 3]);
+    const int v2 = p2 ? 0 : from_b64(input[i + 2]);
+    const int v3 = p3 ? 0 : from_b64(input[i + 3]);
     if ((!p2 && v2 < 0) || (!p3 && v3 < 0))
       return false;
-    const uint32_t n =
-        (static_cast<uint32_t>(v0) << 18) |
-        (static_cast<uint32_t>(v1) << 12) |
-        (static_cast<uint32_t>(v2) << 6)  |
-         static_cast<uint32_t>(v3);
+    const uint32_t n = (static_cast<uint32_t>(v0) << 18) | (static_cast<uint32_t>(v1) << 12) |
+        (static_cast<uint32_t>(v2) << 6) | static_cast<uint32_t>(v3);
     out.push_back(static_cast<uint8_t>((n >> 16) & 0xff));
     if (!p2)
       out.push_back(static_cast<uint8_t>((n >> 8) & 0xff));
@@ -188,8 +191,7 @@ inline std::optional<uint32_t> parse_u32(const std::string& v) {
  * The first token must be `BISON_RMI/1`.  Returns an empty map if the version
  * token is missing or wrong.
  */
-inline std::unordered_map<std::string, std::string> parse_fields(
-    const std::string& body) {
+inline std::unordered_map<std::string, std::string> parse_fields(const std::string& body) {
   std::unordered_map<std::string, std::string> fields;
   std::stringstream ss(body);
   std::string token;
@@ -260,20 +262,17 @@ void maybe_cleanup_expired(State& st) {
  *               `client_state`: `read_mtx`, `pending`, `max_frame_bytes`, inbox.
  */
 template <typename State>
-void handle_data_frame(
-    State& st,
-    const std::unordered_map<std::string, std::string>& fields) {
-  const auto it_id    = fields.find("id");
-  const auto it_seq   = fields.find("seq");
+void handle_data_frame(State& st, const std::unordered_map<std::string, std::string>& fields) {
+  const auto it_id = fields.find("id");
+  const auto it_seq = fields.find("seq");
   const auto it_total = fields.find("total");
-  const auto it_b64   = fields.find("b64");
+  const auto it_b64 = fields.find("b64");
 
-  if (it_id == fields.end() || it_seq == fields.end() ||
-      it_total == fields.end() || it_b64 == fields.end())
+  if (it_id == fields.end() || it_seq == fields.end() || it_total == fields.end() || it_b64 == fields.end())
     return;
 
-  const auto id    = parse_u64(it_id->second);
-  const auto seq   = parse_u32(it_seq->second);
+  const auto id = parse_u64(it_id->second);
+  const auto seq = parse_u32(it_seq->second);
   const auto total = parse_u32(it_total->second);
 
   if (!id || !seq || !total || *total == 0 || *seq >= *total)
@@ -290,9 +289,9 @@ void handle_data_frame(
 
     auto& pm = st.pending[*id];
     if (pm.total == 0) {
-      pm.total      = *total;
+      pm.total = *total;
       pm.parts.resize(*total);
-      pm.collected  = 0;
+      pm.collected = 0;
       pm.first_seen = std::chrono::steady_clock::now();
     }
     if (pm.total != *total) {
@@ -381,29 +380,25 @@ void emit_data(Fd fd, State& st, const bison::buffer& frame) {
   if (frame.size() > st.max_frame_bytes)
     throw std::runtime_error("dcs_framing: frame exceeds max_frame_bytes");
 
-  const size_t   chunk = std::max<size_t>(1U, st.max_chunk_bytes);
-  const uint64_t id    = st.next_msg_id.fetch_add(1);
+  const size_t chunk = std::max<size_t>(1U, st.max_chunk_bytes);
+  const uint64_t id = st.next_msg_id.fetch_add(1);
 
   if (frame.empty()) {
-    emit_dcs(fd, st,
-        std::string{kProtoVersion} + ";type=DATA;id=" +
-        std::to_string(id) + ";seq=0;total=1;b64=");
+    emit_dcs(fd, st, std::string{kProtoVersion} + ";type=DATA;id=" + std::to_string(id) + ";seq=0;total=1;b64=");
     return;
   }
 
-  const uint32_t total =
-      static_cast<uint32_t>((frame.size() + chunk - 1) / chunk);
+  const uint32_t total = static_cast<uint32_t>((frame.size() + chunk - 1) / chunk);
 
   for (uint32_t seq = 0; seq < total; ++seq) {
     const size_t off = static_cast<size_t>(seq) * chunk;
     const size_t len = std::min(chunk, frame.size() - off);
-    const auto   b64 = b64_encode(frame.data() + off, len);
-    emit_dcs(fd, st,
-        std::string{kProtoVersion} +
-        ";type=DATA;id="  + std::to_string(id) +
-        ";seq="           + std::to_string(seq) +
-        ";total="         + std::to_string(total) +
-        ";b64="           + b64);
+    const auto b64 = b64_encode(frame.data() + off, len);
+    emit_dcs(
+        fd,
+        st,
+        std::string{kProtoVersion} + ";type=DATA;id=" + std::to_string(id) + ";seq=" + std::to_string(seq) +
+            ";total=" + std::to_string(total) + ";b64=" + b64);
   }
 }
 
@@ -442,7 +437,7 @@ class dcs_byte_parser {
             on_frame_(dcs_buf_);
           dcs_buf_.clear();
           dcs_saw_esc_ = false;
-          in_dcs_      = false;
+          in_dcs_ = false;
           return;
         }
         // ESC not followed by \ — treat as literal ESC inside DCS body.
@@ -481,12 +476,12 @@ class dcs_byte_parser {
   }
 
  private:
-  bool        in_dcs_      = false;
-  bool        saw_esc_     = false;
-  bool        dcs_saw_esc_ = false;
+  bool in_dcs_ = false;
+  bool saw_esc_ = false;
+  bool dcs_saw_esc_ = false;
   std::string dcs_buf_;
-  frame_cb    on_frame_;
-  plain_cb    on_plain_;
+  frame_cb on_frame_;
+  plain_cb on_plain_;
 };
 
 } // namespace bdg::bison::rmi::transport::dcs

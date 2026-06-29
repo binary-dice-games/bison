@@ -44,8 +44,7 @@ int main(int argc, char** argv) {
 
   // ── Instantiate a Calculator on the server ────────────────────────────────
   rmi_proxy_handle calc = NULL;
-  err = rmi_client_instantiate(
-      client, 0, bison_key("Calculator"), NULL, &calc);
+  err = rmi_client_instantiate(client, 0, bison_key("Calculator"), NULL, &calc);
   if (err != RMI_OK || !calc) {
     fprintf(stderr, "[Client] instantiate failed (%d)\n", (int)err);
     rmi_client_disconnect(client);

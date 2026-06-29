@@ -16,12 +16,10 @@ namespace bdg::bison::rmi::transport {
 static constexpr std::size_t kLenBytes = 4;
 
 void stream_write_frame(std::ostream& out, const bison::buffer& frame) {
-  const uint32_t len_wire =
-      bison::byte_swap(static_cast<uint32_t>(frame.size()));
+  const uint32_t len_wire = bison::byte_swap(static_cast<uint32_t>(frame.size()));
   out.write(reinterpret_cast<const char*>(&len_wire), kLenBytes);
   if (!frame.empty())
-    out.write(reinterpret_cast<const char*>(frame.data()),
-              static_cast<std::streamsize>(frame.size()));
+    out.write(reinterpret_cast<const char*>(frame.data()), static_cast<std::streamsize>(frame.size()));
   out.flush();
   if (out.fail())
     throw std::runtime_error("stream_transport: write failed");
@@ -39,8 +37,7 @@ bool stream_read_frame(std::istream& in, bison::buffer& frame) {
 
   frame.resize(len);
   if (len > 0) {
-    in.read(reinterpret_cast<char*>(frame.data()),
-            static_cast<std::streamsize>(len));
+    in.read(reinterpret_cast<char*>(frame.data()), static_cast<std::streamsize>(len));
     if (in.gcount() != static_cast<std::streamsize>(len))
       throw std::runtime_error("stream_transport: partial frame payload");
   }
@@ -49,8 +46,7 @@ bool stream_read_frame(std::istream& in, bison::buffer& frame) {
 
 // ── stream_client_transport ───────────────────────────────────────────────────
 
-stream_client_transport::stream_client_transport(std::iostream& stream)
-    : stream_(stream) {}
+stream_client_transport::stream_client_transport(std::iostream& stream) : stream_(stream) {}
 
 void stream_client_transport::open(bison::dynamic /*params*/) {}
 
@@ -59,9 +55,7 @@ void stream_client_transport::send(bison::buffer frame) {
   stream_write_frame(stream_, frame);
 }
 
-bool stream_client_transport::receive(
-    bison::buffer& frame,
-    std::chrono::milliseconds timeout) {
+bool stream_client_transport::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   std::lock_guard<std::mutex> lk(recv_mtx_);
   while (!closed_.load()) {
@@ -89,17 +83,14 @@ void stream_client_transport::shutdown() {
 
 // ── stream_server_connection ──────────────────────────────────────────────────
 
-stream_server_connection::stream_server_connection(std::iostream& stream)
-    : stream_(stream) {}
+stream_server_connection::stream_server_connection(std::iostream& stream) : stream_(stream) {}
 
 void stream_server_connection::send(bison::buffer frame) {
   std::lock_guard<std::mutex> lk(send_mtx_);
   stream_write_frame(stream_, frame);
 }
 
-bool stream_server_connection::receive(
-    bison::buffer& frame,
-    std::chrono::milliseconds timeout) {
+bool stream_server_connection::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   std::lock_guard<std::mutex> lk(recv_mtx_);
   while (!closed_.load()) {
@@ -127,15 +118,13 @@ bool stream_server_connection::is_closed() const {
 
 // ── stream_server_transport ───────────────────────────────────────────────────
 
-stream_server_transport::stream_server_transport(std::iostream& stream)
-    : stream_(stream) {}
+stream_server_transport::stream_server_transport(std::iostream& stream) : stream_(stream) {}
 
 void stream_server_transport::start(bison::dynamic /*params*/) {
   stopped_.store(false);
 }
 
-std::unique_ptr<server_connection_iface> stream_server_transport::accept(
-    std::chrono::milliseconds /*timeout*/) {
+std::unique_ptr<server_connection_iface> stream_server_transport::accept(std::chrono::milliseconds /*timeout*/) {
   if (stopped_.load() || accepted_.exchange(true))
     return nullptr;
   return std::make_unique<stream_server_connection>(stream_);

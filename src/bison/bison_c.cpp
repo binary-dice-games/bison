@@ -60,21 +60,18 @@ static inline bdg::bison::dynamic* dyn(bison_handle h) {
 
 BISON_API bison_handle bison_create(bison_hash klass_name) {
   try {
-    auto* sp = new sp_dyn(
-        std::make_shared<bdg::bison::dynamic>(bdg::bison::key_t{klass_name}));
+    auto* sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(bdg::bison::key_t{klass_name}));
     return as_handle(sp);
   } catch (...) {
     return nullptr;
   }
 }
 
-BISON_API bison_handle
-bison_instantiate(bison_hash ns_name, bison_hash klass_name) {
+BISON_API bison_handle bison_instantiate(bison_hash ns_name, bison_hash klass_name) {
   try {
-    bdg::bison::dynamic obj = bdg::bison::dynamic::instantiate(
-        bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
-    auto* sp =
-        new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
+    bdg::bison::dynamic obj =
+        bdg::bison::dynamic::instantiate(bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
+    auto* sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
     return as_handle(sp);
   } catch (...) {
     return nullptr;
@@ -103,8 +100,7 @@ BISON_API bison_handle bison_clone(bison_handle h) {
   if (!h)
     return nullptr;
   try {
-    auto* sp = new sp_dyn(
-        std::make_shared<bdg::bison::dynamic>(as_sp(h)->get()->clone()));
+    auto* sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(as_sp(h)->get()->clone()));
     return as_handle(sp);
   } catch (...) {
     return nullptr;
@@ -141,8 +137,7 @@ BISON_API bison_error bison_to_json(bison_handle h, int indent, char** out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
-    const std::string result =
-        bdg::bison::extensions::to_json(*dyn(h), {}, indent);
+    const std::string result = bdg::bison::extensions::to_json(*dyn(h), {}, indent);
     *out = new char[result.size() + 1];
     std::memcpy(*out, result.c_str(), result.size() + 1);
     return BISON_OK;
@@ -155,8 +150,7 @@ BISON_API bison_error bison_to_yaml(bison_handle h, char** out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
-    const std::string result =
-        bdg::bison::extensions::to_yaml(*dyn(h), {});
+    const std::string result = bdg::bison::extensions::to_yaml(*dyn(h), {});
     *out = new char[result.size() + 1];
     std::memcpy(*out, result.c_str(), result.size() + 1);
     return BISON_OK;
@@ -167,8 +161,7 @@ BISON_API bison_error bison_to_yaml(bison_handle h, char** out) {
 
 // ─── Pretty-print ────────────────────────────────────────────────────────────
 
-BISON_API bison_error bison_print(
-    bison_handle h, const bison_print_options* opts, char** out) {
+BISON_API bison_error bison_print(bison_handle h, const bison_print_options* opts, char** out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
@@ -194,52 +187,40 @@ BISON_API void bison_free_string(char* s) {
 // ─── Class registry ─────────────────────────────────────────────────────────
 
 // Build a bison attribute vector from a C bison_attributes struct.
-static std::vector<std::shared_ptr<const bdg::bison::attribute>>
-attrs_from_meta(const bison_attributes* meta) {
+static std::vector<std::shared_ptr<const bdg::bison::attribute>> attrs_from_meta(const bison_attributes* meta) {
   std::vector<std::shared_ptr<const bdg::bison::attribute>> attrs;
   if (!meta)
     return attrs;
   if (meta->display_name)
-    attrs.push_back(
-        bdg::bison::attr<bdg::bison::DisplayName>(meta->display_name));
+    attrs.push_back(bdg::bison::attr<bdg::bison::DisplayName>(meta->display_name));
   if (meta->description)
-    attrs.push_back(
-        bdg::bison::attr<bdg::bison::Description>(meta->description));
+    attrs.push_back(bdg::bison::attr<bdg::bison::Description>(meta->description));
   if (meta->category)
-    attrs.push_back(
-        bdg::bison::attr<bdg::bison::Category>(meta->category));
+    attrs.push_back(bdg::bison::attr<bdg::bison::Category>(meta->category));
   if (meta->obsolete) {
     std::string msg = meta->obsolete_message ? meta->obsolete_message : "";
-    attrs.push_back(
-        bdg::bison::attr<bdg::bison::Obsolete>(std::move(msg)));
+    attrs.push_back(bdg::bison::attr<bdg::bison::Obsolete>(std::move(msg)));
   }
   if (meta->required)
     attrs.push_back(bdg::bison::attr<bdg::bison::Required>());
   return attrs;
 }
 
-BISON_API bison_error bison_add_class(
-    bison_hash ns_name,
-    bison_handle klass,
-    bison_hash parent_name,
-    const bison_attributes* meta) {
+BISON_API bison_error
+bison_add_class(bison_hash ns_name, bison_handle klass, bison_hash parent_name, const bison_attributes* meta) {
   if (!klass)
     return BISON_ERR_NULL;
   try {
     sp_dyn copy = *as_sp(klass);
     bool ok = bdg::bison::dynamic::addClass(
-        bdg::bison::key_t{ns_name},
-        std::move(copy),
-        bdg::bison::key_t{parent_name},
-        attrs_from_meta(meta));
+        bdg::bison::key_t{ns_name}, std::move(copy), bdg::bison::key_t{parent_name}, attrs_from_meta(meta));
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
   }
 }
 
-BISON_API bison_handle
-bison_find_class(bison_hash ns_name, bison_hash klass_name) {
+BISON_API bison_handle bison_find_class(bison_hash ns_name, bison_hash klass_name) {
   try {
     auto lp = bdg::bison::dynamic::getRegistry().rlock();
     auto nsIt = lp->find(bdg::bison::key_t{ns_name});
@@ -270,15 +251,13 @@ static void fill_attrs(bison_attributes* out, const bdg::bison::field& f) {
     out->category = c->name().c_str();
   if (auto* o = f.findAttribute<bdg::bison::Obsolete>()) {
     out->obsolete = 1;
-    out->obsolete_message =
-        o->message().empty() ? nullptr : o->message().c_str();
+    out->obsolete_message = o->message().empty() ? nullptr : o->message().c_str();
   }
   if (f.findAttribute<bdg::bison::Required>())
     out->required = 1;
 }
 
-BISON_API bison_error bison_get_class_attributes(
-    bison_hash ns_name, bison_hash klass_name, bison_attributes* out) {
+BISON_API bison_error bison_get_class_attributes(bison_hash ns_name, bison_hash klass_name, bison_attributes* out) {
   if (!out)
     return BISON_ERR_NULL;
   try {
@@ -301,13 +280,11 @@ BISON_API bison_error bison_get_class_attributes(
   }
 }
 
-BISON_API bison_error bison_get_field_attributes(
-    bison_handle h, bison_hash field_key, bison_attributes* out) {
+BISON_API bison_error bison_get_field_attributes(bison_handle h, bison_hash field_key, bison_attributes* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
-    const auto* f =
-        dyn(h)->findField(bdg::bison::key_t{field_key});
+    const auto* f = dyn(h)->findField(bdg::bison::key_t{field_key});
     if (!f)
       return BISON_ERR_NOT_FOUND;
     fill_attrs(out, *f);
@@ -317,13 +294,11 @@ BISON_API bison_error bison_get_field_attributes(
   }
 }
 
-BISON_API bison_error bison_get_method_attributes(
-    bison_handle h, bison_hash method_key, bison_attributes* out) {
+BISON_API bison_error bison_get_method_attributes(bison_handle h, bison_hash method_key, bison_attributes* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
-    const auto* e =
-        dyn(h)->findMethod(bdg::bison::key_t{method_key});
+    const auto* e = dyn(h)->findMethod(bdg::bison::key_t{method_key});
     if (!e)
       return BISON_ERR_NOT_FOUND;
     *out = bison_attributes{};
@@ -335,8 +310,7 @@ BISON_API bison_error bison_get_method_attributes(
       out->category = c->name().c_str();
     if (auto* o = e->findAttribute<bdg::bison::Obsolete>()) {
       out->obsolete = 1;
-      out->obsolete_message =
-          o->message().empty() ? nullptr : o->message().c_str();
+      out->obsolete_message = o->message().empty() ? nullptr : o->message().c_str();
     }
     if (e->findAttribute<bdg::bison::Required>())
       out->required = 1;
@@ -348,10 +322,7 @@ BISON_API bison_error bison_get_method_attributes(
 
 // ─── Field registration ──────────────────────────────────────────────────────
 
-static bison_error add_field_impl(
-    bison_handle obj,
-    bison_hash key,
-    bdg::bison::field f) {
+static bison_error add_field_impl(bison_handle obj, bison_hash key, bdg::bison::field f) {
   if (!obj)
     return BISON_ERR_NULL;
   try {
@@ -362,36 +333,31 @@ static bison_error add_field_impl(
   }
 }
 
-BISON_API bison_error bison_add_field_int(
-    bison_handle obj, bison_hash key, int32_t value,
-    const bison_attributes* meta) {
+BISON_API bison_error
+bison_add_field_int(bison_handle obj, bison_hash key, int32_t value, const bison_attributes* meta) {
   bdg::bison::field f{value};
   for (auto& a : attrs_from_meta(meta))
     f.addAttribute(std::move(a));
   return add_field_impl(obj, key, std::move(f));
 }
 
-BISON_API bison_error bison_add_field_float(
-    bison_handle obj, bison_hash key, float value,
-    const bison_attributes* meta) {
+BISON_API bison_error
+bison_add_field_float(bison_handle obj, bison_hash key, float value, const bison_attributes* meta) {
   bdg::bison::field f{value};
   for (auto& a : attrs_from_meta(meta))
     f.addAttribute(std::move(a));
   return add_field_impl(obj, key, std::move(f));
 }
 
-BISON_API bison_error bison_add_field_bool(
-    bison_handle obj, bison_hash key, int value,
-    const bison_attributes* meta) {
+BISON_API bison_error bison_add_field_bool(bison_handle obj, bison_hash key, int value, const bison_attributes* meta) {
   bdg::bison::field f{bool(value != 0)};
   for (auto& a : attrs_from_meta(meta))
     f.addAttribute(std::move(a));
   return add_field_impl(obj, key, std::move(f));
 }
 
-BISON_API bison_error bison_add_field_string(
-    bison_handle obj, bison_hash key, const char* value,
-    const bison_attributes* meta) {
+BISON_API bison_error
+bison_add_field_string(bison_handle obj, bison_hash key, const char* value, const bison_attributes* meta) {
   if (!value)
     return BISON_ERR_NULL;
   bdg::bison::field f{std::string{value}};
@@ -402,8 +368,7 @@ BISON_API bison_error bison_add_field_string(
 
 // ─── Setters ────────────────────────────────────────────────────────────────
 
-BISON_API bison_error
-bison_set_int(bison_handle h, bison_hash name, int32_t value) {
+BISON_API bison_error bison_set_int(bison_handle h, bison_hash name, int32_t value) {
   if (!h)
     return BISON_ERR_NULL;
   try {
@@ -416,8 +381,7 @@ bison_set_int(bison_handle h, bison_hash name, int32_t value) {
   }
 }
 
-BISON_API bison_error
-bison_set_float(bison_handle h, bison_hash name, float value) {
+BISON_API bison_error bison_set_float(bison_handle h, bison_hash name, float value) {
   if (!h)
     return BISON_ERR_NULL;
   try {
@@ -430,8 +394,7 @@ bison_set_float(bison_handle h, bison_hash name, float value) {
   }
 }
 
-BISON_API bison_error
-bison_set_bool(bison_handle h, bison_hash name, int value) {
+BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value) {
   if (!h)
     return BISON_ERR_NULL;
   try {
@@ -444,8 +407,7 @@ bison_set_bool(bison_handle h, bison_hash name, int value) {
   }
 }
 
-BISON_API bison_error
-bison_set_string(bison_handle h, bison_hash name, const char* value) {
+BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const char* value) {
   if (!h || !value)
     return BISON_ERR_NULL;
   try {
@@ -458,8 +420,7 @@ bison_set_string(bison_handle h, bison_hash name, const char* value) {
   }
 }
 
-BISON_API bison_error
-bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
+BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
   if (!h)
     return BISON_ERR_NULL;
   try {
@@ -474,25 +435,21 @@ bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
   }
 }
 
-BISON_API bison_error
-bison_set_int_at(bison_handle h, size_t index, int32_t value) {
+BISON_API bison_error bison_set_int_at(bison_handle h, size_t index, int32_t value) {
   return bison_set_int(h, static_cast<bison_hash>(index), value);
 }
 
-BISON_API bison_error
-bison_set_float_at(bison_handle h, size_t index, float value) {
+BISON_API bison_error bison_set_float_at(bison_handle h, size_t index, float value) {
   return bison_set_float(h, static_cast<bison_hash>(index), value);
 }
 
-BISON_API bison_error
-bison_set_string_at(bison_handle h, size_t index, const char* value) {
+BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const char* value) {
   return bison_set_string(h, static_cast<bison_hash>(index), value);
 }
 
 // ─── Getters ────────────────────────────────────────────────────────────────
 
-BISON_API bison_error
-bison_get_int(bison_handle h, bison_hash name, int32_t* out) {
+BISON_API bison_error bison_get_int(bison_handle h, bison_hash name, int32_t* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
@@ -505,8 +462,7 @@ bison_get_int(bison_handle h, bison_hash name, int32_t* out) {
   }
 }
 
-BISON_API bison_error
-bison_get_float(bison_handle h, bison_hash name, float* out) {
+BISON_API bison_error bison_get_float(bison_handle h, bison_hash name, float* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
@@ -519,8 +475,7 @@ bison_get_float(bison_handle h, bison_hash name, float* out) {
   }
 }
 
-BISON_API bison_error
-bison_get_bool(bison_handle h, bison_hash name, int* out) {
+BISON_API bison_error bison_get_bool(bison_handle h, bison_hash name, int* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
@@ -533,12 +488,7 @@ bison_get_bool(bison_handle h, bison_hash name, int* out) {
   }
 }
 
-BISON_API bison_error bison_get_string(
-    bison_handle h,
-    bison_hash name,
-    char* buf,
-    size_t buf_len,
-    size_t* len_out) {
+BISON_API bison_error bison_get_string(bison_handle h, bison_hash name, char* buf, size_t buf_len, size_t* len_out) {
   if (!h)
     return BISON_ERR_NULL;
   try {
@@ -558,8 +508,7 @@ BISON_API bison_error bison_get_string(
   }
 }
 
-BISON_API bison_error
-bison_get_object(bison_handle h, bison_hash name, bison_handle* out) {
+BISON_API bison_error bison_get_object(bison_handle h, bison_hash name, bison_handle* out) {
   if (!h || !out)
     return BISON_ERR_NULL;
   try {
@@ -577,24 +526,16 @@ bison_get_object(bison_handle h, bison_hash name, bison_handle* out) {
   }
 }
 
-BISON_API bison_error
-bison_get_int_at(bison_handle h, size_t index, int32_t* out) {
+BISON_API bison_error bison_get_int_at(bison_handle h, size_t index, int32_t* out) {
   return bison_get_int(h, static_cast<bison_hash>(index), out);
 }
 
-BISON_API bison_error
-bison_get_float_at(bison_handle h, size_t index, float* out) {
+BISON_API bison_error bison_get_float_at(bison_handle h, size_t index, float* out) {
   return bison_get_float(h, static_cast<bison_hash>(index), out);
 }
 
-BISON_API bison_error bison_get_string_at(
-    bison_handle h,
-    size_t index,
-    char* buf,
-    size_t buf_len,
-    size_t* len_out) {
-  return bison_get_string(
-      h, static_cast<bison_hash>(index), buf, buf_len, len_out);
+BISON_API bison_error bison_get_string_at(bison_handle h, size_t index, char* buf, size_t buf_len, size_t* len_out) {
+  return bison_get_string(h, static_cast<bison_hash>(index), buf, buf_len, len_out);
 }
 
 BISON_API size_t bison_size(bison_handle h) {
@@ -619,12 +560,8 @@ BISON_API bison_hash bison_key(const char* name) {
 
 // ─── Methods ────────────────────────────────────────────────────────────────
 
-BISON_API bison_error bison_add_method(
-    bison_handle h,
-    bison_hash name,
-    bison_method_fn fn,
-    void* user,
-    const bison_attributes* meta) {
+BISON_API bison_error
+bison_add_method(bison_handle h, bison_hash name, bison_method_fn fn, void* user, const bison_attributes* meta) {
   if (!h || !fn)
     return BISON_ERR_NULL;
   try {
@@ -639,9 +576,7 @@ BISON_API bison_error bison_add_method(
     auto cl = std::make_shared<closure_t>(fn, user);
 
     bdg::bison::method_fn wrapped =
-        [cl](
-            bdg::bison::dynamic& self,
-            const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
+        [cl](bdg::bison::dynamic& self, const bdg::bison::dynamic& params) -> bdg::bison::dynamic {
       // Create a non-owning handle for self using a no-op deleter.
       // We wrap &self (a C++ reference to the actual dynamic) in a
       // shared_ptr that does NOT delete the object when destroyed, so
@@ -649,8 +584,7 @@ BISON_API bison_error bison_add_method(
       // handle without any extra copy/propagation step.
       auto* self_sp = new sp_dyn(&self, [](bdg::bison::dynamic*) {});
       // params is const; make a heap copy so the callback can hold a handle.
-      auto* param_sp =
-          new sp_dyn(std::make_shared<bdg::bison::dynamic>(params));
+      auto* param_sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(params));
       // result is a fresh empty dynamic; caller populates it.
       auto result_dyn = std::make_shared<bdg::bison::dynamic>();
       auto* res_sp = new sp_dyn(result_dyn);
@@ -666,32 +600,23 @@ BISON_API bison_error bison_add_method(
       return result;
     };
 
-    bool ok = dyn(h)->addMethod(
-        bdg::bison::key_t{name},
-        bdg::bison::method{std::move(wrapped), attrs_from_meta(meta)});
+    bool ok = dyn(h)->addMethod(bdg::bison::key_t{name}, bdg::bison::method{std::move(wrapped), attrs_from_meta(meta)});
     return ok ? BISON_OK : BISON_ERR_DUPLICATE;
   } catch (...) {
     return BISON_ERR_EXCEPTION;
   }
 }
 
-BISON_API bison_error bison_call(
-    bison_handle h,
-    bison_hash name,
-    bison_handle params,
-    bison_handle* result) {
+BISON_API bison_error bison_call(bison_handle h, bison_hash name, bison_handle params, bison_handle* result) {
   if (!h || !params || !result)
     return BISON_ERR_NULL;
   try {
-    bdg::bison::dynamic ret =
-        dyn(h)->call(bdg::bison::key_t{name}, *dyn(params));
-    *result = as_handle(
-        new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(ret))));
+    bdg::bison::dynamic ret = dyn(h)->call(bdg::bison::key_t{name}, *dyn(params));
+    *result = as_handle(new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(ret))));
     return BISON_OK;
   } catch (const std::runtime_error& e) {
     std::string msg(e.what());
-    if (msg.find("not found") != std::string::npos ||
-        msg.find("Not found") != std::string::npos)
+    if (msg.find("not found") != std::string::npos || msg.find("Not found") != std::string::npos)
       return BISON_ERR_NOT_FOUND;
     return BISON_ERR_EXCEPTION;
   } catch (...) {

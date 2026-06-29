@@ -26,8 +26,10 @@ client::~client() {
   // calls on_disconnect() itself, so the destructor skips disconnect() above —
   // but the threads are still winding down.  Join them here to avoid
   // std::terminate() from a joinable thread being destroyed.
-  if (worker_.joinable())       worker_.join();
-  if (event_thread_.joinable()) event_thread_.join();
+  if (worker_.joinable())
+    worker_.join();
+  if (event_thread_.joinable())
+    event_thread_.join();
 }
 
 /** @copydoc bdg::bison::rmi::client::connect */
@@ -35,7 +37,7 @@ void client::connect(bison::dynamic params) {
   shared::register_all_schemas();
   transport_->open(std::move(params));
   running_.store(true);
-  worker_       = std::thread(&client::worker_loop, this);
+  worker_ = std::thread(&client::worker_loop, this);
   event_thread_ = std::thread(&client::event_loop, this);
 
   bison::dynamic payload;
@@ -46,9 +48,7 @@ void client::connect(bison::dynamic params) {
 }
 
 /** @copydoc bdg::bison::rmi::client::describe */
-std::future<bison::dynamic> client::describe(
-    bison::key_t ns,
-    bison::key_t klass) {
+std::future<bison::dynamic> client::describe(bison::key_t ns, bison::key_t klass) {
   bison::dynamic payload;
   payload[FIELD_NAMESPACE] = ns;
   payload[FIELD_KLASS] = klass;
@@ -66,10 +66,7 @@ std::future<bison::dynamic> client::get_help() {
 }
 
 /** @copydoc bdg::bison::rmi::client::instantiate */
-std::future<proxy::dynamic> client::instantiate(
-    bison::key_t ns,
-    bison::key_t klass,
-    bison::dynamic params) {
+std::future<proxy::dynamic> client::instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params) {
   bison::dynamic payload;
   payload[FIELD_KLASS] = klass;
   payload[FIELD_NAMESPACE] = ns;
@@ -108,23 +105,20 @@ void client::disconnect() {
   }
 
   running_.store(false);
-  transport_->shutdown();          // unblock worker_loop's transport->receive()
-  event_queue_cv_.notify_one();    // unblock event_loop if it is idle-waiting
+  transport_->shutdown(); // unblock worker_loop's transport->receive()
+  event_queue_cv_.notify_one(); // unblock event_loop if it is idle-waiting
   if (worker_.joinable())
-    worker_.join();                // worker exits, fail_all_pending is called there
+    worker_.join(); // worker exits, fail_all_pending is called there
   if (event_thread_.joinable())
-    event_thread_.join();          // drain remaining queued events then exit
+    event_thread_.join(); // drain remaining queued events then exit
 
   on_disconnect();
-  fail_all_pending(ERR_TRANSPORT_ERROR, "Client disconnected");  // safety net
+  fail_all_pending(ERR_TRANSPORT_ERROR, "Client disconnected"); // safety net
 }
 
 /** @copydoc bdg::bison::rmi::client::send_request */
-std::future<bison::dynamic> client::send_request(
-    bison::key_t op,
-    bison::key_t object_id,
-    bison::dynamic payload,
-    bool oneway) {
+std::future<bison::dynamic>
+client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway) {
   const bison::key_t request_id = shared::generate_id();
   auto frame = [&]() {
     shared::envelope env;
@@ -170,8 +164,7 @@ void client::register_event_handler(
     bison::key_t object_id,
     bison::key_t name,
     std::function<void(bison::dynamic)> handler) {
-  event_handlers_.wlock()->operator[](object_id.id)[name.id] =
-      std::move(handler);
+  event_handlers_.wlock()->operator[](object_id.id)[name.id] = std::move(handler);
 }
 
 /** @copydoc bdg::bison::rmi::client::unregister_object_events */
@@ -215,10 +208,7 @@ void client::event_loop() {
     std::function<void()> task;
     {
       std::unique_lock<std::mutex> lk(event_queue_mtx_);
-      event_queue_cv_.wait(lk, [this] {
-        return !event_queue_.empty() ||
-               !running_.load(std::memory_order_acquire);
-      });
+      event_queue_cv_.wait(lk, [this] { return !event_queue_.empty() || !running_.load(std::memory_order_acquire); });
       if (event_queue_.empty())
         break;
       task = std::move(event_queue_.front());
@@ -251,14 +241,11 @@ void client::process_frame(const shared::envelope& env) {
     const auto code = env.error.as<bison::key_t>(FIELD_ERROR_CODE);
     if (static_cast<bison::hash_t>(code) != 0u) {
       std::string message = "RMI error";
-      if (const auto* msg = env.error.findField(FIELD_ERROR_MESSAGE);
-          msg != nullptr) {
+      if (const auto* msg = env.error.findField(FIELD_ERROR_MESSAGE); msg != nullptr) {
         message = msg->as<std::string>();
       }
       promise.set_exception(
-          std::make_exception_ptr(
-              std::runtime_error(
-                  message + " (code=" + std::to_string(code.id) + ")")));
+          std::make_exception_ptr(std::runtime_error(message + " (code=" + std::to_string(code.id) + ")")));
     } else {
       promise.set_value(env.payload.clone());
     }
@@ -290,13 +277,12 @@ void client::process_frame(const shared::envelope& env) {
     if (handler) {
       {
         std::lock_guard<std::mutex> lk(event_queue_mtx_);
-        event_queue_.push(
-            [h = std::move(handler), p = std::move(params)]() mutable {
-              try {
-                h(std::move(p));
-              } catch (...) {
-              }
-            });
+        event_queue_.push([h = std::move(handler), p = std::move(params)]() mutable {
+          try {
+            h(std::move(p));
+          } catch (...) {
+          }
+        });
       }
       event_queue_cv_.notify_one();
     }
@@ -316,9 +302,7 @@ void client::fail_all_pending(bison::key_t code, const std::string& message) {
   }
   for (auto& [id, promise] : local) {
     promise.set_exception(
-        std::make_exception_ptr(
-            std::runtime_error(
-                message + " (code=" + std::to_string(code.id) + ")")));
+        std::make_exception_ptr(std::runtime_error(message + " (code=" + std::to_string(code.id) + ")")));
   }
 }
 

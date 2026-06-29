@@ -11,8 +11,7 @@
 
 namespace bdg::bison::rmi::shared {
 
-using schema_map = std::
-    unordered_map<bison::key_t, bison::dynamic, bison::key_t, bison::key_t>;
+using schema_map = std::unordered_map<bison::key_t, bison::dynamic, bison::key_t, bison::key_t>;
 
 inline const schema_map& get_schemas() {
   using namespace constants;
