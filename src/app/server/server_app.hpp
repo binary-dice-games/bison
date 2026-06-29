@@ -90,47 +90,6 @@ class server_app {
   virtual void on_error(const std::string& msg) const;
 
   /**
-   * @brief Called after the PTY server starts (PTY transport only).
-   *
-   * Default: prints a ready message to stdout.
-   */
-  virtual void on_listening_pty() const;
-
-  /**
-   * @brief Called in `run_pty()` after a bison client connects, before the
-   *        session's `rmi::server` begins serving requests.
-   *
-   * Default: no-op.  Override in `pty_server_app` subclasses to run
-   * per-session setup before the first RMI request is dispatched.
-   */
-  virtual void on_pty_client_connected() const {}
-
-  /**
-   * @brief Called in `run_pty()` after each session ends and the session's
-   *        `rmi::server` has been destroyed.
-   *
-   * Default: no-op.  Override to perform per-session teardown.
-   */
-  virtual void on_pty_session_ended() const {}
-
-  /**
-   * @brief Child process spawned by `run_pty()` via `uv_spawn()`.
-   *
-   * The server communicates with the spawned process over its stdin/stdout
-   * pipes using 4-byte big-endian length-prefix framing.  Override to point
-   * at a bison client binary, either directly or via SSH:
-   *
-   * ```cpp
-   * // local demo
-   * return "./pty_client_example";
-   *
-   * // remote production use: SSH relays pipe frames to the client
-   * return "ssh user@remote-host ./pty_client_example";
-   * ```
-   */
-  virtual std::string shell_command() const { return "bash"; }
-
-  /**
    * @brief Return an optional preamble for `OP_HELP` responses.
    *
    * The returned string is prepended to the auto-generated class listing in
@@ -138,7 +97,9 @@ class server_app {
    *
    * @return Free-form text describing the server's purpose.
    */
-  virtual std::string server_description() const { return {}; }
+  virtual std::string server_description() const {
+    return {};
+  }
 
   /**
    * @brief Called once per formatted verbose trace line when `--verbose` is
@@ -150,8 +111,7 @@ class server_app {
    * @param session_id  Session that generated the trace event.
    * @param line        Formatted trace message (no trailing newline).
    */
-  virtual void on_verbose_trace(bison::key_t session_id,
-                                const std::string& line) const;
+  virtual void on_verbose_trace(bison::key_t session_id, const std::string& line) const;
 
  protected:
   /**
@@ -176,19 +136,7 @@ class server_app {
    * @param transport  Bound transport to serve.
    * @return 0 on clean shutdown, non-zero on error.
    */
-  virtual int run_with_transport(
-      rmi::transport::server_transport_iface& transport);
-
-  /**
-   * @brief Run the PTY server lifecycle, blocking until the shell exits.
-   *
-   * Override to customize PTY session handling.  The default accepts one
-   * PTY session at a time via `bridged_server` and blocks on
-   * `wait_until_closed()` between sessions.
-   *
-   * @return 0 on clean shutdown, non-zero on error.
-   */
-  virtual int run_pty();
+  virtual int run_with_transport(rmi::transport::server_transport_iface& transport);
 };
 
 } // namespace bdg::bison::app

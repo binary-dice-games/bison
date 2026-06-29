@@ -7,9 +7,6 @@
 [submodule "extern/yaml"]
 	path = extern/yaml
 	url = https://github.com/yaml/libyaml.git
-[submodule "extern/asio"]
-	path = extern/asio
-	url = https://github.com/chriskohlhoff/asio.git
 [submodule "extern/gflags"]
 	path = extern/gflags
 	url = https://github.com/gflags/gflags.git

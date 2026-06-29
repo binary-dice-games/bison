@@ -35,7 +35,6 @@ namespace bdg::bison::app {
  * Transport flags (from `client_app`):
  *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
  *   - `--pipe PATH`             — named-pipe / Unix-socket path
- *   - `--pty`                   — PTY DCS channel (Linux only)
  *   - `--timeout MS`            — per-request timeout (default: 30 000 ms)
  */
 class cli_app : public client_app {

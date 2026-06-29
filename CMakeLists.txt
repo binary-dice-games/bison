@@ -94,8 +94,6 @@ target_sources(bison PRIVATE
   src/rmi/transport/pipe_transport_uv.cpp
   src/rmi/transport/socket_transport_uv.cpp
   src/rmi/transport/stream_transport.cpp
-  src/rmi/transport/pty_client_transport_uv.cpp
-  src/rmi/transport/pty_server_transport_uv.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
@@ -104,8 +102,6 @@ target_sources(bison PRIVATE
   src/app/client/client_app.cpp
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
-  src/app/pty/pty_server_app.cpp
-  src/app/pty/pty_client_app.cpp
 )
 
 target_include_directories(bison PRIVATE src/rmi)
@@ -118,10 +114,8 @@ endif()
 add_library(bison_abi SHARED
   include/bison_c.h
   include/rmi_c.h
-  include/pty_c.h
   src/bison/bison_c.cpp
   src/rmi/rmi_c.cpp
-  src/app/pty/pty_c.cpp
   src/app/abi_flags.cpp
 )
 

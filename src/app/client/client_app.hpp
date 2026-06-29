@@ -25,11 +25,9 @@ namespace bdg::bison::app {
  * Transport is chosen by gflags CLI flags (all optional):
  *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
  *   - `--pipe PATH`             — named-pipe / Unix-socket path
- *   - `--pty`                   — PTY DCS channel (Linux only)
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
  *
- * `--pipe` takes precedence over `--host`/`--port`; `--pty` takes precedence
- * over both.
+ * `--pipe` takes precedence over `--host`/`--port`;
  *
  * Lifecycle (inside `run()`):
  * 1. Parse flags.
@@ -110,8 +108,7 @@ class client_app {
    * @param transport  Heap-allocated transport to take ownership of.
    * @return Return value of `on_session()`.
    */
-  int run_with_transport(
-      std::unique_ptr<rmi::transport::client_transport_iface> transport);
+  int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
 
   /** @brief Per-request timeout; set from `--timeout` before `on_session()`. */
   std::chrono::milliseconds timeout_{30000};

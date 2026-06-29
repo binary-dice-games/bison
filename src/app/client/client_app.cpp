@@ -10,7 +10,7 @@
 #include "src/rmi/transport/socket_transport.hpp"
 
 #if defined(__linux__)
-#  include "src/rmi/transport/pty_client_transport.hpp"
+#include "src/rmi/transport/pty_client_transport.hpp"
 #endif
 
 #include <gflags/gflags.h>
@@ -21,10 +21,10 @@
 #include <string>
 
 DECLARE_string(host);
-DECLARE_int32 (port);
+DECLARE_int32(port);
 DECLARE_string(pipe);
-DECLARE_bool  (pty);
-DECLARE_int32 (timeout);
+DECLARE_bool(pty);
+DECLARE_int32(timeout);
 
 namespace bdg::bison::app {
 
@@ -40,8 +40,7 @@ void client_app::on_error(const std::string& msg) const {
 
 // ── run_with_transport ────────────────────────────────────────────────────────
 
-int client_app::run_with_transport(
-    std::unique_ptr<rmi::transport::client_transport_iface> transport) {
+int client_app::run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport) {
   rmi::client c{std::move(transport)};
 
   bison::dynamic params;
@@ -62,22 +61,12 @@ int client_app::run(int argc, char** argv) {
   timeout_ = std::chrono::milliseconds{FLAGS_timeout};
 
   try {
-#if defined(__linux__)
-    if (FLAGS_pty) {
-      return run_with_transport(
-          std::make_unique<pty_client_transport>());
-    }
-#endif
-
     if (!FLAGS_pipe.empty()) {
-      return run_with_transport(
-          std::make_unique<rmi::transport::named_pipe_client_transport>(
-              FLAGS_pipe));
+      return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_pipe));
     }
 
     return run_with_transport(
-        std::make_unique<rmi::transport::socket_client_transport>(
-            FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
+        std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
 
   } catch (const std::exception& ex) {
     on_error(ex.what());

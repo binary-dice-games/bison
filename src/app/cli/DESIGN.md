@@ -26,8 +26,7 @@ This directory does NOT implement:
 - Server logic or class registration — that lives in `src/rmi/server`.
 - Transport internals — those live in `src/rmi/transport` and `src/app/pty`.
 
-Cross-platform (Windows, Linux, macOS) except where the PTY transport is used
-(Linux only, guarded with `#if defined(__linux__)`).
+Cross-platform (Windows, Linux, macOS)
 
 ## 2. Design Goals
 

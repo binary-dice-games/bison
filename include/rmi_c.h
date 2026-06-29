@@ -34,7 +34,6 @@
  * ## Transport selection
  *
  * Socket (TCP) transport is exposed via the regular client/server C API.
- * PTY application entry points are exposed via `pty_c.h`.
  * In-memory transport is available only through C++.
  */
 
@@ -111,8 +110,7 @@ typedef struct rmi_future_handle_* rmi_future_handle;
 typedef enum rmi_error {
   RMI_OK = 0, /**< Success. */
   RMI_ERR_NULL = -1, /**< A required handle or pointer argument was NULL. */
-  RMI_ERR_INVALID_STATE =
-      -2, /**< Operation invalid for current state (e.g., not connected). */
+  RMI_ERR_INVALID_STATE = -2, /**< Operation invalid for current state (e.g., not connected). */
   RMI_ERR_TIMEOUT = -3, /**< Request timed out. */
   RMI_ERR_REMOTE_EXCEPTION = -4, /**< Server raised an exception. */
   RMI_ERR_TRANSPORT = -5, /**< Transport error (network, connection, etc.). */
@@ -143,8 +141,7 @@ RMI_API rmi_error rmi_future_wait(rmi_future_handle future, int64_t timeout_ms);
  *                   `bison_release()`.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error
-rmi_future_get_dynamic(rmi_future_handle* future, bison_handle* out_value);
+RMI_API rmi_error rmi_future_get_dynamic(rmi_future_handle* future, bison_handle* out_value);
 
 /**
  * @brief Consume an async future that resolves to a proxy result.
@@ -157,8 +154,7 @@ rmi_future_get_dynamic(rmi_future_handle* future, bison_handle* out_value);
  *                    `rmi_proxy_release()`.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error
-rmi_future_get_proxy(rmi_future_handle* future, rmi_proxy_handle* out_proxy);
+RMI_API rmi_error rmi_future_get_proxy(rmi_future_handle* future, rmi_proxy_handle* out_proxy);
 
 /**
  * @brief Release an async future without consuming its result.
@@ -186,8 +182,7 @@ RMI_API void rmi_future_release(rmi_future_handle future);
  * rmi_client_release(client);
  * @endcode
  */
-RMI_API rmi_client_handle
-rmi_client_tcp_create(const char* host, uint16_t port);
+RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port);
 
 /**
  * @brief Create a standalone in-process client.
@@ -211,8 +206,7 @@ RMI_API rmi_client_handle rmi_standalone_create(void);
  * @param params    Optional connection parameters (`bison_handle` or `NULL`).
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error
-rmi_client_connect(rmi_client_handle client, bison_handle params);
+RMI_API rmi_error rmi_client_connect(rmi_client_handle client, bison_handle params);
 
 /**
  * @brief Request class metadata from the server.
@@ -224,11 +218,8 @@ rmi_client_connect(rmi_client_handle client, bison_handle params);
  *                  release this with `bison_release()`.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_client_describe(
-    rmi_client_handle client,
-    bison_hash ns,
-    bison_hash klass,
-    bison_handle* out_desc);
+RMI_API rmi_error
+rmi_client_describe(rmi_client_handle client, bison_hash ns, bison_hash klass, bison_handle* out_desc);
 
 /**
  * @brief Request class metadata from the server asynchronously.
@@ -240,11 +231,8 @@ RMI_API rmi_error rmi_client_describe(
  *                    `rmi_future_get_dynamic()`.
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
-RMI_API rmi_error rmi_client_describe_async(
-    rmi_client_handle client,
-    bison_hash ns,
-    bison_hash klass,
-    rmi_future_handle* out_future);
+RMI_API rmi_error
+rmi_client_describe_async(rmi_client_handle client, bison_hash ns, bison_hash klass, rmi_future_handle* out_future);
 
 /**
  * @brief Instantiate a remote object on the server.
@@ -331,11 +319,8 @@ typedef void (*rmi_proxy_event_fn)(bison_handle params, void* user);
  * @param user        User context pointer passed to @p handler.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_on_event(
-    rmi_proxy_handle proxy,
-    bison_hash event_name,
-    rmi_proxy_event_fn handler,
-    void* user);
+RMI_API rmi_error
+rmi_proxy_on_event(rmi_proxy_handle proxy, bison_hash event_name, rmi_proxy_event_fn handler, void* user);
 
 /**
  * @brief Clear explicitly set fields on a remote object.
@@ -344,9 +329,7 @@ RMI_API rmi_error rmi_proxy_on_event(
  * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_clear(
-    rmi_proxy_handle proxy,
-    int64_t timeout_ms);
+RMI_API rmi_error rmi_proxy_clear(rmi_proxy_handle proxy, int64_t timeout_ms);
 
 /**
  * @brief Clear explicitly set fields on a remote object asynchronously.
@@ -357,9 +340,7 @@ RMI_API rmi_error rmi_proxy_clear(
  *                    `rmi_future_release()`.
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_clear_async(
-    rmi_proxy_handle proxy,
-    rmi_future_handle* out_future);
+RMI_API rmi_error rmi_proxy_clear_async(rmi_proxy_handle proxy, rmi_future_handle* out_future);
 
 /**
  * @brief Apply a partial field update to a remote object.
@@ -369,10 +350,7 @@ RMI_API rmi_error rmi_proxy_clear_async(
  * @param timeout_ms Timeout in milliseconds, or -1 for the default timeout.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_set(
-    rmi_proxy_handle proxy,
-    bison_handle fields,
-    int64_t timeout_ms);
+RMI_API rmi_error rmi_proxy_set(rmi_proxy_handle proxy, bison_handle fields, int64_t timeout_ms);
 
 /**
  * @brief Apply a partial field update to a remote object asynchronously.
@@ -384,10 +362,7 @@ RMI_API rmi_error rmi_proxy_set(
  *                    `rmi_future_release()`.
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_set_async(
-    rmi_proxy_handle proxy,
-    bison_handle fields,
-    rmi_future_handle* out_future);
+RMI_API rmi_error rmi_proxy_set_async(rmi_proxy_handle proxy, bison_handle fields, rmi_future_handle* out_future);
 
 /**
  * @brief Retrieve fields from a remote object.
@@ -400,11 +375,8 @@ RMI_API rmi_error rmi_proxy_set_async(
  * @param timeout_ms  Timeout in milliseconds, or -1 for the default timeout.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_get(
-    rmi_proxy_handle proxy,
-    bison_handle projection,
-    bison_handle* out_result,
-    int64_t timeout_ms);
+RMI_API rmi_error
+rmi_proxy_get(rmi_proxy_handle proxy, bison_handle projection, bison_handle* out_result, int64_t timeout_ms);
 
 /**
  * @brief Retrieve fields from a remote object asynchronously.
@@ -416,10 +388,7 @@ RMI_API rmi_error rmi_proxy_get(
  *                    `rmi_future_get_dynamic()`.
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_get_async(
-    rmi_proxy_handle proxy,
-    bison_handle projection,
-    rmi_future_handle* out_future);
+RMI_API rmi_error rmi_proxy_get_async(rmi_proxy_handle proxy, bison_handle projection, rmi_future_handle* out_future);
 
 /**
  * @brief Call a method on a remote object.
@@ -449,11 +418,8 @@ RMI_API rmi_error rmi_proxy_call(
  *                    `rmi_future_get_dynamic()`.
  * @return `RMI_OK` on successful submission, or a negative error code.
  */
-RMI_API rmi_error rmi_proxy_call_async(
-    rmi_proxy_handle proxy,
-    bison_hash method,
-    bison_handle params,
-    rmi_future_handle* out_future);
+RMI_API rmi_error
+rmi_proxy_call_async(rmi_proxy_handle proxy, bison_hash method, bison_handle params, rmi_future_handle* out_future);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Server
@@ -475,8 +441,7 @@ RMI_API rmi_error rmi_proxy_call_async(
  * rmi_server_release(server);
  * @endcode
  */
-RMI_API rmi_server_handle
-rmi_server_tcp_create(const char* host, uint16_t port);
+RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port);
 
 /**
  * @brief Start the server listener.
@@ -488,8 +453,7 @@ rmi_server_tcp_create(const char* host, uint16_t port);
  * @param params    Optional listen parameters (`bison_handle` or `NULL`).
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error
-rmi_server_listen(rmi_server_handle server, bison_handle params);
+RMI_API rmi_error rmi_server_listen(rmi_server_handle server, bison_handle params);
 
 /**
  * @brief Stop the server listener.

@@ -27,31 +27,6 @@ package_add_test(rmi_test rmi_tests.cpp)
 # Bridge multiplexer tests
 package_add_test(bridge_test bridge_tests.cpp)
 
-# PTY transport and app scaffold tests (Linux only; links util for forkpty)
-# app_test_flags.cpp provides DEFINE_* for gflags referenced by server_app /
-# client_app, which are pulled in transitively via pty_server_app.
-package_add_test(pty_test pty_tests.cpp app_test_flags.cpp)
-target_link_libraries(pty_test gflags)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_libraries(pty_test util)
-endif()
-
-# PTY C API tests — link bison_abi shared library
-add_executable(pty_c_test pty_c_tests.cpp)
-target_include_directories(pty_c_test PRIVATE ${PROJECT_SOURCE_DIR})
-target_link_libraries(pty_c_test bison_abi bison gtest gmock gtest_main)
-if(MSVC)
-    target_compile_options(pty_c_test PRIVATE /FS)
-endif()
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_link_libraries(pty_c_test util)
-endif()
-gtest_discover_tests(pty_c_test
-    WORKING_DIRECTORY ${PROJECT_DIR}
-    PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
-)
-set_target_properties(pty_c_test PROPERTIES FOLDER tests)
-
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})
