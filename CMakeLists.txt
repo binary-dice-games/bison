@@ -90,9 +90,9 @@ endif()
 target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
-  src/rmi/transport/named_pipe_transport_uv.cpp
-  src/rmi/transport/pipe_transport_uv.cpp
-  src/rmi/transport/socket_transport_uv.cpp
+  src/rmi/transport/named_pipe_transport.cpp
+  src/rmi/transport/pipe_transport.cpp
+  src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp

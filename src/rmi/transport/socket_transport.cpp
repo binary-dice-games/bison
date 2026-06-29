@@ -1,9 +1,8 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file socket_transport_uv.cpp
- * @brief TCP socket transport reimplemented using libuv.
+ * @file socket_transport.cpp
+ * @brief TCP socket transport implemented using libuv.
  *
- * Replaces the standalone-ASIO implementation in socket_transport.cpp.
  * Uses uv_tcp_t for all network I/O; each accepted connection runs its own
  * uv_loop_t on a background thread with a mutex-protected receive queue for
  * synchronous receive() calls.

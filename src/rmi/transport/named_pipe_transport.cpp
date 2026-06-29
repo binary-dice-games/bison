@@ -1,9 +1,8 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file named_pipe_transport_uv.cpp
+ * @file named_pipe_transport.cpp
  * @brief Named-pipe / Unix-socket transport reimplemented using libuv.
  *
- * Replaces the platform-split named_pipe_transport implementation.
  * Uses uv_pipe_t for all I/O; a single file covers both Windows named pipes
  * and Linux/macOS Unix-domain sockets transparently.
  *

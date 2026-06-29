@@ -21,11 +21,11 @@ Source tree:
 - `src/rmi/client`: client runtime, remote object proxy, threading, request dispatch.
 - `src/rmi/server`: server runtime, session context, request handlers, lifecycle.
 - `src/rmi/transport`: all transport implementations. Each transport is a single cross-platform file backed by libuv:
-  - `pipe_transport_uv.cpp` — anonymous in-process pipe channel
-  - `socket_transport_uv.cpp` — TCP socket transport
-  - `named_pipe_transport_uv.cpp` — named pipe / Unix domain socket transport
-  - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
-  - `stream_transport.cpp` — wraps an external `std::iostream`
+- `pipe_transport.cpp` — anonymous in-process pipe channel
+- `socket_transport.cpp` — TCP socket transport
+- `named_pipe_transport.cpp` — named pipe / Unix domain socket transport
+- `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
+- `stream_transport.cpp` — wraps an external `std::iostream`
 
 There are no platform-specific transport source files. libuv provides all cross-platform I/O.
 

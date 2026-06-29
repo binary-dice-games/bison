@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file pipe_transport_uv.cpp
- * @brief Anonymous-pipe transport reimplemented using libuv.
+ * @file pipe_transport.cpp
+ * @brief Anonymous-pipe transport implemented using libuv.
  *
  * Establishes a full-duplex channel between in-process endpoints using a
  * pair of connected uv_pipe_t handles.  Both ends own a uv_loop_t that runs
@@ -9,7 +9,7 @@
  * mutex-protected queue for synchronous receive() calls.
  *
  * Framing: 4-byte big-endian length prefix followed by payload, identical
- * to socket_transport_uv and named_pipe_transport_uv.
+ * to socket_transport and named_pipe_transport.
  */
 #include "src/rmi/transport/pipe_transport.hpp"
 
