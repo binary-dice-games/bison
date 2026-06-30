@@ -12,9 +12,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <memory>
-#include <mutex>
 #include <queue>
-#include <vector>
 
 namespace bdg::bison::rmi::transport {
 
@@ -22,15 +20,16 @@ namespace bdg::bison::rmi::transport {
  * @brief Shared bidirectional queues and synchronization primitives.
  *
  * Represents one logical duplex connection between one client endpoint and
- * one server endpoint.
+ * one server endpoint. Each queue is owned by a `bison::synchronized` wrapper
+ * that forces explicit scoped access; `condition_variable_any` objects signal
+ * pending items without exposing raw mutexes to callers.
  */
 struct memory_channel {
-  std::mutex mtx;
-  std::condition_variable cv_c2s;
-  std::condition_variable cv_s2c;
-  std::queue<bison::buffer> c2s_queue;
-  std::queue<bison::buffer> s2c_queue;
+  bison::synchronized<std::queue<bison::buffer>> c2s;
+  bison::synchronized<std::queue<bison::buffer>> s2c;
   std::atomic<bool> closed{false};
+  std::condition_variable_any cv_c2s;
+  std::condition_variable_any cv_s2c;
 };
 
 /**
@@ -119,9 +118,8 @@ class memory_server_transport : public server_transport_iface {
   void stop() override;
 
  private:
-  std::mutex mtx_;
-  std::condition_variable cv_;
-  std::queue<std::shared_ptr<memory_channel>> pending_;
+  bison::synchronized<std::queue<std::shared_ptr<memory_channel>>> pending_;
+  std::condition_variable_any cv_;
   std::atomic<bool> stopped_{false};
 };
 

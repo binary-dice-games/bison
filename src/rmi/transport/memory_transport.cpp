@@ -11,30 +11,34 @@ namespace bdg::bison::rmi::transport {
 /** @copydoc
  * bdg::bison::rmi::transport::memory_client_transport::memory_client_transport
  */
-memory_client_transport::memory_client_transport(std::shared_ptr<memory_channel> ch) : ch_(std::move(ch)) {}
+memory_client_transport::memory_client_transport(
+    std::shared_ptr<memory_channel> ch)
+    : ch_(std::move(ch)) {}
 
 /** @copydoc bdg::bison::rmi::transport::memory_client_transport::open */
 void memory_client_transport::open(bison::dynamic /*params*/) {}
 
 /** @copydoc bdg::bison::rmi::transport::memory_client_transport::send */
 void memory_client_transport::send(bison::buffer frame) {
-  {
-    std::lock_guard<std::mutex> lk(ch_->mtx);
-    ch_->c2s_queue.push(std::move(frame));
-  }
+  ch_->c2s.withWLock([&](auto& q) { q.push(std::move(frame)); });
   ch_->cv_c2s.notify_one();
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_client_transport::receive */
-bool memory_client_transport::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
-  std::unique_lock<std::mutex> lk(ch_->mtx);
-  if (!ch_->cv_s2c.wait_for(lk, timeout, [this] { return !ch_->s2c_queue.empty() || ch_->closed.load(); }))
+bool memory_client_transport::receive(
+    bison::buffer& frame,
+    std::chrono::milliseconds timeout) {
+  if (!ch_->s2c.wait_for(ch_->cv_s2c, timeout, [this](auto& q) {
+        return !q.empty() || ch_->closed.load();
+      }))
     return false;
-  if (ch_->s2c_queue.empty())
-    return false;
-  frame = std::move(ch_->s2c_queue.front());
-  ch_->s2c_queue.pop();
-  return true;
+  return ch_->s2c.withWLock([&](auto& q) -> bool {
+    if (q.empty())
+      return false;
+    frame = std::move(q.front());
+    q.pop();
+    return true;
+  });
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_client_transport::shutdown */
@@ -48,27 +52,31 @@ void memory_client_transport::shutdown() {
 /** @copydoc
  * bdg::bison::rmi::transport::memory_server_connection::memory_server_connection
  */
-memory_server_connection::memory_server_connection(std::shared_ptr<memory_channel> ch) : ch_(std::move(ch)) {}
+memory_server_connection::memory_server_connection(
+    std::shared_ptr<memory_channel> ch)
+    : ch_(std::move(ch)) {}
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_connection::send */
 void memory_server_connection::send(bison::buffer frame) {
-  {
-    std::lock_guard<std::mutex> lk(ch_->mtx);
-    ch_->s2c_queue.push(std::move(frame));
-  }
+  ch_->s2c.withWLock([&](auto& q) { q.push(std::move(frame)); });
   ch_->cv_s2c.notify_one();
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_connection::receive */
-bool memory_server_connection::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
-  std::unique_lock<std::mutex> lk(ch_->mtx);
-  if (!ch_->cv_c2s.wait_for(lk, timeout, [this] { return !ch_->c2s_queue.empty() || ch_->closed.load(); }))
+bool memory_server_connection::receive(
+    bison::buffer& frame,
+    std::chrono::milliseconds timeout) {
+  if (!ch_->c2s.wait_for(ch_->cv_c2s, timeout, [this](auto& q) {
+        return !q.empty() || ch_->closed.load();
+      }))
     return false;
-  if (ch_->c2s_queue.empty())
-    return false;
-  frame = std::move(ch_->c2s_queue.front());
-  ch_->c2s_queue.pop();
-  return true;
+  return ch_->c2s.withWLock([&](auto& q) -> bool {
+    if (q.empty())
+      return false;
+    frame = std::move(q.front());
+    q.pop();
+    return true;
+  });
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_connection::close */
@@ -92,24 +100,26 @@ void memory_server_transport::start(bison::dynamic /*params*/) {
 /** @copydoc bdg::bison::rmi::transport::memory_server_transport::connect */
 memory_client_transport memory_server_transport::connect() {
   auto ch = std::make_shared<memory_channel>();
-  {
-    std::lock_guard<std::mutex> lk(mtx_);
-    pending_.push(ch);
-  }
+  pending_.withWLock([&](auto& q) { q.push(ch); });
   cv_.notify_one();
   return memory_client_transport{std::move(ch)};
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_transport::accept */
-std::unique_ptr<server_connection_iface> memory_server_transport::accept(std::chrono::milliseconds timeout) {
-  std::unique_lock<std::mutex> lk(mtx_);
-  if (!cv_.wait_for(lk, timeout, [this] { return !pending_.empty() || stopped_.load(); }))
+std::unique_ptr<server_connection_iface> memory_server_transport::accept(
+    std::chrono::milliseconds timeout) {
+  if (!pending_.wait_for(cv_, timeout, [this](auto& q) {
+        return !q.empty() || stopped_.load();
+      }))
     return nullptr;
-  if (pending_.empty())
-    return nullptr;
-  auto ch = std::move(pending_.front());
-  pending_.pop();
-  return std::make_unique<memory_server_connection>(std::move(ch));
+  return pending_.withWLock(
+      [](auto& q) -> std::unique_ptr<server_connection_iface> {
+        if (q.empty())
+          return nullptr;
+        auto ch = std::move(q.front());
+        q.pop();
+        return std::make_unique<memory_server_connection>(std::move(ch));
+      });
 }
 
 /** @copydoc bdg::bison::rmi::transport::memory_server_transport::stop */

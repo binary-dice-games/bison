@@ -18,6 +18,8 @@
 
 #include "src/bison/bison_common.hpp"
 
+#include <condition_variable>
+
 namespace bdg::bison {
 
 /**
@@ -190,6 +192,29 @@ class synchronized {
   template <typename Fn>
   auto withLock(Fn&& fn) {
     return withWLock(std::forward<Fn>(fn));
+  }
+
+  /**
+   * @brief Block until @p pred(value) is true or @p timeout elapses.
+   *
+   * Acquires the exclusive lock internally and passes it to @p cv so the
+   * caller never touches the raw mutex directly.  The lock is released
+   * atomically while waiting and re-acquired before each predicate check,
+   * exactly as `condition_variable_any::wait_for` guarantees.
+   *
+   * @param cv      Condition variable to wait on; the caller owns it and is
+   *                responsible for calling `notify_one` / `notify_all`.
+   * @param timeout Maximum wait duration.
+   * @param pred    Callable with signature `bool(T&)`; returns `true` when
+   *                the condition is satisfied.
+   * @return `true` if @p pred returned `true` before the timeout expired.
+   */
+  template <typename Rep, typename Period, typename Pred>
+  bool wait_for(std::condition_variable_any& cv,
+                std::chrono::duration<Rep, Period> timeout,
+                Pred&& pred) {
+    std::unique_lock<Mutex> lk(mutex_);
+    return cv.wait_for(lk, timeout, [this, &pred] { return pred(data_); });
   }
 
   /**
