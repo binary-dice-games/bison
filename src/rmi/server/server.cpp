@@ -433,30 +433,25 @@ void server::handle_request(context& ctx, const shared::envelope& env, transport
 
   on_request_trace(ctx, env);
 
-  bison::key_t op = env.op;
+  using handler_fn = void (server::*)(context&, const shared::envelope&, transport::server_connection_iface&);
+  static const std::unordered_map<bison::key_t, handler_fn, bison::key_t, bison::key_t> handler_map = {
+      {OP_CONNECT, &server::handle_connect},
+      {OP_DESCRIBE, &server::handle_describe},
+      {OP_INSTANTIATE, &server::handle_instantiate},
+      {OP_CLEAR, &server::handle_clear},
+      {OP_SET, &server::handle_set},
+      {OP_GET, &server::handle_get},
+      {OP_CALL, &server::handle_call},
+      {OP_DESTROY, &server::handle_destroy},
+      {OP_DISCONNECT, &server::handle_disconnect},
+      {OP_DICTIONARY, &server::handle_dictionary},
+      {OP_HELP, &server::handle_help},
+  };
 
-  if (op == OP_CONNECT)
-    handle_connect(ctx, env, conn);
-  else if (op == OP_DESCRIBE)
-    handle_describe(ctx, env, conn);
-  else if (op == OP_INSTANTIATE)
-    handle_instantiate(ctx, env, conn);
-  else if (op == OP_CLEAR)
-    handle_clear(ctx, env, conn);
-  else if (op == OP_SET)
-    handle_set(ctx, env, conn);
-  else if (op == OP_GET)
-    handle_get(ctx, env, conn);
-  else if (op == OP_CALL)
-    handle_call(ctx, env, conn);
-  else if (op == OP_DESTROY)
-    handle_destroy(ctx, env, conn);
-  else if (op == OP_DISCONNECT)
-    handle_disconnect(ctx, env, conn);
-  else if (op == OP_DICTIONARY)
-    handle_dictionary(ctx, env, conn);
-  else if (op == OP_HELP)
-    handle_help(ctx, env, conn);
+  bison::key_t op = env.op;
+  auto it = handler_map.find(op);
+  if (it != handler_map.end())
+    (this->*it->second)(ctx, env, conn);
   else
     send_error(ctx, conn, env, op, ERR_UNKNOWN_OPERATION, "Unknown operation");
 }
