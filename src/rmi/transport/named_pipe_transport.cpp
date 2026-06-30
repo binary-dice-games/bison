@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <stdexcept>
 #include <string>
@@ -43,14 +42,12 @@ struct pipe_conn_state {
   std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
 
   // Receive queue: loop → caller.
-  std::mutex recv_mtx;
-  std::condition_variable recv_cv;
-  std::queue<bison::buffer> recv_queue;
+  bison::synchronized<std::queue<bison::buffer>> recv_queue;
+  std::condition_variable_any recv_cv;
   std::atomic<bool> recv_closed{false};
 
   // Send queue: caller → loop.
-  std::mutex send_mtx;
-  std::queue<std::vector<uint8_t>> send_queue;
+  bison::synchronized<std::queue<std::vector<uint8_t>>> send_queue;
 
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
@@ -66,10 +63,7 @@ struct pipe_conn_state {
   static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t*) {
     auto* st = static_cast<pipe_conn_state*>(stream->data);
     if (nread < 0) {
-      {
-        std::lock_guard<std::mutex> lk(st->recv_mtx);
-        st->recv_closed.store(true);
-      }
+      st->recv_closed.store(true);
       st->recv_cv.notify_all();
       uv_read_stop(stream);
       return;
@@ -102,10 +96,7 @@ struct pipe_conn_state {
         p += take;
         left -= take;
         if (st->payload_left == 0) {
-          {
-            std::lock_guard<std::mutex> lk(st->recv_mtx);
-            st->recv_queue.push(std::move(st->partial));
-          }
+          st->recv_queue.withWLock([&](auto& q) { q.push(std::move(st->partial)); });
           st->recv_cv.notify_one();
           st->partial = bison::buffer{};
           st->hdr_pos = 0;
@@ -126,10 +117,7 @@ struct pipe_conn_state {
   static void on_send(uv_async_t* async) {
     auto* st = static_cast<pipe_conn_state*>(async->data);
     std::queue<std::vector<uint8_t>> q;
-    {
-      std::lock_guard<std::mutex> lk(st->send_mtx);
-      std::swap(q, st->send_queue);
-    }
+    st->send_queue.withWLock([&](auto& sq) { std::swap(q, sq); });
     while (!q.empty()) {
       auto* wr = new write_req;
       wr->data = std::move(q.front());
@@ -156,10 +144,7 @@ struct pipe_conn_state {
     loop_thread = std::thread([this] {
       uv_read_start(reinterpret_cast<uv_stream_t*>(&handle), alloc_cb, on_read);
       uv_run(&loop, UV_RUN_DEFAULT);
-      {
-        std::lock_guard<std::mutex> lk(recv_mtx);
-        recv_closed.store(true);
-      }
+      recv_closed.store(true);
       recv_cv.notify_all();
       uv_loop_close(&loop);
     });
@@ -185,22 +170,21 @@ struct pipe_conn_state {
     std::memcpy(data.data(), &net_len, 4);
     if (!frame.empty())
       std::memcpy(data.data() + 4, frame.data(), frame.size());
-    {
-      std::lock_guard<std::mutex> lk(send_mtx);
-      send_queue.push(std::move(data));
-    }
+    send_queue.withWLock([&](auto& q) { q.push(std::move(data)); });
     uv_async_send(&send_async);
   }
 
   bool dequeue_frame(bison::buffer& frame, std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lk(recv_mtx);
-    if (!recv_cv.wait_for(lk, timeout, [this] { return !recv_queue.empty() || recv_closed.load(); }))
+    if (!recv_queue.wait_for(recv_cv, timeout,
+                             [this](auto& q) { return !q.empty() || recv_closed.load(); }))
       return false;
-    if (recv_queue.empty())
-      return false;
-    frame = std::move(recv_queue.front());
-    recv_queue.pop();
-    return true;
+    return recv_queue.withWLock([&](auto& q) -> bool {
+      if (q.empty())
+        return false;
+      frame = std::move(q.front());
+      q.pop();
+      return true;
+    });
   }
 };
 
@@ -220,9 +204,8 @@ struct named_pipe_server_state {
   uv_pipe_t listener{};
   uv_async_t stop_async{};
 
-  std::mutex accept_mtx;
-  std::condition_variable accept_cv;
-  std::queue<std::unique_ptr<named_pipe_server_connection>> accept_queue;
+  bison::synchronized<std::queue<std::unique_ptr<named_pipe_server_connection>>> accept_queue;
+  std::condition_variable_any accept_cv;
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
 
@@ -264,10 +247,7 @@ void named_pipe_server_state::on_new_connection(uv_stream_t* server, int status)
   auto conn = std::make_unique<named_pipe_conn>();
   conn->cs = std::move(cs);
   auto wrapped = make_server_connection(std::move(conn));
-  {
-    std::lock_guard<std::mutex> lk(ss->accept_mtx);
-    ss->accept_queue.push(std::move(wrapped));
-  }
+  ss->accept_queue.withWLock([&](auto& q) { q.push(std::move(wrapped)); });
   ss->accept_cv.notify_one();
 }
 
@@ -413,17 +393,21 @@ void named_pipe_server_transport::start(bison::dynamic /*params*/) {
   });
 }
 
-std::unique_ptr<server_connection_iface> named_pipe_server_transport::accept(std::chrono::milliseconds timeout) {
+std::unique_ptr<server_connection_iface> named_pipe_server_transport::accept(
+    std::chrono::milliseconds timeout) {
   if (!state_)
     return nullptr;
-  std::unique_lock<std::mutex> lk(state_->accept_mtx);
-  if (!state_->accept_cv.wait_for(lk, timeout, [this] { return !state_->accept_queue.empty() || stopped_.load(); }))
+  if (!state_->accept_queue.wait_for(state_->accept_cv, timeout,
+                                     [this](auto& q) { return !q.empty() || stopped_.load(); }))
     return nullptr;
-  if (state_->accept_queue.empty())
-    return nullptr;
-  auto conn = std::move(state_->accept_queue.front());
-  state_->accept_queue.pop();
-  return conn;
+  return state_->accept_queue.withWLock(
+      [](auto& q) -> std::unique_ptr<server_connection_iface> {
+        if (q.empty())
+          return nullptr;
+        auto conn = std::move(q.front());
+        q.pop();
+        return conn;
+      });
 }
 
 void named_pipe_server_transport::stop() {
