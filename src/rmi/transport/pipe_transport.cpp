@@ -12,21 +12,19 @@
  * to socket_transport and named_pipe_transport.
  */
 #include "src/rmi/transport/pipe_transport.hpp"
+#include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <uv.h>
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <cstdint>
-#include <cstring>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <stdexcept>
 #include <string>
 #include <thread>
-#include <vector>
 
 namespace bdg::bison::rmi::transport {
 
@@ -44,180 +42,7 @@ static std::string make_anon_pipe_path() {
 
 // ── Per-connection state ───────────────────────────────────────────────────────
 
-struct pipe_end_state {
-  uv_loop_t loop{};
-  uv_pipe_t handle{};
-  uv_async_t send_async{};
-  uv_async_t stop_async{};
-
-  // Incremental frame parser — owned by the loop thread.
-  uint8_t hdr[4]{};
-  uint32_t hdr_pos{0};
-  uint32_t payload_left{0};
-  bison::buffer partial;
-  std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
-
-  // Receive queue: loop thread → caller thread.
-  std::mutex recv_mtx;
-  std::condition_variable recv_cv;
-  std::queue<bison::buffer> recv_queue;
-  std::atomic<bool> recv_closed{false};
-
-  // Send queue: caller thread → loop thread.
-  std::mutex send_mtx;
-  std::queue<std::vector<uint8_t>> send_queue;
-
-  std::atomic<bool> stopped{false};
-  std::thread loop_thread;
-
-  // ── libuv callbacks (static, accessed via handle->data == this) ───────────
-
-  static void alloc_cb(uv_handle_t* h, size_t /*sug*/, uv_buf_t* buf) {
-    auto* st = static_cast<pipe_end_state*>(h->data);
-    buf->base = reinterpret_cast<char*>(st->read_buf.data());
-    buf->len = static_cast<decltype(buf->len)>(st->read_buf.size());
-  }
-
-  static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
-    auto* st = static_cast<pipe_end_state*>(stream->data);
-    if (nread < 0) {
-      {
-        std::lock_guard<std::mutex> lk(st->recv_mtx);
-        st->recv_closed.store(true);
-      }
-      st->recv_cv.notify_all();
-      uv_read_stop(stream);
-      return;
-    }
-    if (nread == 0)
-      return;
-
-    const auto* p = reinterpret_cast<const uint8_t*>(buf->base);
-    auto left = static_cast<size_t>(nread);
-
-    while (left > 0) {
-      if (st->hdr_pos < 4) {
-        const size_t take = std::min(size_t{4} - st->hdr_pos, left);
-        std::memcpy(st->hdr + st->hdr_pos, p, take);
-        st->hdr_pos += static_cast<uint32_t>(take);
-        p += take;
-        left -= take;
-        if (st->hdr_pos == 4) {
-          uint32_t net_hdr;
-          std::memcpy(&net_hdr, st->hdr, 4);
-          st->payload_left = byte_swap(net_hdr);
-          st->partial.clear();
-          st->partial.reserve(st->payload_left);
-        }
-      }
-      if (st->hdr_pos == 4 && (left > 0 || st->payload_left == 0)) {
-        const size_t take = std::min(static_cast<size_t>(st->payload_left), left);
-        st->partial.insert(st->partial.end(), p, p + take);
-        st->payload_left -= static_cast<uint32_t>(take);
-        p += take;
-        left -= take;
-        if (st->payload_left == 0) {
-          {
-            std::lock_guard<std::mutex> lk(st->recv_mtx);
-            st->recv_queue.push(std::move(st->partial));
-          }
-          st->recv_cv.notify_one();
-          st->partial = bison::buffer{};
-          st->hdr_pos = 0;
-        }
-      }
-    }
-  }
-
-  struct write_req {
-    uv_write_t req{};
-    std::vector<uint8_t> data;
-  };
-
-  static void on_write_done(uv_write_t* req, int /*status*/) {
-    delete reinterpret_cast<write_req*>(req);
-  }
-
-  static void on_send(uv_async_t* async) {
-    auto* st = static_cast<pipe_end_state*>(async->data);
-    std::queue<std::vector<uint8_t>> q;
-    {
-      std::lock_guard<std::mutex> lk(st->send_mtx);
-      std::swap(q, st->send_queue);
-    }
-    while (!q.empty()) {
-      auto* wr = new write_req;
-      wr->data = std::move(q.front());
-      q.pop();
-      uv_buf_t b = uv_buf_init(reinterpret_cast<char*>(wr->data.data()), static_cast<unsigned>(wr->data.size()));
-      uv_write(&wr->req, reinterpret_cast<uv_stream_t*>(&st->handle), &b, 1, on_write_done);
-    }
-  }
-
-  static void on_stop(uv_async_t* async) {
-    auto* st = static_cast<pipe_end_state*>(async->data);
-    const auto close_if_active = [](uv_handle_t* h) {
-      if (!uv_is_closing(h))
-        uv_close(h, nullptr);
-    };
-    close_if_active(reinterpret_cast<uv_handle_t*>(&st->handle));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&st->send_async));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&st->stop_async));
-  }
-
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
-
-  void start_loop() {
-    loop_thread = std::thread([this] {
-      uv_read_start(reinterpret_cast<uv_stream_t*>(&handle), alloc_cb, on_read);
-      uv_run(&loop, UV_RUN_DEFAULT);
-      {
-        std::lock_guard<std::mutex> lk(recv_mtx);
-        recv_closed.store(true);
-      }
-      recv_cv.notify_all();
-      uv_loop_close(&loop);
-    });
-  }
-
-  void stop() {
-    if (stopped.exchange(true))
-      return;
-    uv_async_send(&stop_async);
-    if (loop_thread.joinable())
-      loop_thread.join();
-  }
-
-  ~pipe_end_state() {
-    stop();
-  }
-
-  // ── Public send / receive ─────────────────────────────────────────────────
-
-  void enqueue_frame(const bison::buffer& frame) {
-    std::vector<uint8_t> data(4 + frame.size());
-    const uint32_t net_len = byte_swap(static_cast<uint32_t>(frame.size()));
-    std::memcpy(data.data(), &net_len, 4);
-    if (!frame.empty())
-      std::memcpy(data.data() + 4, frame.data(), frame.size());
-    {
-      std::lock_guard<std::mutex> lk(send_mtx);
-      send_queue.push(std::move(data));
-    }
-    uv_async_send(&send_async);
-  }
-
-  bool dequeue_frame(bison::buffer& frame, std::chrono::milliseconds timeout) {
-    std::unique_lock<std::mutex> lk(recv_mtx);
-    if (!recv_cv.wait_for(lk, timeout, [this] { return !recv_queue.empty() || recv_closed.load(); }))
-      return false;
-    if (recv_queue.empty())
-      return false;
-    frame = std::move(recv_queue.front());
-    recv_queue.pop();
-    return true;
-  }
-};
+using pipe_end_state = uv_stream_state<uv_pipe_t>;
 
 // ── pipe_channel: bootstraps a connected pair ──────────────────────────────────
 
@@ -290,18 +115,10 @@ struct pipe_channel {
       uv_run(&sst->loop, UV_RUN_NOWAIT);
 
     // ── Set up async handles and start background threads ─────────────────────
-    sst->handle.data = sst.get();
-    uv_async_init(&sst->loop, &sst->send_async, pipe_end_state::on_send);
-    sst->send_async.data = sst.get();
-    uv_async_init(&sst->loop, &sst->stop_async, pipe_end_state::on_stop);
-    sst->stop_async.data = sst.get();
+    sst->init_asyncs();
     sst->start_loop();
 
-    cst->handle.data = cst.get();
-    uv_async_init(&cst->loop, &cst->send_async, pipe_end_state::on_send);
-    cst->send_async.data = cst.get();
-    uv_async_init(&cst->loop, &cst->stop_async, pipe_end_state::on_stop);
-    cst->stop_async.data = cst.get();
+    cst->init_asyncs();
     cst->start_loop();
 
     ch->server_st = std::move(sst);
