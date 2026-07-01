@@ -15,7 +15,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <memory>
 #include <queue>
 #include <stdexcept>
@@ -43,7 +42,6 @@ struct named_pipe_server_state {
   uv_async_t stop_async{};
 
   bison::synchronized<std::queue<std::unique_ptr<named_pipe_server_connection>>> accept_queue;
-  std::condition_variable_any accept_cv;
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
 
@@ -82,7 +80,7 @@ void named_pipe_server_state::on_new_connection(uv_stream_t* server, int status)
   conn->cs = std::move(cs);
   auto wrapped = make_server_connection(std::move(conn));
   ss->accept_queue.withWLock([&](auto& q) { q.push(std::move(wrapped)); });
-  ss->accept_cv.notify_one();
+  ss->accept_queue.notify_one();
 }
 
 // ── named_pipe_server_connection ─────────────────────────────────────────────
@@ -219,7 +217,7 @@ void named_pipe_server_transport::start(bison::dynamic /*params*/) {
   state_->loop_thread = std::thread([this] {
     uv_run(&state_->loop, UV_RUN_DEFAULT);
     uv_loop_close(&state_->loop);
-    state_->accept_cv.notify_all();
+    state_->accept_queue.notify_all();
   });
 }
 
@@ -227,7 +225,7 @@ std::unique_ptr<server_connection_iface> named_pipe_server_transport::accept(
     std::chrono::milliseconds timeout) {
   if (!state_)
     return nullptr;
-  if (!state_->accept_queue.wait_for(state_->accept_cv, timeout,
+  if (!state_->accept_queue.wait_for(timeout,
                                      [this](auto& q) { return !q.empty() || stopped_.load(); }))
     return nullptr;
   return state_->accept_queue.withWLock(

@@ -116,8 +116,8 @@ libuv is callback/event-loop based; bison's transport interface is synchronous (
 
 **Receive path** (loop thread → caller thread):
 - `alloc_cb` / `on_read` callbacks accumulate incoming bytes and parse 4-byte length-prefix frames incrementally.
-- Each complete frame is pushed to a `std::queue<bison::buffer>` under a `std::mutex`, then `recv_cv.notify_one()` is called.
-- `receive(frame, timeout)` waits on `recv_cv` with `wait_for(timeout)`.
+- Each complete frame is pushed to a `bison::synchronized<std::queue<bison::buffer>>`, then `notify_one()` is called on that same `synchronized` (it owns its own condition variable, so no separate `std::condition_variable` is needed).
+- `receive(frame, timeout)` calls `wait_for(timeout, pred)` directly on that `synchronized` queue.
 
 **Send path** (caller thread → loop thread):
 - `send(frame)` serializes the frame (4-byte header + payload) into a `std::vector<uint8_t>`, pushes to a send queue under a mutex, then calls `uv_async_send(&send_async)`.

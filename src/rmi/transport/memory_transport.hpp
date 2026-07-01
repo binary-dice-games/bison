@@ -10,7 +10,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <memory>
 #include <queue>
 
@@ -21,15 +20,13 @@ namespace bdg::bison::rmi::transport {
  *
  * Represents one logical duplex connection between one client endpoint and
  * one server endpoint. Each queue is owned by a `bison::synchronized` wrapper
- * that forces explicit scoped access; `condition_variable_any` objects signal
- * pending items without exposing raw mutexes to callers.
+ * that forces explicit scoped access and provides its own condition variable
+ * for pending-item signalling without exposing raw mutexes to callers.
  */
 struct memory_channel {
   bison::synchronized<std::queue<bison::buffer>> c2s;
   bison::synchronized<std::queue<bison::buffer>> s2c;
   std::atomic<bool> closed{false};
-  std::condition_variable_any cv_c2s;
-  std::condition_variable_any cv_s2c;
 };
 
 /**
@@ -119,7 +116,6 @@ class memory_server_transport : public server_transport_iface {
 
  private:
   bison::synchronized<std::queue<std::shared_ptr<memory_channel>>> pending_;
-  std::condition_variable_any cv_;
   std::atomic<bool> stopped_{false};
 };
 

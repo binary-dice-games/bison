@@ -108,6 +108,12 @@ concept shared_mutex_c = requires(Mutex& m) {
  * - `withWLock(fn)` / `withRLock(fn)` are convenience wrappers that invoke @p
  *   fn while holding the appropriate lock.
  *
+ * `synchronized` also owns its own condition variable, so callers can block
+ * on changes to the protected value without managing a separate
+ * `std::condition_variable_any`: `wait(pred)` / `wait_for(timeout, pred)`
+ * block until @p pred is satisfied, and `notify_one()` / `notify_all()`
+ * wake waiters.
+ *
  * `synchronized` is neither movable nor copyable after construction;
  * use `copy()` to take a snapshot.
  *
@@ -197,24 +203,46 @@ class synchronized {
   /**
    * @brief Block until @p pred(value) is true or @p timeout elapses.
    *
-   * Acquires the exclusive lock internally and passes it to @p cv so the
-   * caller never touches the raw mutex directly.  The lock is released
-   * atomically while waiting and re-acquired before each predicate check,
-   * exactly as `condition_variable_any::wait_for` guarantees.
+   * Acquires the exclusive lock internally and waits on this instance's own
+   * condition variable — callers no longer need to own or pass in a
+   * separate `std::condition_variable_any`; use `notify_one()` /
+   * `notify_all()` on this same `synchronized` to wake waiters.
    *
-   * @param cv      Condition variable to wait on; the caller owns it and is
-   *                responsible for calling `notify_one` / `notify_all`.
    * @param timeout Maximum wait duration.
    * @param pred    Callable with signature `bool(T&)`; returns `true` when
    *                the condition is satisfied.
    * @return `true` if @p pred returned `true` before the timeout expired.
    */
   template <typename Rep, typename Period, typename Pred>
-  bool wait_for(std::condition_variable_any& cv,
-                std::chrono::duration<Rep, Period> timeout,
-                Pred&& pred) {
+  bool wait_for(std::chrono::duration<Rep, Period> timeout, Pred&& pred) {
     std::unique_lock<Mutex> lk(mutex_);
-    return cv.wait_for(lk, timeout, [this, &pred] { return pred(data_); });
+    return cv_.wait_for(lk, timeout, [this, &pred] { return pred(data_); });
+  }
+
+  /**
+   * @brief Block indefinitely until @p pred(value) is true.
+   *
+   * Re-checks @p pred on every wake so spurious wakeups cannot cause a
+   * premature return. Wake it with `notify_one()` / `notify_all()` on this
+   * same `synchronized`.
+   *
+   * @param pred Callable with signature `bool(T&)`; returns `true` when the
+   *             condition is satisfied.
+   */
+  template <typename Pred>
+  void wait(Pred&& pred) {
+    std::unique_lock<Mutex> lk(mutex_);
+    cv_.wait(lk, [this, &pred] { return pred(data_); });
+  }
+
+  /** @brief Wake one thread blocked in `wait()` / `wait_for()` on this instance. */
+  void notify_one() noexcept {
+    cv_.notify_one();
+  }
+
+  /** @brief Wake all threads blocked in `wait()` / `wait_for()` on this instance. */
+  void notify_all() noexcept {
+    cv_.notify_all();
   }
 
   /**
@@ -277,6 +305,7 @@ class synchronized {
 
  private:
   mutable Mutex mutex_;
+  mutable std::condition_variable_any cv_;
   T data_;
 };
 

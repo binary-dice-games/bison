@@ -28,7 +28,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <cstring>
 #include <queue>
@@ -74,7 +73,6 @@ struct uv_stream_state {
 
   // ── Receive queue: loop thread → caller ────────────────────────────────────
   bison::synchronized<std::queue<bison::buffer>> recv_queue;
-  std::condition_variable_any recv_cv;
   std::atomic<bool> recv_closed{false};
 
   // ── Send queue: caller → loop thread ───────────────────────────────────────
@@ -113,7 +111,7 @@ struct uv_stream_state {
       uv_read_start(reinterpret_cast<uv_stream_t*>(&handle), alloc_cb, on_read);
       uv_run(&loop, UV_RUN_DEFAULT);
       recv_closed.store(true);
-      recv_cv.notify_all();
+      recv_queue.notify_all();
       uv_loop_close(&loop);
     });
   }
@@ -152,7 +150,7 @@ struct uv_stream_state {
    */
   bool dequeue_frame(bison::buffer& frame, std::chrono::milliseconds timeout) {
     bool got = false;
-    recv_queue.wait_for(recv_cv, timeout, [&](auto& q) {
+    recv_queue.wait_for(timeout, [&](auto& q) {
       if (q.empty() && !recv_closed.load())
         return false;
       if (!q.empty()) {
@@ -177,7 +175,7 @@ struct uv_stream_state {
     auto* st = static_cast<uv_stream_state*>(stream->data);
     if (nread < 0) {
       st->recv_closed.store(true);
-      st->recv_cv.notify_all();
+      st->recv_queue.notify_all();
       uv_read_stop(stream);
       return;
     }
@@ -210,7 +208,7 @@ struct uv_stream_state {
         left -= take;
         if (st->payload_left == 0) {
           st->recv_queue.withWLock([&](auto& q) { q.push(std::move(st->partial)); });
-          st->recv_cv.notify_one();
+          st->recv_queue.notify_one();
           st->partial = bison::buffer{};
           st->hdr_pos = 0;
         }
