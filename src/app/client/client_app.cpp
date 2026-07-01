@@ -20,11 +20,14 @@
 #include <stdexcept>
 #include <string>
 
+extern void wait_for_debugger();
+
 DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(pipe);
 DECLARE_int32(timeout);
 DECLARE_bool(pty);
+DECLARE_bool(debugger);
 
 namespace bdg::bison::app {
 
@@ -57,6 +60,10 @@ int client_app::run_with_transport(std::unique_ptr<rmi::transport::client_transp
 
 int client_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  if (FLAGS_debugger) {
+    wait_for_debugger();
+  }
 
   timeout_ = std::chrono::milliseconds{FLAGS_timeout};
 

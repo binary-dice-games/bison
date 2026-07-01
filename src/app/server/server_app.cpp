@@ -26,6 +26,8 @@
 #include <stdexcept>
 #include <string>
 
+extern void wait_for_debugger();
+
 DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(pipe);
@@ -33,6 +35,7 @@ DECLARE_bool(verbose);
 DECLARE_string(pty);
 DECLARE_int32(pty_cols);
 DECLARE_int32(pty_rows);
+DECLARE_bool(debugger);
 
 namespace bdg::bison::app {
 
@@ -86,8 +89,7 @@ void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string
 void server_app::on_listening() const {
 #if defined(__linux__) || defined(_WIN32)
   if (!FLAGS_pty.empty()) {
-    std::cout << "[server_app] PTY transport: running " << FLAGS_pty
-              << " -- press Enter to stop\n" << std::flush;
+    std::cout << "[server_app] PTY transport: running " << FLAGS_pty << " -- press Enter to stop\n" << std::flush;
     return;
   }
 #endif
@@ -128,6 +130,10 @@ int server_app::run_with_transport(rmi::transport::server_transport_iface& trans
 int server_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
+  if (FLAGS_debugger) {
+    wait_for_debugger();
+  }
+
   try {
     register_classes();
 
@@ -138,9 +144,10 @@ int server_app::run(int argc, char** argv) {
       cfg.cols = static_cast<uint16_t>(FLAGS_pty_cols);
       cfg.rows = static_cast<uint16_t>(FLAGS_pty_rows);
       // Route plain (non-DCS) child output to the server's stdout.
-      rmi::transport::pty_server_transport transport{
-          std::move(cfg),
-          [](uint8_t b) { std::cout.put(static_cast<char>(b)); std::cout.flush(); }};
+      rmi::transport::pty_server_transport transport{std::move(cfg), [](uint8_t b) {
+                                                       std::cout.put(static_cast<char>(b));
+                                                       std::cout.flush();
+                                                     }};
       return run_with_transport(transport);
     }
 #endif

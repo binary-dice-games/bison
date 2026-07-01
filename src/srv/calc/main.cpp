@@ -14,6 +14,7 @@ DEFINE_bool(verbose, false, "Print trace messages to stdout for debugging sessio
 DEFINE_string(pty, "", "Command to run inside a PTY (enables PTY transport; e.g. /bin/bash)");
 DEFINE_int32(pty_cols, 220, "Terminal column width for PTY transport");
 DEFINE_int32(pty_rows, 50, "Terminal row height for PTY transport");
+DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 
 int main(int argc, char** argv) {
   bdg::bison::srv::calc_server server;
