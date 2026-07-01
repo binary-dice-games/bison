@@ -10,9 +10,6 @@
 #include "src/rmi/transport/socket_transport.hpp"
 
 #if defined(__linux__) || defined(_WIN32)
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
 #include "src/rmi/transport/transport_iface.hpp"
 #endif
 
@@ -20,7 +17,6 @@
 
 #include <iomanip>
 #include <iostream>
-#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
