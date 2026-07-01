@@ -14,11 +14,9 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <functional>
 #include <future>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <string>
 #include <thread>
@@ -247,23 +245,19 @@ class client : public proxy_backend {
 
   // ── Members ───────────────────────────────────────────────────────────────
 
-  std::unique_ptr<transport::client_transport_iface> transport_;
+  bison::synchronized<std::unique_ptr<transport::client_transport_iface>> transport_;
   std::thread worker_;
   std::thread event_thread_;
   std::atomic<bool> running_{false};
 
   // Event dispatch queue — worker produces, event_thread_ consumes.
-  std::queue<std::function<void()>> event_queue_;
-  std::mutex event_queue_mtx_;
-  std::condition_variable event_queue_cv_;
+  bison::synchronized<std::queue<std::function<void()>>> event_queue_;
 
   bison::synchronized<std::unordered_map<bison::hash_t, std::promise<bison::dynamic>>> pending_;
 
   bison::synchronized<
       std::unordered_map<bison::hash_t, std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
       event_handlers_;
-
-  std::mutex send_mutex_;
 };
 
 } // namespace bdg::bison::rmi

@@ -14,11 +14,9 @@
 #include "src/rmi/server/context.hpp"
 
 #include <atomic>
-#include <condition_variable>
 #include <functional>
 #include <future>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <thread>
 #include <unordered_map>
@@ -276,9 +274,7 @@ class standalone : public proxy_backend {
       std::unordered_map<bison::hash_t, std::unordered_map<bison::hash_t, std::function<void(bison::dynamic)>>>>
       event_handlers_;
 
-  std::queue<task_item> queue_;
-  std::mutex queue_mutex_;
-  std::condition_variable queue_cv_;
+  bison::synchronized<std::queue<task_item>> queue_;
   std::atomic<bool> running_{false};
   std::thread worker_;
 };

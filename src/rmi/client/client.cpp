@@ -35,7 +35,7 @@ client::~client() {
 /** @copydoc bdg::bison::rmi::client::connect */
 void client::connect(bison::dynamic params) {
   shared::register_all_schemas();
-  transport_->open(std::move(params));
+  transport_.withWLock([&](auto& t) { t->open(std::move(params)); });
   running_.store(true);
   worker_ = std::thread(&client::worker_loop, this);
   event_thread_ = std::thread(&client::event_loop, this);
@@ -105,8 +105,8 @@ void client::disconnect() {
   }
 
   running_.store(false);
-  transport_->shutdown(); // unblock worker_loop's transport->receive()
-  event_queue_cv_.notify_one(); // unblock event_loop if it is idle-waiting
+  transport_.withWLock([](auto& t) { t->shutdown(); }); // unblock worker_loop's transport->receive()
+  event_queue_.notify_one(); // unblock event_loop if it is idle-waiting
   if (worker_.joinable())
     worker_.join(); // worker exits, fail_all_pending is called there
   if (event_thread_.joinable())
@@ -132,10 +132,7 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
   }();
 
   if (oneway) {
-    {
-      std::lock_guard<std::mutex> lk(send_mutex_);
-      transport_->send(std::move(frame));
-    }
+    transport_.withWLock([&](auto& t) { t->send(std::move(frame)); });
     std::promise<bison::dynamic> p;
     p.set_value(bison::dynamic{});
     return p.get_future();
@@ -145,8 +142,7 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
   auto future = promise.get_future();
   pending_.wlock()->operator[](request_id.id) = std::move(promise);
   try {
-    std::lock_guard<std::mutex> lk(send_mutex_);
-    transport_->send(std::move(frame));
+    transport_.withWLock([&](auto& t) { t->send(std::move(frame)); });
   } catch (...) {
     auto lp = pending_.wlock();
     auto it = lp->find(request_id.id);
@@ -178,11 +174,13 @@ void client::unregister_object_events(bison::key_t object_id) {
 void client::worker_loop() {
   while (running_.load(std::memory_order_acquire)) {
     bison::buffer frame;
-    if (!transport_->receive(frame, std::chrono::milliseconds{50})) {
-      if (!transport_->is_connected()) {
+    bool received = transport_.withWLock([&](auto& t) { return t->receive(frame, std::chrono::milliseconds{50}); });
+    if (!received) {
+      bool connected = transport_.withWLock([](auto& t) { return t->is_connected(); });
+      if (!connected) {
         // Server closed the connection — trigger a clean disconnect.
         running_.store(false);
-        event_queue_cv_.notify_one();
+        event_queue_.notify_one();
         on_disconnect();
       }
       continue;
@@ -205,15 +203,19 @@ void client::worker_loop() {
  */
 void client::event_loop() {
   while (true) {
+    event_queue_.wait(
+        [this](auto& q) { return !q.empty() || !running_.load(std::memory_order_acquire); });
+
     std::function<void()> task;
-    {
-      std::unique_lock<std::mutex> lk(event_queue_mtx_);
-      event_queue_cv_.wait(lk, [this] { return !event_queue_.empty() || !running_.load(std::memory_order_acquire); });
-      if (event_queue_.empty())
-        break;
-      task = std::move(event_queue_.front());
-      event_queue_.pop();
-    }
+    bool have_task = event_queue_.withWLock([&](auto& q) {
+      if (q.empty())
+        return false;
+      task = std::move(q.front());
+      q.pop();
+      return true;
+    });
+    if (!have_task)
+      break;
     task();
   }
 }
@@ -275,16 +277,15 @@ void client::process_frame(const shared::envelope& env) {
       }
     }
     if (handler) {
-      {
-        std::lock_guard<std::mutex> lk(event_queue_mtx_);
-        event_queue_.push([h = std::move(handler), p = std::move(params)]() mutable {
+      event_queue_.withWLock([&](auto& q) {
+        q.push([h = std::move(handler), p = std::move(params)]() mutable {
           try {
             h(std::move(p));
           } catch (...) {
           }
         });
-      }
-      event_queue_cv_.notify_one();
+      });
+      event_queue_.notify_one();
     }
   }
 }

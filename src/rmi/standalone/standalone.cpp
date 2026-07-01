@@ -255,11 +255,8 @@ std::future<bison::dynamic> standalone::enqueue(std::function<bison::dynamic()> 
 
   std::promise<bison::dynamic> promise;
   auto future = promise.get_future();
-  {
-    std::lock_guard<std::mutex> lk(queue_mutex_);
-    queue_.push({std::move(work), std::move(promise)});
-  }
-  queue_cv_.notify_one();
+  queue_.withWLock([&](auto& q) { q.push({std::move(work), std::move(promise)}); });
+  queue_.notify_one();
   return future;
 }
 
@@ -271,15 +268,22 @@ std::future<bison::dynamic> standalone::enqueue(std::function<bison::dynamic()> 
  */
 void standalone::worker_loop() {
   while (true) {
-    std::unique_lock<std::mutex> lk(queue_mutex_);
-    queue_cv_.wait(lk, [this] { return !queue_.empty() || !running_.load(std::memory_order_relaxed); });
+    queue_.wait([this](auto& q) { return !q.empty() || !running_.load(std::memory_order_relaxed); });
 
-    if (!running_.load(std::memory_order_relaxed) && queue_.empty())
-      break;
+    task_item task;
+    bool have_task = queue_.withWLock([&](auto& q) {
+      if (q.empty())
+        return false;
+      task = std::move(q.front());
+      q.pop();
+      return true;
+    });
 
-    task_item task = std::move(queue_.front());
-    queue_.pop();
-    lk.unlock();
+    if (!have_task) {
+      if (!running_.load(std::memory_order_relaxed))
+        break;
+      continue;
+    }
 
     try {
       task.promise.set_value(task.work());
@@ -294,7 +298,7 @@ void standalone::stop_worker() {
   if (!running_.load(std::memory_order_acquire))
     return;
   running_.store(false, std::memory_order_release);
-  queue_cv_.notify_all();
+  queue_.notify_all();
   if (worker_.joinable())
     worker_.join();
 }
