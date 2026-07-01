@@ -11,7 +11,6 @@
 #include "src/rmi/shared/schemas.hpp"
 
 #include <iomanip>
-#include <shared_mutex>
 #include <sstream>
 #include <stdexcept>
 

@@ -14,7 +14,8 @@
  * @note The caller owns the stream and must ensure it outlives the transport
  *       object.  Thread-safety of the stream itself is the caller's
  *       responsibility; the transport serializes its own send/receive calls
- *       with an internal mutex.
+ *       by routing them through `bison::synchronized`-wrapped stream
+ *       references.
  */
 #pragma once
 
@@ -24,9 +25,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <memory>
-#include <mutex>
 
 namespace bdg::bison::rmi::transport {
 
@@ -89,9 +90,8 @@ class stream_client_transport : public client_transport_iface {
   void shutdown() override;
 
  private:
-  std::iostream& stream_;
-  std::mutex send_mtx_;
-  std::mutex recv_mtx_;
+  bison::synchronized<std::reference_wrapper<std::iostream>> send_st_;
+  bison::synchronized<std::reference_wrapper<std::iostream>> recv_st_;
   std::atomic<bool> closed_{false};
 };
 
@@ -132,9 +132,8 @@ class stream_server_connection : public server_connection_iface {
   bool is_closed() const override;
 
  private:
-  std::iostream& stream_;
-  std::mutex send_mtx_;
-  std::mutex recv_mtx_;
+  bison::synchronized<std::reference_wrapper<std::iostream>> send_st_;
+  bison::synchronized<std::reference_wrapper<std::iostream>> recv_st_;
   std::atomic<bool> closed_{false};
 };
 

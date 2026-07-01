@@ -46,35 +46,37 @@ bool stream_read_frame(std::istream& in, bison::buffer& frame) {
 
 // ── stream_client_transport ───────────────────────────────────────────────────
 
-stream_client_transport::stream_client_transport(std::iostream& stream) : stream_(stream) {}
+stream_client_transport::stream_client_transport(std::iostream& stream)
+    : send_st_(std::ref(stream)), recv_st_(std::ref(stream)) {}
 
 void stream_client_transport::open(bison::dynamic /*params*/) {}
 
 void stream_client_transport::send(bison::buffer frame) {
-  std::lock_guard<std::mutex> lk(send_mtx_);
-  stream_write_frame(stream_, frame);
+  send_st_.withWLock([&](auto& s) { stream_write_frame(s.get(), frame); });
 }
 
 bool stream_client_transport::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
-  std::lock_guard<std::mutex> lk(recv_mtx_);
-  while (!closed_.load()) {
-    if (stream_.rdbuf()->in_avail() > 0 || stream_.peek() != std::istream::traits_type::eof()) {
-      // Data may be available; attempt a read.
-      auto pos = stream_.tellg();
-      (void)pos; // not all streams support seeking — just attempt.
-      try {
-        return stream_read_frame(stream_, frame);
-      } catch (...) {
-        return false;
+  return recv_st_.withWLock([&](auto& s) {
+    std::iostream& stream = s.get();
+    while (!closed_.load()) {
+      if (stream.rdbuf()->in_avail() > 0 || stream.peek() != std::istream::traits_type::eof()) {
+        // Data may be available; attempt a read.
+        auto pos = stream.tellg();
+        (void)pos; // not all streams support seeking — just attempt.
+        try {
+          return stream_read_frame(stream, frame);
+        } catch (...) {
+          return false;
+        }
       }
+      if (std::chrono::steady_clock::now() >= deadline)
+        return false;
+      // Yield briefly to avoid spinning when no data is present.
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }
-    if (std::chrono::steady_clock::now() >= deadline)
-      return false;
-    // Yield briefly to avoid spinning when no data is present.
-    std::this_thread::sleep_for(std::chrono::milliseconds{1});
-  }
-  return false;
+    return false;
+  });
 }
 
 void stream_client_transport::shutdown() {
@@ -83,29 +85,31 @@ void stream_client_transport::shutdown() {
 
 // ── stream_server_connection ──────────────────────────────────────────────────
 
-stream_server_connection::stream_server_connection(std::iostream& stream) : stream_(stream) {}
+stream_server_connection::stream_server_connection(std::iostream& stream)
+    : send_st_(std::ref(stream)), recv_st_(std::ref(stream)) {}
 
 void stream_server_connection::send(bison::buffer frame) {
-  std::lock_guard<std::mutex> lk(send_mtx_);
-  stream_write_frame(stream_, frame);
+  send_st_.withWLock([&](auto& s) { stream_write_frame(s.get(), frame); });
 }
 
 bool stream_server_connection::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
-  std::lock_guard<std::mutex> lk(recv_mtx_);
-  while (!closed_.load()) {
-    if (stream_.rdbuf()->in_avail() > 0 || stream_.peek() != std::istream::traits_type::eof()) {
-      try {
-        return stream_read_frame(stream_, frame);
-      } catch (...) {
-        return false;
+  return recv_st_.withWLock([&](auto& s) {
+    std::iostream& stream = s.get();
+    while (!closed_.load()) {
+      if (stream.rdbuf()->in_avail() > 0 || stream.peek() != std::istream::traits_type::eof()) {
+        try {
+          return stream_read_frame(stream, frame);
+        } catch (...) {
+          return false;
+        }
       }
+      if (std::chrono::steady_clock::now() >= deadline)
+        return false;
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
     }
-    if (std::chrono::steady_clock::now() >= deadline)
-      return false;
-    std::this_thread::sleep_for(std::chrono::milliseconds{1});
-  }
-  return false;
+    return false;
+  });
 }
 
 void stream_server_connection::close() {

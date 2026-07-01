@@ -22,7 +22,6 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
-#include <mutex>
 #include <queue>
 
 namespace bdg::bison::rmi::transport {
@@ -65,8 +64,6 @@ class pipe_client_transport : public client_transport_iface {
 
  private:
   std::shared_ptr<pipe_channel> ch_;
-  std::mutex send_mtx_;
-  std::mutex recv_mtx_;
 };
 
 // ── Server-side connection ────────────────────────────────────────────────────
@@ -103,8 +100,6 @@ class pipe_server_connection : public server_connection_iface {
 
  private:
   std::shared_ptr<pipe_channel> ch_;
-  std::mutex send_mtx_;
-  std::mutex recv_mtx_;
 };
 
 // ── Server-side transport ─────────────────────────────────────────────────────
