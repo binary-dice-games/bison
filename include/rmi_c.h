@@ -33,8 +33,9 @@
  *
  * ## Transport selection
  *
- * Socket (TCP) transport is exposed via the regular client/server C API.
- * In-memory transport is available only through C++.
+ * Socket (TCP) and named-pipe / Unix-socket transports are exposed via the
+ * regular client/server C API. In-memory transport is available only
+ * through C++.
  */
 
 #ifndef RMI_C_H
@@ -183,6 +184,17 @@ RMI_API void rmi_future_release(rmi_future_handle future);
  * @endcode
  */
 RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port);
+
+/**
+ * @brief Create named-pipe / Unix-socket client.
+ *
+ * On Windows, @p path is a full pipe path (`\\.\pipe\name`). On Linux/macOS,
+ * @p path is a file-system socket path (e.g. `/tmp/wish.sock`).
+ *
+ * @param path Pipe or Unix-socket path to connect to.
+ * @return New client handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_client_handle rmi_client_pipe_create(const char* path);
 
 /**
  * @brief Create a standalone in-process client.
@@ -442,6 +454,19 @@ rmi_proxy_call_async(rmi_proxy_handle proxy, bison_hash method, bison_handle par
  * @endcode
  */
 RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port);
+
+/**
+ * @brief Create named-pipe / Unix-socket server listener.
+ *
+ * server not listening until `rmi_server_listen()` called.
+ *
+ * On Windows, @p path is a full pipe path (`\\.\pipe\name`). On Linux/macOS,
+ * @p path is a file-system socket path (e.g. `/tmp/wish.sock`).
+ *
+ * @param path Pipe or Unix-socket path to bind.
+ * @return New server handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_server_handle rmi_server_pipe_create(const char* path);
 
 /**
  * @brief Start the server listener.

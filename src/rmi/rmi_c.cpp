@@ -397,6 +397,16 @@ RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port)
   }
 }
 
+RMI_API rmi_client_handle rmi_client_pipe_create(const char* path) {
+  if (!path)
+    return nullptr;
+  try {
+    return make_owned_client_handle(std::make_unique<client>(std::make_unique<named_pipe_client_transport>(path)));
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 RMI_API rmi_client_handle rmi_standalone_create(void) {
   try {
     return make_owned_standalone_handle(std::make_unique<standalone>());
@@ -712,6 +722,17 @@ RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port)
     return nullptr;
   try {
     auto* sp = new server_ptr(std::make_unique<server>(std::make_unique<socket_server_transport>(host, port)));
+    return as_server_handle(sp);
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+RMI_API rmi_server_handle rmi_server_pipe_create(const char* path) {
+  if (!path)
+    return nullptr;
+  try {
+    auto* sp = new server_ptr(std::make_unique<server>(std::make_unique<named_pipe_server_transport>(path)));
     return as_server_handle(sp);
   } catch (...) {
     return nullptr;
