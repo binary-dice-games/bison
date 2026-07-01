@@ -10,7 +10,6 @@
 #include "src/rmi/shared/ids.hpp"
 
 #include <chrono>
-#include <mutex>
 #include <sstream>
 #include <stdexcept>
 
@@ -134,7 +133,7 @@ void bridge::on_session_created(context& ctx) {
   auto ss = std::make_shared<session_state>();
   ss->session_id = ctx.session_id;
   ss->ns_prefix = ns_prefix;
-  ss->emit = ctx.emit_event;
+  ss->emit_st.wlock()->emit = ctx.emit_event;
 
   sessions_.wlock()->emplace(ctx.session_id.id, ss);
   on_client_connected(ctx);
@@ -155,15 +154,16 @@ void bridge::teardown_session(bison::key_t session_id) {
     ss = std::move(it->second);
     wp->erase(it);
   }
-  // Hold emit_mtx while marking the session inactive.  Any concurrent
-  // route_event call that already holds emit_mtx (i.e. is in the middle of
-  // calling emit) will complete before we proceed.  After we release emit_mtx
-  // below, route_event will see emit_active==false and short-circuit without
-  // touching the (soon-to-be-dangling) conn reference captured by emit.
+  // Hold the emit_st write lock while marking the session inactive.  Any
+  // concurrent route_event call that already holds the lock (i.e. is in the
+  // middle of calling emit) will complete before we proceed.  After we
+  // release the lock below, route_event will see active==false and
+  // short-circuit without touching the (soon-to-be-dangling) conn reference
+  // captured by emit.
   if (ss) {
-    std::lock_guard<std::mutex> lg(ss->emit_mtx);
-    ss->emit_active = false;
-    ss->emit = nullptr;
+    auto wp = ss->emit_st.wlock();
+    wp->active = false;
+    wp->emit = nullptr;
   }
 }
 
@@ -402,10 +402,10 @@ void bridge::route_event(const shared::envelope& env) {
     local_oid = it->second.second;
   }
 
-  // Resolve the session and call emit under emit_mtx.  The mutex prevents
-  // a teardown_session call (which sets emit_active=false) from racing with
-  // our emit call: either we finish before teardown or teardown sets
-  // emit_active=false first and we skip the call entirely.
+  // Resolve the session and call emit under the emit_st lock.  This prevents
+  // a teardown_session call (which sets active=false) from racing with our
+  // emit call: either we finish before teardown or teardown sets
+  // active=false first and we skip the call entirely.
   std::shared_ptr<session_state> ss;
   {
     auto lp = sessions_.rlock();
@@ -416,10 +416,10 @@ void bridge::route_event(const shared::envelope& env) {
   }
 
   {
-    std::lock_guard<std::mutex> lg(ss->emit_mtx);
-    if (!ss->emit_active || !ss->emit)
+    auto lp = ss->emit_st.wlock();
+    if (!lp->active || !lp->emit)
       return;
-    ss->emit(local_oid, event_name, std::move(params));
+    lp->emit(local_oid, event_name, std::move(params));
   }
 }
 

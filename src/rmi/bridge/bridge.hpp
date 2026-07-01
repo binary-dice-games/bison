@@ -180,26 +180,28 @@ class bridge : public server {
     /** Unique key identifying this client's logical namespace. */
     bison::key_t ns_prefix;
 
-    /**
-     * Mutex that serialises calls to `emit` and the `teardown_session`
-     * shutdown path.  `teardown_session` acquires it (while `emit_active` is
-     * set to false) to guarantee that any in-progress event dispatch on the
-     * upstream client thread finishes before the downstream connection (`conn`)
-     * is destroyed.
-     */
-    std::mutex emit_mtx;
+    /** State guarded together so `emit` is never called after teardown. */
+    struct emit_state {
+      /**
+       * Set to false by `teardown_session` while holding the write lock.
+       * `route_event` checks it under the same lock before calling `emit`.
+       */
+      bool active{true};
+
+      /**
+       * Copy of `ctx.emit_event`.  Must only be called while holding the
+       * `emit_st` lock and with `active == true`.
+       */
+      std::function<void(bison::key_t, bison::key_t, bison::dynamic)> emit;
+    };
 
     /**
-     * Set to false by `teardown_session` while holding `emit_mtx`.
-     * `route_event` checks it under `emit_mtx` before calling `emit`.
+     * Synchronizes calls to `emit` with the `teardown_session` shutdown path.
+     * `teardown_session` takes the write lock (and sets `active` to false) to
+     * guarantee that any in-progress event dispatch on the upstream client
+     * thread finishes before the downstream connection (`conn`) is destroyed.
      */
-    bool emit_active{true};
-
-    /**
-     * Copy of `ctx.emit_event`.  Must only be called while holding
-     * `emit_mtx` and with `emit_active == true`.
-     */
-    std::function<void(bison::key_t, bison::key_t, bison::dynamic)> emit;
+    bison::synchronized<emit_state> emit_st;
 
     /** downstream local_oid → upstream_oid */
     bison::synchronized<std::unordered_map<bison::hash_t, bison::key_t>> local_to_upstream;
