@@ -89,7 +89,7 @@ void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string
 void server_app::on_listening() const {
 #if defined(__linux__) || defined(_WIN32)
   if (!FLAGS_pty.empty()) {
-    std::cout << "[server_app] PTY transport: running " << FLAGS_pty << " -- press Enter to stop\n" << std::flush;
+    std::cout << "[server_app] PTY transport: running " << FLAGS_pty << " -- server stops when child exits\n" << std::flush;
     return;
   }
 #endif
@@ -115,12 +115,25 @@ void server_app::on_error(const std::string& msg) const {
 
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
+void server_app::signal_stop() noexcept {
+  {
+    std::lock_guard<std::mutex> lk{stop_mtx_};
+    stop_signaled_ = true;
+  }
+  stop_cv_.notify_one();
+}
+
 int server_app::run_with_transport(rmi::transport::server_transport_iface& transport) {
   bridged_server srv{transport, *this};
   srv.listen();
   on_listening();
-  std::string line;
-  std::getline(std::cin, line);
+  if (pty_mode_) {
+    std::unique_lock<std::mutex> lk{stop_mtx_};
+    stop_cv_.wait(lk, [this] { return stop_signaled_; });
+  } else {
+    std::string line;
+    std::getline(std::cin, line);
+  }
   srv.stop();
   return 0;
 }
@@ -139,15 +152,16 @@ int server_app::run(int argc, char** argv) {
 
 #if defined(__linux__) || defined(_WIN32)
     if (!FLAGS_pty.empty()) {
+      pty_mode_ = true;
       rmi::pty::pty_config cfg;
       cfg.cmd = FLAGS_pty;
       cfg.cols = static_cast<uint16_t>(FLAGS_pty_cols);
       cfg.rows = static_cast<uint16_t>(FLAGS_pty_rows);
-      // Route plain (non-DCS) child output to the server's stdout.
-      rmi::transport::pty_server_transport transport{std::move(cfg), [](uint8_t b) {
-                                                       std::cout.put(static_cast<char>(b));
-                                                       std::cout.flush();
-                                                     }};
+      // Route plain (non-DCS) child output to stdout; signal stop on PTY EOF.
+      rmi::transport::pty_server_transport transport{
+          std::move(cfg),
+          [](uint8_t b) { std::cout.put(static_cast<char>(b)); std::cout.flush(); },
+          [this] { signal_stop(); }};
       return run_with_transport(transport);
     }
 #endif
