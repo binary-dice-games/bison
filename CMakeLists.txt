@@ -104,22 +104,6 @@ target_sources(bison PRIVATE
   src/app/server/server_app.cpp
 )
 
-# ─── PTY transport sources (platform-specific pairs) ─────────────────────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_sources(bison PRIVATE
-    src/rmi/pty/pty_process_linux.cpp
-    src/rmi/transport/pty_server_transport_linux.cpp
-    src/rmi/transport/pty_client_transport_linux.cpp
-  )
-  target_link_libraries(bison PRIVATE util)
-elseif(WIN32)
-  target_sources(bison PRIVATE
-    src/rmi/pty/pty_process_win.cpp
-    src/rmi/transport/pty_server_transport_win.cpp
-    src/rmi/transport/pty_client_transport_win.cpp
-  )
-endif()
-
 target_include_directories(bison PRIVATE src/rmi)
 
 if(WIN32)
