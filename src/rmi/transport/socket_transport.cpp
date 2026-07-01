@@ -16,9 +16,7 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <stdexcept>
 #include <string>
@@ -214,9 +212,7 @@ struct socket_server_transport::impl {
   uv_tcp_t acceptor{};
   uv_async_t stop_async{};
 
-  std::mutex accept_mtx;
-  std::condition_variable accept_cv;
-  std::queue<std::unique_ptr<socket_server_connection>> accept_queue;
+  bison::synchronized<std::queue<std::unique_ptr<socket_server_connection>>> accept_queue;
   std::atomic<bool> started{false};
   std::atomic<bool> stopped{false};
   std::thread accept_thread;
@@ -248,11 +244,8 @@ struct socket_server_transport::impl {
     conn_impl->st = std::move(cst);
     auto conn = std::make_unique<socket_server_connection>(std::move(conn_impl));
 
-    {
-      std::lock_guard<std::mutex> lk(im->accept_mtx);
-      im->accept_queue.push(std::move(conn));
-    }
-    im->accept_cv.notify_one();
+    im->accept_queue.withWLock([&](auto& q) { q.push(std::move(conn)); });
+    im->accept_queue.notify_one();
   }
 };
 
@@ -309,7 +302,7 @@ void socket_server_transport::start(bison::dynamic params) {
     uv_run(&impl_->accept_loop, UV_RUN_DEFAULT);
     uv_loop_close(&impl_->accept_loop);
     // Wake any blocked accept() calls.
-    impl_->accept_cv.notify_all();
+    impl_->accept_queue.notify_all();
   });
 }
 
@@ -320,14 +313,15 @@ socket_client_transport socket_server_transport::connect() const {
 std::unique_ptr<server_connection_iface> socket_server_transport::accept(std::chrono::milliseconds timeout) {
   if (!impl_)
     return nullptr;
-  std::unique_lock<std::mutex> lk(impl_->accept_mtx);
-  if (!impl_->accept_cv.wait_for(lk, timeout, [this] { return !impl_->accept_queue.empty() || impl_->stopped.load(); }))
+  if (!impl_->accept_queue.wait_for(timeout, [this](auto& q) { return !q.empty() || impl_->stopped.load(); }))
     return nullptr;
-  if (impl_->accept_queue.empty())
-    return nullptr;
-  auto conn = std::move(impl_->accept_queue.front());
-  impl_->accept_queue.pop();
-  return conn;
+  return impl_->accept_queue.withWLock([](auto& q) -> std::unique_ptr<server_connection_iface> {
+    if (q.empty())
+      return nullptr;
+    auto conn = std::move(q.front());
+    q.pop();
+    return conn;
+  });
 }
 
 void socket_server_transport::stop() {
@@ -336,7 +330,7 @@ void socket_server_transport::stop() {
   uv_async_send(&impl_->stop_async);
   if (impl_->accept_thread.joinable())
     impl_->accept_thread.join();
-  impl_->accept_cv.notify_all();
+  impl_->accept_queue.notify_all();
 }
 
 } // namespace bdg::bison::rmi::transport
