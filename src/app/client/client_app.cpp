@@ -9,7 +9,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 
-#if defined(__linux__)
+#if defined(__linux__) || defined(_WIN32)
 #include "src/rmi/transport/pty_client_transport.hpp"
 #endif
 
@@ -23,8 +23,8 @@
 DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(pipe);
-DECLARE_bool(pty);
 DECLARE_int32(timeout);
+DECLARE_bool(pty);
 
 namespace bdg::bison::app {
 
@@ -61,6 +61,12 @@ int client_app::run(int argc, char** argv) {
   timeout_ = std::chrono::milliseconds{FLAGS_timeout};
 
   try {
+#if defined(__linux__) || defined(_WIN32)
+    if (FLAGS_pty) {
+      return run_with_transport(std::make_unique<rmi::transport::pty_client_transport>());
+    }
+#endif
+
     if (!FLAGS_pipe.empty()) {
       return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_pipe));
     }

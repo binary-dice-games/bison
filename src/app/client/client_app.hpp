@@ -23,11 +23,14 @@ namespace bdg::bison::app {
  * domain logic through the connected RMI client.
  *
  * Transport is chosen by gflags CLI flags (all optional):
- *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
+ *   - `--pty`                   — use PTY transport (stdin/stdout DCS framing);
+ *                                 for use when the client is launched inside a
+ *                                 `pty_server_transport` child process (Linux/Windows)
  *   - `--pipe PATH`             — named-pipe / Unix-socket path
+ *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
  *
- * `--pipe` takes precedence over `--host`/`--port`;
+ * `--pty` takes precedence over `--pipe` and `--host`/`--port`;
  *
  * Lifecycle (inside `run()`):
  * 1. Parse flags.
