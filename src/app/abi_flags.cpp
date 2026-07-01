@@ -17,3 +17,4 @@ DEFINE_int32(port, 7070, "Listen/connect port");
 DEFINE_string(pipe, "", "Named-pipe / Unix-socket path");
 DEFINE_bool(verbose, false, "Print session trace messages to stdout");
 DEFINE_int32(timeout, 30000, "Connection timeout in milliseconds");
+DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");

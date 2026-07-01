@@ -25,10 +25,13 @@
 #include <stdexcept>
 #include <string>
 
+extern void wait_for_debugger();
+
 DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(pipe);
 DECLARE_bool(verbose);
+DECLARE_bool(debugger);
 
 namespace bdg::bison::app {
 
@@ -116,6 +119,10 @@ int server_app::run_with_transport(rmi::transport::server_transport_iface& trans
 
 int server_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+
+  if (FLAGS_debugger) {
+    wait_for_debugger();
+  }
 
   try {
     register_classes();
