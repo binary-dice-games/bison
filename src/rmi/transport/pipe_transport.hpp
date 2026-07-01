@@ -21,7 +21,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -145,9 +144,7 @@ class pipe_server_transport : public server_transport_iface {
   void stop() override;
 
  private:
-  std::mutex mtx_;
-  std::condition_variable cv_;
-  std::queue<std::shared_ptr<pipe_channel>> pending_;
+  bison::synchronized<std::queue<std::shared_ptr<pipe_channel>>> pending_;
   std::atomic<bool> stopped_{false};
 };
 

@@ -18,9 +18,7 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <memory>
-#include <mutex>
 #include <queue>
 #include <stdexcept>
 #include <string>
@@ -187,28 +185,26 @@ void pipe_server_transport::start(bison::dynamic /*params*/) {
 
 pipe_client_transport pipe_server_transport::connect() {
   auto ch = pipe_channel::create();
-  {
-    std::lock_guard<std::mutex> lk(mtx_);
-    pending_.push(ch);
-  }
-  cv_.notify_one();
+  pending_.withWLock([&](auto& q) { q.push(ch); });
+  pending_.notify_one();
   return pipe_client_transport{ch};
 }
 
 std::unique_ptr<server_connection_iface> pipe_server_transport::accept(std::chrono::milliseconds timeout) {
-  std::unique_lock<std::mutex> lk(mtx_);
-  if (!cv_.wait_for(lk, timeout, [this] { return !pending_.empty() || stopped_.load(); }))
+  if (!pending_.wait_for(timeout, [this](auto& q) { return !q.empty() || stopped_.load(); }))
     return nullptr;
-  if (pending_.empty())
-    return nullptr;
-  auto ch = std::move(pending_.front());
-  pending_.pop();
-  return std::make_unique<pipe_server_connection>(std::move(ch));
+  return pending_.withWLock([](auto& q) -> std::unique_ptr<server_connection_iface> {
+    if (q.empty())
+      return nullptr;
+    auto ch = std::move(q.front());
+    q.pop();
+    return std::make_unique<pipe_server_connection>(std::move(ch));
+  });
 }
 
 void pipe_server_transport::stop() {
   stopped_.store(true);
-  cv_.notify_all();
+  pending_.notify_all();
 }
 
 } // namespace bdg::bison::rmi::transport
