@@ -13,7 +13,6 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
-#include "src/rmi/transport/pty_server_transport.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 #endif
 
@@ -30,9 +29,6 @@ DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(pipe);
 DECLARE_bool(verbose);
-DECLARE_string(pty);
-DECLARE_int32(pty_cols);
-DECLARE_int32(pty_rows);
 
 namespace bdg::bison::app {
 
@@ -84,13 +80,6 @@ void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string
 }
 
 void server_app::on_listening() const {
-#if defined(__linux__) || defined(_WIN32)
-  if (!FLAGS_pty.empty()) {
-    std::cout << "[server_app] PTY transport: running " << FLAGS_pty
-              << " -- press Enter to stop\n" << std::flush;
-    return;
-  }
-#endif
   if (!FLAGS_pipe.empty()) {
     std::cout << "[server_app] listening on pipe " << FLAGS_pipe << " -- press Enter to stop\n" << std::flush;
   } else {
@@ -130,20 +119,6 @@ int server_app::run(int argc, char** argv) {
 
   try {
     register_classes();
-
-#if defined(__linux__) || defined(_WIN32)
-    if (!FLAGS_pty.empty()) {
-      rmi::pty::pty_config cfg;
-      cfg.cmd = FLAGS_pty;
-      cfg.cols = static_cast<uint16_t>(FLAGS_pty_cols);
-      cfg.rows = static_cast<uint16_t>(FLAGS_pty_rows);
-      // Route plain (non-DCS) child output to the server's stdout.
-      rmi::transport::pty_server_transport transport{
-          std::move(cfg),
-          [](uint8_t b) { std::cout.put(static_cast<char>(b)); std::cout.flush(); }};
-      return run_with_transport(transport);
-    }
-#endif
 
     if (!FLAGS_pipe.empty()) {
       rmi::transport::named_pipe_server_transport transport{FLAGS_pipe};

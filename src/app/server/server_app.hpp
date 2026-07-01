@@ -26,11 +26,6 @@ namespace bdg::bison::app {
  *   - `--port PORT`     listen port for socket transport (default: `7070`)
  *   - `--pipe PATH`     named-pipe / Unix-socket path; when non-empty, the
  *                       named-pipe transport is used instead of socket
- *   - `--pty CMD`       command to run inside a PTY (e.g. `/bin/bash`);
- *                       when non-empty, the PTY transport is used and `CMD`
- *                       is spawned with `isatty(stdin) == true` (Linux/Windows)
- *   - `--pty_cols N`    terminal column width for PTY transport (default: 220)
- *   - `--pty_rows N`    terminal row height for PTY transport (default: 50)
  *   - `--verbose`       print one request trace line and one response trace
  *                       line per RMI operation to stdout (open, connect,
  *                       instantiate, call, get, set, destroy, disconnect, …)
