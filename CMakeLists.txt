@@ -102,7 +102,6 @@ target_sources(bison PRIVATE
   src/app/client/client_app.cpp
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
-  src/app/debugger.cpp
 )
 
 # ─── PTY transport sources (platform-specific pairs) ─────────────────────────
@@ -134,7 +133,6 @@ add_library(bison_abi SHARED
   src/bison/bison_c.cpp
   src/rmi/rmi_c.cpp
   src/app/abi_flags.cpp
-  src/app/debugger.cpp
 )
 
 target_compile_definitions(bison_abi PRIVATE BISON_BUILDING_DLL)

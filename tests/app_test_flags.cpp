@@ -15,4 +15,3 @@ DEFINE_int32(port, 7070, "Server port (test default)");
 DEFINE_string(pipe, "", "Named-pipe path (test default)");
 DEFINE_bool(verbose, false, "Verbose trace (test default)");
 DEFINE_int32(timeout, 30000, "Per-request timeout ms (test default)");
-DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
