@@ -33,10 +33,8 @@ namespace bdg::bison::app {
  * example, a scripted test or a full-screen terminal UI).
  *
  * Transport flags (from `client_app`):
- *   - `--pty`                   — DCS framing on stdin/stdout (for use when
- *                                 launched inside a `pty_server_transport`)
- *   - `--pipe PATH`             — named-pipe / Unix-socket path
  *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
+ *   - `--pipe PATH`             — named-pipe / Unix-socket path
  *   - `--timeout MS`            — per-request timeout (default: 30 000 ms)
  */
 class cli_app : public client_app {
