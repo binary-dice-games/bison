@@ -9,8 +9,6 @@
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
-#include <condition_variable>
-#include <mutex>
 #include <string>
 
 namespace bdg::bison::app {
@@ -120,15 +118,6 @@ class server_app {
    */
   virtual void on_verbose_trace(bison::key_t session_id, const std::string& line) const;
 
-  /**
-   * @brief Signal the stop barrier inside `run_with_transport` to unblock.
-   *
-   * Called automatically by the internal session bridge when a session is
-   * destroyed (needed for PTY transport, where stdin is not available as a
-   * stop signal).  May also be called directly from external code.
-   */
-  void signal_stop() noexcept;
-
  protected:
   /**
    * @brief Register domain classes in the bison class registry.
@@ -143,18 +132,16 @@ class server_app {
    *
    * Override to substitute a different server type (e.g. one with a GUI
    * render loop).  The default creates a `bridged_server` and blocks on
-   * stdin until Enter is pressed (non-PTY) or until the PTY child exits.
+   * stdin until Enter is pressed.
+   *
+   * Host and port are not passed as parameters — they are available through
+   * `FLAGS_host` and `FLAGS_port`, which are defined in the binary's
+   * `main.cpp` and carry meaning only for the socket transport.
    *
    * @param transport  Bound transport to serve.
    * @return 0 on clean shutdown, non-zero on error.
    */
   virtual int run_with_transport(rmi::transport::server_transport_iface& transport);
-
- private:
-  bool pty_mode_{false};
-  std::mutex stop_mtx_;
-  std::condition_variable stop_cv_;
-  bool stop_signaled_{false};
 };
 
 } // namespace bdg::bison::app

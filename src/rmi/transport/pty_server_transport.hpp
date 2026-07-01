@@ -93,20 +93,13 @@ class pty_server_connection : public server_connection_iface {
 class pty_server_transport : public server_transport_iface {
  public:
   using plain_cb = std::function<void(uint8_t)>;
-  using closed_cb = std::function<void()>;
 
   /**
-   * @param cfg       Child process configuration (cmd, args, terminal size).
-   * @param on_plain  Callback for non-DCS bytes from the child (shell prompts,
-   *                  command output).  May be empty to discard plain output.
-   * @param on_closed Called from the read thread as soon as the child process
-   *                  exits (EOF on the PTY master / ConPTY output pipe).  Use
-   *                  this to trigger server shutdown rather than relying on the
-   *                  RMI session-destroyed hook, which may fire later or not at
-   *                  all if the child exits without a clean RMI disconnect.
+   * @param cfg      Child process configuration (cmd, args, terminal size).
+   * @param on_plain Callback for non-DCS bytes from the child (shell prompts,
+   *                 command output).  May be empty to discard plain output.
    */
-  explicit pty_server_transport(pty::pty_config cfg, plain_cb on_plain = {},
-                                closed_cb on_closed = {});
+  explicit pty_server_transport(pty::pty_config cfg, plain_cb on_plain = {});
   ~pty_server_transport();
 
   pty_server_transport(const pty_server_transport&) = delete;
@@ -134,7 +127,6 @@ class pty_server_transport : public server_transport_iface {
  private:
   pty::pty_config cfg_;
   plain_cb on_plain_;
-  closed_cb on_closed_;
   std::unique_ptr<pty::pty_process> process_;
   std::atomic<bool> accepted_{false};
   std::atomic<bool> stopped_{false};

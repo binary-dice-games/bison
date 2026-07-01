@@ -126,10 +126,6 @@ HANDLE pty_process::h_in_write() const noexcept {
   return impl_ ? impl_->h_in_write : INVALID_HANDLE_VALUE;
 }
 
-HANDLE pty_process::h_process() const noexcept {
-  return impl_ ? impl_->h_process : INVALID_HANDLE_VALUE;
-}
-
 void pty_process::release_handles(HANDLE& out_read, HANDLE& in_write) noexcept {
   if (!impl_) {
     out_read = INVALID_HANDLE_VALUE;

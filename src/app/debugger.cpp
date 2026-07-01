@@ -50,5 +50,5 @@ void wait_for_debugger() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
-  std::cout << "Debugger attached. Continuing execution..." << std::endl;
+  std::cout << "[OK] Depurador detectado. Continuando ejecución..." << std::endl;
 }

@@ -74,15 +74,6 @@ class pty_process {
    * and the destructor will not close them.
    */
   void release_handles(HANDLE& out_read, HANDLE& in_write) noexcept;
-  /**
-   * @brief Non-owning handle to the child process.
-   *
-   * Valid until `wait()` or `terminate()` + `wait()` is called.  Use
-   * `WaitForSingleObject(h_process(), 0)` to poll for child exit without
-   * blocking — needed with ConPTY because the output pipe remains open after
-   * the child exits and cannot be relied upon to signal EOF.
-   */
-  HANDLE h_process() const noexcept;
 #else
   /** @brief Bidirectional PTY master file descriptor. */
   int master_fd() const noexcept;
