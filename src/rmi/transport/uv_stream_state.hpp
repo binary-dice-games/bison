@@ -120,6 +120,7 @@ struct uv_stream_state {
   // ── Thread state ───────────────────────────────────────────────────────────
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
+  bool asyncs_ready{false};
 
   uv_stream_state() = default;
   ~uv_stream_state() { stop(); }
@@ -142,6 +143,7 @@ struct uv_stream_state {
     send_async.data = this;
     uv_async_init(&loop, &stop_async, on_stop);
     stop_async.data = this;
+    asyncs_ready = true;
   }
 
   /** @brief Launch the background I/O thread. Call after `init_asyncs()`. */
@@ -155,10 +157,25 @@ struct uv_stream_state {
     });
   }
 
-  /** @brief Signal the loop to stop and join the background thread. */
+  /**
+   * @brief Signal the loop to stop and join the background thread.
+   *
+   * If `init_asyncs()` was never called (e.g. an open/connect attempt threw
+   * before reaching it), `send_async`/`stop_async` were never passed to
+   * `uv_async_init()`, so signalling them is undefined behavior. In that
+   * case `start_loop()` was also never called, so no background thread is
+   * running the loop; it is safe to close the handle and drain the loop
+   * synchronously on the calling thread instead.
+   */
   void stop() {
     if (stopped.exchange(true))
       return;
+    if (!asyncs_ready) {
+      uv_close_if_active(reinterpret_cast<uv_handle_t*>(&handle));
+      uv_run(&loop, UV_RUN_DEFAULT);
+      uv_loop_close(&loop);
+      return;
+    }
     uv_async_send(&stop_async);
     if (loop_thread.joinable())
       loop_thread.join();
