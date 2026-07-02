@@ -36,6 +36,16 @@ shutdown `eventfd`) is kept behind an opaque, forward-declared
 `pty_process_state`, defined separately in `pty_process_linux.cpp` and
 `pty_process_win.cpp`, so the shared header stays platform-neutral.
 
+**`raw_mode_guard`** — RAII helper, unrelated to `pty_process`'s fork/exec
+lifecycle, that saves an fd's terminal mode and switches it to raw mode for
+the guard's lifetime, restoring the original mode on destruction. Used by
+`client_app`'s `--pty` path (`src/app/client/client_app.cpp`) on its own
+fd 0 — see Design Decisions below for why. Same opaque-state-per-platform
+split as `pty_process`; the Windows translation unit is a permanent no-op
+stub (construction never fails, it just does nothing), since the client's
+`--pty` mode is only reachable in practice from a Linux `pty_process`
+session.
+
 ## Data Flow
 
 ```
@@ -85,6 +95,30 @@ terminal.
   primitive without a substantially different implementation (ConPTY), so
   `pty_process_win.cpp`'s constructor throws `std::runtime_error`
   unconditionally rather than half-implementing something unusable.
+- **The pty slave's cooked termios corrupts `BISON:` framing, so the client
+  goes raw instead of the server.** The slave keeps its default (cooked)
+  termios so the spawned shell behaves normally — but that same cooked mode
+  applies to *any* process attached to the slave, including a `bison_cli
+  --pty` launched from inside that shell. Two cooked-mode behaviors break
+  the framing:
+  - `OPOST`/`ONLCR` rewrites every `\n` the client writes into `\r\n` on its
+    way out to the master, so the stray `\r` lands inside the frame payload
+    right before the closing `\n` and fails to base64-decode.
+  - `ECHO` on the slave loops the server's own outgoing frame bytes (written
+    into the master, which the pty treats as "terminal input" to the slave)
+    straight back out through the master, so the server's own reader sees
+    its own frame echoed back at it.
+
+  Both are fixed the same way `less`/`vim`/`ssh` fix it: the client, which
+  is the sole foreground reader/writer of the slave for the duration of its
+  RMI session, calls `tcsetattr`/`cfmakeraw` on fd 0 via `raw_mode_guard`
+  before opening `stdio_client_transport`, and restores the original (cooked)
+  termios on exit so the parent shell keeps behaving normally afterwards.
+  This was chosen over changing the *slave*'s termios from the server side
+  because the server has no fd onto the slave at all — only `master_fd()` —
+  and changing cooked-mode behavior globally for the pty would break the
+  shell's own interactivity while the operator is just using it as a normal
+  shell (no client attached).
 
 ## Constraints / Invariants
 
@@ -106,3 +140,8 @@ terminal.
 - `src/app/server/server_app.cpp` — owns the `pty_process` instance in
   `--pty` mode, calls `start_pump()`, and blocks on `wait()` as its
   run-loop shutdown condition.
+- `src/app/client/client_app.cpp` — owns a `raw_mode_guard` on its own fd 0
+  in `--pty` mode, for the lifetime of the RMI session. This is the client
+  side of the same `--pty` feature but does not depend on `pty_process` —
+  see the termios note in Design Decisions above for why the two are
+  separate abstractions.

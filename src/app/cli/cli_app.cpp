@@ -478,7 +478,7 @@ int cli_app::on_session(rmi::client& c) {
   std::string line;
   while (true) {
     std::cout << "> " << std::flush;
-    if (!std::getline(std::cin, line))
+    if (!read_console_line(line))
       break;
     if (!dispatch(line, ctx))
       break;

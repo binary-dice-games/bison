@@ -38,6 +38,12 @@ elseif(WIN32)
     package_add_test(pty_process_win_test pty_process_win_tests.cpp)
 endif()
 
+# raw_mode_guard tests — Linux-only for now, matching raw_mode_guard_win.cpp
+# being a permanent no-op stub (see src/pty/raw_mode_guard.hpp).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    package_add_test(raw_mode_guard_test raw_mode_guard_linux_tests.cpp)
+endif()
+
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})

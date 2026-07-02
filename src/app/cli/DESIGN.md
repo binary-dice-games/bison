@@ -97,7 +97,7 @@ Reads the parsed argv flags and constructs the appropriate transport:
 |---|---|
 | `--host H --port P` (default) | `socket_client_transport{H, P}` |
 | `--pipe PATH` | `named_pipe_client_transport{PATH}` |
-| `--pty` | `stdio_client_transport{0, 1}` — wraps this process's own inherited stdio, cross-platform; no subprocess or pty is spawned client-side |
+| `--pty` | `stdio_client_transport{0, 1}` — wraps this process's own inherited stdio, cross-platform; no subprocess or pty is spawned client-side. Also puts fd 0 in raw mode (`pty::raw_mode_guard`, Linux-only) and routes REPL input through `client_app::read_console_line()` instead of `std::cin` — see `src/pty/DESIGN.md` for why fd 0 can't be read directly in this mode |
 
 ### JSON bridge (private helpers in cli_app.cpp)
 
@@ -125,7 +125,9 @@ argv  ──parse──→ cli_app::run()
                     └─ on_session(c)   ← override to replace REPL
                          │
                          └─ loop:
-                              std::getline(cin, line)
+                              read_console_line(line)  ← std::cin, or the
+                                                          --pty passthrough
+                                                          queue (see client_app)
                               dispatch(line, c, handles, km, timeout)
                                 ├─ name = instantiate(...) → proxy → handles
                                 ├─ name.get([projection])  → JSON to stdout
@@ -258,6 +260,9 @@ is human-readable and machine-parseable for scripting.
 Readline requires a `find_package` dependency the project does not carry and
 is not available on all platforms.  `std::getline` is portable and sufficient.
 History and tab-completion can be added later without changing the core design.
+(In `--pty` mode, `client_app::read_console_line()` reads from a passthrough
+queue instead of `std::cin` directly — see the `--pty` note below — but it's
+still a plain blocking line read from `dispatch()`'s point of view.)
 
 **Per-request timeout via `std::future::wait_for`.**
 The `--timeout` flag sets `timeout_` before `on_session()` is called.  Each
@@ -275,6 +280,20 @@ inherited `fd 0`/`fd 1` in `stdio_client_transport`, which is identical on
 every platform. Only the server-side `pty_process` (`src/pty`), which
 actually forks a terminal, is Linux-only; it throws
 `std::runtime_error` on Windows.
+
+**`--pty` mode can't read `fd 0` via `std::cin`.**
+When launched inside a `bison_server --pty` session, `fd 0`/`fd 1` are the
+pty slave the spawned shell also uses, and `stdio_client_transport`'s
+background reader owns `fd 0` (in non-blocking mode, scanning for `BISON:`
+frames) for the whole session. A concurrent `std::cin` read on the same fd
+loses that race and fails immediately, ending the REPL before the operator
+can type anything. `client_app::read_console_line()` (declared in
+`client_app.hpp`, since this is a `--pty`-transport concern, not a REPL
+concern) instead reads `std::cin` only in socket/pipe mode; in `--pty` mode
+it drains a line queue fed by the transport's own passthrough callback,
+which already receives every non-`BISON:` byte in arrival order. See
+`src/pty/DESIGN.md` for the matching server-side and framing-corruption
+notes.
 
 **`proxy::dynamic` stored directly in `std::unordered_map`.**
 `proxy::dynamic` is move-only.  Insertion uses `try_emplace`; removal uses
@@ -301,8 +320,9 @@ in the listing, keeping the output readable even when hashes are involved.
 - All proxies in the variable table must be destroyed (via `client.destroy()`)
   before `client.disconnect()` is called. `on_session()` drains the table on
   every exit path before returning.
-- The REPL reads from `std::cin`; redirecting stdin enables non-interactive
-  scripting.
+- The REPL reads from `std::cin` (socket/pipe transports) or a passthrough
+  line queue (`--pty` transport) via `client_app::read_console_line()`;
+  redirecting stdin enables non-interactive scripting in the former case.
 - `from_json()` is used for all JSON → dynamic conversions; it throws on
   malformed input. The REPL catches these exceptions and prints to stderr.
 - `--timeout MS` applies uniformly to all blocking `.get()` calls via

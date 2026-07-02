@@ -118,11 +118,31 @@ constexpr std::string_view kFramePrefix = "\nBISON:";
 
 } // namespace
 
+/**
+ * @brief Duplicate @p fd so a libuv pipe handle can own the duplicate.
+ *
+ * `uv_close()` on a `uv_pipe_t` opened with `uv_pipe_open()` closes the
+ * wrapped fd. That's fine when the fd is exclusively the transport's own
+ * (e.g. plain stdin/stdout), but `read_fd_`/`write_fd_` can be a fd another
+ * component still owns and needs to keep open past this connection's
+ * lifetime — a pty master fd shared with `pty_process` (see
+ * `src/pty/DESIGN.md`) being the motivating case: without duplicating it
+ * here, a client disconnecting (`stdio_server_connection::close()`) would
+ * close the master fd out from under `pty_process`, which both invalidates
+ * its `write()`s from `pump_loop()` and hangs up the pty's session (the
+ * spawned shell), for what should be just one RMI session ending. Wrapping
+ * a duplicate instead means closing the handle only ever closes the
+ * duplicate, never the caller's original fd. Implemented per-platform
+ * (`stdio_transport_linux.cpp`/`stdio_transport_win.cpp`) since Linux and
+ * Windows CRTs spell "duplicate an fd" differently.
+ */
+int dup_stdio_fd(int fd);
+
 // ── stdio_pipe_thread: shared loop/thread lifecycle ─────────────────────────────
 
 /**
- * @brief Owns one libuv loop, one uv_pipe_t wrapping an already-open fd, and
- *        the background thread that runs the loop.
+ * @brief Owns one libuv loop, one uv_pipe_t wrapping a duplicate of a
+ *        caller-supplied fd, and the background thread that runs the loop.
  *
  * Factors out the loop-init/pipe-open/thread-start/stop-and-join sequence
  * that stdio_reader and stdio_writer each need, but with their own
@@ -138,7 +158,10 @@ struct stdio_pipe_thread {
   void init_pipe(int fd, const char* which, uv_async_cb on_stop, void* owner) {
     uv_loop_init(&loop);
     uv_pipe_init(&loop, &handle, 0);
-    const int r = uv_pipe_open(&handle, fd);
+    const int dup_fd = dup_stdio_fd(fd);
+    if (dup_fd < 0)
+      throw std::runtime_error(std::string{"stdio_transport: dup ("} + which + ") failed");
+    const int r = uv_pipe_open(&handle, dup_fd);
     if (r != 0)
       throw std::runtime_error(std::string{"stdio_transport: uv_pipe_open ("} + which + ") failed: " + uv_strerror(r));
     handle.data = owner;
@@ -177,8 +200,17 @@ struct stdio_pipe_thread {
  * enqueues decoded frames onto `recv_queue`.
  */
 struct stdio_reader {
+  // How long a byte sequence that's a tentative-but-incomplete match against
+  // kFramePrefix (e.g. a lone trailing '\n') is held before being flushed to
+  // `passthrough` anyway. Real BISON: frames are written as a single line in
+  // one shot, so their bytes arrive together well within this window; a
+  // human's keystrokes (or any other source that pauses mid-stream) don't
+  // get stuck waiting for a byte that disambiguates the match.
+  static constexpr uint64_t kIdleFlushMs = 50;
+
   stdio_pipe_thread io;
   std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
+  uv_timer_t idle_timer{};
 
   // Scanner state — loop thread only.
   bool in_frame{false};
@@ -198,6 +230,8 @@ struct stdio_reader {
   void init(int fd, stdio_passthrough_cb cb) {
     passthrough = std::move(cb);
     io.init_pipe(fd, "read", on_stop, this);
+    uv_timer_init(&io.loop, &idle_timer);
+    idle_timer.data = this;
   }
 
   void start_loop() {
@@ -245,6 +279,9 @@ struct stdio_reader {
         in_frame = true;
         speculative.clear();
         payload.clear();
+        uv_timer_stop(&idle_timer);
+      } else {
+        arm_idle_flush();
       }
       return;
     }
@@ -260,10 +297,28 @@ struct stdio_reader {
     if (b == '\n') {
       match_pos = 1;
       speculative.push_back(static_cast<char>(b));
+      arm_idle_flush();
     } else {
+      uv_timer_stop(&idle_timer);
       const char c = static_cast<char>(b);
       passthrough(std::string_view{&c, 1});
     }
+  }
+
+  /**
+   * @brief (Re)start the idle-flush timer: if no further byte arrives within
+   *        `kIdleFlushMs`, the held `speculative` bytes are flushed to
+   *        `passthrough` as though a mismatch had occurred.
+   */
+  void arm_idle_flush() { uv_timer_start(&idle_timer, on_idle_timeout, kIdleFlushMs, 0); }
+
+  static void on_idle_timeout(uv_timer_t* h) {
+    auto* self = static_cast<stdio_reader*>(h->data);
+    if (!self->speculative.empty()) {
+      self->passthrough(self->speculative);
+      self->speculative.clear();
+    }
+    self->match_pos = 0;
   }
 
   void complete_frame() {
@@ -295,6 +350,7 @@ struct stdio_reader {
     if (nread < 0) {
       self->recv_closed.store(true);
       self->recv_queue.notify_all();
+      self->passthrough(std::string_view{}); // signals closure; see stdio_passthrough_cb's doc comment
       uv_read_stop(stream);
       return;
     }
@@ -308,6 +364,7 @@ struct stdio_reader {
     auto* self = static_cast<stdio_reader*>(h->data);
     uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.handle));
     uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.stop_async));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->idle_timer));
   }
 };
 
@@ -437,11 +494,11 @@ void stdio_client_transport::shutdown() {
 
 // ── stdio_server_connection ───────────────────────────────────────────────────
 
-stdio_server_connection::stdio_server_connection(std::unique_ptr<stdio_conn_state> state) : state_(std::move(state)) {}
+stdio_server_connection::stdio_server_connection(std::shared_ptr<stdio_conn_state> state, std::function<void()> on_close)
+    : state_(std::move(state)), on_close_(std::move(on_close)) {}
 
 stdio_server_connection::~stdio_server_connection() {
-  if (state_)
-    state_->stop();
+  close();
 }
 
 void stdio_server_connection::send(bison::buffer frame) {
@@ -449,15 +506,20 @@ void stdio_server_connection::send(bison::buffer frame) {
 }
 
 bool stdio_server_connection::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
+  if (closed_.load())
+    return false;
   return state_->receive(frame, timeout);
 }
 
 void stdio_server_connection::close() {
-  state_->stop();
+  if (closed_.exchange(true))
+    return;
+  if (on_close_)
+    on_close_();
 }
 
 bool stdio_server_connection::is_closed() const {
-  return state_->closed.load();
+  return closed_.load();
 }
 
 // ── stdio_server_transport ────────────────────────────────────────────────────
@@ -465,20 +527,27 @@ bool stdio_server_connection::is_closed() const {
 stdio_server_transport::stdio_server_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough)
     : read_fd_(read_fd), write_fd_(write_fd), passthrough_(std::move(passthrough)) {}
 
+stdio_server_transport::~stdio_server_transport() {
+  if (state_)
+    state_->stop();
+}
+
 void stdio_server_transport::start(bison::dynamic /*params*/) {
   stopped_.store(false);
+  state_ = std::make_shared<stdio_conn_state>();
+  state_->start(read_fd_, write_fd_, passthrough_);
 }
 
 std::unique_ptr<server_connection_iface> stdio_server_transport::accept(std::chrono::milliseconds /*timeout*/) {
-  if (stopped_.load() || accepted_.exchange(true))
+  if (stopped_.load() || checked_out_.exchange(true))
     return nullptr;
-  auto state = std::make_unique<stdio_conn_state>();
-  state->start(read_fd_, write_fd_, passthrough_);
-  return std::make_unique<stdio_server_connection>(std::move(state));
+  return std::make_unique<stdio_server_connection>(state_, [this] { checked_out_.store(false); });
 }
 
 void stdio_server_transport::stop() {
   stopped_.store(true);
+  if (state_)
+    state_->stop();
 }
 
 } // namespace bdg::bison::rmi::transport

@@ -124,7 +124,7 @@ TEST(StdioTransport, EmptyFrameRoundTrip) {
   EXPECT_TRUE(received.empty());
 }
 
-TEST(StdioTransport, AcceptReturnsSingleConnection) {
+TEST(StdioTransport, AcceptReturnsNullptrWhileAConnectionIsCheckedOut) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
@@ -136,6 +136,35 @@ TEST(StdioTransport, AcceptReturnsSingleConnection) {
 
   auto second = server_t.accept();
   EXPECT_EQ(second, nullptr);
+}
+
+TEST(StdioTransport, AcceptSucceedsAgainAfterConnectionCloses) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  stdio_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+
+  auto first = server_t.accept();
+  ASSERT_TRUE(first != nullptr);
+  first->close();
+
+  auto second = server_t.accept();
+  EXPECT_TRUE(second != nullptr);
+
+  // The underlying reader/writer survive across the reconnect: a frame sent
+  // after the second connection is accepted is still received correctly,
+  // which wouldn't be true if closing the first connection had torn down
+  // the shared fds (the pty-session-survives-disconnect scenario this
+  // supports — see src/pty/DESIGN.md).
+  stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  client_t.open(dynamic{});
+  const buffer frame{'a', 'g', 'a', 'i', 'n'};
+  client_t.send(frame);
+
+  buffer received;
+  ASSERT_TRUE(second->receive(received, std::chrono::milliseconds{2000}));
+  EXPECT_EQ(received, frame);
 }
 
 TEST(StdioTransport, IsClosedAfterClose) {

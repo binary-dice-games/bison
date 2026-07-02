@@ -5,6 +5,7 @@
  */
 #include "src/app/client/client_app.hpp"
 
+#include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
@@ -38,6 +39,41 @@ void client_app::on_error(const std::string& msg) const {
   std::cerr << "[client_app] error: " << msg << '\n';
 }
 
+// ── Console input (see read_console_line()'s doc comment for why) ─────────────
+
+void client_app::feed_console_passthrough(std::string_view chunk) {
+  console_queue_.withWLock([&](auto& st) {
+    if (chunk.empty()) {
+      st.closed = true;
+      return;
+    }
+    st.partial.append(chunk.data(), chunk.size());
+    size_t pos;
+    while ((pos = st.partial.find('\n')) != std::string::npos) {
+      st.lines.push(st.partial.substr(0, pos));
+      st.partial.erase(0, pos + 1);
+    }
+  });
+  console_queue_.notify_all();
+}
+
+bool client_app::read_console_line(std::string& line) {
+  if (!console_via_passthrough_)
+    return static_cast<bool>(std::getline(std::cin, line));
+
+  bool got = false;
+  console_queue_.wait([&](auto& st) {
+    if (!st.lines.empty()) {
+      line = std::move(st.lines.front());
+      st.lines.pop();
+      got = true;
+      return true;
+    }
+    return st.closed;
+  });
+  return got;
+}
+
 // ── run_with_transport ────────────────────────────────────────────────────────
 
 int client_app::run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport) {
@@ -66,7 +102,17 @@ int client_app::run(int argc, char** argv) {
 
   try {
     if (FLAGS_pty) {
-      return run_with_transport(std::make_unique<rmi::transport::stdio_client_transport>(0, 1));
+      // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
+      // its ONLCR/ECHO processing corrupts the BISON: line framing, so put
+      // it in raw mode for the RMI session and restore it on the way out.
+      pty::raw_mode_guard raw{0};
+      // The transport's background reader owns fd 0 (non-blocking, scanning
+      // for BISON: frames), so std::cin can't safely read it too — route
+      // operator keystrokes through the passthrough callback instead; see
+      // read_console_line().
+      console_via_passthrough_ = true;
+      return run_with_transport(std::make_unique<rmi::transport::stdio_client_transport>(
+          0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); }));
     }
 
     if (!FLAGS_pipe.empty()) {

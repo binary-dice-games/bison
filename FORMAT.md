@@ -308,6 +308,9 @@ or a pseudo-terminal master fd):
   treated as malformed: a warning is logged and the raw text
   (`BISON:<payload>\n`) is handed to the passthrough callback instead of
   being treated as an envelope.
+- When the read side closes (EOF or error), the passthrough callback is
+  invoked once more with an empty chunk as a closed-stream signal; this
+  never otherwise occurs mid-stream.
 - The leading `\n` is part of the frame delimiter, not the payload; a real
   newline byte that immediately precedes `BISON:` (including the terminating
   `\n` of a prior frame) is what triggers prefix matching.
