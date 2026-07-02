@@ -96,6 +96,13 @@ elseif(WIN32)
   target_sources(bison PRIVATE src/pty/pty_process_win.cpp)
 endif()
 
+# ─── Platform-specific socket transport support (src/rmi/transport) ────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(bison PRIVATE src/rmi/transport/socket_transport_linux.cpp)
+elseif(WIN32)
+  target_sources(bison PRIVATE src/rmi/transport/socket_transport_win.cpp)
+endif()
+
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
 add_library(bison_abi SHARED
   include/bison_c.h

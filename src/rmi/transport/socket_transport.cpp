@@ -5,11 +5,14 @@
  *
  * Uses uv_tcp_t for all network I/O; each accepted connection runs its own
  * uv_loop_t on a background thread with a mutex-protected receive queue for
- * synchronous receive() calls.
+ * synchronous receive() calls. Accepted connections are handed off to their
+ * own loop via socket_transport_platform.hpp (see on_new_connection), since
+ * uv_accept() requires the client handle to share the listener's loop.
  *
  * Framing: 4-byte big-endian length prefix followed by payload.
  */
 #include "src/rmi/transport/socket_transport.hpp"
+#include "src/rmi/transport/socket_transport_platform.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <uv.h>
@@ -230,11 +233,26 @@ struct socket_server_transport::impl {
       return;
     auto* im = static_cast<socket_server_transport::impl*>(server->data);
 
+    // uv_accept() requires the client handle to share the listener's loop,
+    // but each connection runs on its own dedicated uv_loop_t/thread. Accept
+    // into a temporary handle on the listener's loop, then hand a duplicate
+    // of the underlying socket off to a fresh handle on the connection's own
+    // loop via uv_tcp_open(). See socket_transport_platform.hpp.
+    uv_tcp_t temp{};
+    uv_tcp_init(&im->accept_loop, &temp);
+    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&temp)) != 0) {
+      uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+      return;
+    }
+    const uv_os_sock_t dup_sock = duplicate_tcp_socket(&temp);
+    uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+    if (dup_sock == static_cast<uv_os_sock_t>(-1))
+      return;
+
     auto cst = std::make_unique<tcp_conn_state>();
     uv_loop_init(&cst->loop);
     uv_tcp_init(&cst->loop, &cst->handle);
-
-    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&cst->handle)) != 0)
+    if (uv_tcp_open(&cst->handle, dup_sock) != 0)
       return;
 
     cst->init_asyncs();
