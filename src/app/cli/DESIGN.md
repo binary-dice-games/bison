@@ -24,7 +24,7 @@ Source files owned by this directory:
 This directory does NOT implement:
 
 - Server logic or class registration — that lives in `src/rmi/server`.
-- Transport internals — those live in `src/rmi/transport` and `src/bison/pty`.
+- Transport internals — those live in `src/rmi/transport` and `src/pty`.
 
 Cross-platform (Windows, Linux, macOS)
 
@@ -272,7 +272,7 @@ transport errors terminate the process.
 **`--pty` is cross-platform on the client side.**
 `cli_app` never forks a pty itself — `--pty` just wraps this process's own
 inherited `fd 0`/`fd 1` in `stdio_client_transport`, which is identical on
-every platform. Only the server-side `pty_process` (`src/bison/pty`), which
+every platform. Only the server-side `pty_process` (`src/pty`), which
 actually forks a terminal, is Linux-only; it throws
 `std::runtime_error` on Windows.
 

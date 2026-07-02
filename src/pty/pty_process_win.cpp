@@ -3,7 +3,7 @@
  * @file pty_process_win.cpp
  * @brief Windows stub for pty_process — not implemented.
  */
-#include "src/bison/pty/pty_process.hpp"
+#include "src/pty/pty_process.hpp"
 
 #include <stdexcept>
 

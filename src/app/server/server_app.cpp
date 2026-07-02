@@ -5,7 +5,7 @@
  */
 #include "src/app/server/server_app.hpp"
 
-#include "src/bison/pty/pty_process.hpp"
+#include "src/pty/pty_process.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"

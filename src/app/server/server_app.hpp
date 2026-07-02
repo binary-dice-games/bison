@@ -29,7 +29,7 @@ namespace bdg::bison::app {
  *                       named-pipe transport is used instead of socket
  *   - `--pty`           spawn an interactive pty running the operator's
  *                       `$SHELL` and serve RMI framed as `BISON:` lines over
- *                       it (Linux only; see `src/bison/pty/DESIGN.md` and
+ *                       it (Linux only; see `src/pty/DESIGN.md` and
  *                       `src/rmi/transport/stdio_transport.hpp`). Mutually
  *                       exclusive with `--host`/`--port`/`--pipe`.
  *   - `--verbose`       print one request trace line and one response trace

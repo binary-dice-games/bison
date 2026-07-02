@@ -12,7 +12,7 @@
  *       by this class. The pty master's *output* direction is read by
  *       whatever transport is layered on top of `master_fd()` (see
  *       `src/rmi/transport/stdio_transport.hpp`) — that transport is the
- *       sole reader of the master fd. See `src/bison/pty/DESIGN.md` for the
+ *       sole reader of the master fd. See `src/pty/DESIGN.md` for the
  *       full data-flow rationale.
  */
 #pragma once

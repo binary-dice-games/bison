@@ -6,6 +6,7 @@
  *        contract.
  */
 #include "src/rmi/transport/stdio_transport.hpp"
+#include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <uv.h>
 
@@ -117,56 +118,41 @@ constexpr std::string_view kFramePrefix = "\nBISON:";
 
 } // namespace
 
-// ── Reader: BISON:-line scanner over one fd ────────────────────────────────────
+// ── stdio_pipe_thread: shared loop/thread lifecycle ─────────────────────────────
 
 /**
- * @brief Dedicated read-only libuv loop/thread for one fd.
+ * @brief Owns one libuv loop, one uv_pipe_t wrapping an already-open fd, and
+ *        the background thread that runs the loop.
  *
- * Runs a byte-level scanner (see stdio_transport.hpp's doc comment and
- * FORMAT.md) that forwards non-frame bytes to `passthrough` immediately and
- * enqueues decoded frames onto `recv_queue`.
+ * Factors out the loop-init/pipe-open/thread-start/stop-and-join sequence
+ * that stdio_reader and stdio_writer each need, but with their own
+ * direction-specific pre/post steps around uv_run().
  */
-struct stdio_reader {
+struct stdio_pipe_thread {
   uv_loop_t loop{};
   uv_pipe_t handle{};
   uv_async_t stop_async{};
-  std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
-
-  // Scanner state — loop thread only.
-  bool in_frame{false};
-  size_t match_pos{1}; // pretend kFramePrefix[0] already matched at stream start
-  std::string speculative;
-  std::string payload;
-
-  stdio_passthrough_cb passthrough;
-  bison::synchronized<std::queue<bison::buffer>> recv_queue;
-  std::atomic<bool> recv_closed{false};
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
 
-  stdio_reader() = default;
-  ~stdio_reader() { stop(); }
-  stdio_reader(const stdio_reader&) = delete;
-  stdio_reader& operator=(const stdio_reader&) = delete;
-
-  void init(int fd, stdio_passthrough_cb cb) {
-    passthrough = std::move(cb);
+  void init_pipe(int fd, const char* which, uv_async_cb on_stop, void* owner) {
     uv_loop_init(&loop);
     uv_pipe_init(&loop, &handle, 0);
     const int r = uv_pipe_open(&handle, fd);
     if (r != 0)
-      throw std::runtime_error(std::string{"stdio_transport: uv_pipe_open (read) failed: "} + uv_strerror(r));
-    handle.data = this;
+      throw std::runtime_error(std::string{"stdio_transport: uv_pipe_open ("} + which + ") failed: " + uv_strerror(r));
+    handle.data = owner;
     uv_async_init(&loop, &stop_async, on_stop);
-    stop_async.data = this;
+    stop_async.data = owner;
   }
 
-  void start_loop() {
-    loop_thread = std::thread([this] {
-      uv_read_start(reinterpret_cast<uv_stream_t*>(&handle), alloc_cb, on_read);
+  template <typename PreRun, typename PostRun>
+  void start(PreRun&& pre_run, PostRun&& post_run) {
+    loop_thread = std::thread([this, pre_run = std::forward<PreRun>(pre_run),
+                                post_run = std::forward<PostRun>(post_run)] {
+      pre_run();
       uv_run(&loop, UV_RUN_DEFAULT);
-      recv_closed.store(true);
-      recv_queue.notify_all();
+      post_run();
       uv_loop_close(&loop);
     });
   }
@@ -179,6 +165,51 @@ struct stdio_reader {
       loop_thread.join();
     }
   }
+};
+
+// ── Reader: BISON:-line scanner over one fd ────────────────────────────────────
+
+/**
+ * @brief Dedicated read-only libuv loop/thread for one fd.
+ *
+ * Runs a byte-level scanner (see stdio_transport.hpp's doc comment and
+ * FORMAT.md) that forwards non-frame bytes to `passthrough` immediately and
+ * enqueues decoded frames onto `recv_queue`.
+ */
+struct stdio_reader {
+  stdio_pipe_thread io;
+  std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
+
+  // Scanner state — loop thread only.
+  bool in_frame{false};
+  size_t match_pos{1}; // pretend kFramePrefix[0] already matched at stream start
+  std::string speculative;
+  std::string payload;
+
+  stdio_passthrough_cb passthrough;
+  bison::synchronized<std::queue<bison::buffer>> recv_queue;
+  std::atomic<bool> recv_closed{false};
+
+  stdio_reader() = default;
+  ~stdio_reader() { stop(); }
+  stdio_reader(const stdio_reader&) = delete;
+  stdio_reader& operator=(const stdio_reader&) = delete;
+
+  void init(int fd, stdio_passthrough_cb cb) {
+    passthrough = std::move(cb);
+    io.init_pipe(fd, "read", on_stop, this);
+  }
+
+  void start_loop() {
+    io.start(
+        [this] { uv_read_start(reinterpret_cast<uv_stream_t*>(&io.handle), alloc_cb, on_read); },
+        [this] {
+          recv_closed.store(true);
+          recv_queue.notify_all();
+        });
+  }
+
+  void stop() { io.stop(); }
 
   bool dequeue_frame(bison::buffer& frame, std::chrono::milliseconds timeout) {
     bool got = false;
@@ -275,12 +306,8 @@ struct stdio_reader {
 
   static void on_stop(uv_async_t* h) {
     auto* self = static_cast<stdio_reader*>(h->data);
-    auto close_if_active = [](uv_handle_t* handle) {
-      if (!uv_is_closing(handle))
-        uv_close(handle, nullptr);
-    };
-    close_if_active(reinterpret_cast<uv_handle_t*>(&self->handle));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&self->stop_async));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.handle));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.stop_async));
   }
 };
 
@@ -288,14 +315,11 @@ struct stdio_reader {
 
 /** @brief Dedicated write-only libuv loop/thread for one fd. */
 struct stdio_writer {
-  uv_loop_t loop{};
-  uv_pipe_t handle{};
+  stdio_pipe_thread io;
   uv_async_t send_async{};
-  uv_async_t stop_async{};
 
   bison::synchronized<std::queue<std::vector<uint8_t>>> send_queue;
   std::atomic<bool> stopped{false};
-  std::thread loop_thread;
 
   stdio_writer() = default;
   ~stdio_writer() { stop(); }
@@ -303,32 +327,19 @@ struct stdio_writer {
   stdio_writer& operator=(const stdio_writer&) = delete;
 
   void init(int fd) {
-    uv_loop_init(&loop);
-    uv_pipe_init(&loop, &handle, 0);
-    const int r = uv_pipe_open(&handle, fd);
-    if (r != 0)
-      throw std::runtime_error(std::string{"stdio_transport: uv_pipe_open (write) failed: "} + uv_strerror(r));
-    handle.data = this;
-    uv_async_init(&loop, &send_async, on_send);
+    io.init_pipe(fd, "write", on_stop, this);
+    uv_async_init(&io.loop, &send_async, on_send);
     send_async.data = this;
-    uv_async_init(&loop, &stop_async, on_stop);
-    stop_async.data = this;
   }
 
   void start_loop() {
-    loop_thread = std::thread([this] {
-      uv_run(&loop, UV_RUN_DEFAULT);
-      uv_loop_close(&loop);
-    });
+    io.start([] {}, [] {});
   }
 
   void stop() {
     if (stopped.exchange(true))
       return;
-    if (loop_thread.joinable()) {
-      uv_async_send(&stop_async);
-      loop_thread.join();
-    }
+    io.stop();
   }
 
   void enqueue_bytes(std::vector<uint8_t> data) {
@@ -338,39 +349,16 @@ struct stdio_writer {
     uv_async_send(&send_async);
   }
 
-  struct write_req {
-    uv_write_t req{};
-    std::vector<uint8_t> data;
-  };
-
   static void on_send(uv_async_t* h) {
     auto* self = static_cast<stdio_writer*>(h->data);
-    std::queue<std::vector<uint8_t>> pending;
-    self->send_queue.withWLock([&](auto& q) { std::swap(pending, q); });
-
-    while (!pending.empty()) {
-      auto* wr = new write_req{};
-      wr->data = std::move(pending.front());
-      pending.pop();
-      uv_buf_t buf = uv_buf_init(reinterpret_cast<char*>(wr->data.data()), static_cast<unsigned int>(wr->data.size()));
-      wr->req.data = wr;
-      uv_write(&wr->req, reinterpret_cast<uv_stream_t*>(&self->handle), &buf, 1, on_write_done);
-    }
-  }
-
-  static void on_write_done(uv_write_t* req, int /*status*/) {
-    delete static_cast<write_req*>(req->data);
+    uv_flush_write_queue(self->send_queue, reinterpret_cast<uv_stream_t*>(&self->io.handle));
   }
 
   static void on_stop(uv_async_t* h) {
     auto* self = static_cast<stdio_writer*>(h->data);
-    auto close_if_active = [](uv_handle_t* handle) {
-      if (!uv_is_closing(handle))
-        uv_close(handle, nullptr);
-    };
-    close_if_active(reinterpret_cast<uv_handle_t*>(&self->handle));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&self->send_async));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&self->stop_async));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.handle));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->send_async));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.stop_async));
   }
 };
 

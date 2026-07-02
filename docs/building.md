@@ -28,7 +28,7 @@ target_link_libraries(my_target PRIVATE bison)
 ## Building on Linux / WSL
 
 Server-side `--pty` mode (forking a real pseudo-terminal via `pty_process`,
-see `src/bison/pty/DESIGN.md`) requires Linux and links `libutil` for
+see `src/pty/DESIGN.md`) requires Linux and links `libutil` for
 `forkpty()` — this is wired automatically in `CMakeLists.txt`. The
 `stdio_*_transport` framing itself (`--pipe`/`--pty` on the client side) is
 cross-platform. Use WSL on Windows 10 v2004+ or Windows 11 to build and run

@@ -303,7 +303,7 @@ or a pseudo-terminal master fd):
   forwarded verbatim, as soon as it arrives, to a passthrough callback
   (default: print to stdout). This lets the same byte stream carry both RMI
   traffic and ordinary interactive terminal output (shell prompts, command
-  output) without buffering delay — see `src/bison/pty/DESIGN.md`.
+  output) without buffering delay — see `src/pty/DESIGN.md`.
 - A line that matches the `BISON:` prefix but fails to base64-decode is
   treated as malformed: a warning is logged and the raw text
   (`BISON:<payload>\n`) is handed to the passthrough callback instead of

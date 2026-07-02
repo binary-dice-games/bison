@@ -112,12 +112,12 @@ if(WIN32)
   target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
-# ─── Platform-specific pty support (src/bison/pty) ────────────────────────────
+# ─── Platform-specific pty support (src/pty) ───────────────────────────────
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_sources(bison PRIVATE src/bison/pty/pty_process_linux.cpp)
+  target_sources(bison PRIVATE src/pty/pty_process_linux.cpp)
   target_link_libraries(bison PRIVATE util)
 elseif(WIN32)
-  target_sources(bison PRIVATE src/bison/pty/pty_process_win.cpp)
+  target_sources(bison PRIVATE src/pty/pty_process_win.cpp)
 endif()
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────

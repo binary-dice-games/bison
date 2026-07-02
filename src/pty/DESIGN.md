@@ -1,4 +1,4 @@
-# `src/bison/pty` — Design
+# `src/pty` — Design
 
 ## Purpose / Scope
 

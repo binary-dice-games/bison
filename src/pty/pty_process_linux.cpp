@@ -3,7 +3,7 @@
  * @file pty_process_linux.cpp
  * @brief Linux implementation of pty_process using forkpty().
  */
-#include "src/bison/pty/pty_process.hpp"
+#include "src/pty/pty_process.hpp"
 
 #include <pty.h>
 

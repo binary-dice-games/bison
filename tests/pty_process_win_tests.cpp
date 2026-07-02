@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 // Tests for bdg::bison::pty::pty_process on Windows (not implemented).
 
-#include "src/bison/pty/pty_process.hpp"
+#include "src/pty/pty_process.hpp"
 
 #include <gtest/gtest.h>
 

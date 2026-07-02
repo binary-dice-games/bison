@@ -30,7 +30,7 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 `BISON:` lines over an interactive terminal — useful when the only path to
 a remote host is a terminal program (`ssh`, `adb shell`, etc.), not a
 socket or named pipe. See [FORMAT.md](../FORMAT.md) for the wire framing
-and `src/bison/pty/DESIGN.md` for the architecture.
+and `src/pty/DESIGN.md` for the architecture.
 
 **Server side** (Linux / WSL only — forks a real pty and your `$SHELL`):
 

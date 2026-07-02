@@ -7,7 +7,7 @@
  * Wire framing: `\nBISON:<base64(frame)>\n`. Bytes that are not part of a
  * confirmed `BISON:` line are forwarded verbatim, as soon as they arrive, to
  * a caller-supplied passthrough callback — this is what keeps a pty session
- * fully interactive (see `src/bison/pty/DESIGN.md`) instead of behaving like
+ * fully interactive (see `src/pty/DESIGN.md`) instead of behaving like
  * a line-buffered reader. See `FORMAT.md` for the full framing contract.
  *
  * Implemented with libuv (matching `pipe_transport`/`named_pipe_transport`/
