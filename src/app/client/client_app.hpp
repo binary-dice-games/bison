@@ -15,6 +15,10 @@
 #include <string>
 #include <string_view>
 
+namespace bdg::bison::rmi::transport {
+class stdio_client_transport;
+} // namespace bdg::bison::rmi::transport
+
 namespace bdg::bison::app {
 
 /**
@@ -161,11 +165,31 @@ class client_app {
     bool closed{false};
   };
 
-  /** @brief Splits passthrough bytes into lines for `read_console_line()`. An empty chunk signals stream closure. */
+  /**
+   * @brief Splits passthrough bytes into lines for `read_console_line()`,
+   *        applying basic backspace handling (`0x7f`/`0x08`) so the line
+   *        buffer matches what's on screen. An empty chunk signals stream
+   *        closure. Also locally echoes each byte via `echo_transport_`
+   *        (see that member's doc comment for why this is needed at all).
+   */
   void feed_console_passthrough(std::string_view chunk);
 
   bool console_via_passthrough_{false};
   bison::synchronized<console_queue_state> console_queue_;
+
+  /**
+   * @brief Non-owning pointer to the `--pty` transport, set right after
+   *        construction and valid for the rest of the process's lifetime;
+   *        used only to locally echo the operator's keystrokes.
+   *
+   * `raw_mode_guard` disables the pty slave's kernel `ECHO` (see its doc
+   * comment for why), which as a side effect means the operator's own
+   * typed characters are never echoed anywhere — nothing appears on screen
+   * while typing, even though the REPL is receiving them correctly. This
+   * reimplements just that echo in software, in `feed_console_passthrough`.
+   * Null outside `--pty` mode.
+   */
+  rmi::transport::stdio_client_transport* echo_transport_{nullptr};
 };
 
 } // namespace bdg::bison::app

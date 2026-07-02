@@ -295,6 +295,19 @@ which already receives every non-`BISON:` byte in arrival order. See
 `src/pty/DESIGN.md` for the matching server-side and framing-corruption
 notes.
 
+**`--pty` mode needs its own local echo and `\r` insertion.**
+`raw_mode_guard` (see `src/pty/DESIGN.md`) turns terminal `ECHO`/`OPOST` off
+on fd 0/1 because leaving them on corrupts the `BISON:` framing — but that
+also means nothing echoes the operator's keystrokes back to the screen, and
+nothing adds `\r` before `\n` in this process's own output, so without
+compensation the REPL looks frozen while typing and its output stairsteps
+down the screen. `client_app::feed_console_passthrough()` re-implements
+basic echo (plus `0x7f`/`0x08` backspace handling) and pairs a
+`crlf_output_guard` with `stdio_client_transport::send_raw()` to fix both —
+see `src/pty/DESIGN.md`'s Design Decisions for the full rationale, including
+why both must be routed through the transport's one writer rather than
+writing fd 1 directly.
+
 **`proxy::dynamic` stored directly in `std::unordered_map`.**
 `proxy::dynamic` is move-only.  Insertion uses `try_emplace`; removal uses
 `extract()` to take ownership before passing to `client.destroy()`.

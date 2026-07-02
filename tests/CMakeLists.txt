@@ -44,6 +44,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     package_add_test(raw_mode_guard_test raw_mode_guard_linux_tests.cpp)
 endif()
 
+# crlf_output_guard tests — cross-platform (pure std::streambuf)
+package_add_test(crlf_output_guard_test crlf_output_guard_tests.cpp)
+
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})

@@ -1,8 +1,11 @@
 // MIT License © 2025 Binary Dice Games
 // examples/rmi_server_example.cpp
 //
-// Standalone RMI server example using socket transport.
+// Standalone RMI server example. Uses socket transport by default; pass
+// --pty as the first argument to instead serve over a forked pseudo-terminal
+// (Linux only — see src/pty/DESIGN.md).
 
+#include "src/pty/pty_process.hpp"
 #include "src/rmi/rmi.hpp"
 
 #include <cstdint>
@@ -58,7 +61,31 @@ static void register_calculator() {
   dynamic::addClass(0U, proto, 0U);
 }
 
+static int run_pty(int argc, char** argv) {
+  (void)argc;
+  (void)argv;
+  register_calculator();
+
+  pty::pty_process pty_proc;
+  pty_proc.start_pump();
+  stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
+  server srv{transport};
+  srv.listen();
+
+  std::cout << "[Server] Calculator listening via --pty. This terminal is now the spawned "
+               "shell; run `rmi_client_example --pty` from inside it. Exit the shell to stop.\n";
+
+  pty_proc.wait();
+  srv.stop();
+  std::cout << "[Server] stopped." << '\n';
+  return 0;
+}
+
 int main(int argc, char** argv) {
+  if (argc > 1 && std::string{argv[1]} == "--pty") {
+    return run_pty(argc, argv);
+  }
+
   std::string host = "127.0.0.1";
   uint16_t port = 7070;
 

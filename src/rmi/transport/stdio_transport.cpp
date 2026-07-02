@@ -444,6 +444,12 @@ struct stdio_conn_state {
     writer.enqueue_bytes(std::vector<uint8_t>(line.begin(), line.end()));
   }
 
+  void send_raw(std::string_view bytes) {
+    if (closed.load())
+      return;
+    writer.enqueue_bytes(std::vector<uint8_t>(bytes.begin(), bytes.end()));
+  }
+
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
     if (closed.load())
       return false;
@@ -482,6 +488,10 @@ void stdio_client_transport::open(bison::dynamic /*params*/) {}
 
 void stdio_client_transport::send(bison::buffer frame) {
   state_->send_frame(frame);
+}
+
+void stdio_client_transport::send_raw(std::string_view bytes) {
+  state_->send_raw(bytes);
 }
 
 bool stdio_client_transport::receive(bison::buffer& frame, std::chrono::milliseconds timeout) {

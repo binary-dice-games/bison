@@ -5,6 +5,7 @@
  */
 #include "src/app/client/client_app.hpp"
 
+#include "src/pty/crlf_output_guard.hpp"
 #include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
@@ -42,16 +43,29 @@ void client_app::on_error(const std::string& msg) const {
 // ── Console input (see read_console_line()'s doc comment for why) ─────────────
 
 void client_app::feed_console_passthrough(std::string_view chunk) {
+  if (chunk.empty()) {
+    console_queue_.withWLock([&](auto& st) { st.closed = true; });
+    console_queue_.notify_all();
+    return;
+  }
+
   console_queue_.withWLock([&](auto& st) {
-    if (chunk.empty()) {
-      st.closed = true;
-      return;
-    }
-    st.partial.append(chunk.data(), chunk.size());
-    size_t pos;
-    while ((pos = st.partial.find('\n')) != std::string::npos) {
-      st.lines.push(st.partial.substr(0, pos));
-      st.partial.erase(0, pos + 1);
+    for (const char c : chunk) {
+      if (c == 0x7f || c == 0x08) { // DEL / BS: erase one character
+        if (!st.partial.empty()) {
+          st.partial.pop_back();
+          if (echo_transport_)
+            echo_transport_->send_raw("\b \b");
+        }
+        continue;
+      }
+      if (echo_transport_)
+        echo_transport_->send_raw(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
+      st.partial.push_back(c);
+      if (c == '\n') {
+        st.lines.push(st.partial.substr(0, st.partial.size() - 1));
+        st.partial.clear();
+      }
     }
   });
   console_queue_.notify_all();
@@ -111,8 +125,24 @@ int client_app::run(int argc, char** argv) {
       // operator keystrokes through the passthrough callback instead; see
       // read_console_line().
       console_via_passthrough_ = true;
-      return run_with_transport(std::make_unique<rmi::transport::stdio_client_transport>(
-          0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); }));
+      auto transport = std::make_unique<rmi::transport::stdio_client_transport>(
+          0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
+      // Raw pointer stays valid for the rest of the process's lifetime: `c`
+      // (inside run_with_transport) owns this transport until it returns,
+      // and nothing else in --pty mode runs after that. See
+      // echo_transport_'s doc comment for what it's used for.
+      echo_transport_ = transport.get();
+      // Raw mode also strips \r from this process's own std::cout/std::cerr
+      // output (turning OPOST off is global to the fd, not scoped to frame
+      // writes) — compensate so ordinary REPL output still displays
+      // starting at the left margin instead of stairstepping. Routed
+      // through the transport's own writer (send_raw), not written to fd 1
+      // directly: read_console_line()'s local echo *also* writes there via
+      // send_raw, and two independent, unsynchronized writers racing on the
+      // same fd is exactly the kind of bug this codebase has been chasing
+      // throughout --pty support. See crlf_output_guard's doc comment.
+      pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send_raw(s); }};
+      return run_with_transport(std::move(transport));
     }
 
     if (!FLAGS_pipe.empty()) {

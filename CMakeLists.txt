@@ -80,6 +80,7 @@ target_sources(bison PRIVATE
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
   src/app/debugger.cpp
+  src/pty/crlf_output_guard.cpp
 )
 
 target_include_directories(bison PRIVATE src/rmi)

@@ -73,6 +73,19 @@ class stdio_client_transport : public client_transport_iface {
   void send(bison::buffer frame) override;
 
   /**
+   * @brief Write @p bytes to `write_fd` verbatim, with no `BISON:` framing.
+   *
+   * Queued on the same writer as `send()`, so it can't interleave with (and
+   * corrupt) a frame write. Exists for `client_app`'s `--pty` local echo:
+   * `raw_mode_guard` disables the pty slave's kernel `ECHO` (it would loop
+   * the *server's* outgoing frames back into its own reader — see
+   * `src/pty/DESIGN.md`), which also means the operator's own keystrokes are
+   * never echoed anywhere, so nothing appears on screen while typing.
+   * `client_app` re-implements just that echo in software using this method.
+   */
+  void send_raw(std::string_view bytes);
+
+  /**
    * @brief Wait for the next decoded `BISON:` frame.
    * @param frame   Output frame buffer.
    * @param timeout Maximum wait before returning `false`.
