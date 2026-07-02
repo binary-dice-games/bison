@@ -4,9 +4,11 @@
  * @brief Linux implementation of the socket-duplication hook used to move
  *        an accepted TCP connection onto its own uv_loop_t.
  */
-#include "src/rmi/transport/socket_transport_platform.hpp"
+#include "src/rmi/transport/socket_transport.hpp"
 
 #include <unistd.h>
+
+#include <uv.h>
 
 namespace bdg::bison::rmi::transport {
 

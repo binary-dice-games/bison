@@ -33,10 +33,10 @@ to their own dedicated loop by duplicating the underlying OS socket
 descriptor (libuv's `uv_accept()` requires the client handle to already
 share the listener's loop, so the connection's own loop can't be used
 directly). Duplicating a socket has no libuv-portable API, so that one step
-lives in `socket_transport_linux.cpp` / `socket_transport_win.cpp` behind
-`socket_transport_platform.hpp`, selected in `CMakeLists.txt` the same way
-as the `src/pty` platform split. This does not change transport *behavior*
-across platforms — it is a single OS primitive with no libuv equivalent.
+lives in `socket_transport_linux.cpp` / `socket_transport_win.cpp`, selected
+in `CMakeLists.txt` the same way as the `src/pty` platform split. This does not
+change transport *behavior* across platforms — it is a single OS primitive with
+no libuv equivalent.
 
 ## 3. Platform Independence Strategy
 
