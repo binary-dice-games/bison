@@ -35,7 +35,7 @@ client::~client() {
 /** @copydoc bdg::bison::rmi::client::connect */
 void client::connect(bison::dynamic params) {
   shared::register_all_schemas();
-  transport_.withWLock([&](auto& t) { t->open(std::move(params)); });
+  transport_.withRLock([&](auto& t) { t->open(std::move(params)); });
   running_.store(true);
   worker_ = std::thread(&client::worker_loop, this);
   event_thread_ = std::thread(&client::event_loop, this);
@@ -105,7 +105,7 @@ void client::disconnect() {
   }
 
   running_.store(false);
-  transport_.withWLock([](auto& t) { t->shutdown(); }); // unblock worker_loop's transport->receive()
+  transport_.withRLock([](auto& t) { t->shutdown(); }); // unblock worker_loop's transport->receive()
   event_queue_.notify_one(); // unblock event_loop if it is idle-waiting
   if (worker_.joinable())
     worker_.join(); // worker exits, fail_all_pending is called there
@@ -132,7 +132,7 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
   }();
 
   if (oneway) {
-    transport_.withWLock([&](auto& t) { t->send(std::move(frame)); });
+    transport_.withRLock([&](auto& t) { t->send(std::move(frame)); });
     std::promise<bison::dynamic> p;
     p.set_value(bison::dynamic{});
     return p.get_future();
@@ -142,7 +142,7 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
   auto future = promise.get_future();
   pending_.wlock()->operator[](request_id.id) = std::move(promise);
   try {
-    transport_.withWLock([&](auto& t) { t->send(std::move(frame)); });
+    transport_.withRLock([&](auto& t) { t->send(std::move(frame)); });
   } catch (...) {
     auto lp = pending_.wlock();
     auto it = lp->find(request_id.id);
@@ -174,9 +174,9 @@ void client::unregister_object_events(bison::key_t object_id) {
 void client::worker_loop() {
   while (running_.load(std::memory_order_acquire)) {
     bison::buffer frame;
-    bool received = transport_.withWLock([&](auto& t) { return t->receive(frame, std::chrono::milliseconds{50}); });
+    bool received = transport_.withRLock([&](auto& t) { return t->receive(frame, std::chrono::milliseconds{50}); });
     if (!received) {
-      bool connected = transport_.withWLock([](auto& t) { return t->is_connected(); });
+      bool connected = transport_.withRLock([](auto& t) { return t->is_connected(); });
       if (!connected) {
         // Server closed the connection — trigger a clean disconnect.
         running_.store(false);
