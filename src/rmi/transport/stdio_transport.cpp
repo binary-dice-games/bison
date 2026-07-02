@@ -116,6 +116,26 @@ std::optional<bison::buffer> base64_decode(std::string_view in) {
 
 constexpr std::string_view kFramePrefix = "\nBISON:";
 
+// ── Connect-time handshake (see stdio_client_transport::open()'s doc comment) ──
+
+// Terminated with "\r\n", not bare "\n": these are sent with raw_mode_guard
+// already active (OPOST off — see its doc comment), so nothing else adds
+// the "\r" a terminal needs to return to the left margin. Unlike the
+// BISON:-frame-adjacent bytes elsewhere in this file, there's no risk of
+// this "\r" itself being misread as data — these are fixed, complete,
+// human-readable lines, not part of the base64 frame payload.
+constexpr std::string_view kHandshakeStart = "START BISON/1.0\r\n";
+constexpr std::string_view kHandshakeOk = "BISON/1.0 OK\r\n";
+constexpr std::string_view kHandshakeStop = "STOP BISON/1.0\r\n";
+
+// Bound on how many passthrough bytes the handshake watchers above will
+// accumulate while looking for their target line. Both watchers only ever
+// need to hold back up to (target.size() - 1) bytes to keep a split match
+// intact; this is a generous multiple of the longest target so a burst of
+// unrelated passthrough noise arriving alongside the target can't ever
+// truncate a match, while still bounding memory if the target never shows.
+constexpr size_t kHandshakeAccumCap = 256;
+
 } // namespace
 
 /**
@@ -426,6 +446,23 @@ struct stdio_conn_state {
   stdio_writer writer;
   std::atomic<bool> closed{false};
 
+  // ── Client-side connect handshake ──────────────────────────────────────
+  // Gates the caller's passthrough callback until "BISON/1.0 OK\n" is seen
+  // (or open() gives up), so a bogus "peer" line never reaches, say,
+  // client_app's REPL input queue. See stdio_client_transport::open().
+  struct client_handshake_state {
+    bool done = false;
+    std::string accum;
+  };
+  bison::synchronized<client_handshake_state> client_handshake;
+
+  // ── Server-side handshake watcher ──────────────────────────────────────
+  // Never gates anything — just watches a *copy* of every passthrough chunk
+  // for "START BISON/1.0\n" and replies. See stdio_server_transport's doc
+  // comment for why this doesn't need to suppress the line the way the
+  // client side does.
+  bison::synchronized<std::string> server_handshake_accum;
+
   void start(int read_fd, int write_fd, stdio_passthrough_cb passthrough) {
     reader.init(read_fd, std::move(passthrough));
     writer.init(write_fd);
@@ -448,6 +485,77 @@ struct stdio_conn_state {
     if (closed.load())
       return;
     writer.enqueue_bytes(std::vector<uint8_t>(bytes.begin(), bytes.end()));
+  }
+
+  /**
+   * @brief Client-side passthrough wrapper: withholds everything from
+   *        @p real until `"BISON/1.0 OK\n"` has been seen in the stream,
+   *        at which point it delivers any bytes that arrived immediately
+   *        after that line (in the same chunk) and becomes a transparent
+   *        pass-through for the rest of the connection's lifetime.
+   */
+  void client_passthrough(std::string_view chunk, const stdio_passthrough_cb& real) {
+    if (chunk.empty()) { // stream-closed signal — must still propagate even mid-handshake
+      real(chunk);
+      return;
+    }
+    bool already_done = false;
+    bool just_resolved = false;
+    std::string leftover;
+    client_handshake.withWLock([&](auto& hs) {
+      if (hs.done) {
+        already_done = true;
+        return;
+      }
+      hs.accum.append(chunk);
+      const auto pos = hs.accum.find(kHandshakeOk);
+      if (pos != std::string::npos) {
+        hs.done = true;
+        just_resolved = true;
+        leftover = hs.accum.substr(pos + kHandshakeOk.size());
+        hs.accum.clear();
+      } else if (hs.accum.size() > kHandshakeAccumCap) {
+        hs.accum.erase(0, hs.accum.size() - kHandshakeAccumCap);
+      }
+    });
+    if (already_done) {
+      real(chunk);
+      return;
+    }
+    if (just_resolved) {
+      client_handshake.notify_all();
+      if (!leftover.empty())
+        real(leftover);
+    }
+    // Still waiting: withhold silently.
+  }
+
+  /** @brief Blocks until client_passthrough() has seen "BISON/1.0 OK\n", or @p timeout elapses. */
+  bool wait_for_client_handshake(std::chrono::milliseconds timeout) {
+    return client_handshake.wait_for(timeout, [](const auto& hs) { return hs.done; });
+  }
+
+  /**
+   * @brief Server-side passthrough tap: watches (without withholding
+   *        anything) for `"START BISON/1.0\n"`, replying with
+   *        `"BISON/1.0 OK\n"` each time it appears.
+   */
+  void watch_for_handshake_start(std::string_view chunk) {
+    if (chunk.empty())
+      return;
+    bool matched = false;
+    server_handshake_accum.withWLock([&](std::string& accum) {
+      accum.append(chunk);
+      const auto pos = accum.find(kHandshakeStart);
+      if (pos != std::string::npos) {
+        matched = true;
+        accum.erase(0, pos + kHandshakeStart.size());
+      }
+      if (accum.size() > kHandshakeAccumCap)
+        accum.erase(0, accum.size() - kHandshakeAccumCap);
+    });
+    if (matched)
+      send_raw(kHandshakeOk);
   }
 
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
@@ -474,9 +582,17 @@ void stdio_discard_passthrough(std::string_view /*chunk*/) {}
 
 // ── stdio_client_transport ─────────────────────────────────────────────────────
 
-stdio_client_transport::stdio_client_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough)
-    : state_(std::make_unique<stdio_conn_state>()) {
-  state_->start(read_fd, write_fd, std::move(passthrough));
+stdio_client_transport::stdio_client_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough,
+                                                std::chrono::milliseconds handshake_timeout)
+    : state_(std::make_unique<stdio_conn_state>()), handshake_timeout_(handshake_timeout) {
+  // Wrap immediately (not deferred to open()) so the handshake gate is
+  // active from the very first byte the reader ever sees — open() typically
+  // runs microseconds later (client::connect() calls it right after
+  // construction), but nothing guarantees that ordering at the type level.
+  auto* state_ptr = state_.get();
+  state_->start(read_fd, write_fd, [state_ptr, real_passthrough = std::move(passthrough)](std::string_view chunk) {
+    state_ptr->client_passthrough(chunk, real_passthrough);
+  });
 }
 
 stdio_client_transport::~stdio_client_transport() {
@@ -484,7 +600,14 @@ stdio_client_transport::~stdio_client_transport() {
     state_->stop();
 }
 
-void stdio_client_transport::open(bison::dynamic /*params*/) {}
+void stdio_client_transport::open(bison::dynamic /*params*/) {
+  state_->send_raw(kHandshakeStart);
+  if (!state_->wait_for_client_handshake(handshake_timeout_)) {
+    throw std::runtime_error(
+        "stdio_transport: handshake timed out — sent START BISON/1.0 but got no BISON/1.0 OK "
+        "from the peer (is there a bison_server --pty running on the other end?)");
+  }
+}
 
 void stdio_client_transport::send(bison::buffer frame) {
   state_->send_frame(frame);
@@ -499,6 +622,7 @@ bool stdio_client_transport::receive(bison::buffer& frame, std::chrono::millisec
 }
 
 void stdio_client_transport::shutdown() {
+  state_->send_raw(kHandshakeStop);
   state_->stop();
 }
 
@@ -545,7 +669,11 @@ stdio_server_transport::~stdio_server_transport() {
 void stdio_server_transport::start(bison::dynamic /*params*/) {
   stopped_.store(false);
   state_ = std::make_shared<stdio_conn_state>();
-  state_->start(read_fd_, write_fd_, passthrough_);
+  auto* state_ptr = state_.get();
+  state_->start(read_fd_, write_fd_, [state_ptr, real_passthrough = passthrough_](std::string_view chunk) {
+    real_passthrough(chunk); // unchanged, always forward — see the class doc comment
+    state_ptr->watch_for_handshake_start(chunk);
+  });
 }
 
 std::unique_ptr<server_connection_iface> stdio_server_transport::accept(std::chrono::milliseconds /*timeout*/) {

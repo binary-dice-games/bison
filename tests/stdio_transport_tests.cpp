@@ -39,6 +39,15 @@ void write_raw(int fd, const std::string& data) {
 #endif
 }
 
+/** @brief Blocking read of whatever's currently available; -1 on error. */
+long read_raw(int fd, char* buf, size_t len) {
+#if defined(_WIN32)
+  return _read(fd, buf, static_cast<unsigned int>(len));
+#else
+  return read(fd, buf, len);
+#endif
+}
+
 /** @brief A client/server fd pair: two unidirectional pipes forming one full-duplex channel. */
 struct duplex_pipes {
   int client_read;
@@ -185,6 +194,12 @@ TEST(StdioTransport, ShutdownPreventsClientReceive) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
+  // open() now performs a connect-time handshake (see FORMAT.md and
+  // stdio_client_transport::open()'s doc comment) and blocks until it sees
+  // "BISON/1.0 OK\n" from the peer. There's no stdio_server_transport here
+  // to answer it automatically, so fake a minimal peer response directly.
+  write_raw(p.server_write, "BISON/1.0 OK\r\n");
+
   stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
   client_t.open(dynamic{});
   client_t.shutdown();
@@ -280,4 +295,125 @@ TEST(StdioTransport, MalformedBase64FrameIsPassedThroughAsText) {
 
   std::lock_guard<std::mutex> lock(m);
   EXPECT_NE(collected.find("BISON:!!!\n"), std::string::npos);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Connect-time handshake (START BISON/1.0 / BISON/1.0 OK / STOP BISON/1.0)
+// See FORMAT.md and stdio_client_transport::open()'s doc comment.
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(StdioTransportHandshake, OpenSendsStartAndSucceedsWhenPeerReplies) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  write_raw(p.server_write, "BISON/1.0 OK\r\n");
+
+  stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  EXPECT_NO_THROW(client_t.open(dynamic{}));
+
+  char buf[64]{};
+  const auto n = read_raw(p.server_read, buf, sizeof(buf));
+  ASSERT_GT(n, 0);
+  EXPECT_EQ(std::string(buf, static_cast<size_t>(n)), "START BISON/1.0\r\n");
+}
+
+TEST(StdioTransportHandshake, OpenThrowsWhenNoPeerResponds) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  // The handshake timeout is a constructor parameter specifically so tests
+  // don't have to wait out the real (5s) production default.
+  stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough,
+                                   std::chrono::milliseconds{100}};
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+}
+
+TEST(StdioTransportHandshake, HandshakeOkLineIsNotForwardedToPassthrough) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  std::mutex m;
+  std::string collected;
+  stdio_passthrough_cb collect = [&](std::string_view chunk) {
+    std::lock_guard<std::mutex> lock(m);
+    collected.append(chunk);
+  };
+
+  write_raw(p.server_write, "BISON/1.0 OK\r\nafter\n");
+
+  stdio_client_transport client_t{p.client_read, p.client_write, collect};
+  ASSERT_NO_THROW(client_t.open(dynamic{}));
+
+  for (int i = 0; i < 100; ++i) {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      if (collected.find("after") != std::string::npos)
+        break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+
+  std::lock_guard<std::mutex> lock(m);
+  EXPECT_EQ(collected.find("BISON/1.0 OK"), std::string::npos)
+      << "the handshake ack line must be withheld from the caller's passthrough, "
+         "e.g. so it can't be mistaken for a typed REPL command";
+  EXPECT_NE(collected.find("after"), std::string::npos) << "bytes following the ack line must still be delivered";
+}
+
+TEST(StdioTransportHandshake, ServerRepliesOkWhenClientOpens) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  stdio_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+  auto conn = server_t.accept();
+  ASSERT_TRUE(conn != nullptr);
+
+  stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  EXPECT_NO_THROW(client_t.open(dynamic{}));
+}
+
+TEST(StdioTransportHandshake, ServerReplyDoesNotArriveAsADecodedFrame) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  stdio_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+  auto conn = server_t.accept();
+  ASSERT_TRUE(conn != nullptr);
+
+  stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  ASSERT_NO_THROW(client_t.open(dynamic{}));
+
+  // A real frame sent right after the handshake must still be the *first*
+  // thing the server decodes — the handshake exchange must not leak into
+  // (or get confused with) normal frame decoding on either side.
+  const buffer frame{'p', 'i', 'n', 'g'};
+  client_t.send(frame);
+  buffer received;
+  ASSERT_TRUE(conn->receive(received, std::chrono::milliseconds{2000}));
+  EXPECT_EQ(received, frame);
+}
+
+TEST(StdioTransportHandshake, ShutdownSendsStop) {
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  write_raw(p.server_write, "BISON/1.0 OK\r\n");
+
+  stdio_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  ASSERT_NO_THROW(client_t.open(dynamic{})); // consumes "START BISON/1.0\r\n" off p.server_read
+  client_t.shutdown();
+
+  // shutdown() enqueues "STOP BISON/1.0\r\n" asynchronously before stopping the
+  // writer, so read (blocking, possibly more than once) rather than assume
+  // one read call is enough to have caught up with it.
+  std::string received;
+  char buf[64]{};
+  while (received.find("STOP BISON/1.0\r\n") == std::string::npos) {
+    const auto n = read_raw(p.server_read, buf, sizeof(buf));
+    ASSERT_GT(n, 0);
+    received.append(buf, static_cast<size_t>(n));
+  }
+  EXPECT_NE(received.find("STOP BISON/1.0\r\n"), std::string::npos);
 }

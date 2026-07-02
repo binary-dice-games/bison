@@ -194,6 +194,36 @@ terminal.
   `--pty` combined with `--host`/`--port`/`--pipe`), when the terminal is
   still cooked and a pre-translated `\r\n` would double up with the kernel's
   own `ONLCR`.
+- **Connecting with no peer at all fails fast instead of hanging forever, via
+  a plain-text connect-time handshake — see FORMAT.md §5.2.1 for the exact
+  wire lines.** Before any of the fixes above, and still true without this
+  one: running a `--pty` client with nothing on the other end of its fds
+  (operator ran `bison-cli --pty` directly, not inside a `bison_server --pty`
+  session) just hangs — the client's `OP_CONNECT` frame sits there forever,
+  since there's no `stdio_server_transport` reader on the other end to
+  decode it, and `rmi::client::connect()`'s `f.get()` has no timeout. This
+  looks identical to every *other* bug this file has been about ("why is
+  nothing happening"), except this time there's no fixing the framing —
+  there's simply no peer.
+
+  `stdio_client_transport::open()` now sends `START BISON/1.0\r\n` and
+  blocks (5s default) for `BISON/1.0 OK\r\n` before proceeding; timing out
+  throws instead of leaving `connect()` to hang. `stdio_server_transport`
+  answers `START BISON/1.0` with `BISON/1.0 OK` automatically, watching for
+  it continuously (not gated behind `accept()`) so it keeps working across
+  reconnects. Implemented as a tap/gate on the passthrough stream rather
+  than by extending the `\nBISON:` frame scanner's prefix-matching state
+  machine to a second pattern — deliberately: that scanner has been the
+  source of most of the subtle bugs fixed elsewhere in this file, and adding
+  a second concurrent pattern to it was judged too risky for what these
+  three fixed, short, literal lines actually need. The client *gates*
+  (fully withholds passthrough until `BISON/1.0 OK` is seen, since letting
+  it through would leak into `client_app`'s REPL input queue as a bogus
+  typed command); the server only *taps* (forwards everything unchanged and
+  separately watches a copy for `START BISON/1.0`, since its passthrough is
+  purely for display, not input — see `stdio_server_transport`'s and
+  `stdio_client_transport::open()`'s doc comments in
+  `src/rmi/transport/stdio_transport.hpp` for the exact mechanics).
 
 ## Constraints / Invariants
 

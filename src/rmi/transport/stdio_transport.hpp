@@ -10,6 +10,12 @@
  * fully interactive (see `src/pty/DESIGN.md`) instead of behaving like
  * a line-buffered reader. See `FORMAT.md` for the full framing contract.
  *
+ * `stdio_client_transport::open()` also runs a connect-time handshake (a
+ * plain-text `START BISON/1.0` / `BISON/1.0 OK` exchange — see `open()`'s
+ * doc comment) so that connecting with no peer on the other end of the fds
+ * fails with a timeout instead of hanging forever waiting for a `BISON:`
+ * frame that will never arrive.
+ *
  * Implemented with libuv (matching `pipe_transport`/`named_pipe_transport`/
  * `socket_transport`). This header and `stdio_transport.cpp` are themselves
  * platform-independent; the one platform difference (duplicating an fd, so
@@ -48,6 +54,9 @@ void stdio_print_passthrough(std::string_view chunk);
 /** @brief Default passthrough: discard the chunk. */
 void stdio_discard_passthrough(std::string_view chunk);
 
+/** @brief Default wait for open()'s connect-time handshake; see its doc comment. */
+inline constexpr std::chrono::milliseconds kDefaultHandshakeTimeout{5000};
+
 // ── Client-side transport ─────────────────────────────────────────────────────
 
 /**
@@ -59,14 +68,45 @@ void stdio_discard_passthrough(std::string_view chunk);
 class stdio_client_transport : public client_transport_iface {
  public:
   /**
-   * @param read_fd      Fd to read peer bytes from.
-   * @param write_fd     Fd to write frames and pass-through bytes to.
-   * @param passthrough  Called with non-`BISON:` bytes read from `read_fd`.
+   * @param read_fd           Fd to read peer bytes from.
+   * @param write_fd          Fd to write frames and pass-through bytes to.
+   * @param passthrough       Called with non-`BISON:` bytes read from `read_fd`.
+   * @param handshake_timeout How long `open()` waits for `BISON/1.0 OK`
+   *                          before giving up — see `open()`'s doc comment.
+   *                          Exposed mainly so tests don't have to wait out
+   *                          the real default; production callers should
+   *                          leave it at the default.
    */
-  stdio_client_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough = stdio_discard_passthrough);
+  stdio_client_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough = stdio_discard_passthrough,
+                          std::chrono::milliseconds handshake_timeout = kDefaultHandshakeTimeout);
   ~stdio_client_transport() override;
 
-  /** @brief Starts the background I/O loops. The fds must already be open. */
+  /**
+   * @brief Starts the background I/O loops, then runs the connect-time
+   *        handshake: sends `START BISON/1.0\n` and blocks until either
+   *        `BISON/1.0 OK\n` arrives from the peer or `handshake_timeout`
+   *        (constructor parameter) elapses.
+   *
+   * Without this, connecting with nothing on the other end of the fds (a
+   * real terminal with no `bison_server --pty` running in it, a plain pipe
+   * to `/dev/null`, ...) hangs forever: the RMI-level `OP_CONNECT` request
+   * frame just sits there, since there's no scanner on the other end to
+   * decode it — the process looks frozen with no way to distinguish "still
+   * connecting" from "no peer at all." The handshake bytes are plain,
+   * intentionally human-readable ASCII rather than a `BISON:` frame,
+   * specifically so a `--pty` operator staring at the raw session can see
+   * what's happening, both on success and on timeout.
+   *
+   * The handshake timeout is a constructor parameter, not derived from
+   * @p params' `timeout_ms` (the per-*request* timeout
+   * `client_app::on_connect_params()` sets): establishing a connection and
+   * waiting on an individual RMI call are different kinds of "how long am I
+   * willing to wait" — a long configured per-request timeout for slow
+   * operations shouldn't also mean waiting that long to find out there's no
+   * peer at all.
+   *
+   * @throws std::runtime_error if no `BISON/1.0 OK` arrives in time.
+   */
   void open(bison::dynamic params) override;
 
   /** @brief Base64-wrap and write one frame as a `BISON:` line. */
@@ -93,11 +133,24 @@ class stdio_client_transport : public client_transport_iface {
    */
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
-  /** @brief Stop the background I/O loops; pending and future receives return `false`. */
+  /**
+   * @brief Sends `STOP BISON/1.0\n` (best-effort — errors are ignored, this
+   *        is advisory) then stops the background I/O loops; pending and
+   *        future receives return `false`.
+   *
+   * The server doesn't structurally depend on seeing this — an RMI session
+   * already sends `OP_DISCONNECT` before this runs (see
+   * `rmi::client::disconnect()`), which is what actually drives server-side
+   * cleanup (`server::handle_disconnect()`). This is purely a visible,
+   * human-readable "the transport is going away now" marker for whoever
+   * (or whatever) is watching the other end of a `--pty` session, and the
+   * write-side counterpart to `open()`'s `START`/`OK` handshake.
+   */
   void shutdown() override;
 
  private:
   std::unique_ptr<stdio_conn_state> state_;
+  std::chrono::milliseconds handshake_timeout_;
 };
 
 // ── Server-side connection ────────────────────────────────────────────────────
@@ -172,6 +225,16 @@ class stdio_server_connection : public server_connection_iface {
  * lets an operator run the RMI client, exit back to the shell, and run it
  * again — each run is its own connection and its own `client_worker` session
  * server-side — without restarting the pty or the server.
+ *
+ * Also answers `stdio_client_transport::open()`'s connect-time handshake:
+ * whenever `START BISON/1.0\n` shows up anywhere in the byte stream, this
+ * replies with `BISON/1.0 OK\n` — independent of `accept()`/connection
+ * state, so it keeps working across every reconnect for the transport's
+ * whole lifetime. Unlike the client side, this isn't gated behind a
+ * connection-setup step: the handshake text is left in the normal
+ * passthrough stream (visible to whatever's watching `--pty` output) rather
+ * than being consumed/hidden, since nothing here needs to treat it as
+ * anything other than an informational line to react to.
  */
 class stdio_server_transport : public server_transport_iface {
  public:
