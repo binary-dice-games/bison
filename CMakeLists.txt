@@ -7,6 +7,8 @@ project(
   VERSION 1.0
   LANGUAGES CXX)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 option(PACKAGE_TESTS "Build the tests" ON)
   
 set(CMAKE_CXX_STANDARD 20)
@@ -24,30 +26,6 @@ set(BISON_PRIVATE_SOURCES
   src/bison/bison.cpp
 )
 
-add_library(asio_headers INTERFACE)
-target_include_directories(
-  asio_headers
-  INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/extern/asio/include
-)
-target_compile_definitions(
-  asio_headers
-  INTERFACE
-    ASIO_STANDALONE
-    ASIO_DISABLE_CO_AWAIT
-    ASIO_DISABLE_STD_COROUTINE
-)
-
-if(WIN32)
-  target_compile_definitions(
-    asio_headers
-    INTERFACE
-      _WIN32_WINNT=0x0601
-      WIN32_LEAN_AND_MEAN
-      NOMINMAX
-  )
-endif()
-
 include_directories(. include)
 
 add_subdirectory("extern/json")
@@ -62,10 +40,6 @@ add_subdirectory("extern/libuv")
 set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
 add_subdirectory("extern/gflags")
-# libyaml is used in a shared library; it must be compiled with -fPIC.
-set_property(TARGET yaml PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET uv_a PROPERTY POSITION_INDEPENDENT_CODE ON)
-set_property(TARGET gflags_nothreads_static PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
