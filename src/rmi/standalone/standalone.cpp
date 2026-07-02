@@ -297,7 +297,7 @@ void standalone::worker_loop() {
 void standalone::stop_worker() {
   if (!running_.load(std::memory_order_acquire))
     return;
-  running_.store(false, std::memory_order_release);
+  queue_.withWLock([this](auto&) { running_.store(false, std::memory_order_release); });
   queue_.notify_all();
   if (worker_.joinable())
     worker_.join();
