@@ -30,10 +30,13 @@ package_add_test(bridge_test bridge_tests.cpp)
 # stdio (BISON: line-framed) transport tests — cross-platform
 package_add_test(stdio_transport_test stdio_transport_tests.cpp)
 
-# pty_process tests — Linux behavior gated at test-body level, see the files
-# for details; registered unconditionally so both platforms build them.
-package_add_test(pty_process_test pty_process_tests.cpp)
-package_add_test(pty_process_win_test pty_process_win_tests.cpp)
+# pty_process tests — platform-specific, mirroring the src/pty split: only
+# the test file for the current build platform is compiled.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    package_add_test(pty_process_test pty_process_linux_tests.cpp)
+elseif(WIN32)
+    package_add_test(pty_process_win_test pty_process_win_tests.cpp)
+endif()
 
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)

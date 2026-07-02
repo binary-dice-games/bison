@@ -7,8 +7,6 @@
 
 using bdg::bison::pty::pty_process;
 
-#if defined(__linux__)
-
 TEST(PtyProcess, SpawnsMasterFdAndExitsCleanly) {
   pty_process p{"/bin/true"};
   EXPECT_GE(p.master_fd(), 0);
@@ -31,11 +29,3 @@ TEST(PtyProcess, ExecFailureExitsWith127) {
   pty_process p{"/no/such/executable"};
   EXPECT_EQ(p.wait(), 127);
 }
-
-#else
-
-TEST(PtyProcess, NotExercisedOnThisPlatform) {
-  GTEST_SKIP() << "pty_process Linux behavior is only exercised on Linux builds";
-}
-
-#endif
