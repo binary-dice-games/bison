@@ -81,6 +81,7 @@ target_sources(bison PRIVATE
   src/app/server/server_app.cpp
   src/app/debugger.cpp
   src/pty/crlf_output_guard.cpp
+  src/pty/pty_write.cpp
 )
 
 target_include_directories(bison PRIVATE src/rmi)
@@ -91,10 +92,10 @@ endif()
 
 # ─── Platform-specific pty support (src/pty) ───────────────────────────────
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_sources(bison PRIVATE src/pty/pty_process_linux.cpp src/pty/raw_mode_guard_linux.cpp)
+  target_sources(bison PRIVATE src/pty/pty_process_linux.cpp src/pty/raw_mode_guard_linux.cpp src/pty/pty_write_linux.cpp)
   target_link_libraries(bison PRIVATE util)
 elseif(WIN32)
-  target_sources(bison PRIVATE src/pty/pty_process_win.cpp src/pty/raw_mode_guard_win.cpp)
+  target_sources(bison PRIVATE src/pty/pty_process_win.cpp src/pty/raw_mode_guard_win.cpp src/pty/pty_write_win.cpp)
 endif()
 
 # ─── Platform-specific socket transport support (src/rmi/transport) ────────

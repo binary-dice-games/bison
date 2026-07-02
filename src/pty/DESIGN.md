@@ -51,6 +51,18 @@ session.
 `OPOST` off (see Design Decisions below for why that's necessary and why it's
 a problem for ordinary text output). Pure `std::streambuf`, no OS calls, so —
 unlike `raw_mode_guard` and `pty_process` — it has no Linux/Windows split.
+Client-side only — see `pty_write` below for why the server side needs a
+different fix for the same underlying problem.
+
+**`pty_write`** (`to_crlf()` + `write_raw()`) — the server-side equivalent of
+`crlf_output_guard`: `to_crlf()` does the same `'\n'` → `"\r\n"` string
+rewrite (portable, no split needed), and `write_raw()` writes the result
+directly to an fd with a plain `write()` loop (Linux/Windows split — only
+this half needs the platform-specific syscall). Used by
+`server_app::on_listening()`/`on_verbose_trace()`, in preference to
+`crlf_output_guard`, specifically because those hooks share fd 1 with
+`stdio_print_passthrough`'s background-thread writes — see Design Decisions
+below.
 
 ## Data Flow
 
@@ -150,16 +162,38 @@ terminal.
   about. `client_app` avoids it by giving `crlf_output_guard` a *sink*
   (`stdio_client_transport::send_raw()`) instead of letting it write fd 1
   directly, so echo, `send_raw`-routed text, and frames all funnel through
-  the transport's one synchronized writer queue. (This is also why the
-  equivalent server-side fix — for `pty_process`'s own real-terminal raw
-  mode stripping `\r` from `server_app`'s status messages — isn't
-  implemented: `stdio_server_transport`'s passthrough callback forwards
-  bytes it reads *verbatim*, including the client's already-`crlf`-corrected
-  text, straight through `std::cout`; wrapping the server's `std::cout`
-  globally would double the `\r` on anything forwarded that way. Fixing the
-  server's own two or three status lines isn't worth that complexity, so
-  they're left stairstepping — a known, minor, currently-unfixed
-  limitation.)
+  the transport's one synchronized writer queue.
+- **The server side needs the same `\r` fix, but `crlf_output_guard` isn't
+  safe there — `pty_write.hpp` is the server-side equivalent.**
+  `pty_process`'s constructor puts the *operator's own* real terminal in raw
+  mode too (for `pump_loop()`), which strips `\r` from `server_app`'s own
+  `std::cout` status messages the exact same way. But redirecting
+  `std::cout`'s streambuf the way `crlf_output_guard`'s default constructor
+  does isn't safe here: `stdio_server_transport`'s passthrough callback
+  (`stdio_print_passthrough`) *also* writes to `std::cout`, from the
+  reader's background thread, to forward pty-master bytes — shell output,
+  or a `--pty` client's own already-`crlf`-corrected text — **verbatim**.
+  Redirecting `std::cout` globally would (a) double the `\r` on anything
+  forwarded that way (confirmed: this is exactly the bug that showed up when
+  first tried — client text arrived pre-corrected, then got corrected
+  *again* on the way through `stdio_print_passthrough`) and (b) race that
+  thread's writes, since swapping a stream's streambuf concurrently with
+  another thread's `<<` on the same stream isn't safe.
+
+  `server_app::on_listening()`/`on_verbose_trace()` instead use
+  `pty::write_raw()` (`src/pty/pty_write.hpp`): a plain, synchronous
+  `write()` to fd 1, bypassing `std::cout` entirely, so there's no shared
+  mutable stream state to race and nothing to double-process (this write
+  path and `stdio_print_passthrough`'s are now two independent syscall-level
+  writers to the same fd, not two writers contending over one streambuf —
+  safe, matching how concurrent `write()`s to a tty already behave). Safe to
+  use unconditionally in these two hooks specifically because both are only
+  ever reachable *after* `run()`'s `--pty` branch has already constructed
+  `pty_proc` (raw mode confirmed active) — `on_error()` deliberately keeps
+  writing to `std::cerr` unfixed, since it can also fire *before* that (e.g.
+  `--pty` combined with `--host`/`--port`/`--pipe`), when the terminal is
+  still cooked and a pre-translated `\r\n` would double up with the kernel's
+  own `ONLCR`.
 
 ## Constraints / Invariants
 
@@ -180,7 +214,9 @@ terminal.
   involved — see `src/app/client/client_app.cpp`).
 - `src/app/server/server_app.cpp` — owns the `pty_process` instance in
   `--pty` mode, calls `start_pump()`, and blocks on `wait()` as its
-  run-loop shutdown condition.
+  run-loop shutdown condition. `on_listening()`/`on_verbose_trace()` use
+  `pty::write_raw()`/`to_crlf()` (`pty_write.hpp`) instead of plain
+  `std::cout` when `FLAGS_pty` is set — see Design Decisions above.
 - `src/app/client/client_app.cpp` — owns a `raw_mode_guard` and a
   `crlf_output_guard` on its own fd 0/1 in `--pty` mode, for the lifetime of
   the RMI session. This is the client side of the same `--pty` feature but
@@ -198,4 +234,6 @@ terminal.
 - `examples/rmi_server_example.cpp` — a second, minimal `--pty` server,
   mirroring `server_app.cpp`'s `--pty` branch (`pty_process` +
   `stdio_server_transport`) without the rest of `server_app`'s
-  flag-parsing/hook scaffolding.
+  flag-parsing/hook scaffolding. Also uses `pty::write_raw()`/`to_crlf()`
+  for its two status messages, unconditionally (this function only ever
+  runs in `--pty` mode, unlike `server_app`'s hooks).

@@ -63,7 +63,10 @@ class server_app {
    * @brief Called after the server starts listening for connections.
    *
    * Default: prints a ready message to stdout.  The default implementation
-   * uses `FLAGS_host` and `FLAGS_port` to report the socket address.
+   * uses `FLAGS_host` and `FLAGS_port` to report the socket address (or, in
+   * `--pty` mode, writes directly to fd 1 with `\r\n` line endings instead —
+   * see `pty_write.hpp`'s doc comment for why plain `std::cout` isn't safe
+   * there).
    */
   virtual void on_listening() const;
 
@@ -90,7 +93,16 @@ class server_app {
   /**
    * @brief Called on fatal errors before `run()` returns 1.
    *
-   * Default: writes to `std::cerr`.
+   * Default: writes to `std::cerr`, unconditionally — including in `--pty`
+   * mode, where this can stairstep (see `on_listening()`'s note on
+   * `pty_write.hpp`). Deliberately not fixed the same way `on_listening()`/
+   * `on_verbose_trace()` are: those only ever fire once `--pty`'s
+   * `pty_process` has already put the terminal in raw mode, but `on_error()`
+   * can also fire for failures *before* that (e.g. `--pty` combined with
+   * `--host`/`--port`/`--pipe`), when the terminal is still in cooked mode —
+   * writing pre-translated `\r\n` there would double up with the kernel's
+   * own `ONLCR`. A rare, cosmetic-only edge case not worth the added
+   * complexity of tracking that distinction here.
    *
    * @param msg  Human-readable error description.
    */
@@ -113,7 +125,9 @@ class server_app {
    *        active.
    *
    * The default implementation writes @p line followed by `'\n'` to
-   * `std::cout`.  Override to redirect verbose output (e.g. to a log file).
+   * `std::cout` (or, in `--pty` mode, directly to fd 1 with `\r\n` line
+   * endings — see `on_listening()`).  Override to redirect verbose output
+   * (e.g. to a log file).
    *
    * @param session_id  Session that generated the trace event.
    * @param line        Formatted trace message (no trailing newline).

@@ -6,6 +6,7 @@
 #include "src/app/server/server_app.hpp"
 
 #include "src/pty/pty_process.hpp"
+#include "src/pty/pty_write.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
@@ -74,10 +75,23 @@ class bridged_server : public rmi::server {
 // ── Default hook implementations ──────────────────────────────────────────────
 
 void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string& line) const {
-  std::cout << line << '\n';
+  if (FLAGS_pty) {
+    // Only reachable once pty_proc (in run()'s --pty branch) has already put
+    // the operator's real terminal in raw mode, stripping \r from plain
+    // std::cout output — write directly instead, both to correct that and
+    // to avoid racing stdio_print_passthrough's own std::cout writes on
+    // another thread. See pty_write.hpp's doc comment.
+    pty::write_raw(1, pty::to_crlf(line + "\n"));
+  } else {
+    std::cout << line << '\n';
+  }
 }
 
 void server_app::on_listening() const {
+  if (FLAGS_pty) {
+    pty::write_raw(1, pty::to_crlf("[server_app] listening via --pty -- exit the spawned shell to stop\n"));
+    return;
+  }
   if (!FLAGS_pipe.empty()) {
     std::cout << "[server_app] listening on pipe " << FLAGS_pipe << " -- press Enter to stop\n" << std::flush;
   } else {

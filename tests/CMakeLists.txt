@@ -47,6 +47,11 @@ endif()
 # crlf_output_guard tests — cross-platform (pure std::streambuf)
 package_add_test(crlf_output_guard_test crlf_output_guard_tests.cpp)
 
+# pty_write tests — cross-platform (write_raw() is platform-split internally,
+# same as socket_transport's duplicate_tcp_socket; the test itself just needs
+# a pipe(), which it gets portably the same way stdio_transport_tests.cpp does)
+package_add_test(pty_write_test pty_write_tests.cpp)
+
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})
