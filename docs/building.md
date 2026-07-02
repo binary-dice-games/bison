@@ -27,7 +27,12 @@ target_link_libraries(my_target PRIVATE bison)
 
 ## Building on Linux / WSL
 
-The stdio PTY transport, Linux-specific examples, and unit tests require Linux. Use WSL on Windows 10 v2004+ or Windows 11.
+Server-side `--pty` mode (forking a real pseudo-terminal via `pty_process`,
+see `src/bison/pty/DESIGN.md`) requires Linux and links `libutil` for
+`forkpty()` — this is wired automatically in `CMakeLists.txt`. The
+`stdio_*_transport` framing itself (`--pipe`/`--pty` on the client side) is
+cross-platform. Use WSL on Windows 10 v2004+ or Windows 11 to build and run
+the Linux-only pieces and the full test suite.
 
 ### 1 — Install WSL
 

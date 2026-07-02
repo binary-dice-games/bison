@@ -289,15 +289,28 @@ payload that immediately follows.
 
 ### 5.2 Stdio transport
 
-The stdio transport uses a base-64-encoded, chunked framing protocol suitable
-for text channels (e.g. stdin/stdout of a subprocess):
+The stdio transport (`stdio_client_transport` / `stdio_server_transport`,
+`src/rmi/transport/stdio_transport.hpp`) frames each envelope as a single
+base64 line on a text-oriented byte stream (e.g. a process's stdin/stdout,
+or a pseudo-terminal master fd):
 
-- The envelope bytes are split into chunks of at most **chunk_size** bytes
-  (internal constant).
-- Each chunk is base-64 encoded.
-- Chunks are transmitted as newline-terminated text lines with a minimal
-  header that carries the sequence number, total chunk count, and base-64
-  payload.
+```
+\nBISON:<base64(envelope bytes)>\n
+```
+
+- No chunking and no sequence numbers — one envelope is always one line.
+- Every byte that is not part of a recognized `\nBISON:...\n` line is
+  forwarded verbatim, as soon as it arrives, to a passthrough callback
+  (default: print to stdout). This lets the same byte stream carry both RMI
+  traffic and ordinary interactive terminal output (shell prompts, command
+  output) without buffering delay — see `src/bison/pty/DESIGN.md`.
+- A line that matches the `BISON:` prefix but fails to base64-decode is
+  treated as malformed: a warning is logged and the raw text
+  (`BISON:<payload>\n`) is handed to the passthrough callback instead of
+  being treated as an envelope.
+- The leading `\n` is part of the frame delimiter, not the payload; a real
+  newline byte that immediately precedes `BISON:` (including the terminating
+  `\n` of a prior frame) is what triggers prefix matching.
 
 > The stdio framing protocol is an implementation detail of the C++ reference
 > transport and is not required for socket-based implementations.  Only the

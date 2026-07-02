@@ -25,9 +25,22 @@ namespace bdg::bison::app {
  * Transport is chosen by gflags CLI flags (all optional):
  *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
  *   - `--pipe PATH`             — named-pipe / Unix-socket path
+ *   - `--pty`                   — wrap this process's own inherited `fd 0`
+ *                                 (read) / `fd 1` (write) in the `BISON:`
+ *                                 line framing instead of opening a
+ *                                 socket/pipe. No pty is spawned here — the
+ *                                 client never forks a terminal; this is for
+ *                                 running as a plain child process whose
+ *                                 stdio is already connected to a peer that
+ *                                 speaks the framing (typically because it
+ *                                 was launched inside a server-spawned
+ *                                 `--pty` terminal, see
+ *                                 `src/app/server/server_app.hpp` and
+ *                                 `src/rmi/transport/stdio_transport.hpp`)
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
  *
- * `--pipe` takes precedence over `--host`/`--port`;
+ * `--pty` takes precedence over `--pipe`, which takes precedence over
+ * `--host`/`--port`.
  *
  * Lifecycle (inside `run()`):
  * 1. Parse flags.
@@ -40,9 +53,9 @@ namespace bdg::bison::app {
  *   e. `c.disconnect()`.
  * 4. On exception: `on_error(msg)`, return 1.
  *
- * Subclasses that always use a specific transport (e.g. `pty_client_app`)
- * can override `run()` to bypass flag parsing and call `run_with_transport()`
- * directly with the desired transport.
+ * Subclasses that always use a specific transport can override `run()` to
+ * bypass flag parsing and call `run_with_transport()` directly with the
+ * desired transport.
  */
 class client_app {
  public:
@@ -99,8 +112,8 @@ class client_app {
    * @brief Take ownership of @p transport, connect, call hooks, run session,
    *        then disconnect.
    *
-   * Subclasses that control transport construction (e.g. `pty_client_app`)
-   * call this directly instead of going through `run()`.
+   * Subclasses that control transport construction call this directly
+   * instead of going through `run()`.
    *
    * Does NOT catch exceptions — the caller (`run()` or the subclass override)
    * is responsible for catching and routing them to `on_error()`.

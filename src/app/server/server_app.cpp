@@ -5,13 +5,11 @@
  */
 #include "src/app/server/server_app.hpp"
 
+#include "src/bison/pty/pty_process.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-
-#if defined(__linux__) || defined(_WIN32)
-#include "src/rmi/transport/transport_iface.hpp"
-#endif
+#include "src/rmi/transport/stdio_transport.hpp"
 
 #include <gflags/gflags.h>
 
@@ -26,6 +24,7 @@ extern void wait_for_debugger();
 DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(pipe);
+DECLARE_bool(pty);
 DECLARE_bool(verbose);
 DECLARE_bool(debugger);
 
@@ -101,12 +100,17 @@ void server_app::on_error(const std::string& msg) const {
 
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
-int server_app::run_with_transport(rmi::transport::server_transport_iface& transport) {
+int server_app::run_with_transport(rmi::transport::server_transport_iface& transport,
+                                    std::function<void()> wait_for_shutdown) {
   bridged_server srv{transport, *this};
   srv.listen();
   on_listening();
-  std::string line;
-  std::getline(std::cin, line);
+  if (wait_for_shutdown) {
+    wait_for_shutdown();
+  } else {
+    std::string line;
+    std::getline(std::cin, line);
+  }
   srv.stop();
   return 0;
 }
@@ -122,6 +126,19 @@ int server_app::run(int argc, char** argv) {
 
   try {
     register_classes();
+
+    if (FLAGS_pty) {
+      gflags::CommandLineFlagInfo info;
+      const bool host_set = gflags::GetCommandLineFlagInfo("host", &info) && !info.is_default;
+      const bool port_set = gflags::GetCommandLineFlagInfo("port", &info) && !info.is_default;
+      if (host_set || port_set || !FLAGS_pipe.empty())
+        throw std::runtime_error("--pty cannot be combined with --host/--port/--pipe");
+
+      pty::pty_process pty_proc;
+      pty_proc.start_pump();
+      rmi::transport::stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
+      return run_with_transport(transport, [&] { pty_proc.wait(); });
+    }
 
     if (!FLAGS_pipe.empty()) {
       rmi::transport::named_pipe_server_transport transport{FLAGS_pipe};

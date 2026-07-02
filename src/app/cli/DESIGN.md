@@ -24,7 +24,7 @@ Source files owned by this directory:
 This directory does NOT implement:
 
 - Server logic or class registration — that lives in `src/rmi/server`.
-- Transport internals — those live in `src/rmi/transport` and `src/app/pty`.
+- Transport internals — those live in `src/rmi/transport` and `src/bison/pty`.
 
 Cross-platform (Windows, Linux, macOS)
 
@@ -43,7 +43,9 @@ Cross-platform (Windows, Linux, macOS)
 
 ### cli_app
 
-Extensible base class owning the REPL lifecycle.  Mirrors `pty_client_app`.
+Extensible base class owning the REPL lifecycle.  Extends `client_app`
+(`src/app/client/client_app.hpp`), inheriting its flag parsing and
+transport-selection logic (including `--pty`).
 
 - `run(argc, argv) → int` — non-virtual; parses flags, builds transport,
   calls `connect()`, calls `on_session()`, drains all live proxies, calls
@@ -94,7 +96,8 @@ Reads the parsed argv flags and constructs the appropriate transport:
 | Flag(s) | Transport constructed |
 |---|---|
 | `--host H --port P` (default) | `socket_client_transport{H, P}` |
-| `--pty` (Linux only) | `pty_client_transport{}` |
+| `--pipe PATH` | `named_pipe_client_transport{PATH}` |
+| `--pty` | `stdio_client_transport{0, 1}` — wraps this process's own inherited stdio, cross-platform; no subprocess or pty is spawned client-side |
 
 ### JSON bridge (private helpers in cli_app.cpp)
 
@@ -220,17 +223,19 @@ Destroys all live proxies, disconnects, and exits with code 0.
 
 ```
 bison-cli [--host HOST] [--port PORT]
-          [--pty]           # Linux only
+          [--pipe PATH]
+          [--pty]
           [--timeout MS]    # per-request timeout, default 30000
 ```
 
 Exactly one transport mode may be given: `--host`/`--port` (default:
-`localhost:7070`) or `--pty`. Combining them is a fatal argument error.
+`localhost:7070`), `--pipe`, or `--pty`. `--pty` takes precedence over
+`--pipe`, which takes precedence over `--host`/`--port`.
 
 ## 7. Design Decisions
 
 **Extensible base class, not a standalone executable.**
-`pty_server_app` and `pty_client_app` are scaffolds because downstream
+`server_app` and `client_app` are scaffolds because downstream
 projects need to inject domain logic.  `cli_app` follows the same pattern:
 the REPL is the default `on_session()` behaviour, and projects like "wish"
 can override it to render a terminal UI driven by the same RMI connection.
@@ -264,9 +269,12 @@ RMI errors (`ERR_OBJECT_NOT_FOUND`, timeouts, etc.) are caught, printed to
 stderr, and the REPL resumes.  Only `connect()` failures and unrecoverable
 transport errors terminate the process.
 
-**PTY transport guarded at compile time.**
-`--pty` is compiled only on Linux (`#if defined(__linux__)`). On other
-platforms the flag is rejected with an error message at startup.
+**`--pty` is cross-platform on the client side.**
+`cli_app` never forks a pty itself — `--pty` just wraps this process's own
+inherited `fd 0`/`fd 1` in `stdio_client_transport`, which is identical on
+every platform. Only the server-side `pty_process` (`src/bison/pty`), which
+actually forks a terminal, is Linux-only; it throws
+`std::runtime_error` on Windows.
 
 **`proxy::dynamic` stored directly in `std::unordered_map`.**
 `proxy::dynamic` is move-only.  Insertion uses `try_emplace`; removal uses
@@ -308,7 +316,9 @@ Depends on:
   (`get_dictionary()`, `get_help()`, `describe()`, etc.).
 - `src/rmi/proxy` — `proxy::dynamic` for object handles.
 - `src/rmi/transport/socket_transport` — default TCP transport.
-- `src/rmi/transport/pty_client_transport` — PTY transport (Linux only).
+- `src/rmi/transport/named_pipe_transport` — `--pipe` transport.
+- `src/rmi/transport/stdio_transport` — `--pty` transport (cross-platform;
+  wraps this process's own stdio, does not spawn a pty).
 - `src/bison/bison.hpp` — `bison::dynamic`, `bison::key_t`.
 - `src/bison/bison_object.hpp` — `bdg::bison::extensions::from_json()`.
 - `src/rmi/shared/constants.hpp` — well-known field-name and operation constants.

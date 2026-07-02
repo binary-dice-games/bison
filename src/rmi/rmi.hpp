@@ -24,5 +24,6 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
+#include "src/rmi/transport/stdio_transport.hpp"
 #include "src/rmi/transport/stream_transport.hpp"
 #include "src/rmi/transport/transport_iface.hpp"

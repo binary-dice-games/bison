@@ -8,10 +8,7 @@
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-
-#if defined(__linux__)
-#include "src/rmi/transport/pty_client_transport.hpp"
-#endif
+#include "src/rmi/transport/stdio_transport.hpp"
 
 #include <gflags/gflags.h>
 
@@ -68,6 +65,10 @@ int client_app::run(int argc, char** argv) {
   timeout_ = std::chrono::milliseconds{FLAGS_timeout};
 
   try {
+    if (FLAGS_pty) {
+      return run_with_transport(std::make_unique<rmi::transport::stdio_client_transport>(0, 1));
+    }
+
     if (!FLAGS_pipe.empty()) {
       return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_pipe));
     }

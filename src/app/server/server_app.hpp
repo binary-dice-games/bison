@@ -9,6 +9,7 @@
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
+#include <functional>
 #include <string>
 
 namespace bdg::bison::app {
@@ -26,6 +27,11 @@ namespace bdg::bison::app {
  *   - `--port PORT`     listen port for socket transport (default: `7070`)
  *   - `--pipe PATH`     named-pipe / Unix-socket path; when non-empty, the
  *                       named-pipe transport is used instead of socket
+ *   - `--pty`           spawn an interactive pty running the operator's
+ *                       `$SHELL` and serve RMI framed as `BISON:` lines over
+ *                       it (Linux only; see `src/bison/pty/DESIGN.md` and
+ *                       `src/rmi/transport/stdio_transport.hpp`). Mutually
+ *                       exclusive with `--host`/`--port`/`--pipe`.
  *   - `--verbose`       print one request trace line and one response trace
  *                       line per RMI operation to stdout (open, connect,
  *                       instantiate, call, get, set, destroy, disconnect, …)
@@ -34,9 +40,10 @@ namespace bdg::bison::app {
  *
  * Typical lifecycle:
  * 1. `register_classes()` — populate the bison class registry.
- * 2. Start TCP listener on the configured host and port.
+ * 2. Start TCP listener on the configured host and port (or spawn a pty).
  * 3. Call `on_listening()` (default: prints to stdout).
- * 4. Accept connections and serve requests until Enter is pressed.
+ * 4. Accept connections and serve requests until Enter is pressed (socket /
+ *    named-pipe transports) or the spawned shell exits (`--pty`).
  * 5. Stop the listener and clean up.
  */
 class server_app {
@@ -127,16 +134,21 @@ class server_app {
    *
    * Override to substitute a different server type (e.g. one with a GUI
    * render loop).  The default creates a `bridged_server` and blocks on
-   * stdin until Enter is pressed.
+   * `wait_for_shutdown` (or, if unset, on stdin until Enter is pressed).
    *
    * Host and port are not passed as parameters — they are available through
    * `FLAGS_host` and `FLAGS_port`, which are defined in the binary's
    * `main.cpp` and carry meaning only for the socket transport.
    *
    * @param transport  Bound transport to serve.
+   * @param wait_for_shutdown  Blocks until the server should stop. Default
+   *        (empty function): `std::getline(std::cin, line)`. `--pty` mode
+   *        passes `[&]{ pty.wait(); }` instead, since stdin is being pumped
+   *        into the pty and is not available for a shutdown keypress.
    * @return 0 on clean shutdown, non-zero on error.
    */
-  virtual int run_with_transport(rmi::transport::server_transport_iface& transport);
+  virtual int run_with_transport(rmi::transport::server_transport_iface& transport,
+                                  std::function<void()> wait_for_shutdown = nullptr);
 };
 
 } // namespace bdg::bison::app
