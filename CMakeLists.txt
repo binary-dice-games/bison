@@ -64,6 +64,8 @@ set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
 add_subdirectory("extern/gflags")
 # libyaml is used in a shared library; it must be compiled with -fPIC.
 set_property(TARGET yaml PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET uv_a PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET gflags_nothreads_static PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
