@@ -143,7 +143,9 @@ TEST(StdioTransport, AcceptReturnsNullptrWhileAConnectionIsCheckedOut) {
   auto first = server_t.accept();
   EXPECT_TRUE(first != nullptr);
 
-  auto second = server_t.accept();
+  // Short timeout: accept() now blocks for real (see stdio_transport.cpp's
+  // accept()), so this only needs to prove it times out, not wait 5s for it.
+  auto second = server_t.accept(std::chrono::milliseconds{50});
   EXPECT_EQ(second, nullptr);
 }
 
@@ -174,6 +176,33 @@ TEST(StdioTransport, AcceptSucceedsAgainAfterConnectionCloses) {
   buffer received;
   ASSERT_TRUE(second->receive(received, std::chrono::milliseconds{2000}));
   EXPECT_EQ(received, frame);
+}
+
+TEST(StdioTransport, AcceptWakesPromptlyWhenCheckedOutConnectionCloses) {
+  // Regression test: accept() must block on a condition variable instead of
+  // returning nullptr immediately (which would leave callers like
+  // server::accept_loop() spinning at 100% CPU re-polling accept() with no
+  // sleep of its own).
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  stdio_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+
+  auto first = server_t.accept();
+  ASSERT_TRUE(first != nullptr);
+
+  std::unique_ptr<server_connection_iface> second;
+  std::thread waiter([&] { second = server_t.accept(std::chrono::milliseconds{5000}); });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  const auto start = std::chrono::steady_clock::now();
+  first->close();
+  waiter.join();
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+
+  EXPECT_TRUE(second != nullptr);
+  EXPECT_LT(elapsed, std::chrono::milliseconds{1000});
 }
 
 TEST(StdioTransport, IsClosedAfterClose) {

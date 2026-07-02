@@ -219,9 +219,13 @@ class stdio_server_connection : public server_connection_iface {
  * ends.
  *
  * `accept()` hands out at most one *checked-out* connection at a time: while
- * one is outstanding, further calls return `nullptr` (matching
- * `stream_server_transport`'s poll-and-retry contract); once that
- * connection's `close()` runs, the next `accept()` call succeeds again. This
+ * one is outstanding, further calls block (up to the caller's `timeout`) on
+ * the checked-out connection's `close()` running, at which point the next
+ * `accept()` call succeeds again. Blocking here (rather than returning
+ * `nullptr` immediately) matters because `server::accept_loop()` polls
+ * `accept()` in a tight `while` loop with no sleep of its own — it relies on
+ * `accept()` itself doing the waiting, the way `socket_server_transport`'s
+ * and `named_pipe_server_transport`'s condvar-backed implementations do. This
  * lets an operator run the RMI client, exit back to the shell, and run it
  * again — each run is its own connection and its own `client_worker` session
  * server-side — without restarting the pty or the server.
@@ -254,9 +258,11 @@ class stdio_server_transport : public server_transport_iface {
   void start(bison::dynamic params) override;
 
   /**
-   * @brief Return a new connection if none is currently checked out;
-   *        `nullptr` otherwise (including after `stop()`).
-   * @param timeout  Ignored; connection setup is synchronous.
+   * @brief Return a new connection once none is currently checked out.
+   * @param timeout  How long to block waiting for a previously checked-out
+   *                  connection to close before giving up.
+   * @return A new connection, or `nullptr` on timeout (including after
+   *         `stop()`).
    */
   std::unique_ptr<server_connection_iface> accept(
       std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
@@ -269,7 +275,7 @@ class stdio_server_transport : public server_transport_iface {
   int write_fd_;
   stdio_passthrough_cb passthrough_;
   std::atomic<bool> stopped_{false};
-  std::atomic<bool> checked_out_{false};
+  bison::synchronized<bool> checked_out_{false};
   std::shared_ptr<stdio_conn_state> state_;
 };
 

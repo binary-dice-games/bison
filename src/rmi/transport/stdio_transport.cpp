@@ -676,16 +676,25 @@ void stdio_server_transport::start(bison::dynamic /*params*/) {
   });
 }
 
-std::unique_ptr<server_connection_iface> stdio_server_transport::accept(std::chrono::milliseconds /*timeout*/) {
-  if (stopped_.load() || checked_out_.exchange(true))
+std::unique_ptr<server_connection_iface> stdio_server_transport::accept(std::chrono::milliseconds timeout) {
+  if (!checked_out_.wait_for(timeout, [this](bool& co) { return !co || stopped_.load(); }))
     return nullptr;
-  return std::make_unique<stdio_server_connection>(state_, [this] { checked_out_.store(false); });
+  return checked_out_.withWLock([this](bool& co) -> std::unique_ptr<server_connection_iface> {
+    if (stopped_.load() || co)
+      return nullptr;
+    co = true;
+    return std::make_unique<stdio_server_connection>(state_, [this] {
+      checked_out_.withWLock([](bool& c) { c = false; });
+      checked_out_.notify_all();
+    });
+  });
 }
 
 void stdio_server_transport::stop() {
   stopped_.store(true);
   if (state_)
     state_->stop();
+  checked_out_.notify_all();
 }
 
 } // namespace bdg::bison::rmi::transport
