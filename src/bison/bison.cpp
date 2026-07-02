@@ -27,9 +27,76 @@ namespace bdg::bison {
 // ─── JSON helpers
 // ─────────────────────────────────────────────────────────────
 
+field from_json_array_field(const json::array_t& data);
 dynamic_ptr from_json_array(json::array_t data);
 dynamic_ptr from_json_object(json::object_t data);
 
+/**
+ * @brief Classify a JSON array and convert it to the most specific `field`
+ *        type that reproduces what `bison_to_json` would have emitted.
+ *
+ * `to_json` renders `std::vector<bool>`, `std::vector<int32_t>`, and
+ * `std::vector<float>` fields as plain JSON arrays of the corresponding
+ * scalar type (see `field_to_json`). To round-trip those fields, a
+ * homogeneous array is reconstructed as the matching vector type:
+ *  - all booleans        → `std::vector<bool>`
+ *  - all integers        → `std::vector<int32_t>`
+ *  - all numeric, any float → `std::vector<float>`
+ *
+ * Any other array (empty, mixed types, or containing strings/objects/
+ * nested arrays/nulls) falls back to an indexed `dynamic_ptr`, matching
+ * the pre-existing behavior for arbitrary JSON input.
+ */
+field from_json_array_field(const json::array_t& data) {
+  if (!data.empty()) {
+    bool all_bool = true;
+    bool all_int = true;
+    bool all_numeric = true;
+    for (const auto& el : data) {
+      const auto t = el.type();
+      const bool is_int = t == json::value_t::number_integer || t == json::value_t::number_unsigned;
+      const bool is_float = t == json::value_t::number_float;
+      all_bool = all_bool && t == json::value_t::boolean;
+      all_int = all_int && is_int;
+      all_numeric = all_numeric && (is_int || is_float);
+    }
+    if (all_bool) {
+      std::vector<bool> v;
+      v.reserve(data.size());
+      for (const auto& el : data)
+        v.push_back(bool{el});
+      return field{std::move(v)};
+    }
+    if (all_int) {
+      std::vector<int32_t> v;
+      v.reserve(data.size());
+      for (const auto& el : data)
+        v.push_back(int32_t{el});
+      return field{std::move(v)};
+    }
+    if (all_numeric) {
+      std::vector<float> v;
+      v.reserve(data.size());
+      for (const auto& el : data)
+        v.push_back(float{el});
+      return field{std::move(v)};
+    }
+  }
+  return field{from_json_array(data)};
+}
+
+/**
+ * @brief Convert a JSON array into an indexed `dynamic_ptr`.
+ *
+ * Every element becomes a numeric-index field (`0`, `1`, `2`, ...), with
+ * nested arrays and objects recursively converted via
+ * `from_json_array_field` and `from_json_object` respectively. This is the
+ * fallback representation used for arrays that are not homogeneous enough
+ * to become one of the vector field types (see `from_json_array_field`).
+ *
+ * @param data The parsed JSON array.
+ * @return An indexed `dynamic_ptr` with one field per array element.
+ */
 dynamic_ptr from_json_array(json::array_t data) {
   size_t idx = 0;
   auto dyn = dynamic_ptr{};
@@ -54,7 +121,7 @@ dynamic_ptr from_json_array(json::array_t data) {
         (*dyn)[idx++] = std::string{*it};
         break;
       case json::value_t::array:
-        (*dyn)[idx++] = from_json_array(*it);
+        (*dyn)[idx++] = from_json_array_field(*it);
         break;
       case json::value_t::object:
         (*dyn)[idx++] = from_json_object(*it);
@@ -65,6 +132,18 @@ dynamic_ptr from_json_array(json::array_t data) {
   return dyn;
 }
 
+/**
+ * @brief Convert a JSON object into a named-field `dynamic_ptr`.
+ *
+ * Each key/value pair becomes a named field, with nested arrays and
+ * objects recursively converted via `from_json_array_field` and
+ * `from_json_object` respectively. Used both for the document root
+ * (`extensions::from_json`) and for nested objects encountered while
+ * walking a document.
+ *
+ * @param data The parsed JSON object.
+ * @return A `dynamic_ptr` with one named field per JSON key.
+ */
 dynamic_ptr from_json_object(json::object_t data) {
   auto dyn = dynamic_ptr{};
   for (auto it = data.begin(); it != data.end(); ++it) {
@@ -88,7 +167,7 @@ dynamic_ptr from_json_object(json::object_t data) {
         (*dyn)[it->first] = std::string{it->second};
         break;
       case json::value_t::array:
-        (*dyn)[it->first] = from_json_array(it->second);
+        (*dyn)[it->first] = from_json_array_field(it->second);
         break;
       case json::value_t::object:
         (*dyn)[it->first] = from_json_object(it->second);
@@ -144,6 +223,7 @@ static field yaml_scalar_to_field(const char* value, bool plain) {
 // Forward declarations for mutual recursion.
 static dynamic_ptr yaml_parse_mapping(yaml_parser_t* parser);
 static dynamic_ptr yaml_parse_sequence(yaml_parser_t* parser);
+static field yaml_sequence_to_field(yaml_parser_t* parser);
 static field yaml_parse_value(yaml_parser_t* parser, const yaml_event_t* ev);
 
 /**
@@ -161,12 +241,21 @@ static field yaml_parse_value(yaml_parser_t* parser, const yaml_event_t* ev) {
     case YAML_MAPPING_START_EVENT:
       return field{yaml_parse_mapping(parser)};
     case YAML_SEQUENCE_START_EVENT:
-      return field{yaml_parse_sequence(parser)};
+      return yaml_sequence_to_field(parser);
     default:
       return field{std::monostate{}};
   }
 }
 
+/**
+ * @brief Consume a YAML mapping's events and return it as a named-field
+ *        `dynamic_ptr`.
+ *
+ * Called with the `YAML_MAPPING_START_EVENT` already consumed; reads
+ * key/value event pairs until the matching `YAML_MAPPING_END_EVENT`.
+ * Keys must be scalars; values are parsed recursively via
+ * `yaml_parse_value`.
+ */
 static dynamic_ptr yaml_parse_mapping(yaml_parser_t* parser) {
   auto dyn = dynamic_ptr{};
   yaml_event_t ev;
@@ -197,9 +286,13 @@ static dynamic_ptr yaml_parse_mapping(yaml_parser_t* parser) {
   return dyn;
 }
 
-static dynamic_ptr yaml_parse_sequence(yaml_parser_t* parser) {
-  auto dyn = dynamic_ptr{};
-  size_t idx = 0;
+/**
+ * @brief Consume a YAML sequence's events and return its elements as a flat
+ *        list of already-parsed `field` values (nested mappings/sequences
+ *        are fully resolved).
+ */
+static std::vector<field> yaml_collect_sequence_items(yaml_parser_t* parser) {
+  std::vector<field> items;
   yaml_event_t ev;
   while (true) {
     if (!yaml_parser_parse(parser, &ev)) {
@@ -210,10 +303,96 @@ static dynamic_ptr yaml_parse_sequence(yaml_parser_t* parser) {
       yaml_event_delete(&ev);
       break;
     }
-    (*dyn)[idx++] = yaml_parse_value(parser, &ev);
+    items.push_back(yaml_parse_value(parser, &ev));
     yaml_event_delete(&ev);
   }
+  return items;
+}
+
+/** @brief Build an indexed `dynamic_ptr` (array-like) from parsed items. */
+static dynamic_ptr yaml_items_to_indexed_dynamic(std::vector<field>& items) {
+  auto dyn = dynamic_ptr{};
+  size_t idx = 0;
+  for (auto& item : items)
+    (*dyn)[idx++] = std::move(item);
   return dyn;
+}
+
+/**
+ * @brief Consume a YAML sequence's events and return it as an indexed
+ *        `dynamic_ptr`, unconditionally (no vector-type classification).
+ *
+ * Used only for the document root, since `bison_to_yaml` always emits a
+ * mapping there — a top-level sequence is necessarily hand-authored YAML,
+ * so it keeps the simple array-like representation rather than attempting
+ * to reconstruct a vector field type. Nested sequences use
+ * `yaml_sequence_to_field` instead.
+ */
+static dynamic_ptr yaml_parse_sequence(yaml_parser_t* parser) {
+  auto items = yaml_collect_sequence_items(parser);
+  return yaml_items_to_indexed_dynamic(items);
+}
+
+/**
+ * @brief Classify a nested YAML sequence and convert it to the most
+ *        specific `field` type that reproduces what `bison_to_yaml` would
+ *        have emitted.
+ *
+ * `to_yaml` renders `std::vector<bool>`, `std::vector<int32_t>`, and
+ * `std::vector<float>` fields as plain block sequences of the
+ * corresponding scalar type (see `emit_field_yaml`). To round-trip those
+ * fields, a homogeneous sequence is reconstructed as the matching vector
+ * type:
+ *  - all booleans           → `std::vector<bool>`
+ *  - all integers           → `std::vector<int32_t>`
+ *  - all numeric, any float → `std::vector<float>`
+ *
+ * Any other sequence (empty, mixed types, or containing strings/mappings/
+ * nested sequences/nulls) falls back to an indexed `dynamic_ptr`, matching
+ * the pre-existing behavior for arbitrary YAML input.
+ */
+static field yaml_sequence_to_field(yaml_parser_t* parser) {
+  auto items = yaml_collect_sequence_items(parser);
+  if (!items.empty()) {
+    bool all_bool = true;
+    bool all_int = true;
+    bool all_numeric = true;
+    for (const auto& f : items) {
+      const auto& base = static_cast<const field_base&>(f);
+      const bool is_int = std::holds_alternative<int32_t>(base);
+      const bool is_float = std::holds_alternative<float>(base);
+      all_bool = all_bool && std::holds_alternative<bool>(base);
+      all_int = all_int && is_int;
+      all_numeric = all_numeric && (is_int || is_float);
+    }
+    if (all_bool) {
+      std::vector<bool> v;
+      v.reserve(items.size());
+      for (auto& f : items)
+        v.push_back(std::get<bool>(static_cast<field_base&>(f)));
+      return field{std::move(v)};
+    }
+    if (all_int) {
+      std::vector<int32_t> v;
+      v.reserve(items.size());
+      for (auto& f : items)
+        v.push_back(std::get<int32_t>(static_cast<field_base&>(f)));
+      return field{std::move(v)};
+    }
+    if (all_numeric) {
+      std::vector<float> v;
+      v.reserve(items.size());
+      for (auto& f : items) {
+        const auto& base = static_cast<const field_base&>(f);
+        if (const auto* i = std::get_if<int32_t>(&base))
+          v.push_back(static_cast<float>(*i));
+        else
+          v.push_back(std::get<float>(base));
+      }
+      return field{std::move(v)};
+    }
+  }
+  return field{yaml_items_to_indexed_dynamic(items)};
 }
 
 // ─── JSON export helpers
@@ -224,11 +403,36 @@ using key_map = std::unordered_map<uint32_t, std::string>;
 static json field_to_json(const field& f, const key_map& keys);
 static json dynamic_to_json(const dynamic& d, const key_map& keys);
 
+/**
+ * @brief Resolve a field/hash key id to a human-readable name for export.
+ *
+ * Looks @p id up in @p keys (typically produced by `build_display_dict`
+ * or supplied by the caller of `to_json` / `to_yaml`). Falls back to a
+ * `#<id>` placeholder when no display name is registered, so the key is
+ * still stable and greppable in the exported document.
+ *
+ * @param id   Raw `hash_t` key id.
+ * @param keys Id-to-name lookup table.
+ * @return Resolved display name, or `"#<id>"` if unknown.
+ */
 static std::string resolve_key(uint32_t id, const key_map& keys) {
   auto it = keys.find(id);
   return (it != keys.end()) ? it->second : ('#' + std::to_string(id));
 }
 
+/**
+ * @brief Convert a single `field` to its JSON representation.
+ *
+ * Dispatches on the active `field_base` alternative: scalars map to the
+ * corresponding JSON scalar type, `dynamic_ptr` recurses via
+ * `dynamic_to_json`, and the vector types are rendered the way described
+ * in `from_json_array_field` (bool/int32/float arrays as plain JSON
+ * arrays, `vector<uint8_t>` as a lowercase hex string).
+ *
+ * @param f    Field to convert.
+ * @param keys Id-to-name lookup used for `hash_t` / `key_t` fields.
+ * @return The JSON value equivalent to @p f.
+ */
 static json field_to_json(const field& f, const key_map& keys) {
   return std::visit(
       [&](const auto& v) -> json {
@@ -270,6 +474,18 @@ static json field_to_json(const field& f, const key_map& keys) {
       static_cast<const field_base&>(f));
 }
 
+/**
+ * @brief Convert a `dynamic` object's named fields to a JSON object.
+ *
+ * Only named fields are visited (via `dynamic::forEach`); methods and
+ * attributes are not exported. This always produces a JSON object, even
+ * for a `dynamic` that is being used array-like (numeric-indexed fields
+ * are keyed by their resolved index name, not rendered as a JSON array).
+ *
+ * @param d    Object to convert.
+ * @param keys Id-to-name lookup used to resolve field keys.
+ * @return A JSON object with one entry per field in @p d.
+ */
 static json dynamic_to_json(const dynamic& d, const key_map& keys) {
   auto obj = json::object();
   d.forEach([&](key_t k, const field& f) { obj[resolve_key(k.id, keys)] = field_to_json(f, keys); });
@@ -281,11 +497,34 @@ static json dynamic_to_json(const dynamic& d, const key_map& keys) {
 
 namespace extensions {
 
+/**
+ * @brief Parse a JSON document into a `dynamic_ptr`.
+ *
+ * The document root must be a JSON object (matching what `to_json`
+ * always emits); throws if @p text is not valid JSON or its root is not
+ * an object.
+ *
+ * @param text UTF-8 JSON document text.
+ * @return Root `dynamic_ptr` of the parsed document.
+ */
 dynamic_ptr from_json(std::string text) {
   json data = json::parse(text);
   return from_json_object(data);
 }
 
+/**
+ * @brief Parse a YAML document into a `dynamic_ptr`.
+ *
+ * Drives a libyaml event-stream parser and dispatches the first
+ * document-level event: a mapping is parsed via `yaml_parse_mapping`, a
+ * sequence via `yaml_parse_sequence` (see that function for why top-level
+ * sequences are not classified into vector fields). Any other root event
+ * (e.g. a bare scalar) yields an empty `dynamic_ptr`.
+ *
+ * @param text UTF-8 YAML document text.
+ * @return Root `dynamic_ptr` of the parsed document.
+ * @throws std::runtime_error on a YAML syntax/parser error.
+ */
 dynamic_ptr from_yaml(std::string text) {
   yaml_parser_t parser;
   if (!yaml_parser_initialize(&parser)) {
@@ -329,6 +568,18 @@ dynamic_ptr from_yaml(std::string text) {
   return result;
 }
 
+/**
+ * @brief Serialize a `dynamic` object to a JSON document string.
+ *
+ * @param d      Object to serialize.
+ * @param keys   Id-to-name lookup used to resolve field keys (see
+ *               `resolve_key`); typically `build_display_dict()`.
+ * @param indent Passed through to `nlohmann::json::dump`; a negative
+ *               value produces compact output, `0` or greater (`2` by
+ *               default) produces pretty-printed output with that many
+ *               spaces per indent level.
+ * @return The JSON document text.
+ */
 std::string to_json(const dynamic& d, const std::unordered_map<uint32_t, std::string>& keys, int indent) {
   return dynamic_to_json(d, keys).dump(indent);
 }
@@ -338,11 +589,20 @@ std::string to_json(const dynamic& d, const std::unordered_map<uint32_t, std::st
 
 namespace {
 
+/**
+ * @brief Emit a single already-initialized libyaml event, throwing on
+ *        failure.
+ *
+ * Thin wrapper around `yaml_emitter_emit` that converts the emitter's
+ * `problem` string into a `std::runtime_error`, used by every other
+ * `yaml_*` emit helper below.
+ */
 static void yaml_send(yaml_emitter_t* e, yaml_event_t& ev) {
   if (!yaml_emitter_emit(e, &ev))
     throw std::runtime_error(std::string("YAML emit: ") + (e->problem ? e->problem : "unknown"));
 }
 
+/** @brief Emit @p s as an unquoted (plain-style) YAML scalar. */
 static void yaml_scalar_plain(yaml_emitter_t* e, const std::string& s) {
   yaml_event_t ev;
   yaml_scalar_event_initialize(
@@ -357,6 +617,13 @@ static void yaml_scalar_plain(yaml_emitter_t* e, const std::string& s) {
   yaml_send(e, ev);
 }
 
+/**
+ * @brief Emit @p s as a double-quoted YAML scalar.
+ *
+ * Used for string fields (and the hex encoding of `vector<uint8_t>`) so
+ * `yaml_scalar_to_field`'s plain-scalar coercion rules (null/bool/int/
+ * float) never misinterpret the value on re-parse.
+ */
 static void yaml_scalar_quoted(yaml_emitter_t* e, const std::string& s) {
   yaml_event_t ev;
   yaml_scalar_event_initialize(
@@ -371,6 +638,15 @@ static void yaml_scalar_quoted(yaml_emitter_t* e, const std::string& s) {
   yaml_send(e, ev);
 }
 
+/**
+ * @brief Format a `float` as a YAML plain scalar that always parses back
+ *        as a float, never an int.
+ *
+ * Appends `.0` when the default `std::ostringstream` formatting produces
+ * no decimal point or exponent (e.g. for whole values like `2.0f`), so
+ * `yaml_scalar_to_field`'s int-then-float coercion order can't
+ * misclassify the round-tripped value as `int32_t`.
+ */
 static std::string format_float_yaml(float f) {
   std::ostringstream oss;
   oss << std::setprecision(7) << f;
@@ -380,6 +656,16 @@ static std::string format_float_yaml(float f) {
   return s;
 }
 
+/**
+ * @brief Emit a YAML block sequence of plain scalars from a vector field.
+ *
+ * @tparam Vec Container type (`std::vector<bool>`, `std::vector<int32_t>`,
+ *             or `std::vector<float>`).
+ * @tparam Fmt Callable converting one element of @p v to its scalar text.
+ * @param e   Target emitter.
+ * @param v   Elements to emit.
+ * @param fmt Per-element formatter.
+ */
 template <typename Vec, typename Fmt>
 static void yaml_emit_sequence(yaml_emitter_t* e, const Vec& v, Fmt fmt) {
   yaml_event_t ev;
@@ -394,6 +680,19 @@ static void yaml_emit_sequence(yaml_emitter_t* e, const Vec& v, Fmt fmt) {
 static void emit_field_yaml(yaml_emitter_t* e, const field& f, const key_map& keys);
 static void emit_dynamic_yaml(yaml_emitter_t* e, const dynamic& d, const key_map& keys);
 
+/**
+ * @brief Emit a single `field`'s YAML representation.
+ *
+ * Dispatches on the active `field_base` alternative: scalars become plain
+ * or quoted scalars as appropriate, `dynamic_ptr` recurses via
+ * `emit_dynamic_yaml`, and the vector types are rendered the way
+ * described in `yaml_sequence_to_field` (bool/int32/float vectors as
+ * plain block sequences, `vector<uint8_t>` as a quoted hex string).
+ *
+ * @param e    Target emitter.
+ * @param f    Field to emit.
+ * @param keys Id-to-name lookup used for `hash_t` / `key_t` fields.
+ */
 static void emit_field_yaml(yaml_emitter_t* e, const field& f, const key_map& keys) {
   std::visit(
       [&](const auto& v) {
@@ -435,6 +734,17 @@ static void emit_field_yaml(yaml_emitter_t* e, const field& f, const key_map& ke
       static_cast<const field_base&>(f));
 }
 
+/**
+ * @brief Emit a `dynamic` object's named fields as a YAML block mapping.
+ *
+ * Only named fields are visited (via `dynamic::forEach`); methods and
+ * attributes are not exported. Mirrors `dynamic_to_json`'s scope, but
+ * always produces a block mapping rather than JSON's flat object.
+ *
+ * @param e    Target emitter.
+ * @param d    Object to emit.
+ * @param keys Id-to-name lookup used to resolve field keys.
+ */
 static void emit_dynamic_yaml(yaml_emitter_t* e, const dynamic& d, const key_map& keys) {
   yaml_event_t ev;
   yaml_mapping_start_event_initialize(&ev, nullptr, nullptr, /*implicit=*/1, YAML_BLOCK_MAPPING_STYLE);
@@ -449,6 +759,20 @@ static void emit_dynamic_yaml(yaml_emitter_t* e, const dynamic& d, const key_map
 
 } // namespace
 
+/**
+ * @brief Serialize a `dynamic` object to a YAML document string.
+ *
+ * Drives a libyaml emitter through a full stream (start/document
+ * start/content/document end/stream end) and always emits the object as
+ * a block mapping at the document root via `emit_dynamic_yaml`.
+ *
+ * @param d    Object to serialize.
+ * @param keys Id-to-name lookup used to resolve field keys (see
+ *             `resolve_key`); typically `build_display_dict()`.
+ * @return The YAML document text.
+ * @throws std::runtime_error on an emitter initialization or emit
+ *         failure.
+ */
 std::string to_yaml(const dynamic& d, const std::unordered_map<uint32_t, std::string>& keys) {
   // Set up emitter with a write callback that appends to a std::string.
   yaml_emitter_t emitter;
@@ -503,6 +827,7 @@ namespace bdg::bison {
 
 namespace {
 
+/** @brief Quote and backslash-escape @p s for pretty-printed output. */
 std::string escape_string_p(const std::string& s) {
   std::string out;
   out.reserve(s.size() + 2);
@@ -533,12 +858,21 @@ std::string escape_string_p(const std::string& s) {
   return out;
 }
 
+/** @brief Format @p h as an `#xxxxxxxx` 8-digit lowercase hex hash. */
 std::string format_hash_p(hash_t h) {
   std::ostringstream oss;
   oss << '#' << std::hex << std::setw(8) << std::setfill('0') << h;
   return oss.str();
 }
 
+/**
+ * @brief Format a key for pretty-printed output when no display name is
+ *        available.
+ *
+ * Named keys (high bit set, per the `hash()` scheme in
+ * `bison_common.hpp`) are formatted as `#xxxxxxxx` via `format_hash_p`.
+ * Numeric-index keys (array-like fields) are formatted as `[N]`.
+ */
 std::string format_key_p(key_t k) {
   const hash_t h = static_cast<hash_t>(k);
   if (h & 0x80000000u)
@@ -548,6 +882,7 @@ std::string format_key_p(key_t k) {
   return oss.str();
 }
 
+/** @brief Look up @p h in the optional display-name dictionary @p d. */
 const std::string* dict_lookup_p(hash_t h, const std::unordered_map<hash_t, std::string>* d) {
   if (!d)
     return nullptr;
@@ -555,6 +890,10 @@ const std::string* dict_lookup_p(hash_t h, const std::unordered_map<hash_t, std:
   return it != d->end() ? &it->second : nullptr;
 }
 
+/**
+ * @brief Format a `float` for pretty-printed output, always with a
+ *        trailing decimal point so it reads distinctly from an int.
+ */
 std::string format_float_p(float f) {
   std::ostringstream oss;
   oss << std::setprecision(7) << f;
@@ -564,6 +903,7 @@ std::string format_float_p(float f) {
   return s;
 }
 
+/** @brief Return @p s repeated @p n times, used to build indentation. */
 std::string repeat_str_p(const std::string& s, int n) {
   std::string r;
   r.reserve(s.size() * static_cast<size_t>(n));
@@ -572,6 +912,13 @@ std::string repeat_str_p(const std::string& s, int n) {
   return r;
 }
 
+/**
+ * @brief Resolve the display label for a field key in pretty-printed
+ *        output.
+ *
+ * Precedence: the field's own `DisplayName` attribute, then
+ * `opts.dict`, then a raw `format_key_p` fallback.
+ */
 std::string format_field_key_p(key_t k, const field& f, const print_options& opts) {
   if (const auto* dn = f.findAttribute<DisplayName>())
     return dn->name();
@@ -580,6 +927,7 @@ std::string format_field_key_p(key_t k, const field& f, const print_options& opt
   return format_key_p(k);
 }
 
+/** @brief Same precedence as `format_field_key_p`, but for method keys. */
 std::string format_method_key_p(key_t k, const method& m, const print_options& opts) {
   if (const auto* dn = m.findAttribute<DisplayName>())
     return dn->name();
@@ -592,6 +940,20 @@ std::string format_method_key_p(key_t k, const method& m, const print_options& o
 std::string print_field_value_p(const field& f, const print_options& opts, int depth);
 std::string print_dynamic_p(const dynamic& obj, const print_options& opts, int depth);
 
+/**
+ * @brief Render a single `field`'s value for pretty-printed output.
+ *
+ * Dispatches on the active `field_base` alternative: `hash_t`/`key_t`
+ * prefer a `opts.dict` display name and fall back to `format_hash_p`,
+ * `dynamic_ptr` recurses via `print_dynamic_p`, and vector types are
+ * rendered as bracketed, comma-separated element lists (`vector<uint8_t>`
+ * is summarized as `<N bytes>` instead of dumping raw bytes).
+ *
+ * @param f     Field to render.
+ * @param opts  Formatting options (dictionary, indentation, etc).
+ * @param depth Current nesting depth, forwarded to nested `dynamic_ptr`
+ *              rendering.
+ */
 std::string print_field_value_p(const field& f, const print_options& opts, int depth) {
   return std::visit(
       [&](const auto& v) -> std::string {
@@ -658,6 +1020,13 @@ std::string print_field_value_p(const field& f, const print_options& opts, int d
       static_cast<const field_base&>(f));
 }
 
+/**
+ * @brief Render a method's attributes (display name, description,
+ *        category, obsolete/required markers) as a compact summary.
+ *
+ * Returns `"<method>"` when the method has no recognized attributes, or
+ * `"<method {key: value, ...}>"` otherwise.
+ */
 std::string print_method_value_p(const method& m) {
   std::string pairs;
   auto append = [&](const std::string& k, const std::string& val) {
@@ -688,6 +1057,18 @@ std::string print_method_value_p(const method& m) {
   return "<method {" + pairs + "}>";
 }
 
+/**
+ * @brief Render a `dynamic` object's fields and methods as a `{...}`
+ *        block, either multiline-indented or single-line per
+ *        `opts.multiline`.
+ *
+ * Internal bookkeeping fields (`__class`, `__parent`, `__namespace`) are
+ * skipped when `opts.hide_internal` is set.
+ *
+ * @param obj   Object to render.
+ * @param opts  Formatting options.
+ * @param depth Current nesting depth, used for indentation.
+ */
 std::string print_dynamic_p(const dynamic& obj, const print_options& opts, int depth) {
   std::string result;
   auto is_internal = [](hash_t h) { return h == dynamic::CLASS || h == dynamic::PARENT || h == dynamic::NAMESPACE; };
@@ -732,6 +1113,14 @@ std::string print_dynamic_p(const dynamic& obj, const print_options& opts, int d
 
 } // anonymous namespace
 
+/**
+ * @brief Render a `dynamic` object as a human-readable debug string.
+ *
+ * @param obj  Object to render.
+ * @param opts Formatting options (dictionary, multiline, indent string,
+ *             hide-internal flag).
+ * @return The formatted `{...}` block; see `print_dynamic_p`.
+ */
 std::string print(const dynamic& obj, const print_options& opts) {
   return print_dynamic_p(obj, opts, 0);
 }
@@ -740,6 +1129,7 @@ std::string print(const dynamic& obj, const print_options& opts) {
 
 namespace {
 
+/** @brief Process-wide, thread-safe hash → human-readable-name registry. */
 synchronized<std::unordered_map<hash_t, std::string>>& key_name_registry() {
   static synchronized<std::unordered_map<hash_t, std::string>> reg;
   return reg;
@@ -747,10 +1137,37 @@ synchronized<std::unordered_map<hash_t, std::string>>& key_name_registry() {
 
 } // namespace
 
+/**
+ * @brief Register a human-readable name for a key hash in the global
+ *        registry.
+ *
+ * Called by the `_rkey` literal (see `bison_common.hpp`) and directly by
+ * callers who want a name available for `build_display_dict()` without
+ * a corresponding `DisplayName` attribute.
+ *
+ * @param h    Hash produced by `hash()` or `_key` / `_rkey`.
+ * @param name Human-readable name to associate with @p h.
+ */
 void register_key_name(hash_t h, std::string_view name) {
   key_name_registry().wlock()->emplace(h, std::string(name));
 }
 
+/**
+ * @brief Build a combined hash → display-name dictionary for use with
+ *        `print_options::dict`, `to_json`, and `to_yaml`.
+ *
+ * Seeds the dictionary from the global key-name registry
+ * (`register_key_name` / `_rkey`), then walks every registered class
+ * prototype and overlays any `DisplayName` attributes found on the class
+ * key itself, its fields, its methods, and its methods' input/output
+ * param specs — skipping the internal bookkeeping fields (`__class`,
+ * `__parent`, `__namespace`), since those share one key across every
+ * prototype and would otherwise collide. `DisplayName` entries take
+ * precedence over the registry because they are more specific (hand
+ * written per-field, rather than derived from a literal's spelling).
+ *
+ * @return Combined hash → display-name map.
+ */
 std::unordered_map<hash_t, std::string> build_display_dict() {
   // Seed from the explicit key-name registry (populated by _rkey literals and
   // by direct register_key_name() calls).

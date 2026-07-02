@@ -1179,15 +1179,61 @@ TEST(ExtensionsTests, ParseNullValue) {
   EXPECT_EQ(ptr, nullptr);
 }
 
-TEST(ExtensionsTests, ParseArrayAsIndexedDynamic) {
+TEST(ExtensionsTests, ParseHomogeneousIntArrayAsVectorInt32) {
+  // A homogeneous integer array reconstructs as std::vector<int32_t>,
+  // mirroring how bison_to_json renders that field type.
   auto obj = extensions::from_json(R"({"items": [10, 20, 30]})");
+  ASSERT_NE(obj, nullptr);
+  EXPECT_EQ((*obj)["items"].as<std::vector<int32_t>>(), (std::vector<int32_t>{10, 20, 30}));
+}
+
+TEST(ExtensionsTests, ParseHomogeneousBoolArrayAsVectorBool) {
+  auto obj = extensions::from_json(R"({"flags": [true, false, true]})");
+  ASSERT_NE(obj, nullptr);
+  EXPECT_EQ((*obj)["flags"].as<std::vector<bool>>(), (std::vector<bool>{true, false, true}));
+}
+
+TEST(ExtensionsTests, ParseArrayWithFloatAsVectorFloat) {
+  // Mixed integer/float numeric arrays coerce to std::vector<float>, since
+  // that is what bison_to_json emits for a float field.
+  auto obj = extensions::from_json(R"({"items": [1, 2.5, 3]})");
+  ASSERT_NE(obj, nullptr);
+  const auto& v = (*obj)["items"].as<std::vector<float>>();
+  ASSERT_EQ(v.size(), 3u);
+  EXPECT_FLOAT_EQ(v[0], 1.0f);
+  EXPECT_FLOAT_EQ(v[1], 2.5f);
+  EXPECT_FLOAT_EQ(v[2], 3.0f);
+}
+
+TEST(ExtensionsTests, ParseMixedTypeArrayAsIndexedDynamic) {
+  // Arrays that mix incompatible element types (e.g. numbers and strings)
+  // cannot be a vector<T>, so they fall back to an indexed dynamic_ptr.
+  auto obj = extensions::from_json(R"({"items": [10, "twenty", 30]})");
   ASSERT_NE(obj, nullptr);
   auto arr = (*obj)["items"].as<dynamic_ptr>();
   ASSERT_NE(arr, nullptr);
   EXPECT_EQ((*arr)[0].as<int32_t>(), 10);
-  EXPECT_EQ((*arr)[1].as<int32_t>(), 20);
+  EXPECT_EQ((*arr)[1].as<std::string>(), "twenty");
   EXPECT_EQ((*arr)[2].as<int32_t>(), 30);
   EXPECT_EQ(arr->size(), 3u);
+}
+
+TEST(ExtensionsTests, JsonRoundTripVectorFields) {
+  dynamic src;
+  src["ints"_key] = std::vector<int32_t>{1, 2, 3};
+  src["floats"_key] = std::vector<float>{1.5f, 2.5f};
+  src["bools"_key] = std::vector<bool>{true, false, true};
+
+  const std::string text = extensions::to_json(src, {{hash("ints"), "ints"}, {hash("floats"), "floats"}, {hash("bools"), "bools"}});
+  auto dst = extensions::from_json(text);
+  ASSERT_NE(dst, nullptr);
+
+  EXPECT_EQ((*dst)["ints"].as<std::vector<int32_t>>(), (std::vector<int32_t>{1, 2, 3}));
+  EXPECT_EQ((*dst)["bools"].as<std::vector<bool>>(), (std::vector<bool>{true, false, true}));
+  const auto& floats = (*dst)["floats"].as<std::vector<float>>();
+  ASSERT_EQ(floats.size(), 2u);
+  EXPECT_FLOAT_EQ(floats[0], 1.5f);
+  EXPECT_FLOAT_EQ(floats[1], 2.5f);
 }
 
 TEST(ExtensionsTests, ModifyFieldAfterJsonImport) {
@@ -1308,6 +1354,70 @@ TEST(YamlTests, QuotedStringNotCoerced) {
 
 TEST(YamlTests, InvalidYamlThrows) {
   EXPECT_THROW(extensions::from_yaml("{broken"), std::runtime_error);
+}
+
+TEST(YamlTests, HomogeneousIntSequenceAsVectorInt32) {
+  // A nested homogeneous integer sequence reconstructs as
+  // std::vector<int32_t>, mirroring bison_to_yaml's rendering of that
+  // field type.
+  auto obj = extensions::from_yaml("items:\n  - 10\n  - 20\n  - 30\n");
+  ASSERT_NE(obj, nullptr);
+  EXPECT_EQ((*obj)["items"].as<std::vector<int32_t>>(), (std::vector<int32_t>{10, 20, 30}));
+}
+
+TEST(YamlTests, HomogeneousBoolSequenceAsVectorBool) {
+  auto obj = extensions::from_yaml("flags:\n  - true\n  - false\n  - true\n");
+  ASSERT_NE(obj, nullptr);
+  EXPECT_EQ((*obj)["flags"].as<std::vector<bool>>(), (std::vector<bool>{true, false, true}));
+}
+
+TEST(YamlTests, MixedNumericSequenceAsVectorFloat) {
+  auto obj = extensions::from_yaml("items:\n  - 1\n  - 2.5\n  - 3\n");
+  ASSERT_NE(obj, nullptr);
+  const auto& v = (*obj)["items"].as<std::vector<float>>();
+  ASSERT_EQ(v.size(), 3u);
+  EXPECT_FLOAT_EQ(v[0], 1.0f);
+  EXPECT_FLOAT_EQ(v[1], 2.5f);
+  EXPECT_FLOAT_EQ(v[2], 3.0f);
+}
+
+TEST(YamlTests, SequenceInsideMappingStillIndexedWhenNotHomogeneous) {
+  // Strings cannot become a vector<T>, so this still falls back to an
+  // indexed dynamic_ptr (same as SequenceInsideMapping above).
+  auto obj = extensions::from_yaml("items:\n  - apple\n  - banana\n");
+  ASSERT_NE(obj, nullptr);
+  dynamic_ptr items = (*obj)["items"];
+  ASSERT_NE(items, nullptr);
+  EXPECT_EQ(items->size(), 2u);
+}
+
+TEST(YamlTests, TopLevelSequenceRemainsIndexedDynamic) {
+  // bison_to_yaml always emits a mapping at the document root, so top-level
+  // sequences are hand-authored YAML; they keep the pre-existing indexed
+  // dynamic_ptr behavior rather than becoming a vector<T> field.
+  auto obj = extensions::from_yaml("- 1\n- 2\n- 3\n");
+  ASSERT_NE(obj, nullptr);
+  EXPECT_EQ(obj->size(), 3u);
+  EXPECT_EQ((*obj)[size_t{0}].as<int32_t>(), 1);
+}
+
+TEST(YamlTests, RoundTripVectorFields) {
+  dynamic src;
+  src["ints"_key] = std::vector<int32_t>{1, 2, 3};
+  src["floats"_key] = std::vector<float>{1.5f, 2.5f};
+  src["bools"_key] = std::vector<bool>{true, false, true};
+
+  const std::string text = extensions::to_yaml(
+      src, {{hash("ints"), "ints"}, {hash("floats"), "floats"}, {hash("bools"), "bools"}});
+  auto dst = extensions::from_yaml(text);
+  ASSERT_NE(dst, nullptr);
+
+  EXPECT_EQ((*dst)["ints"].as<std::vector<int32_t>>(), (std::vector<int32_t>{1, 2, 3}));
+  EXPECT_EQ((*dst)["bools"].as<std::vector<bool>>(), (std::vector<bool>{true, false, true}));
+  const auto& floats = (*dst)["floats"].as<std::vector<float>>();
+  ASSERT_EQ(floats.size(), 2u);
+  EXPECT_FLOAT_EQ(floats[0], 1.5f);
+  EXPECT_FLOAT_EQ(floats[1], 2.5f);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
