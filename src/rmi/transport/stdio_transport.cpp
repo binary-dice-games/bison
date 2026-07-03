@@ -35,7 +35,7 @@ std::string base64_encode(const bison::buffer& in) {
   size_t i = 0;
   while (i + 3 <= in.size()) {
     const uint32_t n = (static_cast<uint32_t>(in[i]) << 16) | (static_cast<uint32_t>(in[i + 1]) << 8) |
-                        static_cast<uint32_t>(in[i + 2]);
+        static_cast<uint32_t>(in[i + 2]);
     out.push_back(kBase64Chars[(n >> 18) & 0x3F]);
     out.push_back(kBase64Chars[(n >> 12) & 0x3F]);
     out.push_back(kBase64Chars[(n >> 6) & 0x3F]);
@@ -104,7 +104,7 @@ std::optional<bison::buffer> base64_decode(std::string_view in) {
       return std::nullopt; // padding only allowed in the final block
 
     const uint32_t n = (static_cast<uint32_t>(vals[0]) << 18) | (static_cast<uint32_t>(vals[1]) << 12) |
-                        (static_cast<uint32_t>(vals[2]) << 6) | static_cast<uint32_t>(vals[3]);
+        (static_cast<uint32_t>(vals[2]) << 6) | static_cast<uint32_t>(vals[3]);
     out.push_back(static_cast<uint8_t>((n >> 16) & 0xFF));
     if (pad < 2)
       out.push_back(static_cast<uint8_t>((n >> 8) & 0xFF));
@@ -191,13 +191,13 @@ struct stdio_pipe_thread {
 
   template <typename PreRun, typename PostRun>
   void start(PreRun&& pre_run, PostRun&& post_run) {
-    loop_thread = std::thread([this, pre_run = std::forward<PreRun>(pre_run),
-                                post_run = std::forward<PostRun>(post_run)] {
-      pre_run();
-      uv_run(&loop, UV_RUN_DEFAULT);
-      post_run();
-      uv_loop_close(&loop);
-    });
+    loop_thread =
+        std::thread([this, pre_run = std::forward<PreRun>(pre_run), post_run = std::forward<PostRun>(post_run)] {
+          pre_run();
+          uv_run(&loop, UV_RUN_DEFAULT);
+          post_run();
+          uv_loop_close(&loop);
+        });
   }
 
   void stop() {
@@ -243,7 +243,9 @@ struct stdio_reader {
   std::atomic<bool> recv_closed{false};
 
   stdio_reader() = default;
-  ~stdio_reader() { stop(); }
+  ~stdio_reader() {
+    stop();
+  }
   stdio_reader(const stdio_reader&) = delete;
   stdio_reader& operator=(const stdio_reader&) = delete;
 
@@ -263,7 +265,9 @@ struct stdio_reader {
         });
   }
 
-  void stop() { io.stop(); }
+  void stop() {
+    io.stop();
+  }
 
   bool dequeue_frame(bison::buffer& frame, std::chrono::milliseconds timeout) {
     bool got = false;
@@ -330,7 +334,9 @@ struct stdio_reader {
    *        `kIdleFlushMs`, the held `speculative` bytes are flushed to
    *        `passthrough` as though a mismatch had occurred.
    */
-  void arm_idle_flush() { uv_timer_start(&idle_timer, on_idle_timeout, kIdleFlushMs, 0); }
+  void arm_idle_flush() {
+    uv_timer_start(&idle_timer, on_idle_timeout, kIdleFlushMs, 0);
+  }
 
   static void on_idle_timeout(uv_timer_t* h) {
     auto* self = static_cast<stdio_reader*>(h->data);
@@ -399,7 +405,9 @@ struct stdio_writer {
   std::atomic<bool> stopped{false};
 
   stdio_writer() = default;
-  ~stdio_writer() { stop(); }
+  ~stdio_writer() {
+    stop();
+  }
   stdio_writer(const stdio_writer&) = delete;
   stdio_writer& operator=(const stdio_writer&) = delete;
 
@@ -582,8 +590,11 @@ void stdio_discard_passthrough(std::string_view /*chunk*/) {}
 
 // ── stdio_client_transport ─────────────────────────────────────────────────────
 
-stdio_client_transport::stdio_client_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough,
-                                                std::chrono::milliseconds handshake_timeout)
+stdio_client_transport::stdio_client_transport(
+    int read_fd,
+    int write_fd,
+    stdio_passthrough_cb passthrough,
+    std::chrono::milliseconds handshake_timeout)
     : state_(std::make_unique<stdio_conn_state>()), handshake_timeout_(handshake_timeout) {
   // Wrap immediately (not deferred to open()) so the handshake gate is
   // active from the very first byte the reader ever sees — open() typically
@@ -613,7 +624,7 @@ void stdio_client_transport::send(bison::buffer frame) {
   state_->send_frame(frame);
 }
 
-void stdio_client_transport::send_raw(std::string_view bytes) {
+void stdio_client_transport::send(std::string_view bytes) {
   state_->send_raw(bytes);
 }
 
@@ -628,7 +639,9 @@ void stdio_client_transport::shutdown() {
 
 // ── stdio_server_connection ───────────────────────────────────────────────────
 
-stdio_server_connection::stdio_server_connection(std::shared_ptr<stdio_conn_state> state, std::function<void()> on_close)
+stdio_server_connection::stdio_server_connection(
+    std::shared_ptr<stdio_conn_state> state,
+    std::function<void()> on_close)
     : state_(std::move(state)), on_close_(std::move(on_close)) {}
 
 stdio_server_connection::~stdio_server_connection() {

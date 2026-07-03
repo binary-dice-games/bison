@@ -160,8 +160,8 @@ terminal.
   race that writer at the byte level — two independent, unsynchronized
   writers on one fd is exactly the class of bug this whole file has been
   about. `client_app` avoids it by giving `crlf_output_guard` a *sink*
-  (`stdio_client_transport::send_raw()`) instead of letting it write fd 1
-  directly, so echo, `send_raw`-routed text, and frames all funnel through
+  (`stdio_client_transport::send()`) instead of letting it write fd 1
+  directly, so echo, `send`-routed text, and frames all funnel through
   the transport's one synchronized writer queue.
 - **The server side needs the same `\r` fix, but `crlf_output_guard` isn't
   safe there — `pty_write.hpp` is the server-side equivalent.**
@@ -253,7 +253,7 @@ terminal.
   does not depend on `pty_process` — see the termios note in Design
   Decisions above for why the two are separate abstractions. Constructs
   `crlf_output_guard` with a sink routed through
-  `stdio_client_transport::send_raw()`, not the default (direct-to-fd)
+  `stdio_client_transport::send()`, not the default (direct-to-fd)
   constructor — see the single-writer note in Design Decisions above.
 - `examples/rmi_client_example.cpp` — a second, minimal `--pty` client (no
   REPL, no local echo) used to validate the transport in isolation from

@@ -28,7 +28,7 @@ bool make_pipe(int fds[2]) {
 #endif
 }
 
-ssize_t read_fd(int fd, char* buf, size_t len) {
+size_t read_fd(int fd, char* buf, size_t len) {
 #if defined(_WIN32)
   return _read(fd, buf, static_cast<unsigned int>(len));
 #else
@@ -68,7 +68,7 @@ TEST(PtyWrite, WriteRawWritesAllBytesToTheFd) {
   close_fd(fds[1]);
 
   char buf[64]{};
-  const ssize_t n = read_fd(fds[0], buf, sizeof(buf));
+  const size_t n = read_fd(fds[0], buf, sizeof(buf));
   close_fd(fds[0]);
 
   ASSERT_GT(n, 0);
@@ -81,11 +81,14 @@ TEST(PtyWrite, WriteRawHandlesLargeWritesThatMayRequireMultipleSyscalls) {
 
   const std::string big(200000, 'x'); // exceeds typical pipe buffer size
 
-  std::thread writer([&] { write_raw(fds[1], big); close_fd(fds[1]); });
+  std::thread writer([&] {
+    write_raw(fds[1], big);
+    close_fd(fds[1]);
+  });
 
   std::string received;
   char buf[65536];
-  ssize_t n;
+  size_t n;
   while ((n = read_fd(fds[0], buf, sizeof(buf))) > 0)
     received.append(buf, static_cast<size_t>(n));
   close_fd(fds[0]);

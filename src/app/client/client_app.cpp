@@ -55,12 +55,12 @@ void client_app::feed_console_passthrough(std::string_view chunk) {
         if (!st.partial.empty()) {
           st.partial.pop_back();
           if (echo_transport_)
-            echo_transport_->send_raw("\b \b");
+            echo_transport_->send("\b \b");
         }
         continue;
       }
       if (echo_transport_)
-        echo_transport_->send_raw(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
+        echo_transport_->send(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
       st.partial.push_back(c);
       if (c == '\n') {
         st.lines.push(st.partial.substr(0, st.partial.size() - 1));
@@ -136,12 +136,12 @@ int client_app::run(int argc, char** argv) {
       // output (turning OPOST off is global to the fd, not scoped to frame
       // writes) — compensate so ordinary REPL output still displays
       // starting at the left margin instead of stairstepping. Routed
-      // through the transport's own writer (send_raw), not written to fd 1
+      // through the transport's own writer (send), not written to fd 1
       // directly: read_console_line()'s local echo *also* writes there via
-      // send_raw, and two independent, unsynchronized writers racing on the
+      // send, and two independent, unsynchronized writers racing on the
       // same fd is exactly the kind of bug this codebase has been chasing
       // throughout --pty support. See crlf_output_guard's doc comment.
-      pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send_raw(s); }};
+      pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send(s); }};
       return run_with_transport(std::move(transport));
     }
 
