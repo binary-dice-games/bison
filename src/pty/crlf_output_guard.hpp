@@ -20,10 +20,12 @@ namespace bdg::bison::pty {
  * `raw_mode_guard` (client side) and `pty_process` (server side, which puts
  * the *operator's own* real terminal in raw mode for `pump_loop()` — see
  * `src/pty/DESIGN.md`) both disable `OPOST`/`ONLCR` on a terminal's termios
- * so that outgoing `BISON:` frame bytes aren't corrupted by the kernel
- * inserting stray `\r`s before `\n`s. But that termios setting is global to
- * the fd/tty, not scoped to frame writes — it also strips the `\r` from
- * every *other* byte written there, including plain program output. Real
+ * as a side effect of disabling `ECHO`/`ICANON` (needed so the pty slave
+ * doesn't echo `BISON<...>` frame bytes back at the reader, and so a frame
+ * — terminated by `>`, not `\n` — isn't held in the kernel's line buffer
+ * forever). That termios setting is global to the fd/tty, not scoped to
+ * frame writes — it also strips the `\r` from every *other* byte written
+ * there, including plain program output. Real
  * terminals don't auto-return on a bare `\n` (that translation is exactly
  * what `ONLCR` was doing), so without this, `--pty` output stairsteps down
  * and to the right instead of starting each line at the left margin. This

@@ -27,8 +27,8 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 
 `server_app`/`client_app` (the base classes behind `calc-server` and
 `bison-cli`) support a `--pty` flag that tunnels RMI traffic as base64
-`BISON:` lines over an interactive terminal — useful when the only path to
-a remote host is a terminal program (`ssh`, `adb shell`, etc.), not a
+`BISON<...>` frames over an interactive terminal — useful when the only path
+to a remote host is a terminal program (`ssh`, `adb shell`, etc.), not a
 socket or named pipe. See [FORMAT.md](../FORMAT.md) for the wire framing
 and `src/pty/DESIGN.md` for the architecture.
 
@@ -47,11 +47,11 @@ a bison client there as a plain child process of that shell:
 ```
 
 The client's `--pty` does not spawn anything — it just wraps its own
-already-inherited stdin/stdout in the same `BISON:` line framing, so it
+already-inherited stdin/stdout in the same `BISON<...>` framing, so it
 works identically on Windows and Linux with no subprocess involved.
-Anything the client doesn't recognize as a `BISON:` line (shell prompts,
-command output typed by the operator) passes straight through to the
-terminal byte-for-byte, so the session stays fully interactive.
+Anything the client doesn't recognize as a `BISON<...>` frame (shell
+prompts, command output typed by the operator) passes straight through to
+the terminal byte-for-byte, so the session stays fully interactive.
 
 ## Performance Benchmark
 

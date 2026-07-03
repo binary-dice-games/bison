@@ -6,7 +6,7 @@ Provides `pty_process`, an RAII wrapper around a forked pseudo-terminal
 session used by `bison_server --pty` to give an operator a real, fully
 interactive terminal (`isatty() == true`) that a bison RMI session can be
 tunneled through. This directory only owns the pty/process lifecycle; the
-`BISON:`-line framing that rides on top of the pty master fd lives in
+`BISON<...>` framing that rides on top of the pty master fd lives in
 `src/rmi/transport/stdio_transport.hpp` (a separate, cross-platform
 concern — see Integration Boundaries below).
 
@@ -77,7 +77,7 @@ operator's real terminal (fd 0)          pty master (pty_process::master_fd())
         ▲                                          │
         │        stdio_server_transport reads ◄────┘
         │        this direction and either
-        │        decodes BISON: frames or
+        │        decodes BISON<...> frames or
         └──────  passes bytes straight through
                  to the console (this is how the
                  child's own echo of the operator's
@@ -88,7 +88,7 @@ operator's real terminal (fd 0)          pty master (pty_process::master_fd())
 master's *output* direction has exactly one reader:
 `stdio_server_transport` (see `src/rmi/transport/stdio_transport.hpp`).
 This single-reader invariant is intentional — a second reader competing for
-bytes off the master fd would race with the transport's `BISON:`-prefix
+bytes off the master fd would race with the transport's `BISON<...>`-prefix
 scanner and corrupt both the RMI frames and the operator's view of the
 terminal.
 
@@ -113,15 +113,17 @@ terminal.
   primitive without a substantially different implementation (ConPTY), so
   `pty_process_win.cpp`'s constructor throws `std::runtime_error`
   unconditionally rather than half-implementing something unusable.
-- **The pty slave's cooked termios corrupts `BISON:` framing, so the client
-  goes raw instead of the server.** The slave keeps its default (cooked)
-  termios so the spawned shell behaves normally — but that same cooked mode
-  applies to *any* process attached to the slave, including a `bison_cli
-  --pty` launched from inside that shell. Two cooked-mode behaviors break
-  the framing:
-  - `OPOST`/`ONLCR` rewrites every `\n` the client writes into `\r\n` on its
-    way out to the master, so the stray `\r` lands inside the frame payload
-    right before the closing `\n` and fails to base64-decode.
+- **The pty slave's cooked termios breaks a client attached there, so the
+  client goes raw instead of the server.** The slave keeps its default
+  (cooked) termios so the spawned shell behaves normally — but that same
+  cooked mode applies to *any* process attached to the slave, including a
+  `bison_cli --pty` launched from inside that shell. Two cooked-mode
+  behaviors are a problem for a client sharing that slave:
+  - `ICANON` line-buffers input until a `\n`/`EOF` is seen. `BISON<...>`
+    frames are terminated by `>`, not `\n` (see
+    `src/rmi/transport/stdio_transport.hpp`), so under `ICANON` a frame
+    would sit in the kernel's line buffer forever, since no `\n` ever
+    arrives to release it.
   - `ECHO` on the slave loops the server's own outgoing frame bytes (written
     into the master, which the pty treats as "terminal input" to the slave)
     straight back out through the master, so the server's own reader sees
@@ -136,7 +138,11 @@ terminal.
   because the server has no fd onto the slave at all — only `master_fd()` —
   and changing cooked-mode behavior globally for the pty would break the
   shell's own interactivity while the operator is just using it as a normal
-  shell (no client attached).
+  shell (no client attached). `cfmakeraw` also disables `OPOST` as a side
+  effect of clearing those two — not needed for frame safety itself, since a
+  `BISON<...>` frame never contains a `\n` for `OPOST`/`ONLCR` to mangle —
+  but that side effect still strips `\r` from *all* other output on the fd,
+  which is why `crlf_output_guard`/`pty_write` (below) remain necessary.
 - **Raw mode breaks two more things client-side, fixed in `client_app`, not
   here.** `raw_mode_guard` only owns the termios change; the fallout from
   that change is `client_app`'s problem to fix, since only it knows what
@@ -212,7 +218,7 @@ terminal.
   answers `START BISON/1.0` with `BISON/1.0 OK` automatically, watching for
   it continuously (not gated behind `accept()`) so it keeps working across
   reconnects. Implemented as a tap/gate on the passthrough stream rather
-  than by extending the `\nBISON:` frame scanner's prefix-matching state
+  than by extending the `BISON<...>` frame scanner's prefix-matching state
   machine to a second pattern — deliberately: that scanner has been the
   source of most of the subtle bugs fixed elsewhere in this file, and adding
   a second concurrent pattern to it was judged too risky for what these
@@ -238,7 +244,7 @@ terminal.
 ## Integration Boundaries
 
 - `src/rmi/transport/stdio_transport.hpp` — depends on this module for
-  `master_fd()` on the server side; wraps it in the `BISON:`-line framing.
+  `master_fd()` on the server side; wraps it in the `BISON<...>` framing.
   The client side of `stdio_transport` does not depend on this module at
   all (it wraps the client process's own already-connected stdio, no pty
   involved — see `src/app/client/client_app.cpp`).

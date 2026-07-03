@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file stdio_transport.cpp
- * @brief libuv-backed implementation of the `BISON:` line-framed stdio
+ * @brief libuv-backed implementation of the `BISON<...>`-framed stdio
  *        transport. See stdio_transport.hpp and FORMAT.md for the framing
  *        contract.
  */
@@ -114,14 +114,15 @@ std::optional<bison::buffer> base64_decode(std::string_view in) {
   return out;
 }
 
-constexpr std::string_view kFramePrefix = "\nBISON:";
+constexpr std::string_view kFrameStart = "BISON<";
+constexpr char kFrameEnd = '>';
 
 // ── Connect-time handshake (see stdio_client_transport::open()'s doc comment) ──
 
 // Terminated with "\r\n", not bare "\n": these are sent with raw_mode_guard
 // already active (OPOST off — see its doc comment), so nothing else adds
 // the "\r" a terminal needs to return to the left margin. Unlike the
-// BISON:-frame-adjacent bytes elsewhere in this file, there's no risk of
+// BISON<...>-frame-adjacent bytes elsewhere in this file, there's no risk of
 // this "\r" itself being misread as data — these are fixed, complete,
 // human-readable lines, not part of the base64 frame payload.
 constexpr std::string_view kHandshakeStart = "START BISON/1.0\r\n";
@@ -210,7 +211,7 @@ struct stdio_pipe_thread {
   }
 };
 
-// ── Reader: BISON:-line scanner over one fd ────────────────────────────────────
+// ── Reader: BISON<...> scanner over one fd ──────────────────────────────────────
 
 /**
  * @brief Dedicated read-only libuv loop/thread for one fd.
@@ -221,11 +222,12 @@ struct stdio_pipe_thread {
  */
 struct stdio_reader {
   // How long a byte sequence that's a tentative-but-incomplete match against
-  // kFramePrefix (e.g. a lone trailing '\n') is held before being flushed to
-  // `passthrough` anyway. Real BISON: frames are written as a single line in
-  // one shot, so their bytes arrive together well within this window; a
-  // human's keystrokes (or any other source that pauses mid-stream) don't
-  // get stuck waiting for a byte that disambiguates the match.
+  // kFrameStart (e.g. a lone leading 'B') is held before being flushed to
+  // `passthrough` anyway. Real BISON<...> frames are written as a single
+  // burst in one shot, so their bytes arrive together well within this
+  // window; a human's keystrokes (or any other source that pauses
+  // mid-stream) don't get stuck waiting for a byte that disambiguates the
+  // match.
   static constexpr uint64_t kIdleFlushMs = 50;
 
   stdio_pipe_thread io;
@@ -234,7 +236,7 @@ struct stdio_reader {
 
   // Scanner state — loop thread only.
   bool in_frame{false};
-  size_t match_pos{1}; // pretend kFramePrefix[0] already matched at stream start
+  size_t match_pos{0};
   std::string speculative;
   std::string payload;
 
@@ -288,7 +290,7 @@ struct stdio_reader {
 
   void feed_byte(uint8_t b) {
     if (in_frame) {
-      if (b == '\n') {
+      if (b == static_cast<uint8_t>(kFrameEnd)) {
         complete_frame();
       } else {
         payload.push_back(static_cast<char>(b));
@@ -296,13 +298,14 @@ struct stdio_reader {
       return;
     }
 
-    if (match_pos < kFramePrefix.size() && b == static_cast<uint8_t>(kFramePrefix[match_pos])) {
+    if (b == static_cast<uint8_t>(kFrameStart[match_pos])) {
       speculative.push_back(static_cast<char>(b));
       ++match_pos;
-      if (match_pos == kFramePrefix.size()) {
+      if (match_pos == kFrameStart.size()) {
         in_frame = true;
         speculative.clear();
         payload.clear();
+        match_pos = 0;
         uv_timer_stop(&idle_timer);
       } else {
         arm_idle_flush();
@@ -311,14 +314,14 @@ struct stdio_reader {
     }
 
     // Mismatch: flush whatever was speculatively held, then reprocess this
-    // byte fresh (it may itself be the '\n' that starts a new attempt).
+    // byte fresh (it may itself restart a match against kFrameStart[0]).
     if (!speculative.empty()) {
       passthrough(speculative);
       speculative.clear();
     }
     match_pos = 0;
 
-    if (b == '\n') {
+    if (b == static_cast<uint8_t>(kFrameStart[0])) {
       match_pos = 1;
       speculative.push_back(static_cast<char>(b));
       arm_idle_flush();
@@ -350,8 +353,8 @@ struct stdio_reader {
   void complete_frame() {
     auto decoded = base64_decode(payload);
     if (!decoded) {
-      std::cerr << "[stdio_transport] warning: malformed BISON: frame ignored\n";
-      std::string line = "BISON:" + payload + "\n";
+      std::cerr << "[stdio_transport] warning: malformed BISON<...> frame ignored\n";
+      std::string line = std::string(kFrameStart) + payload + kFrameEnd;
       passthrough(line);
     } else {
       recv_queue.withWLock([&](auto& q) { q.push(std::move(*decoded)); });
@@ -359,7 +362,7 @@ struct stdio_reader {
     }
     payload.clear();
     in_frame = false;
-    match_pos = 1; // a '\n' just closed the frame; treat it as already matched
+    match_pos = 0;
     speculative.clear();
   }
 
@@ -482,10 +485,10 @@ struct stdio_conn_state {
     if (closed.load())
       throw std::runtime_error("stdio_transport: send on closed connection");
     std::string line;
-    line.reserve(kFramePrefix.size() + ((frame.size() + 2) / 3) * 4 + 1);
-    line.append(kFramePrefix);
+    line.reserve(kFrameStart.size() + ((frame.size() + 2) / 3) * 4 + 1);
+    line.append(kFrameStart);
     line.append(base64_encode(frame));
-    line.push_back('\n');
+    line.push_back(kFrameEnd);
     writer.enqueue_bytes(std::vector<uint8_t>(line.begin(), line.end()));
   }
 

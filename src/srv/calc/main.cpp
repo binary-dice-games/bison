@@ -10,7 +10,7 @@
 DEFINE_string(host, "0.0.0.0", "Bind host address");
 DEFINE_int32(port, 7070, "Listen port");
 DEFINE_string(pipe, "", "Named-pipe / Unix-socket path (empty = use socket)");
-DEFINE_bool(pty, false, "Use pty/stdio BISON: line framing instead of socket/pipe");
+DEFINE_bool(pty, false, "Use pty/stdio BISON<...> framing instead of socket/pipe");
 DEFINE_bool(verbose, false, "Print trace messages to stdout for debugging sessions");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 

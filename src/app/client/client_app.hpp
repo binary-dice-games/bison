@@ -32,8 +32,8 @@ namespace bdg::bison::app {
  *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
  *   - `--pipe PATH`             — named-pipe / Unix-socket path
  *   - `--pty`                   — wrap this process's own inherited `fd 0`
- *                                 (read) / `fd 1` (write) in the `BISON:`
- *                                 line framing instead of opening a
+ *                                 (read) / `fd 1` (write) in the
+ *                                 `BISON<...>` framing instead of opening a
  *                                 socket/pipe. No pty is spawned here — the
  *                                 client never forks a terminal; this is for
  *                                 running as a plain child process whose
@@ -142,7 +142,7 @@ class client_app {
    * In `--host`/`--port` and `--pipe` modes this reads `std::cin` directly,
    * since fd 0 there is the operator's own terminal, untouched by the RMI
    * transport. In `--pty` mode, fd 0 is instead the wire the transport reads
-   * `BISON:` frames from in a background thread — `std::cin` would race
+   * `BISON<...>` frames from in a background thread — `std::cin` would race
    * that reader and fail immediately (the transport puts the fd in
    * non-blocking mode) — so this instead drains lines assembled from the
    * non-frame bytes the transport hands to its passthrough callback (see

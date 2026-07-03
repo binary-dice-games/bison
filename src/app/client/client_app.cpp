@@ -117,11 +117,13 @@ int client_app::run(int argc, char** argv) {
   try {
     if (FLAGS_pty) {
       // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
-      // its ONLCR/ECHO processing corrupts the BISON: line framing, so put
-      // it in raw mode for the RMI session and restore it on the way out.
+      // its ICANON/ECHO processing would stall BISON<...> frames (no \n
+      // terminator to release the kernel's line buffer) or echo them back
+      // at the reader, so put it in raw mode for the RMI session and
+      // restore it on the way out.
       pty::raw_mode_guard raw{0};
       // The transport's background reader owns fd 0 (non-blocking, scanning
-      // for BISON: frames), so std::cin can't safely read it too — route
+      // for BISON<...> frames), so std::cin can't safely read it too — route
       // operator keystrokes through the passthrough callback instead; see
       // read_console_line().
       console_via_passthrough_ = true;

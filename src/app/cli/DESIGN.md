@@ -284,20 +284,21 @@ actually forks a terminal, is Linux-only; it throws
 **`--pty` mode can't read `fd 0` via `std::cin`.**
 When launched inside a `bison_server --pty` session, `fd 0`/`fd 1` are the
 pty slave the spawned shell also uses, and `stdio_client_transport`'s
-background reader owns `fd 0` (in non-blocking mode, scanning for `BISON:`
-frames) for the whole session. A concurrent `std::cin` read on the same fd
-loses that race and fails immediately, ending the REPL before the operator
-can type anything. `client_app::read_console_line()` (declared in
-`client_app.hpp`, since this is a `--pty`-transport concern, not a REPL
+background reader owns `fd 0` (in non-blocking mode, scanning for
+`BISON<...>` frames) for the whole session. A concurrent `std::cin` read on
+the same fd loses that race and fails immediately, ending the REPL before
+the operator can type anything. `client_app::read_console_line()` (declared
+in `client_app.hpp`, since this is a `--pty`-transport concern, not a REPL
 concern) instead reads `std::cin` only in socket/pipe mode; in `--pty` mode
 it drains a line queue fed by the transport's own passthrough callback,
-which already receives every non-`BISON:` byte in arrival order. See
-`src/pty/DESIGN.md` for the matching server-side and framing-corruption
-notes.
+which already receives every non-`BISON<...>` byte in arrival order. See
+`src/pty/DESIGN.md` for the matching server-side and framing notes.
 
 **`--pty` mode needs its own local echo and `\r` insertion.**
-`raw_mode_guard` (see `src/pty/DESIGN.md`) turns terminal `ECHO`/`OPOST` off
-on fd 0/1 because leaving them on corrupts the `BISON:` framing — but that
+`raw_mode_guard` (see `src/pty/DESIGN.md`) turns terminal `ECHO`/`ICANON`
+off on fd 0/1 so the slave doesn't echo frame bytes back and doesn't
+line-buffer input waiting for a `\n` that a `BISON<...>` frame (terminated
+by `>`) never sends. `OPOST` is disabled too, as a side effect — that
 also means nothing echoes the operator's keystrokes back to the screen, and
 nothing adds `\r` before `\n` in this process's own output, so without
 compensation the REPL looks frozen while typing and its output stairsteps

@@ -9,10 +9,10 @@
  * *inside* a `bison_server --pty` session, its own fd 0/1 are the pty slave
  * that the server-spawned shell was also using. That slave's termios is left
  * in the default cooked mode (see `src/pty/DESIGN.md`) so the shell behaves
- * normally, but cooked-mode processing (`ONLCR` output translation, input
- * `ECHO`) corrupts the `BISON:`-line framing that rides over the same fds
- * (see `src/rmi/transport/stdio_transport.hpp`). Putting the slave in raw
- * mode for the duration of the RMI session — and restoring cooked mode
+ * normally, but cooked-mode processing (`ICANON` line-buffering, `ECHO`)
+ * breaks the `BISON<...>` framing that rides over the same fds (see
+ * `src/rmi/transport/stdio_transport.hpp`). Putting the slave in raw mode
+ * for the duration of the RMI session — and restoring cooked mode
  * afterwards, so the shell keeps working once the client exits — fixes this
  * without touching the server or the shell at all.
  */

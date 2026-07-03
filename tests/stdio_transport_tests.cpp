@@ -1,5 +1,5 @@
 // MIT License © 2025 Binary Dice Games
-// Tests for bdg::bison::rmi::transport::stdio_transport (BISON: line framing
+// Tests for bdg::bison::rmi::transport::stdio_transport (BISON<...> framing
 // over a pair of raw fds). See FORMAT.md for the wire framing contract.
 
 #include "src/rmi/transport/stdio_transport.hpp"
@@ -317,13 +317,13 @@ TEST(StdioTransport, MalformedBase64FrameIsPassedThroughAsText) {
   // "!!!" is not valid base64 (invalid characters), so the scanner should
   // treat the completed frame as malformed and hand it to the passthrough
   // callback instead of enqueuing a decoded frame.
-  write_raw(p.client_write, "\nBISON:!!!\n");
+  write_raw(p.client_write, "BISON<!!!>");
 
-  for (int i = 0; i < 100 && collected.find("BISON:!!!\n") == std::string::npos; ++i)
+  for (int i = 0; i < 100 && collected.find("BISON<!!!>") == std::string::npos; ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
 
   std::lock_guard<std::mutex> lock(m);
-  EXPECT_NE(collected.find("BISON:!!!\n"), std::string::npos);
+  EXPECT_NE(collected.find("BISON<!!!>"), std::string::npos);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

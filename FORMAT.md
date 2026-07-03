@@ -290,34 +290,38 @@ payload that immediately follows.
 ### 5.2 Stdio transport
 
 The stdio transport (`stdio_client_transport` / `stdio_server_transport`,
-`src/rmi/transport/stdio_transport.hpp`) frames each envelope as a single
-base64 line on a text-oriented byte stream (e.g. a process's stdin/stdout,
-or a pseudo-terminal master fd):
+`src/rmi/transport/stdio_transport.hpp`) frames each envelope as a
+self-delimiting byte sequence anywhere in a text-oriented byte stream (e.g.
+a process's stdin/stdout, or a pseudo-terminal master fd):
 
 ```
-\nBISON:<base64(envelope bytes)>\n
+BISON<base64(envelope bytes)>
 ```
 
-- No chunking and no sequence numbers — one envelope is always one line.
-- Every byte that is not part of a recognized `\nBISON:...\n` line is
+- The frame starts with the literal bytes `BISON<` and ends at the first
+  `>` byte that follows. `>` (`0x3E`) is not part of the base64 alphabet, so
+  it cannot appear anywhere inside a well-formed payload and is an
+  unambiguous terminator.
+- No chunking, no sequence numbers, and no dependency on `\n`/`\r\n` at
+  all — a frame can start and end anywhere in the stream, including in the
+  middle of an otherwise-unrelated line of passthrough text.
+- Every byte that is not part of a recognized `BISON<...>` sequence is
   forwarded verbatim, as soon as it arrives, to a passthrough callback
   (default: print to stdout). This lets the same byte stream carry both RMI
   traffic and ordinary interactive terminal output (shell prompts, command
   output) without buffering delay — see `src/pty/DESIGN.md`.
-- A line that matches the `BISON:` prefix but fails to base64-decode is
-  treated as malformed: a warning is logged and the raw text
-  (`BISON:<payload>\n`) is handed to the passthrough callback instead of
-  being treated as an envelope.
+- A sequence that starts with `BISON<` but whose payload fails to
+  base64-decode by the time the closing `>` is reached is treated as
+  malformed: a warning is logged and the raw text (`BISON<payload>`) is
+  handed to the passthrough callback instead of being treated as an
+  envelope.
 - When the read side closes (EOF or error), the passthrough callback is
   invoked once more with an empty chunk as a closed-stream signal; this
   never otherwise occurs mid-stream.
-- The leading `\n` is part of the frame delimiter, not the payload; a real
-  newline byte that immediately precedes `BISON:` (including the terminating
-  `\n` of a prior frame) is what triggers prefix matching.
 
 #### 5.2.1 Connect-time handshake
 
-Before exchanging any `BISON:` frames, `stdio_client_transport::open()` runs
+Before exchanging any `BISON<...>` frames, `stdio_client_transport::open()` runs
 a plain-text handshake so that connecting with no peer on the other end of
 the fds (a real terminal with nothing reading it, a pipe to `/dev/null`, ...)
 fails after a bounded wait instead of hanging forever:
@@ -346,7 +350,7 @@ real server-side cleanup is already driven by the RMI-level `OP_DISCONNECT`
 request (§ current session lifecycle), which is sent first. `STOP` exists
 purely as a human-visible "the transport is going away now" marker.
 
-These three lines are intentionally plain ASCII, not `BISON:`-framed
+These three lines are intentionally plain ASCII, not `BISON<...>`-framed
 envelopes: the entire point of `--pty` mode is that an operator may be
 looking directly at the raw byte stream, so the handshake (and its failure
 mode) needs to be legible without decoding base64. `\r\n` line endings are

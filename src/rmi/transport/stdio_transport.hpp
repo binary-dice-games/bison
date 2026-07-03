@@ -1,20 +1,21 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file stdio_transport.hpp
- * @brief RMI transport that frames envelopes as base64 lines over a pair of
- *        raw fds (typically stdin/stdout, or a pty master fd).
+ * @brief RMI transport that frames envelopes as base64 sequences over a pair
+ *        of raw fds (typically stdin/stdout, or a pty master fd).
  *
- * Wire framing: `\nBISON:<base64(frame)>\n`. Bytes that are not part of a
- * confirmed `BISON:` line are forwarded verbatim, as soon as they arrive, to
- * a caller-supplied passthrough callback — this is what keeps a pty session
- * fully interactive (see `src/pty/DESIGN.md`) instead of behaving like
- * a line-buffered reader. See `FORMAT.md` for the full framing contract.
+ * Wire framing: `BISON<base64(frame)>`. Bytes that are not part of a
+ * confirmed `BISON<...>` frame are forwarded verbatim, as soon as they
+ * arrive, to a caller-supplied passthrough callback — this is what keeps a
+ * pty session fully interactive (see `src/pty/DESIGN.md`) instead of
+ * behaving like a line-buffered reader. See `FORMAT.md` for the full
+ * framing contract.
  *
  * `stdio_client_transport::open()` also runs a connect-time handshake (a
  * plain-text `START BISON/1.0` / `BISON/1.0 OK` exchange — see `open()`'s
  * doc comment) so that connecting with no peer on the other end of the fds
- * fails with a timeout instead of hanging forever waiting for a `BISON:`
- * frame that will never arrive.
+ * fails with a timeout instead of hanging forever waiting for a
+ * `BISON<...>` frame that will never arrive.
  *
  * Implemented with libuv (matching `pipe_transport`/`named_pipe_transport`/
  * `socket_transport`). This header and `stdio_transport.cpp` are themselves
@@ -41,7 +42,7 @@ namespace bdg::bison::rmi::transport {
 struct stdio_conn_state;
 
 /**
- * @brief Callback invoked with each chunk of non-`BISON:` bytes, in arrival
+ * @brief Callback invoked with each chunk of non-`BISON<...>` bytes, in arrival
  *        order. Called once more with an empty chunk when the read side
  *        closes (EOF or error), as a stream-closed signal; this never
  *        happens mid-stream otherwise since empty reads are not forwarded.
@@ -70,7 +71,7 @@ class stdio_client_transport : public client_transport_iface {
   /**
    * @param read_fd           Fd to read peer bytes from.
    * @param write_fd          Fd to write frames and pass-through bytes to.
-   * @param passthrough       Called with non-`BISON:` bytes read from `read_fd`.
+   * @param passthrough       Called with non-`BISON<...>` bytes read from `read_fd`.
    * @param handshake_timeout How long `open()` waits for `BISON/1.0 OK`
    *                          before giving up — see `open()`'s doc comment.
    *                          Exposed mainly so tests don't have to wait out
@@ -94,14 +95,14 @@ class stdio_client_transport : public client_transport_iface {
    */
   void open(bison::dynamic params) override;
 
-  /** @brief Base64-wrap and write one frame as a `BISON:` line. */
+  /** @brief Base64-wrap and write one frame as a `BISON<...>` sequence. */
   void send(bison::buffer frame) override;
 
-  /** @brief Write @p bytes to `write_fd` verbatim, with no `BISON:` framing. */
+  /** @brief Write @p bytes to `write_fd` verbatim, with no `BISON<...>` framing. */
   void send(std::string_view bytes);
 
   /**
-   * @brief Wait for the next decoded `BISON:` frame.
+   * @brief Wait for the next decoded `BISON<...>` frame.
    * @param frame   Output frame buffer.
    * @param timeout Maximum wait before returning `false`.
    * @return `true` on success; `false` on timeout, EOF, or shutdown.
@@ -144,11 +145,11 @@ class stdio_server_connection : public server_connection_iface {
   stdio_server_connection(std::shared_ptr<stdio_conn_state> state, std::function<void()> on_close);
   ~stdio_server_connection() override;
 
-  /** @brief Base64-wrap and write one frame as a `BISON:` line. */
+  /** @brief Base64-wrap and write one frame as a `BISON<...>` sequence. */
   void send(bison::buffer frame) override;
 
   /**
-   * @brief Wait for the next decoded `BISON:` frame.
+   * @brief Wait for the next decoded `BISON<...>` frame.
    * @param frame   Output frame buffer.
    * @param timeout Maximum wait before returning `false`.
    * @return `true` on success; `false` on timeout or close (this
@@ -213,7 +214,7 @@ class stdio_server_transport : public server_transport_iface {
    * @param read_fd      Fd to read peer bytes from.
    * @param write_fd     Fd to write frames and pass-through bytes to. May
    *                     equal `read_fd` (e.g. a pty master fd).
-   * @param passthrough  Called with non-`BISON:` bytes read from `read_fd`.
+   * @param passthrough  Called with non-`BISON<...>` bytes read from `read_fd`.
    */
   stdio_server_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough = stdio_print_passthrough);
   ~stdio_server_transport() override;
