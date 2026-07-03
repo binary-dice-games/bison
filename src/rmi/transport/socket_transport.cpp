@@ -5,7 +5,9 @@
  *
  * Uses uv_tcp_t for all network I/O; each accepted connection runs its own
  * uv_loop_t on a background thread with a mutex-protected receive queue for
- * synchronous receive() calls.
+ * synchronous receive() calls. Accepted connections are handed off to their
+ * own loop since uv_accept() requires the client handle to share the
+ * listener's loop.
  *
  * Framing: 4-byte big-endian length prefix followed by payload.
  */
@@ -25,6 +27,14 @@
 namespace bdg::bison::rmi::transport {
 
 using tcp_conn_state = uv_stream_state<uv_tcp_t>;
+
+/**
+ * @brief Duplicate the OS socket underlying @p handle.
+ * @param handle An open, connected uv_tcp_t (e.g. one just populated by uv_accept).
+ * @return A duplicate socket descriptor suitable for uv_tcp_open() on another
+ *         loop, or an invalid descriptor on failure.
+ */
+uv_os_sock_t duplicate_tcp_socket(uv_tcp_t* handle);
 
 // ── socket_client_transport::impl ────────────────────────────────────────────
 
@@ -230,11 +240,26 @@ struct socket_server_transport::impl {
       return;
     auto* im = static_cast<socket_server_transport::impl*>(server->data);
 
+    // uv_accept() requires the client handle to share the listener's loop,
+    // but each connection runs on its own dedicated uv_loop_t/thread. Accept
+    // into a temporary handle on the listener's loop, then hand a duplicate
+    // of the underlying socket off to a fresh handle on the connection's own
+    // loop via uv_tcp_open().
+    uv_tcp_t temp{};
+    uv_tcp_init(&im->accept_loop, &temp);
+    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&temp)) != 0) {
+      uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+      return;
+    }
+    const uv_os_sock_t dup_sock = duplicate_tcp_socket(&temp);
+    uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+    if (dup_sock == static_cast<uv_os_sock_t>(-1))
+      return;
+
     auto cst = std::make_unique<tcp_conn_state>();
     uv_loop_init(&cst->loop);
     uv_tcp_init(&cst->loop, &cst->handle);
-
-    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&cst->handle)) != 0)
+    if (uv_tcp_open(&cst->handle, dup_sock) != 0)
       return;
 
     cst->init_asyncs();

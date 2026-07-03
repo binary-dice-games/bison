@@ -289,20 +289,81 @@ payload that immediately follows.
 
 ### 5.2 Stdio transport
 
-The stdio transport uses a base-64-encoded, chunked framing protocol suitable
-for text channels (e.g. stdin/stdout of a subprocess):
+The stdio transport (`stdio_client_transport` / `stdio_server_transport`,
+`src/rmi/transport/stdio_transport.hpp`) frames each envelope as a single
+base64 line on a text-oriented byte stream (e.g. a process's stdin/stdout,
+or a pseudo-terminal master fd):
 
-- The envelope bytes are split into chunks of at most **chunk_size** bytes
-  (internal constant).
-- Each chunk is base-64 encoded.
-- Chunks are transmitted as newline-terminated text lines with a minimal
-  header that carries the sequence number, total chunk count, and base-64
-  payload.
+```
+\nBISON:<base64(envelope bytes)>\n
+```
 
-> The stdio framing protocol is an implementation detail of the C++ reference
-> transport and is not required for socket-based implementations.  Only the
-> TCP framing in §5.1 and the envelope format in §4 need to be implemented to
-> interoperate over a TCP connection.
+- No chunking and no sequence numbers — one envelope is always one line.
+- Every byte that is not part of a recognized `\nBISON:...\n` line is
+  forwarded verbatim, as soon as it arrives, to a passthrough callback
+  (default: print to stdout). This lets the same byte stream carry both RMI
+  traffic and ordinary interactive terminal output (shell prompts, command
+  output) without buffering delay — see `src/pty/DESIGN.md`.
+- A line that matches the `BISON:` prefix but fails to base64-decode is
+  treated as malformed: a warning is logged and the raw text
+  (`BISON:<payload>\n`) is handed to the passthrough callback instead of
+  being treated as an envelope.
+- When the read side closes (EOF or error), the passthrough callback is
+  invoked once more with an empty chunk as a closed-stream signal; this
+  never otherwise occurs mid-stream.
+- The leading `\n` is part of the frame delimiter, not the payload; a real
+  newline byte that immediately precedes `BISON:` (including the terminating
+  `\n` of a prior frame) is what triggers prefix matching.
+
+#### 5.2.1 Connect-time handshake
+
+Before exchanging any `BISON:` frames, `stdio_client_transport::open()` runs
+a plain-text handshake so that connecting with no peer on the other end of
+the fds (a real terminal with nothing reading it, a pipe to `/dev/null`, ...)
+fails after a bounded wait instead of hanging forever:
+
+```
+Client → peer:  START BISON/1.0\r\n
+Peer → client:  BISON/1.0 OK\r\n
+```
+
+The client sends `START BISON/1.0\r\n` and waits (5 seconds by default) for
+`BISON/1.0 OK\r\n` to come back; if it doesn't arrive in time, `open()`
+throws and the connection attempt fails. `stdio_server_transport` answers
+this automatically — `START BISON/1.0` is recognized anywhere in the byte
+stream (not gated behind `accept()`/connection state) and always answered
+with `BISON/1.0 OK`, so it keeps working across every reconnect for the
+transport's whole lifetime.
+
+When the client transport shuts down, it also sends:
+
+```
+Client → peer:  STOP BISON/1.0\r\n
+```
+
+This is advisory only — the server doesn't structurally depend on seeing it;
+real server-side cleanup is already driven by the RMI-level `OP_DISCONNECT`
+request (§ current session lifecycle), which is sent first. `STOP` exists
+purely as a human-visible "the transport is going away now" marker.
+
+These three lines are intentionally plain ASCII, not `BISON:`-framed
+envelopes: the entire point of `--pty` mode is that an operator may be
+looking directly at the raw byte stream, so the handshake (and its failure
+mode) needs to be legible without decoding base64. `\r\n` line endings are
+deliberate too, not `\n`: the handshake always runs with the fd already in
+raw terminal mode (`OPOST` off — see `src/pty/DESIGN.md`), so nothing else
+adds the `\r` a terminal needs to return output to the left margin.
+
+`START`/`STOP` lines the server sees are left in its normal passthrough
+stream (visible to whatever's watching `--pty` output) rather than being
+consumed; `BISON/1.0 OK` on the client side is withheld from the caller's
+passthrough (so it can't be mistaken for, say, a typed REPL command).
+
+> The stdio framing protocol — including this handshake — is an
+> implementation detail of the C++ reference transport and is not required
+> for socket-based implementations.  Only the TCP framing in §5.1 and the
+> envelope format in §4 need to be implemented to interoperate over a TCP
+> connection.
 
 ---
 

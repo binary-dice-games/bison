@@ -19,6 +19,15 @@
  *  4. Call `st->start_loop()` to launch the background I/O thread.
  *  5. Use `st->enqueue_frame()` / `st->dequeue_frame()` from other threads.
  *  6. Call `st->stop()` (or let the destructor do it) to shut down.
+ *
+ * @par Shared free functions
+ * `uv_close_if_active()`, `on_uv_write_done()`, and `uv_flush_write_queue()`
+ * factor out the write-queue-drain-and-uv_write pump and close-handle
+ * pattern used by `uv_stream_state::on_send`/`on_stop` above. They take
+ * plain libuv handles/queues rather than a `uv_stream_state`, so
+ * `stdio_transport.cpp`'s writer (which has an identically-shaped send
+ * queue but a separate, non-bidirectional handle and doesn't otherwise fit
+ * this template) reuses them too.
  */
 #pragma once
 
@@ -48,6 +57,36 @@ struct uv_write_req {
   uv_write_t req{};
   std::vector<uint8_t> data;
 };
+
+/** @brief Close @p h unless it is already closing. Shared by every on_stop callback below. */
+inline void uv_close_if_active(uv_handle_t* h) {
+  if (!uv_is_closing(h))
+    uv_close(h, nullptr);
+}
+
+/** @brief `uv_write()` completion callback pairing with `uv_write_req`. */
+inline void on_uv_write_done(uv_write_t* req, int /*status*/) {
+  delete reinterpret_cast<uv_write_req*>(req);
+}
+
+/**
+ * @brief Drain @p queue, issuing one `uv_write()` per entry against @p target.
+ *
+ * Shared write-queue pump used by `uv_stream_state::on_send` and by
+ * `stdio_transport.cpp`'s writer half, which has an identically-shaped send
+ * queue but a separate (non-bidirectional) handle.
+ */
+inline void uv_flush_write_queue(bison::synchronized<std::queue<std::vector<uint8_t>>>& queue, uv_stream_t* target) {
+  std::queue<std::vector<uint8_t>> pending;
+  queue.withWLock([&](auto& q) { std::swap(pending, q); });
+  while (!pending.empty()) {
+    auto* wr = new uv_write_req;
+    wr->data = std::move(pending.front());
+    pending.pop();
+    uv_buf_t buf = uv_buf_init(reinterpret_cast<char*>(wr->data.data()), static_cast<unsigned>(wr->data.size()));
+    uv_write(&wr->req, target, &buf, 1, on_uv_write_done);
+  }
+}
 
 // ── uv_stream_state ───────────────────────────────────────────────────────────
 
@@ -81,6 +120,7 @@ struct uv_stream_state {
   // ── Thread state ───────────────────────────────────────────────────────────
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
+  bool asyncs_ready{false};
 
   uv_stream_state() = default;
   ~uv_stream_state() { stop(); }
@@ -103,6 +143,7 @@ struct uv_stream_state {
     send_async.data = this;
     uv_async_init(&loop, &stop_async, on_stop);
     stop_async.data = this;
+    asyncs_ready = true;
   }
 
   /** @brief Launch the background I/O thread. Call after `init_asyncs()`. */
@@ -116,10 +157,25 @@ struct uv_stream_state {
     });
   }
 
-  /** @brief Signal the loop to stop and join the background thread. */
+  /**
+   * @brief Signal the loop to stop and join the background thread.
+   *
+   * If `init_asyncs()` was never called (e.g. an open/connect attempt threw
+   * before reaching it), `send_async`/`stop_async` were never passed to
+   * `uv_async_init()`, so signalling them is undefined behavior. In that
+   * case `start_loop()` was also never called, so no background thread is
+   * running the loop; it is safe to close the handle and drain the loop
+   * synchronously on the calling thread instead.
+   */
   void stop() {
     if (stopped.exchange(true))
       return;
+    if (!asyncs_ready) {
+      uv_close_if_active(reinterpret_cast<uv_handle_t*>(&handle));
+      uv_run(&loop, UV_RUN_DEFAULT);
+      uv_loop_close(&loop);
+      return;
+    }
     uv_async_send(&stop_async);
     if (loop_thread.joinable())
       loop_thread.join();
@@ -216,33 +272,16 @@ struct uv_stream_state {
     }
   }
 
-  static void on_write_done(uv_write_t* req, int /*status*/) {
-    delete reinterpret_cast<uv_write_req*>(req);
-  }
-
   static void on_send(uv_async_t* async) {
     auto* st = static_cast<uv_stream_state*>(async->data);
-    std::queue<std::vector<uint8_t>> q;
-    st->send_queue.withWLock([&](auto& sq) { std::swap(q, sq); });
-    while (!q.empty()) {
-      auto* wr = new uv_write_req;
-      wr->data = std::move(q.front());
-      q.pop();
-      uv_buf_t b = uv_buf_init(reinterpret_cast<char*>(wr->data.data()),
-                                static_cast<unsigned>(wr->data.size()));
-      uv_write(&wr->req, reinterpret_cast<uv_stream_t*>(&st->handle), &b, 1, on_write_done);
-    }
+    uv_flush_write_queue(st->send_queue, reinterpret_cast<uv_stream_t*>(&st->handle));
   }
 
   static void on_stop(uv_async_t* async) {
     auto* st = static_cast<uv_stream_state*>(async->data);
-    const auto close_if_active = [](uv_handle_t* h) {
-      if (!uv_is_closing(h))
-        uv_close(h, nullptr);
-    };
-    close_if_active(reinterpret_cast<uv_handle_t*>(&st->handle));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&st->send_async));
-    close_if_active(reinterpret_cast<uv_handle_t*>(&st->stop_async));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&st->handle));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&st->send_async));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&st->stop_async));
   }
 };
 

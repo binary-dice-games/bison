@@ -27,6 +27,31 @@ package_add_test(rmi_test rmi_tests.cpp)
 # Bridge multiplexer tests
 package_add_test(bridge_test bridge_tests.cpp)
 
+# stdio (BISON: line-framed) transport tests — cross-platform
+package_add_test(stdio_transport_test stdio_transport_tests.cpp)
+
+# pty_process tests — platform-specific, mirroring the src/pty split: only
+# the test file for the current build platform is compiled.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    package_add_test(pty_process_test pty_process_linux_tests.cpp)
+elseif(WIN32)
+    package_add_test(pty_process_win_test pty_process_win_tests.cpp)
+endif()
+
+# raw_mode_guard tests — Linux-only for now, matching raw_mode_guard_win.cpp
+# being a permanent no-op stub (see src/pty/raw_mode_guard.hpp).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    package_add_test(raw_mode_guard_test raw_mode_guard_linux_tests.cpp)
+endif()
+
+# crlf_output_guard tests — cross-platform (pure std::streambuf)
+package_add_test(crlf_output_guard_test crlf_output_guard_tests.cpp)
+
+# pty_write tests — cross-platform (write_raw() is platform-split internally,
+# same as socket_transport's duplicate_tcp_socket; the test itself just needs
+# a pipe(), which it gets portably the same way stdio_transport_tests.cpp does)
+package_add_test(pty_write_test pty_write_tests.cpp)
+
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})

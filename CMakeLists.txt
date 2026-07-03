@@ -7,6 +7,8 @@ project(
   VERSION 1.0
   LANGUAGES CXX)
 
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 option(PACKAGE_TESTS "Build the tests" ON)
   
 set(CMAKE_CXX_STANDARD 20)
@@ -24,30 +26,6 @@ set(BISON_PRIVATE_SOURCES
   src/bison/bison.cpp
 )
 
-add_library(asio_headers INTERFACE)
-target_include_directories(
-  asio_headers
-  INTERFACE
-    ${CMAKE_CURRENT_LIST_DIR}/extern/asio/include
-)
-target_compile_definitions(
-  asio_headers
-  INTERFACE
-    ASIO_STANDALONE
-    ASIO_DISABLE_CO_AWAIT
-    ASIO_DISABLE_STD_COROUTINE
-)
-
-if(WIN32)
-  target_compile_definitions(
-    asio_headers
-    INTERFACE
-      _WIN32_WINNT=0x0601
-      WIN32_LEAN_AND_MEAN
-      NOMINMAX
-  )
-endif()
-
 include_directories(. include)
 
 add_subdirectory("extern/json")
@@ -62,8 +40,6 @@ add_subdirectory("extern/libuv")
 set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
 add_subdirectory("extern/gflags")
-# libyaml is used in a shared library; it must be compiled with -fPIC.
-set_property(TARGET yaml PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
@@ -94,6 +70,7 @@ target_sources(bison PRIVATE
   src/rmi/transport/pipe_transport.cpp
   src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
+  src/rmi/transport/stdio_transport.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
@@ -103,12 +80,36 @@ target_sources(bison PRIVATE
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
   src/app/debugger.cpp
+  src/pty/crlf_output_guard.cpp
+  src/pty/pty_write.cpp
 )
 
 target_include_directories(bison PRIVATE src/rmi)
 
 if(WIN32)
   target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
+# ─── Platform-specific pty support (src/pty) ───────────────────────────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(bison PRIVATE src/pty/pty_process_linux.cpp src/pty/raw_mode_guard_linux.cpp src/pty/pty_write_linux.cpp)
+  target_link_libraries(bison PRIVATE util)
+elseif(WIN32)
+  target_sources(bison PRIVATE src/pty/pty_process_win.cpp src/pty/raw_mode_guard_win.cpp src/pty/pty_write_win.cpp)
+endif()
+
+# ─── Platform-specific socket transport support (src/rmi/transport) ────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(bison PRIVATE src/rmi/transport/socket_transport_linux.cpp)
+elseif(WIN32)
+  target_sources(bison PRIVATE src/rmi/transport/socket_transport_win.cpp)
+endif()
+
+# ─── Platform-specific stdio transport support (src/rmi/transport) ─────────
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  target_sources(bison PRIVATE src/rmi/transport/stdio_transport_linux.cpp)
+elseif(WIN32)
+  target_sources(bison PRIVATE src/rmi/transport/stdio_transport_win.cpp)
 endif()
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────

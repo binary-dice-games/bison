@@ -23,39 +23,35 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 # Optional args: [host] [port]
 ```
 
-## RMI Stdio / PTY Examples (Linux / WSL only)
+## RMI PTY / Stdio Hop Mode
+
+`server_app`/`client_app` (the base classes behind `calc-server` and
+`bison-cli`) support a `--pty` flag that tunnels RMI traffic as base64
+`BISON:` lines over an interactive terminal — useful when the only path to
+a remote host is a terminal program (`ssh`, `adb shell`, etc.), not a
+socket or named pipe. See [FORMAT.md](../FORMAT.md) for the wire framing
+and `src/pty/DESIGN.md` for the architecture.
+
+**Server side** (Linux / WSL only — forks a real pty and your `$SHELL`):
 
 ```bash
-cmake --build build-linux --target rmi_stdio_server_example rmi_stdio_client_example
+./build-linux/src/srv/calc/calc-server --pty
 ```
 
-**PTY mode** — interactive shell hop (bash, ssh, adb):
-
-```bash
-./build-linux/examples/rmi_stdio_client_example --pty bash
-# Inside the spawned shell, start the server:
-./build-linux/examples/rmi_stdio_server_example
-```
-
-**Pipe mode** — direct subprocess:
+This drops you into an ordinary, fully interactive shell. From inside it,
+hop to wherever the RMI session needs to run (e.g. `ssh host`), then launch
+a bison client there as a plain child process of that shell:
 
 ```bash
-./build-linux/examples/rmi_stdio_client_example --pipe ./build-linux/examples/rmi_stdio_server_example
-# Or over SSH:
-./build-linux/examples/rmi_stdio_client_example --pipe ssh user@host /path/to/rmi_stdio_server_example
+./bison-cli --pty
 ```
 
-Expected output:
-```
-[Client] subprocess started. Waiting for HELLO...
-[Server] stdio transport listening.
-[Client] HELLO received. RMI channel connected.
-[Client] instantiated Calculator, id=...
-[Client] add(10, 3) = 13
-[Client] divide(21, 7) = 3
-[Client] done.
-[Server] stopped.
-```
+The client's `--pty` does not spawn anything — it just wraps its own
+already-inherited stdin/stdout in the same `BISON:` line framing, so it
+works identically on Windows and Linux with no subprocess involved.
+Anything the client doesn't recognize as a `BISON:` line (shell prompts,
+command output typed by the operator) passes straight through to the
+terminal byte-for-byte, so the session stays fully interactive.
 
 ## Performance Benchmark
 

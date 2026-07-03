@@ -27,7 +27,16 @@ Source tree:
 - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
 - `stream_transport.cpp` — wraps an external `std::iostream`
 
-There are no platform-specific transport source files. libuv provides all cross-platform I/O.
+`socket_transport.cpp` is the one exception to "no platform-specific transport
+source files": accepted connections are moved from the listener's `uv_loop_t`
+to their own dedicated loop by duplicating the underlying OS socket
+descriptor (libuv's `uv_accept()` requires the client handle to already
+share the listener's loop, so the connection's own loop can't be used
+directly). Duplicating a socket has no libuv-portable API, so that one step
+lives in `socket_transport_linux.cpp` / `socket_transport_win.cpp`, selected
+in `CMakeLists.txt` the same way as the `src/pty` platform split. This does not
+change transport *behavior* across platforms — it is a single OS primitive with
+no libuv equivalent.
 
 ## 3. Platform Independence Strategy
 
@@ -40,7 +49,7 @@ All transport I/O is implemented using **libuv** (`extern/libuv`, static target 
 - Every transport file is a single `.cpp` file with no platform conditionals in I/O behavior.
 - libuv handles OS differences transparently: named pipe paths (`\\.\pipe\name` vs `/tmp/name.sock`), process spawning, TTY raw mode, and socket I/O.
 - The only permitted `#ifdef` in transport code is for string formatting differences (e.g., path format strings), which is a cosmetic single-line difference, not a behavioral split.
-- No `#ifdef _WIN32 / #else` blocks for behavior separation are permitted. If a platform difference is large enough to warrant separate logic, it must be split into `_win.cpp` / `_linux.cpp` file pairs per the project coding style — but in practice libuv eliminates this need for all current transports.
+- No `#ifdef _WIN32 / #else` blocks for behavior separation are permitted. If a platform difference is large enough to warrant separate logic, it must be split into `_win.cpp` / `_linux.cpp` file pairs per the project coding style. `socket_transport.cpp` does this for its socket-duplication step (see §2); every other transport still needs no split because libuv covers the rest of their I/O.
 
 ### 3.3 libuv Dependency
 
@@ -113,6 +122,19 @@ The length field is written and read using `bison::byte_swap<uint32_t>` (from `b
 libuv is callback/event-loop based; bison's transport interface is synchronous (`receive` blocks until a frame arrives or a timeout elapses). Each libuv-backed transport bridges these two models with the following pattern:
 
 **Background thread** runs `uv_run(&loop, UV_RUN_DEFAULT)` and owns all libuv handles.
+
+**Server accept path** (socket/named-pipe listeners): the listener itself runs on
+its own `uv_loop_t`/thread, but each *accepted* connection gets its own
+independent `uv_loop_t`/thread rather than sharing the listener's loop. Since
+`uv_accept()` requires its client handle to already share the listener's loop,
+the connection handle can't simply be initialized on its own loop up front.
+Instead, `on_new_connection` accepts into a temporary handle on the listener's
+loop, duplicates the underlying OS descriptor, and attaches the duplicate to a
+fresh handle on the connection's own loop (`uv_pipe_open` / `uv_tcp_open`).
+`socket_transport.cpp` does this today; `named_pipe_transport.cpp` predates
+this fix and has the same cross-loop `uv_accept()` mismatch — it just isn't
+exercised by the (Linux-only) test suite, since it targets Windows named
+pipes there.
 
 **Receive path** (loop thread → caller thread):
 - `alloc_cb` / `on_read` callbacks accumulate incoming bytes and parse 4-byte length-prefix frames incrementally.

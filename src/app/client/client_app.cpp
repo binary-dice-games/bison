@@ -5,13 +5,12 @@
  */
 #include "src/app/client/client_app.hpp"
 
+#include "src/pty/crlf_output_guard.hpp"
+#include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-
-#if defined(__linux__)
-#include "src/rmi/transport/pty_client_transport.hpp"
-#endif
+#include "src/rmi/transport/stdio_transport.hpp"
 
 #include <gflags/gflags.h>
 
@@ -41,6 +40,54 @@ void client_app::on_error(const std::string& msg) const {
   std::cerr << "[client_app] error: " << msg << '\n';
 }
 
+// ── Console input (see read_console_line()'s doc comment for why) ─────────────
+
+void client_app::feed_console_passthrough(std::string_view chunk) {
+  if (chunk.empty()) {
+    console_queue_.withWLock([&](auto& st) { st.closed = true; });
+    console_queue_.notify_all();
+    return;
+  }
+
+  console_queue_.withWLock([&](auto& st) {
+    for (const char c : chunk) {
+      if (c == 0x7f || c == 0x08) { // DEL / BS: erase one character
+        if (!st.partial.empty()) {
+          st.partial.pop_back();
+          if (echo_transport_)
+            echo_transport_->send_raw("\b \b");
+        }
+        continue;
+      }
+      if (echo_transport_)
+        echo_transport_->send_raw(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
+      st.partial.push_back(c);
+      if (c == '\n') {
+        st.lines.push(st.partial.substr(0, st.partial.size() - 1));
+        st.partial.clear();
+      }
+    }
+  });
+  console_queue_.notify_all();
+}
+
+bool client_app::read_console_line(std::string& line) {
+  if (!console_via_passthrough_)
+    return static_cast<bool>(std::getline(std::cin, line));
+
+  bool got = false;
+  console_queue_.wait([&](auto& st) {
+    if (!st.lines.empty()) {
+      line = std::move(st.lines.front());
+      st.lines.pop();
+      got = true;
+      return true;
+    }
+    return st.closed;
+  });
+  return got;
+}
+
 // ── run_with_transport ────────────────────────────────────────────────────────
 
 int client_app::run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport) {
@@ -68,6 +115,36 @@ int client_app::run(int argc, char** argv) {
   timeout_ = std::chrono::milliseconds{FLAGS_timeout};
 
   try {
+    if (FLAGS_pty) {
+      // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
+      // its ONLCR/ECHO processing corrupts the BISON: line framing, so put
+      // it in raw mode for the RMI session and restore it on the way out.
+      pty::raw_mode_guard raw{0};
+      // The transport's background reader owns fd 0 (non-blocking, scanning
+      // for BISON: frames), so std::cin can't safely read it too — route
+      // operator keystrokes through the passthrough callback instead; see
+      // read_console_line().
+      console_via_passthrough_ = true;
+      auto transport = std::make_unique<rmi::transport::stdio_client_transport>(
+          0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
+      // Raw pointer stays valid for the rest of the process's lifetime: `c`
+      // (inside run_with_transport) owns this transport until it returns,
+      // and nothing else in --pty mode runs after that. See
+      // echo_transport_'s doc comment for what it's used for.
+      echo_transport_ = transport.get();
+      // Raw mode also strips \r from this process's own std::cout/std::cerr
+      // output (turning OPOST off is global to the fd, not scoped to frame
+      // writes) — compensate so ordinary REPL output still displays
+      // starting at the left margin instead of stairstepping. Routed
+      // through the transport's own writer (send_raw), not written to fd 1
+      // directly: read_console_line()'s local echo *also* writes there via
+      // send_raw, and two independent, unsynchronized writers racing on the
+      // same fd is exactly the kind of bug this codebase has been chasing
+      // throughout --pty support. See crlf_output_guard's doc comment.
+      pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send_raw(s); }};
+      return run_with_transport(std::move(transport));
+    }
+
     if (!FLAGS_pipe.empty()) {
       return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_pipe));
     }
