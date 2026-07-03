@@ -4,7 +4,7 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__MSYS__)
 #include <unistd.h>
 #include <fstream>
 #include <string>
@@ -27,7 +27,7 @@ void wait_for_debugger() {
     if (IsDebuggerPresent()) {
       break;
     }
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__MSYS__)
     std::ifstream statusFile("/proc/self/status");
     std::string line;
     bool debuggerPresent = false;

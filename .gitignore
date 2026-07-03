@@ -2,6 +2,7 @@
 out/
 build/
 build-linux/
+build-msys2/
 build_asan/
 __pycache__/
 *.pyc

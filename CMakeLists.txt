@@ -33,9 +33,23 @@ add_subdirectory("extern/json")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory("extern/yaml")
 
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-add_subdirectory("extern/libuv")
+if(MSYS OR CYGWIN)
+  # Look for the pre-compiled system libuv provided by pacman/cygwin
+  message(STATUS "Using MSYS/Cygwin system libuv via pkg-config")
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(LIBUV REQUIRED libuv)
+  
+  # Create an interface target so you don't have to break your downstream target_link_libraries
+  add_library(uv_a INTERFACE)
+  target_link_libraries(uv_a INTERFACE ${LIBUV_LIBRARIES})
+  target_include_directories(uv_a INTERFACE ${LIBUV_INCLUDE_DIRS})
+else()
+  # Fallback to the bundled source for Linux and pure Windows
+  message(STATUS "Building bundled libuv from extern/")
+  set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  add_subdirectory("extern/libuv")
+endif()
 
 set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
@@ -91,7 +105,7 @@ if(WIN32)
 endif()
 
 # ─── Platform-specific pty support (src/pty) ───────────────────────────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
   target_sources(bison PRIVATE src/pty/pty_process_linux.cpp src/pty/raw_mode_guard_linux.cpp src/pty/pty_write_linux.cpp)
   target_link_libraries(bison PRIVATE util)
 elseif(WIN32)
@@ -99,14 +113,14 @@ elseif(WIN32)
 endif()
 
 # ─── Platform-specific socket transport support (src/rmi/transport) ────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
   target_sources(bison PRIVATE src/rmi/transport/socket_transport_linux.cpp)
 elseif(WIN32)
   target_sources(bison PRIVATE src/rmi/transport/socket_transport_win.cpp)
 endif()
 
 # ─── Platform-specific stdio transport support (src/rmi/transport) ─────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
   target_sources(bison PRIVATE src/rmi/transport/stdio_transport_linux.cpp)
 elseif(WIN32)
   target_sources(bison PRIVATE src/rmi/transport/stdio_transport_win.cpp)
@@ -131,7 +145,7 @@ target_include_directories(bison_abi
   src/rmi
 )
 target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
   target_link_libraries(bison_abi PRIVATE util)
 endif()
 if(MSVC)

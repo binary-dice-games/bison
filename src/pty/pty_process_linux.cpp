@@ -7,28 +7,35 @@
 
 #include <pty.h>
 
-#include <cerrno>
-#include <cstdlib>
-#include <cstring>
 #include <poll.h>
-#include <stdexcept>
+#if defined(__linux__)
 #include <sys/eventfd.h>
+#else
+#include <fcntl.h>
+#endif
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <cerrno>
+#include <cstdlib>
+#include <cstring>
+#include <stdexcept>
 
 namespace bdg::bison::pty {
 
-/** @brief Saved real-terminal state and the pump thread's shutdown eventfd. */
+/** @brief Saved real-terminal state and the pump thread's shutdown descriptors. */
 struct pty_process_state {
-  struct termios saved_termios {};
+  struct termios saved_termios{};
   bool termios_saved{false};
-  int stop_fd{-1};
+  int stop_read_fd{-1};
+#if !defined(__linux__)
+  int stop_write_fd{-1}; // Track the write side of the pipe on MSYS2/Cygwin
+#endif
 };
 
 pty_process::pty_process(const std::string& cmd) : state_(std::make_unique<pty_process_state>()) {
-  struct winsize ws {};
+  struct winsize ws{};
   if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) != 0) {
     ws.ws_col = 80;
     ws.ws_row = 24;
@@ -65,14 +72,30 @@ pty_process::pty_process(const std::string& cmd) : state_(std::make_unique<pty_p
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
   }
 
-  state_->stop_fd = eventfd(0, EFD_NONBLOCK);
+#if defined(__linux__)
+  state_->stop_read_fd = eventfd(0, EFD_NONBLOCK);
+#else
+  // Fallback: Create a POSIX self-pipe to trigger unblocking poll() on MSYS2
+  int pipe_fds[2];
+  if (pipe(pipe_fds) == 0) {
+    state_->stop_read_fd = pipe_fds[0]; // Read side
+    state_->stop_write_fd = pipe_fds[1]; // Write side
+    // Make the read end non-blocking
+    fcntl(state_->stop_read_fd, F_SETFL, fcntl(state_->stop_read_fd, F_GETFL, 0) | O_NONBLOCK);
+  }
+#endif
 }
 
 pty_process::~pty_process() {
   pump_running_.store(false);
-  if (state_->stop_fd >= 0) {
+  if (state_->stop_read_fd >= 0) {
     uint64_t one = 1;
-    static_cast<void>(write(state_->stop_fd, &one, sizeof(one)));
+#if defined(__linux__)
+    static_cast<void>(write(state_->stop_read_fd, &one, sizeof(one)));
+#else
+    // Write a byte into the pipe to safely break out of poll()
+    static_cast<void>(write(state_->stop_write_fd, &one, 1));
+#endif
   }
   if (pump_thread_.joinable())
     pump_thread_.join();
@@ -80,8 +103,13 @@ pty_process::~pty_process() {
   if (state_->termios_saved)
     tcsetattr(STDIN_FILENO, TCSANOW, &state_->saved_termios);
 
-  if (state_->stop_fd >= 0)
-    close(state_->stop_fd);
+  if (state_->stop_read_fd >= 0)
+    close(state_->stop_read_fd);
+
+#if !defined(__linux__)
+  if (state_->stop_write_fd >= 0)
+    close(state_->stop_write_fd);
+#endif
 
   if (master_fd_ >= 0)
     close(master_fd_);
@@ -118,10 +146,10 @@ int pty_process::wait() {
 
 void pty_process::pump_loop() {
   char buf[4096];
-  struct pollfd fds[2] {};
+  struct pollfd fds[2]{};
   fds[0].fd = STDIN_FILENO;
   fds[0].events = POLLIN;
-  fds[1].fd = state_->stop_fd;
+  fds[1].fd = state_->stop_read_fd;
   fds[1].events = POLLIN;
 
   while (pump_running_.load()) {

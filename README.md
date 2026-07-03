@@ -38,7 +38,7 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug
 ```
 
-For Linux / WSL setup and CMake integration details, see [docs/building.md](docs/building.md).
+For Linux / WSL / MSYS2 setup and CMake integration details, see [docs/building.md](docs/building.md).
 
 ## Quick Start
 
@@ -226,7 +226,7 @@ doxygen Doxyfile
 
 | Document | Contents |
 |---|---|
-| [docs/building.md](docs/building.md) | WSL/Linux setup, CMake integration |
+| [docs/building.md](docs/building.md) | Linux/WSL/MSYS2 setup, CMake integration |
 | [docs/examples.md](docs/examples.md) | Running C++, RMI socket, stdio PTY, and benchmark examples |
 | [docs/bindings.md](docs/bindings.md) | Python, Java, C# binding setup and usage |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |

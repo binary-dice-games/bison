@@ -3,7 +3,8 @@
 //
 // Standalone RMI server example. Uses socket transport by default; pass
 // --pty as the first argument to instead serve over a forked pseudo-terminal
-// (Linux only — see src/pty/DESIGN.md).
+// (Linux or MSYS2 only — see src/pty/DESIGN.md and docs/building.md for the
+// MSYS2 MSYS-shell requirement).
 
 #include "src/pty/pty_process.hpp"
 #include "src/pty/pty_write.hpp"

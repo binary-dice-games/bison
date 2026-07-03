@@ -109,10 +109,33 @@ terminal.
   discipline on that side converts the forwarded `0x03` into a proper
   `SIGINT` for the child — exactly the behavior an operator expects from an
   interactive shell.
-- **Linux-only.** Implemented via `forkpty()`. Windows has no equivalent
-  primitive without a substantially different implementation (ConPTY), so
-  `pty_process_win.cpp`'s constructor throws `std::runtime_error`
-  unconditionally rather than half-implementing something unusable.
+- **Linux and MSYS2 only.** Implemented via `forkpty()`, which
+  `pty_process_linux.cpp` also serves for MSYS2 builds
+  (`CMAKE_SYSTEM_NAME STREQUAL "MSYS"`), since MSYS2 provides the same POSIX
+  pty layer, modulo a couple of `#if !defined(__linux__)` branches (a
+  self-pipe instead of `eventfd`, which MSYS2 doesn't have). Plain Windows
+  has no equivalent primitive without a substantially different
+  implementation (ConPTY), so `pty_process_win.cpp`'s constructor throws
+  `std::runtime_error` unconditionally rather than half-implementing
+  something unusable.
+- **On MSYS2, `--pty`-capable executables must be launched from an MSYS2
+  MSYS shell** (not MinGW64, not a plain `cmd.exe`/PowerShell prompt) — see
+  `docs/building.md`. MSYS2's `msys-2.0.dll` derives its POSIX path-mount
+  table (including the virtual `/bin` → `/usr/bin` alias that
+  `execl("/bin/sh", ...)` depends on) from wherever that DLL itself was
+  loaded from. If it's loaded from anywhere other than a real `usr/bin`
+  under the MSYS2 root — e.g. a copy sitting next to the built `.exe` — the
+  mount table can't be built, `/bin/sh` fails to resolve, `execl` fails with
+  `ENOENT`, and the forked child immediately exits with status 127. From the
+  outside this looks exactly like the whole program crashing right after
+  printing its startup banner (a console flashing open and closed), since
+  `pty_process::wait()` returns immediately once the never-really-started
+  child is gone. For this reason build outputs do **not** ship a local copy
+  of the MSYS runtime DLLs (there was a `cmake/CopyMsysRuntimeDeps.cmake`
+  step doing exactly that; it was removed for this reason) — a shadowing
+  local copy is worse than no copy at all, since it silently breaks
+  `--pty` while every other code path keeps working. Rely on `PATH` from a
+  real MSYS2 shell to resolve the runtime DLLs instead.
 - **The pty slave's cooked termios breaks a client attached there, so the
   client goes raw instead of the server.** The slave keeps its default
   (cooked) termios so the spawned shell behaves normally — but that same
