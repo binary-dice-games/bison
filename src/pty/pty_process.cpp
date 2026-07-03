@@ -1,7 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file pty_process_linux.cpp
- * @brief Linux implementation of pty_process using forkpty().
+ * @file pty_process.cpp
+ * @brief Linux/MSYS2 implementation of pty_process using forkpty().
  */
 #include "src/pty/pty_process.hpp"
 

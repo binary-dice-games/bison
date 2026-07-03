@@ -8,12 +8,7 @@
 #include <string>
 #include <thread>
 
-#if defined(_WIN32)
-#include <fcntl.h>
-#include <io.h>
-#else
 #include <unistd.h>
-#endif
 
 using bdg::bison::pty::to_crlf;
 using bdg::bison::pty::write_raw;
@@ -21,27 +16,15 @@ using bdg::bison::pty::write_raw;
 namespace {
 
 bool make_pipe(int fds[2]) {
-#if defined(_WIN32)
-  return _pipe(fds, 65536, _O_BINARY) == 0;
-#else
   return pipe(fds) == 0;
-#endif
 }
 
 size_t read_fd(int fd, char* buf, size_t len) {
-#if defined(_WIN32)
-  return _read(fd, buf, static_cast<unsigned int>(len));
-#else
   return read(fd, buf, len);
-#endif
 }
 
 void close_fd(int fd) {
-#if defined(_WIN32)
-  _close(fd);
-#else
   close(fd);
-#endif
 }
 
 } // namespace

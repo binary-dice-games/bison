@@ -20,7 +20,7 @@ See [examples.md](examples.md) for build and run instructions.
 
 ### Compiler-intrinsic byte swap
 
-`byte_swap` uses `__builtin_bswap16/32/64` on GCC/Clang and `_byteswap_ushort/ulong/uint64` on MSVC — lowers to a single `bswap` (x86) or `rev` (ARM) instruction instead of a loop.
+`byte_swap` uses `__builtin_bswap16/32/64` on GCC/Clang — lowers to a single `bswap` (x86) or `rev` (ARM) instruction instead of a loop.
 
 ### Buffer serializer / deserializer
 

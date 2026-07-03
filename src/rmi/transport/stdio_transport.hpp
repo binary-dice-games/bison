@@ -18,12 +18,10 @@
  * `BISON<...>` frame that will never arrive.
  *
  * Implemented with libuv (matching `pipe_transport`/`named_pipe_transport`/
- * `socket_transport`). This header and `stdio_transport.cpp` are themselves
- * platform-independent; the one platform difference (duplicating an fd, so
- * that closing a connection never closes the caller's original fd — see
- * `dup_stdio_fd`'s doc comment in `stdio_transport.cpp`) is split out to
- * `stdio_transport_linux.cpp`/`stdio_transport_win.cpp`, matching
- * `socket_transport`'s `duplicate_tcp_socket` split.
+ * `socket_transport`). Duplicating an fd so that closing a connection never
+ * closes the caller's original fd (see `dup_stdio_fd`'s doc comment in
+ * `stdio_transport.cpp`) is a plain POSIX `dup()` call, same as
+ * `socket_transport`'s `duplicate_tcp_socket`.
  */
 #pragma once
 

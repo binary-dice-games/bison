@@ -28,12 +28,9 @@ struct raw_mode_state;
 /**
  * @brief Saves @p fd's current terminal mode and switches it to raw mode.
  *
- * Linux: implemented with `tcgetattr`/`cfmakeraw`/`tcsetattr`. If @p fd is
- * not a terminal, construction is a no-op (nothing is saved or changed) and
- * the destructor does nothing.
- *
- * Windows: not implemented — construction is always a no-op, matching
- * `pty_process`'s Linux-only scope.
+ * Implemented with `tcgetattr`/`cfmakeraw`/`tcsetattr` (Linux and MSYS2). If
+ * @p fd is not a terminal, construction is a no-op (nothing is saved or
+ * changed) and the destructor does nothing.
  */
 class raw_mode_guard {
  public:

@@ -15,9 +15,9 @@ concern — see Integration Boundaries below).
 - The spawned terminal must be genuinely usable: normal shell interaction
   (tab completion, job control, `Ctrl-C`, prompts) has to work exactly as
   it would in any other terminal emulator.
-- No `#ifdef`-based platform branching (per the repo-wide coding style) —
-  Linux and Windows implementations are separate translation units sharing
-  one platform-neutral header.
+- Linux and MSYS2 only — both share one implementation (per the repo-wide
+  coding style, `#ifdef`-based branching is reserved for the narrow
+  in-file cases noted below, e.g. `eventfd` vs. self-pipe).
 - Minimal shared state between the pump thread and the owning thread.
 
 ## Key Abstractions
@@ -31,34 +31,29 @@ attached to a new pty. Exposes:
 - `wait()` — blocks for child exit, used by `server_app` as its shutdown
   condition in `--pty` mode instead of `std::getline(std::cin, ...)`.
 
-Platform-specific state (a saved `struct termios`, the pump thread's
-shutdown `eventfd`) is kept behind an opaque, forward-declared
-`pty_process_state`, defined separately in `pty_process_linux.cpp` and
-`pty_process_win.cpp`, so the shared header stays platform-neutral.
+State (a saved `struct termios`, the pump thread's shutdown `eventfd`) is
+kept behind an opaque, forward-declared `pty_process_state`, defined in
+`pty_process.cpp`, so the shared header stays free of `<termios.h>`/etc.
 
 **`raw_mode_guard`** — RAII helper, unrelated to `pty_process`'s fork/exec
 lifecycle, that saves an fd's terminal mode and switches it to raw mode for
 the guard's lifetime, restoring the original mode on destruction. Used by
 `client_app`'s `--pty` path (`src/app/client/client_app.cpp`) on its own
-fd 0 — see Design Decisions below for why. Same opaque-state-per-platform
-split as `pty_process`; the Windows translation unit is a permanent no-op
-stub (construction never fails, it just does nothing), since the client's
-`--pty` mode is only reachable in practice from a Linux `pty_process`
-session.
+fd 0 — see Design Decisions below for why. Same opaque-state pattern as
+`pty_process`, defined in `raw_mode_guard.cpp`.
 
 **`crlf_output_guard`** — RAII helper that rewrites `std::cout`/`std::cerr`'s
 `'\n'` to `"\r\n"` for its lifetime. Compensates for `raw_mode_guard` turning
 `OPOST` off (see Design Decisions below for why that's necessary and why it's
 a problem for ordinary text output). Pure `std::streambuf`, no OS calls, so —
-unlike `raw_mode_guard` and `pty_process` — it has no Linux/Windows split.
+unlike `raw_mode_guard` and `pty_process` — it needs no OS-specific state.
 Client-side only — see `pty_write` below for why the server side needs a
 different fix for the same underlying problem.
 
 **`pty_write`** (`to_crlf()` + `write_raw()`) — the server-side equivalent of
 `crlf_output_guard`: `to_crlf()` does the same `'\n'` → `"\r\n"` string
-rewrite (portable, no split needed), and `write_raw()` writes the result
-directly to an fd with a plain `write()` loop (Linux/Windows split — only
-this half needs the platform-specific syscall). Used by
+rewrite, and `write_raw()` writes the result directly to an fd with a plain
+POSIX `write()` loop. Used by
 `server_app::on_listening()`/`on_verbose_trace()`, in preference to
 `crlf_output_guard`, specifically because those hooks share fd 1 with
 `stdio_print_passthrough`'s background-thread writes — see Design Decisions
@@ -110,14 +105,10 @@ terminal.
   `SIGINT` for the child — exactly the behavior an operator expects from an
   interactive shell.
 - **Linux and MSYS2 only.** Implemented via `forkpty()`, which
-  `pty_process_linux.cpp` also serves for MSYS2 builds
+  `pty_process.cpp` uses for both native Linux and MSYS2 builds
   (`CMAKE_SYSTEM_NAME STREQUAL "MSYS"`), since MSYS2 provides the same POSIX
   pty layer, modulo a couple of `#if !defined(__linux__)` branches (a
-  self-pipe instead of `eventfd`, which MSYS2 doesn't have). Plain Windows
-  has no equivalent primitive without a substantially different
-  implementation (ConPTY), so `pty_process_win.cpp`'s constructor throws
-  `std::runtime_error` unconditionally rather than half-implementing
-  something unusable.
+  self-pipe instead of `eventfd`, which MSYS2 doesn't have).
 - **On MSYS2, `--pty`-capable executables must be launched from an MSYS2
   MSYS shell** (not MinGW64, not a plain `cmd.exe`/PowerShell prompt) — see
   `docs/building.md`. MSYS2's `msys-2.0.dll` derives its POSIX path-mount

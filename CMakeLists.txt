@@ -72,9 +72,6 @@ target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml gflags)
 target_link_libraries(bison PRIVATE uv_a)
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
-if(MSVC)
-  target_compile_options(bison PRIVATE /FS)
-endif()
 
 # ─── RMI framework sources ────────────────────────────────────────────────────
 target_sources(bison PRIVATE
@@ -104,27 +101,9 @@ if(WIN32)
   target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 
-# ─── Platform-specific pty support (src/pty) ───────────────────────────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-  target_sources(bison PRIVATE src/pty/pty_process_linux.cpp src/pty/raw_mode_guard_linux.cpp src/pty/pty_write_linux.cpp)
-  target_link_libraries(bison PRIVATE util)
-elseif(WIN32)
-  target_sources(bison PRIVATE src/pty/pty_process_win.cpp src/pty/raw_mode_guard_win.cpp src/pty/pty_write_win.cpp)
-endif()
-
-# ─── Platform-specific socket transport support (src/rmi/transport) ────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-  target_sources(bison PRIVATE src/rmi/transport/socket_transport_linux.cpp)
-elseif(WIN32)
-  target_sources(bison PRIVATE src/rmi/transport/socket_transport_win.cpp)
-endif()
-
-# ─── Platform-specific stdio transport support (src/rmi/transport) ─────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-  target_sources(bison PRIVATE src/rmi/transport/stdio_transport_linux.cpp)
-elseif(WIN32)
-  target_sources(bison PRIVATE src/rmi/transport/stdio_transport_win.cpp)
-endif()
+# ─── pty support (src/pty) — Linux and MSYS2 only ──────────────────────────
+target_sources(bison PRIVATE src/pty/pty_process.cpp src/pty/raw_mode_guard.cpp)
+target_link_libraries(bison PRIVATE util)
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
 add_library(bison_abi SHARED
@@ -145,12 +124,7 @@ target_include_directories(bison_abi
   src/rmi
 )
 target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-  target_link_libraries(bison_abi PRIVATE util)
-endif()
-if(MSVC)
-  target_compile_options(bison_abi PRIVATE /FS)
-endif()
+target_link_libraries(bison_abi PRIVATE util)
 
 if(PACKAGE_TESTS)
     enable_testing()

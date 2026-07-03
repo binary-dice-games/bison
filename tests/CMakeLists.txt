@@ -9,9 +9,6 @@ macro(package_add_test TESTNAME)
     add_executable(${TESTNAME} ${ARGN})
     target_link_libraries(${TESTNAME} bison gtest gmock gtest_main)
     target_include_directories(${TESTNAME} PRIVATE ${PROJECT_SOURCE_DIR})
-    if(MSVC)
-        target_compile_options(${TESTNAME} PRIVATE /FS)
-    endif()
     gtest_discover_tests(${TESTNAME}
         WORKING_DIRECTORY ${PROJECT_DIR}
         PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${PROJECT_DIR}"
@@ -30,35 +27,22 @@ package_add_test(bridge_test bridge_tests.cpp)
 # stdio (BISON: line-framed) transport tests — cross-platform
 package_add_test(stdio_transport_test stdio_transport_tests.cpp)
 
-# pty_process tests — platform-specific, mirroring the src/pty split: only
-# the test file for the current build platform is compiled.
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-    package_add_test(pty_process_test pty_process_linux_tests.cpp)
-elseif(WIN32)
-    package_add_test(pty_process_win_test pty_process_win_tests.cpp)
-endif()
+# pty_process tests (Linux and MSYS2)
+package_add_test(pty_process_test pty_process_tests.cpp)
 
-# raw_mode_guard tests — Linux-only for now, matching raw_mode_guard_win.cpp
-# being a permanent no-op stub (see src/pty/raw_mode_guard.hpp).
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-    package_add_test(raw_mode_guard_test raw_mode_guard_linux_tests.cpp)
-endif()
+# raw_mode_guard tests (Linux and MSYS2)
+package_add_test(raw_mode_guard_test raw_mode_guard_tests.cpp)
 
-# crlf_output_guard tests — cross-platform (pure std::streambuf)
+# crlf_output_guard tests
 package_add_test(crlf_output_guard_test crlf_output_guard_tests.cpp)
 
-# pty_write tests — cross-platform (write_raw() is platform-split internally,
-# same as socket_transport's duplicate_tcp_socket; the test itself just needs
-# a pipe(), which it gets portably the same way stdio_transport_tests.cpp does)
+# pty_write tests
 package_add_test(pty_write_test pty_write_tests.cpp)
 
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)
 target_include_directories(bison_c_test PRIVATE ${PROJECT_SOURCE_DIR})
 target_link_libraries(bison_c_test bison_abi bison gtest gmock gtest_main)
-if(MSVC)
-    target_compile_options(bison_c_test PRIVATE /FS)
-endif()
 if(WIN32 OR MSYS OR CYGWIN)
     add_custom_command(TARGET bison_c_test POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -76,9 +60,6 @@ set_target_properties(bison_c_test PROPERTIES FOLDER tests)
 add_executable(rmi_c_test rmi_c_tests.cpp)
 target_include_directories(rmi_c_test PRIVATE ${PROJECT_SOURCE_DIR})
 target_link_libraries(rmi_c_test bison_abi bison gtest gmock gtest_main)
-if(MSVC)
-    target_compile_options(rmi_c_test PRIVATE /FS)
-endif()
 if(WIN32 OR MSYS OR CYGWIN)
     add_custom_command(TARGET rmi_c_test POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

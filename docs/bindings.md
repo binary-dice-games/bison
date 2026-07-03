@@ -10,8 +10,6 @@ cmake --build build --config Debug --target bison_c
 Set `BISON_LIB` to the full path of the shared library if it is not found automatically:
 
 ```bash
-# Windows:
-$env:BISON_LIB = (Resolve-Path .\build\Debug\bison_c.dll)
 # Linux:
 export BISON_LIB=$(pwd)/build/libbison_c.so
 # macOS:

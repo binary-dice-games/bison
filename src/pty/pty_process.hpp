@@ -30,25 +30,9 @@ struct pty_process_state;
 /**
  * @brief Owns a forked pty session and an inbound keystroke pump.
  *
- * Linux: implemented with `forkpty()`. The operator's real terminal (fd 0)
- * is switched to raw mode for the lifetime of this object and restored on
- * destruction.
- *
- * Windows: not implemented — the constructor always throws
- * `std::runtime_error`.
- *
- * Windows' ConPTY is not a transparent byte pipe like a Unix pty — it's a full terminal emulator that maintains its own
- * virtual screen buffer and actively rewrites the byte stream to keep that buffer in sync (injecting cursor-position
- * and redraw escape sequences), even for a "raw mode" session. This means arbitrary in-band binary/base64 payloads sent
- * over the --pty-tunneled stdio transport can be corrupted in place whenever a line approaches the console width, and —
- * as confirmed by trace analysis — that corruption is often deterministic for a given cursor column, so even a
- * NACK-and-resend retry can fail identically on every attempt. Mitigations (line-wrapping the payload, frame
- * sequencing/NACK-resend, waiting for disconnect acknowledgment) reduced the failure rate but could not eliminate it,
- * because there is no way from the application side to make ConPTY stop rewriting the stream. Real Unix ptys (Linux,
- * and by extension the pty_process_linux.cpp path) don't have this problem: they are a genuine transparent character
- * pipe with no independent screen-buffer emulation between the two ends. Given that, restricting --pty support to Linux
- * is the right call — it avoids chasing an unbounded set of ConPTY corruption cases on a platform that isn't built for
- * this use case.
+ * Implemented with `forkpty()` (Linux and MSYS2). The operator's real
+ * terminal (fd 0) is switched to raw mode for the lifetime of this object
+ * and restored on destruction.
  */
 class pty_process {
  public:

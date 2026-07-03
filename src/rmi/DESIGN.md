@@ -27,29 +27,28 @@ Source tree:
 - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
 - `stream_transport.cpp` — wraps an external `std::iostream`
 
-`socket_transport.cpp` is the one exception to "no platform-specific transport
-source files": accepted connections are moved from the listener's `uv_loop_t`
-to their own dedicated loop by duplicating the underlying OS socket
-descriptor (libuv's `uv_accept()` requires the client handle to already
-share the listener's loop, so the connection's own loop can't be used
-directly). Duplicating a socket has no libuv-portable API, so that one step
-lives in `socket_transport_linux.cpp` / `socket_transport_win.cpp`, selected
-in `CMakeLists.txt` the same way as the `src/pty` platform split. This does not
-change transport *behavior* across platforms — it is a single OS primitive with
-no libuv equivalent.
+`socket_transport.cpp` has one small platform-facing step: accepted
+connections are moved from the listener's `uv_loop_t` to their own dedicated
+loop by duplicating the underlying OS socket descriptor (libuv's
+`uv_accept()` requires the client handle to already share the listener's
+loop, so the connection's own loop can't be used directly). Duplicating a
+socket has no libuv-portable API, so `duplicate_tcp_socket()` calls POSIX
+`dup()` directly (shared by native Linux and MSYS2 — the only supported
+targets). This does not change transport *behavior* across platforms — it
+is a single OS primitive with no libuv equivalent.
 
 ## 3. Platform Independence Strategy
 
 ### 3.1 Goal
 
-All transport I/O is implemented using **libuv** (`extern/libuv`, static target `uv_a`). libuv provides a uniform async I/O API across Windows (IOCP), Linux (epoll), and macOS (kqueue), eliminating any need for platform-specific transport code or `#ifdef` guards in transport sources.
+All transport I/O is implemented using **libuv** (`extern/libuv`, static target `uv_a`). libuv provides a uniform async I/O API across Linux (epoll) and Windows (IOCP) — the latter still relevant because MSYS2 builds against the mingw/Windows toolchain — eliminating any need for platform-specific transport code or `#ifdef` guards in transport sources.
 
 ### 3.2 Approach
 
 - Every transport file is a single `.cpp` file with no platform conditionals in I/O behavior.
-- libuv handles OS differences transparently: named pipe paths (`\\.\pipe\name` vs `/tmp/name.sock`), process spawning, TTY raw mode, and socket I/O.
-- The only permitted `#ifdef` in transport code is for string formatting differences (e.g., path format strings), which is a cosmetic single-line difference, not a behavioral split.
-- No `#ifdef _WIN32 / #else` blocks for behavior separation are permitted. If a platform difference is large enough to warrant separate logic, it must be split into `_win.cpp` / `_linux.cpp` file pairs per the project coding style. `socket_transport.cpp` does this for its socket-duplication step (see §2); every other transport still needs no split because libuv covers the rest of their I/O.
+- libuv handles OS differences transparently: process spawning, TTY raw mode, and socket I/O.
+- The only permitted `#ifdef` in transport code is for narrow, single-line differences (e.g. `pty_process.cpp`'s `eventfd` vs. self-pipe fallback), not a behavioral split.
+- `socket_transport.cpp`'s socket-duplication step (see §2) is implemented directly with POSIX `dup()`, since both supported targets (Linux and MSYS2) share that API; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
 
 ### 3.3 libuv Dependency
 
@@ -60,7 +59,7 @@ add_subdirectory("extern/libuv")
 target_link_libraries(bison PRIVATE uv_a)
 ```
 
-libuv internally links `ws2_32` and other Windows system libraries as needed; the bison build does not add them manually.
+libuv internally links `ws2_32` and other Windows system libraries as needed on MSYS2 builds; the bison build does not add them manually.
 
 ## 4. Architecture Overview
 

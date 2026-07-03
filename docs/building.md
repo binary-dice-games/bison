@@ -1,6 +1,9 @@
 # Building Bison
 
-## Quick Build (Windows)
+Bison targets **Linux and MSYS2 only**; native Windows/MSVC builds are not
+supported. See below for setup on Linux, WSL, or MSYS2.
+
+## Quick Build
 
 ```bash
 git clone --recurse-submodules https://github.com/carloslopezmdez/bison.git

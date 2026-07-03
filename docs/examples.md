@@ -6,8 +6,7 @@ All examples are under `examples/`. Build the project first (see [building.md](b
 
 ```bash
 cmake --build build --config Debug --target bison_examples
-# Windows:
-.\build\examples\Debug\bison_examples.exe
+./build/examples/bison_examples
 ```
 
 ## RMI Socket Examples
@@ -17,9 +16,9 @@ Two processes: server and client communicating over TCP.
 ```bash
 cmake --build build --config Debug --target rmi_server_example rmi_client_example
 # Start server first:
-.\build\examples\Debug\rmi_server_example.exe
+./build/examples/rmi_server_example
 # Then in another terminal:
-.\build\examples\Debug\rmi_client_example.exe
+./build/examples/rmi_client_example
 # Optional args: [host] [port]
 ```
 
@@ -48,7 +47,7 @@ a bison client there as a plain child process of that shell:
 
 The client's `--pty` does not spawn anything — it just wraps its own
 already-inherited stdin/stdout in the same `BISON<...>` framing, so it
-works identically on Windows and Linux with no subprocess involved.
+works identically on Linux and MSYS2 with no subprocess involved.
 Anything the client doesn't recognize as a `BISON<...>` frame (shell
 prompts, command output typed by the operator) passes straight through to
 the terminal byte-for-byte, so the session stays fully interactive.
@@ -59,9 +58,8 @@ the terminal byte-for-byte, so the session stays fully interactive.
 # Build in Release for meaningful timings:
 cmake --build build --config Release --target bison_performance
 
-# Windows:
-.\build\examples\Release\bison_performance.exe 100000
-.\build\examples\Release\bison_performance.exe --iterations=100000 --samples=7 --warmup=2 --format=markdown
+./build/examples/bison_performance 100000
+./build/examples/bison_performance --iterations=100000 --samples=7 --warmup=2 --format=markdown
 ```
 
 Supported `--format` values: `table`, `csv`, `markdown`.

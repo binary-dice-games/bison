@@ -31,11 +31,7 @@ namespace bdg::bison::rmi::transport {
 static std::string make_anon_pipe_path() {
   static std::atomic<uint64_t> counter{0};
   const auto id = counter.fetch_add(1, std::memory_order_relaxed);
-#if defined(_WIN32)
-  return std::string{"\\\\.\\pipe\\bison-anon-"} + std::to_string(id);
-#else
   return std::string{"/tmp/.bison-anon-"} + std::to_string(id) + ".sock";
-#endif
 }
 
 // ── Per-connection state ───────────────────────────────────────────────────────

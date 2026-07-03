@@ -44,12 +44,10 @@ static socket_server_transport make_socket_server_transport() {
   throw std::runtime_error("unable to allocate socket test port");
 }
 
-#ifdef _WIN32
 static void destroyMovedFromSocketClientTransport() {
   socket_client_transport transport{"127.0.0.1", 65535};
   auto moved = std::move(transport);
 }
-#endif
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Shared constants
@@ -90,11 +88,9 @@ TEST(RmiIds, ConsecutiveIdsAreNotSequentialValues) {
   EXPECT_NE(second, first + 1u);
 }
 
-#ifdef _WIN32
 TEST(RmiTransportMove, MovedFromSocketClientTransportDestructionIsSafe) {
   EXPECT_NO_THROW(destroyMovedFromSocketClientTransport());
 }
-#endif
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 3. Envelope encode / decode

@@ -2,32 +2,17 @@
 #include <iostream>
 #include <thread>
 
-#if defined(_WIN32) || defined(_WIN64)
-#include <windows.h>
-#elif defined(__linux__) || defined(__MSYS__)
 #include <unistd.h>
 #include <fstream>
 #include <string>
-#endif
 
 /**
  * @brief Blocks until a debugger is attached.
  */
 void wait_for_debugger() {
-  std::cout << "Waiting for debugger... (PID: " <<
-#if defined(_WIN32) || defined(_WIN64)
-      GetCurrentProcessId()
-#else
-      getpid()
-#endif
-            << ")" << std::endl;
+  std::cout << "Waiting for debugger... (PID: " << getpid() << ")" << std::endl;
 
   while (true) {
-#if defined(_WIN32) || defined(_WIN64)
-    if (IsDebuggerPresent()) {
-      break;
-    }
-#elif defined(__linux__) || defined(__MSYS__)
     std::ifstream statusFile("/proc/self/status");
     std::string line;
     bool debuggerPresent = false;
@@ -46,7 +31,6 @@ void wait_for_debugger() {
     if (debuggerPresent) {
       break;
     }
-#endif
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 

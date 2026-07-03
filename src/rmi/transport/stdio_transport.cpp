@@ -10,6 +10,8 @@
 
 #include <uv.h>
 
+#include <unistd.h>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -153,11 +155,11 @@ constexpr size_t kHandshakeAccumCap = 256;
  * its `write()`s from `pump_loop()` and hangs up the pty's session (the
  * spawned shell), for what should be just one RMI session ending. Wrapping
  * a duplicate instead means closing the handle only ever closes the
- * duplicate, never the caller's original fd. Implemented per-platform
- * (`stdio_transport_linux.cpp`/`stdio_transport_win.cpp`) since Linux and
- * Windows CRTs spell "duplicate an fd" differently.
+ * duplicate, never the caller's original fd.
  */
-int dup_stdio_fd(int fd);
+int dup_stdio_fd(int fd) {
+  return dup(fd);
+}
 
 // ── stdio_pipe_thread: shared loop/thread lifecycle ─────────────────────────────
 

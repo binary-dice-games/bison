@@ -16,6 +16,8 @@
 
 #include <uv.h>
 
+#include <unistd.h>
+
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -34,7 +36,12 @@ using tcp_conn_state = uv_stream_state<uv_tcp_t>;
  * @return A duplicate socket descriptor suitable for uv_tcp_open() on another
  *         loop, or an invalid descriptor on failure.
  */
-uv_os_sock_t duplicate_tcp_socket(uv_tcp_t* handle);
+uv_os_sock_t duplicate_tcp_socket(uv_tcp_t* handle) {
+  uv_os_fd_t fd{};
+  if (uv_fileno(reinterpret_cast<uv_handle_t*>(handle), &fd) != 0)
+    return -1;
+  return dup(fd);
+}
 
 // ── socket_client_transport::impl ────────────────────────────────────────────
 

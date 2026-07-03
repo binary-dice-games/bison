@@ -37,9 +37,6 @@ std::string to_crlf(std::string_view text);
  * thread's `<<` on the same stream isn't safe. Writing directly to the fd
  * here, bypassing `std::cout` entirely, sidesteps both problems — see
  * `src/pty/DESIGN.md`'s Design Decisions for the full writeup.
- *
- * Platform-specific (`pty_write_linux.cpp`/`pty_write_win.cpp`) only for
- * this function; `to_crlf()` above is portable.
  */
 void write_raw(int fd, std::string_view bytes);
 

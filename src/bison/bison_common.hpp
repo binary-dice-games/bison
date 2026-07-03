@@ -67,7 +67,7 @@ const size_t native = []() {
  * @brief Swap the byte order of a scalar value on little-endian hosts.
  *
  * On big-endian hosts this is a no-op.  Compiler intrinsics are used where
- * available (`__builtin_bswap*` on GCC/Clang, `_byteswap_*` on MSVC).
+ * available (`__builtin_bswap*` on GCC/Clang).
  *
  * @tparam T  A trivially-copyable type of size 1, 2, 4, or 8 bytes.
  * @param  value  The value to byte-swap.
@@ -91,20 +91,6 @@ constexpr T byte_swap(T value) {
   } else if constexpr (sizeof(T) == 8) {
     uint64_t u = std::bit_cast<uint64_t>(value);
     u = __builtin_bswap64(u);
-    return std::bit_cast<T>(u);
-  }
-#elif defined(_MSC_VER)
-  if constexpr (sizeof(T) == 2) {
-    uint16_t u = std::bit_cast<uint16_t>(value);
-    u = _byteswap_ushort(u);
-    return std::bit_cast<T>(u);
-  } else if constexpr (sizeof(T) == 4) {
-    uint32_t u = std::bit_cast<uint32_t>(value);
-    u = _byteswap_ulong(u);
-    return std::bit_cast<T>(u);
-  } else if constexpr (sizeof(T) == 8) {
-    uint64_t u = std::bit_cast<uint64_t>(value);
-    u = _byteswap_uint64(u);
     return std::bit_cast<T>(u);
   }
 #endif

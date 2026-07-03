@@ -97,15 +97,17 @@ system enforces synchronization rather than relying on comments or convention.
 Avoid raw `std::mutex`, `std::lock_guard`, and `std::unique_lock` except at the
 lowest implementation level (e.g. inside custom data structures).
 
-## Platform-Dependent Code
+## Platform Support
 
-Never use conditional compilation (`#ifdef`, `#if defined(...)`, etc.) to separate platform-specific behavior. Instead, split code across files by platform suffix:
-
-- `protocol.cpp` — platform-independent implementation
-- `protocol_linux.cpp` — Linux-specific implementation
-- `protocol_win.cpp` — Windows-specific implementation
-
-The shared header (`protocol.hpp`) declares the full interface. Each `CMakeLists.txt` target includes the platform-independent file plus the one platform-specific file appropriate for that build target. Do not add the other platform files to the same target.
+Bison targets **Linux and MSYS2 only** (native Windows/MSVC builds are not
+supported). MSYS2 provides the same POSIX layer as Linux (`forkpty()`,
+`termios`, etc.), so it shares the same implementation — do not add a
+separate platform-suffixed file (e.g. `protocol_win.cpp`) for it. Avoid
+conditional compilation (`#ifdef`, `#if defined(...)`) to branch on OS
+behavior; if a genuine platform difference arises within the Linux/MSYS2
+target (for example native Linux's `eventfd` vs. MSYS2's lack of it), keep
+it as a small, narrowly-scoped `#if defined(__linux__)` guard within the
+shared file rather than a full file split.
 
 ## Testing Style (GoogleTest)
 
