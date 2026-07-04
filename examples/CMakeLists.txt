@@ -82,6 +82,6 @@ foreach(_abi_target bison_abi_examples rmi_abi_server_example rmi_abi_client_exa
 endforeach()
 
 target_link_libraries(bison_performance PRIVATE bison nlohmann_json::nlohmann_json)
-target_link_libraries(rmi_server_example PRIVATE bison)
-target_link_libraries(rmi_client_example PRIVATE bison)
+target_link_libraries(rmi_server_example PRIVATE bison gflags)
+target_link_libraries(rmi_client_example PRIVATE bison gflags)
 target_link_libraries(rmi_standalone_example PRIVATE bison)

@@ -1,24 +1,40 @@
 // MIT License © 2025 Binary Dice Games
 // examples/rmi_server_example.cpp
 //
-// Standalone RMI server example. Uses socket transport by default; pass
-// --pty as the first argument to instead serve over a forked pseudo-terminal
-// (Linux or MSYS2 only — see src/pty/DESIGN.md and docs/building.md for the
-// MSYS2 MSYS-shell requirement).
+// Standalone RMI server example built directly on rmi::server (rather than
+// the server_app scaffold used by calc-server), to demonstrate manual
+// transport construction. Takes the same --transport/--host/--port/--name/
+// --cmd/--debugger flags as calc-server (src/srv/calc/main.cpp) so usage is
+// consistent across the project -- see docs/examples.md for per-transport
+// walkthroughs.
 
+#include "src/app/transport_flags.hpp"
+#include "src/bison/bison_flags.hpp"
+#include "src/console/console_process.hpp"
 #include "src/pty/pty_process.hpp"
 #include "src/pty/pty_write.hpp"
 #include "src/rmi/rmi.hpp"
 
+#include <gflags/gflags.h>
+
 #include <cstdint>
-#include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
+
+DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
+DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp)");
+DEFINE_int32(port, 7070, "Listen port (transport=tcp)");
+DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
+DEFINE_string(cmd, "", "Command to spawn (transport=console)");
+DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
+
+extern void wait_for_debugger();
 
 static void register_calculator() {
   auto proto = dynamic_ptr{"Calculator"_key, {}};
@@ -63,65 +79,101 @@ static void register_calculator() {
   dynamic::addClass(0U, proto, 0U);
 }
 
-static int run_pty(int argc, char** argv) {
-  (void)argc;
-  (void)argv;
-  register_calculator();
-
-  pty::pty_process pty_proc;
-  pty_proc.start_pump();
-  stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
-  server srv{transport};
-  srv.listen();
-
-  // pty_proc's constructor already put the operator's own real terminal in
-  // raw mode (for pump_loop() — see src/pty/DESIGN.md), which strips \r
-  // from plain std::cout output. Writing directly via pty::write_raw here
-  // (rather than through std::cout, which stdio_print_passthrough is also
-  // concurrently writing to from another thread to forward pty-master bytes
-  // verbatim) avoids both corrupting that forwarded text and racing it —
-  // see pty_write.hpp's doc comment.
-  pty::write_raw(1, pty::to_crlf("[Server] Calculator listening via --pty. This terminal is now the spawned "
-                                  "shell; run `rmi_client_example --pty` from inside it. Exit the shell to stop.\n"));
-
-  pty_proc.wait();
-  srv.stop();
-  pty::write_raw(1, pty::to_crlf("[Server] stopped.\n"));
-  return 0;
-}
-
 int main(int argc, char** argv) {
-  if (argc > 1 && std::string{argv[1]} == "--pty") {
-    return run_pty(argc, argv);
-  }
+  if (bdg::bison::print_usage(argc, argv, "Standalone RMI Calculator server example.", __FILE__))
+    return 0;
 
-  std::string host = "127.0.0.1";
-  uint16_t port = 7070;
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  if (argc > 1) {
-    host = argv[1];
-  }
-  if (argc > 2) {
-    const auto parsed = std::strtoul(argv[2], nullptr, 10);
-    if (parsed > 0 && parsed <= 65535) {
-      port = static_cast<uint16_t>(parsed);
-    }
+  if (FLAGS_debugger) {
+    wait_for_debugger();
   }
 
   register_calculator();
 
-  socket_server_transport transport{host, port};
-  server srv{transport};
-  srv.listen();
+  try {
+    switch (app::selected_transport()) {
+      case app::transport_kind::pty: {
+        pty::pty_process pty_proc;
+        pty_proc.start_pump();
+        stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
+        server srv{transport};
+        srv.listen();
 
-  std::cout << "[Server] Calculator listening on " << host << ":" << port << '\n';
-  std::cout << "[Server] Press Enter to stop..." << '\n';
+        // pty_proc's constructor already put the operator's own real terminal
+        // in raw mode (for pump_loop() -- see src/pty/DESIGN.md), which strips
+        // \r from plain std::cout output. Writing directly via pty::write_raw
+        // here (rather than through std::cout, which stdio_print_passthrough
+        // is also concurrently writing to from another thread to forward
+        // pty-master bytes verbatim) avoids both corrupting that forwarded
+        // text and racing it -- see pty_write.hpp's doc comment.
+        pty::write_raw(
+            1,
+            pty::to_crlf("[Server] Calculator listening via --transport=pty. This terminal is now the "
+                         "spawned shell; run `rmi_client_example --transport=pty` from inside it. Exit the "
+                         "shell to stop.\n"));
 
-  std::string line;
-  std::getline(std::cin, line);
+        pty_proc.wait();
+        srv.stop();
+        pty::write_raw(1, pty::to_crlf("[Server] stopped.\n"));
+        return 0;
+      }
+      case app::transport_kind::console: {
+        if (FLAGS_cmd.empty())
+          throw std::runtime_error("--transport=console requires --cmd");
 
-  srv.stop();
-  std::cout << "[Server] stopped." << '\n';
+        console::console_process console_proc{FLAGS_cmd};
+        stdio_server_transport transport{console_proc.read_fd(), console_proc.write_fd()};
+        server srv{transport};
+        srv.listen();
 
-  return 0;
+        std::cout << "[Server] Calculator listening via --transport=console (spawned: " << FLAGS_cmd
+                   << ") -- exit the subprocess to stop\n"
+                   << std::flush;
+
+        console_proc.wait();
+        srv.stop();
+        std::cout << "[Server] stopped." << '\n';
+        return 0;
+      }
+      case app::transport_kind::pipe: {
+        named_pipe_server_transport transport{FLAGS_name};
+        server srv{transport};
+        srv.listen();
+
+        std::cout << "[Server] Calculator listening on pipe " << FLAGS_name << " -- press Enter to stop\n"
+                   << std::flush;
+
+        std::string line;
+        std::getline(std::cin, line);
+
+        srv.stop();
+        std::cout << "[Server] stopped." << '\n';
+        return 0;
+      }
+      case app::transport_kind::tcp: {
+        auto port = static_cast<uint16_t>(FLAGS_port);
+        socket_server_transport transport{FLAGS_host, port};
+        server srv{transport};
+        srv.listen();
+
+        std::cout << "[Server] Calculator listening on " << FLAGS_host << ":" << FLAGS_port << '\n';
+        std::cout << "[Server] Press Enter to stop..." << '\n';
+
+        std::string line;
+        std::getline(std::cin, line);
+
+        srv.stop();
+        std::cout << "[Server] stopped." << '\n';
+        return 0;
+      }
+    }
+    return 1;
+  } catch (const std::exception& ex) {
+    std::cerr << "[Server] error: " << ex.what() << '\n';
+    return 1;
+  } catch (...) {
+    std::cerr << "[Server] unexpected failure" << '\n';
+    return 1;
+  }
 }

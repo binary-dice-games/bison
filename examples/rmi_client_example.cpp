@@ -1,19 +1,24 @@
 // MIT License © 2025 Binary Dice Games
 // examples/rmi_client_example.cpp
 //
-// Standalone RMI client example. Uses socket transport by default; pass
-// --pty as the first argument to instead connect over this process's own
-// inherited stdio (for use inside a `rmi_server_example --pty` session —
-// see src/pty/DESIGN.md).
+// Standalone RMI client example built directly on rmi::client (rather than
+// the client_app scaffold used by bison-cli), to demonstrate manual
+// transport construction. Takes the same --transport/--host/--port/--name/
+// --timeout/--debugger flags as bison-cli (src/app/cli/main.cpp) so usage is
+// consistent across the project -- see docs/examples.md for per-transport
+// walkthroughs.
 
+#include "src/app/transport_flags.hpp"
+#include "src/bison/bison_flags.hpp"
 #include "src/pty/crlf_output_guard.hpp"
 #include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/rmi.hpp"
 
+#include <gflags/gflags.h>
+
 #include <cstdint>
-#include <cstdlib>
-#include <exception>
 #include <iostream>
+#include <memory>
 #include <string>
 
 using namespace bdg::bison;
@@ -21,7 +26,16 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-/** @brief Runs the calls shared by both transports against a connected client. */
+DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
+DEFINE_string(host, "127.0.0.1", "Server host address (transport=tcp)");
+DEFINE_int32(port, 7070, "Server TCP port (transport=tcp)");
+DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
+DEFINE_int32(timeout, 30000, "Per-request timeout in milliseconds");
+DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
+
+extern void wait_for_debugger();
+
+/** @brief Runs the calls shared by every transport against a connected client. */
 static void run_calls(client& c) {
   auto calc = c.instantiate(0U, "Calculator"_key).get();
   std::cout << "[Client] connected, object id=" << calc.object_id() << '\n';
@@ -65,102 +79,60 @@ static void run_calls(client& c) {
   c.destroy(std::move(calc));
 }
 
-static int run_pty() {
-  try {
-    pty::raw_mode_guard raw{0};
-    // Raw mode strips \r from this process's own std::cout/std::cerr output
-    // too (turning OPOST off is global to the fd) — compensate, or the
-    // "[Client] ..." lines below stairstep across the screen instead of
-    // starting at the left margin. See crlf_output_guard's doc comment.
-    pty::crlf_output_guard output_guard;
-    client c{std::make_unique<stdio_client_transport>(0, 1)};
-    c.connect();
+static int run_with_transport(std::unique_ptr<client_transport_iface> transport) {
+  client c{std::move(transport)};
 
-    run_calls(c);
+  dynamic params;
+  params["timeout_ms"_key] = int32_t{FLAGS_timeout};
+  c.connect(std::move(params));
 
-    c.disconnect();
-    std::cout << "[Client] done." << '\n';
-    return 0;
-  } catch (const std::exception& ex) {
-    std::cerr << "[Client] failed to connect or execute calls over --pty: " << ex.what() << '\n';
-    return 1;
-  } catch (...) {
-    std::cerr << "[Client] unexpected failure while connecting over --pty" << '\n';
-    return 1;
-  }
+  run_calls(c);
+
+  c.disconnect();
+  std::cout << "[Client] done." << '\n';
+  return 0;
 }
 
 int main(int argc, char** argv) {
-  if (argc > 1 && std::string{argv[1]} == "--pty") {
-    return run_pty();
-  }
+  if (bdg::bison::print_usage(argc, argv, "Standalone RMI Calculator client example.", __FILE__))
+    return 0;
 
-  std::string host = "127.0.0.1";
-  uint16_t port = 7070;
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  if (argc > 1) {
-    host = argv[1];
-  }
-  if (argc > 2) {
-    const auto parsed = std::strtoul(argv[2], nullptr, 10);
-    if (parsed > 0 && parsed <= 65535) {
-      port = static_cast<uint16_t>(parsed);
-    }
+  if (FLAGS_debugger) {
+    wait_for_debugger();
   }
 
   try {
-    socket_client_transport transport{host, port};
-    client c{std::move(transport)};
-    c.connect();
-
-    auto calc = c.instantiate(0U, "Calculator"_key).get();
-    std::cout << "[Client] connected, object id=" << calc.object_id() << '\n';
-
-    {
-      dynamic params;
-      params["a"_key] = 10.0f;
-      params["b"_key] = 3.0f;
-      auto result = calc.call("add"_key, std::move(params)).get();
-      float res = result["result"_key];
-      std::cout << "[Client] add(10, 3) = " << res << '\n';
+    switch (app::selected_transport()) {
+      case app::transport_kind::pty: {
+        // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
+        // put it in raw mode for the RMI session and restore it on the way
+        // out, and compensate for raw mode stripping \r from this process's
+        // own std::cout/std::cerr output (see crlf_output_guard's doc comment).
+        pty::raw_mode_guard raw{0};
+        pty::crlf_output_guard output_guard;
+        return run_with_transport(std::make_unique<stdio_client_transport>(0, 1));
+      }
+      case app::transport_kind::console:
+        // No subprocess spawning here -- the server is the one that spawns
+        // this process (see server's --transport=console/--cmd); this side
+        // just wraps its own inherited fd 0/1 in the BISON<...> framing, same
+        // as --transport=pty, but with no raw_mode_guard/crlf_output_guard:
+        // fd 0/1 here are piped, not a tty.
+        return run_with_transport(std::make_unique<stdio_client_transport>(0, 1));
+      case app::transport_kind::pipe:
+        return run_with_transport(std::make_unique<named_pipe_client_transport>(FLAGS_name));
+      case app::transport_kind::tcp:
+        return run_with_transport(
+            std::make_unique<socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
     }
-
-    {
-      dynamic params;
-      params["a"_key] = 100.0f;
-      params["b"_key] = 21.0f;
-      auto result = calc.call("subtract"_key, std::move(params)).get();
-      float res = result["result"_key];
-      std::cout << "[Client] subtract(100, 21) = " << res << '\n';
-    }
-
-    {
-      dynamic params;
-      params["a"_key] = 7.0f;
-      params["b"_key] = 6.0f;
-      auto result = calc.call("multiply"_key, std::move(params)).get();
-      float res = result["result"_key];
-      std::cout << "[Client] multiply(7, 6) = " << res << '\n';
-    }
-
-    {
-      dynamic params;
-      params["a"_key] = 42.0f;
-      params["b"_key] = 2.0f;
-      auto result = calc.call("divide"_key, std::move(params)).get();
-      float res = result["result"_key];
-      std::cout << "[Client] divide(42, 2) = " << res << '\n';
-    }
-
-    c.destroy(std::move(calc));
-    c.disconnect();
-    std::cout << "[Client] done." << '\n';
-    return 0;
+    return 1;
   } catch (const std::exception& ex) {
-    std::cerr << "[Client] failed to connect or execute calls at " << host << ":" << port << ": " << ex.what() << '\n';
+    std::cerr << "[Client] failed to connect or execute calls: " << ex.what() << '\n';
     return 1;
   } catch (...) {
-    std::cerr << "[Client] unexpected failure while connecting to " << host << ":" << port << '\n';
+    std::cerr << "[Client] unexpected failure" << '\n';
     return 1;
   }
 }
