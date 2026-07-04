@@ -33,9 +33,9 @@
  *
  * ## Transport selection
  *
- * Socket (TCP) and named-pipe / Unix-socket transports are exposed via the
- * regular client/server C API. In-memory transport is available only
- * through C++.
+ * Socket (TCP), named-pipe / Unix-socket, pty, and console (spawned
+ * subprocess) transports are all exposed via the regular client/server C
+ * API. In-memory transport is available only through C++.
  */
 
 #ifndef RMI_C_H
@@ -195,6 +195,31 @@ RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port)
  * @return New client handle, or `NULL` on allocation failure.
  */
 RMI_API rmi_client_handle rmi_client_pipe_create(const char* path);
+
+/**
+ * @brief Create a client that wraps this process's own inherited stdio
+ *        (fd 0/1) in `BISON<...>` framing (transport=pty client side).
+ *
+ * Does not spawn a pty itself -- this is for running as a plain child
+ * process whose stdio is already connected to a peer that speaks the
+ * framing, typically because it was launched inside a shell started by
+ * `rmi_server_pty_create()`. See `src/pty/DESIGN.md`.
+ *
+ * @return New client handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_client_handle rmi_client_pty_create(void);
+
+/**
+ * @brief Create a client that wraps this process's own inherited stdio
+ *        (fd 0/1) in `BISON<...>` framing (transport=console client side).
+ *
+ * Identical to `rmi_client_pty_create()` except fd 0/1 here are plain pipes,
+ * not a tty -- this is the client side of `rmi_server_console_create()`,
+ * which spawns this process. Never spawns anything itself.
+ *
+ * @return New client handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_client_handle rmi_client_console_create(void);
 
 /**
  * @brief Create a standalone in-process client.
@@ -467,6 +492,35 @@ RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port)
  * @return New server handle, or `NULL` on allocation failure.
  */
 RMI_API rmi_server_handle rmi_server_pipe_create(const char* path);
+
+/**
+ * @brief Create a server that spawns an interactive pty and serves RMI
+ *        framed as `BISON<...>` over it (transport=pty). Linux / MSYS2 only
+ *        -- see `src/pty/DESIGN.md`.
+ *
+ * The pty and @p cmd are spawned immediately; the server is not listening
+ * for RMI sessions on it until `rmi_server_listen()` is called.
+ *
+ * @param cmd Command to exec in the pty, or `NULL`/empty to spawn the
+ *            operator's `$SHELL` (falling back to `/bin/sh`).
+ * @return New server handle, or `NULL` on allocation/spawn failure.
+ */
+RMI_API rmi_server_handle rmi_server_pty_create(const char* cmd);
+
+/**
+ * @brief Create a server that spawns @p cmd (via `/bin/sh -c`) and serves
+ *        RMI framed as `BISON<...>` over its piped stdin/stdout
+ *        (transport=console) -- like `rmi_server_pty_create()` but
+ *        non-interactive (no terminal, no keystroke forwarding). The server
+ *        stops once the subprocess exits.
+ *
+ * The subprocess is spawned immediately; the server is not listening for
+ * RMI sessions on it until `rmi_server_listen()` is called.
+ *
+ * @param cmd Shell command line to run. Must not be empty.
+ * @return New server handle, or `NULL` on allocation/spawn failure.
+ */
+RMI_API rmi_server_handle rmi_server_console_create(const char* cmd);
 
 /**
  * @brief Start the server listener.

@@ -6,10 +6,15 @@
 // This file intentionally uses only the stable C ABI — no C++ templates or
 // internal headers.  Include only "rmi_c.h".  Command-line flags mirror the
 // --transport/--host/--port/--name names used by bison-cli
-// (src/app/cli/main.cpp), so usage is consistent across the project; the C
-// ABI only exposes tcp and pipe transports (no pty/console).
+// (src/app/cli/main.cpp), so usage is consistent across the project.
+// --transport=pty/console take no --host/--port/--name: like bison-cli, this
+// process wraps its own already-connected fd 0/1 rather than spawning
+// anything, so it works as the client half of `rmi_server_pty_create()` /
+// `rmi_server_console_create()` (or the C++ `rmi_server_example --transport=
+// pty|console`) without any extra setup.
 //
-// Run rmi_abi_server_example with matching flags before starting this client.
+// Run rmi_abi_server_example (tcp/pipe) or rmi_server_example (any
+// transport) with matching flags before starting this client.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -21,7 +26,7 @@
 static void print_usage(const char* program) {
   fprintf(
       stderr,
-      "Usage: %s [--transport=tcp|pipe] [--host=HOST] [--port=PORT] [--name=PATH]\n",
+      "Usage: %s [--transport=tcp|pipe|pty|console] [--host=HOST] [--port=PORT] [--name=PATH]\n",
       program);
 }
 
@@ -62,8 +67,12 @@ int main(int argc, char** argv) {
     client = rmi_client_tcp_create(host, port);
   } else if (strcmp(transport, "pipe") == 0) {
     client = rmi_client_pipe_create(name);
+  } else if (strcmp(transport, "pty") == 0) {
+    client = rmi_client_pty_create();
+  } else if (strcmp(transport, "console") == 0) {
+    client = rmi_client_console_create();
   } else {
-    fprintf(stderr, "transport '%s' is not supported by the C ABI example (supported: tcp, pipe)\n", transport);
+    fprintf(stderr, "Invalid --transport: %s (expected tcp, pipe, pty, or console)\n", transport);
     return 1;
   }
   if (!client) {

@@ -6,11 +6,16 @@
 // This file intentionally uses only the stable C ABI — no C++ templates or
 // internal headers.  Include only "rmi_c.h".  Command-line flags mirror the
 // --transport/--host/--port/--name names used by calc-server
-// (src/srv/calc/main.cpp), so usage is consistent across the project; the C
-// ABI only exposes tcp and pipe transports (no pty/console).
+// (src/srv/calc/main.cpp), so usage is consistent across the project.
 //
-// Registers a Calculator class with add, subtract, multiply, and divide
-// methods, then listens for client connections.  Press Enter to stop.
+// This example only wires up tcp/pipe: it uses "press Enter to stop" to know
+// when to shut down, but the pty/console transports have no such signal
+// available on fd 0 (it's either being pumped into the pty or is the spawned
+// subprocess's own stdin -- see rmi_server_pty_create()/
+// rmi_server_console_create() in rmi_c.h) without a wait-for-child primitive
+// this minimal example doesn't expose. Registers a Calculator class with add,
+// subtract, multiply, and divide methods, then listens for client
+// connections.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -122,7 +127,7 @@ int main(int argc, char** argv) {
   } else if (strcmp(transport, "pipe") == 0) {
     server = rmi_server_pipe_create(name);
   } else {
-    fprintf(stderr, "transport '%s' is not supported by the C ABI example (supported: tcp, pipe)\n", transport);
+    fprintf(stderr, "transport '%s' is not supported by this example (supported: tcp, pipe)\n", transport);
     return 1;
   }
   if (!server) {

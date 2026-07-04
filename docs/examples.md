@@ -28,8 +28,15 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 
 The C-ABI equivalents (`rmi_abi_server_example` / `rmi_abi_client_example`,
 built on `rmi_c.h` only) accept the same `--transport`/`--host`/`--port`/
-`--name` flag names, but only support `tcp` and `pipe` — the C ABI has no
-pty/console transport constructors.
+`--name` flag names. `rmi_c.h` exposes `rmi_client_pty_create()` /
+`rmi_server_pty_create()` and `rmi_client_console_create()` /
+`rmi_server_console_create()` alongside the tcp/pipe constructors, and
+`rmi_abi_client_example` wires up `--transport=pty|console` for the client
+side; `rmi_abi_server_example` sticks to `tcp`/`pipe` since detecting "the
+spawned shell/subprocess exited" to know when to call `rmi_server_stop()`
+needs a wait-for-child primitive this minimal example doesn't build (see
+`rmi_server_example`'s pty/console branches for the C++ equivalent, which use
+`pty_process`/`console_process` directly).
 
 ## RMI PTY / Stdio Hop Mode
 
