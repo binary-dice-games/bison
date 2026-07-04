@@ -154,6 +154,18 @@ int client_app::run(int argc, char** argv) {
       case transport_kind::tcp:
         return run_with_transport(
             std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
+      case transport_kind::console: {
+        // No subprocess spawning here — the server is the one that spawns
+        // this process (see server_app's --transport=console/--cmd); this
+        // side just wraps its own inherited fd 0/1 in the BISON<...>
+        // framing, same as --transport=pty's client case, but with no
+        // raw_mode_guard/crlf_output_guard: there's no terminal here (fd 0/1
+        // are piped, not a tty), so there's no termios/CRLF fallout to fix.
+        console_via_passthrough_ = true;
+        auto stdio_transport = std::make_unique<rmi::transport::stdio_client_transport>(
+            0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
+        return run_with_transport(std::move(stdio_transport));
+      }
     }
     return 1;
 

@@ -106,6 +106,9 @@ endif()
 target_sources(bison PRIVATE src/pty/pty_process.cpp src/pty/raw_mode_guard.cpp)
 target_link_libraries(bison PRIVATE util)
 
+# ─── console-process support (src/console) ─────────────────────────────────
+target_sources(bison PRIVATE src/console/console_process.cpp)
+
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
 add_library(bison_abi SHARED
   include/bison_c.h

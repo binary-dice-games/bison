@@ -14,9 +14,10 @@ namespace bdg::bison::app {
  * other two are rejected by `enforce_transport_flag_exclusivity()`.
  */
 enum class transport_kind {
-  tcp,  ///< `--host`/`--port` TCP socket.
-  pipe, ///< `--name` named-pipe / Unix-socket path.
-  pty,  ///< pty/stdio `BISON<...>` framing; no additional flags.
+  tcp,     ///< `--host`/`--port` TCP socket.
+  pipe,    ///< `--name` named-pipe / Unix-socket path.
+  pty,     ///< pty/stdio `BISON<...>` framing; no additional flags.
+  console, ///< non-interactive stdio `BISON<...>` framing; server spawns `--cmd`.
 };
 
 /**
@@ -28,7 +29,7 @@ enum class transport_kind {
  *
  * @return The selected transport.
  * @throws std::runtime_error if `FLAGS_transport` is not one of "tcp",
- *         "pipe", or "pty".
+ *         "pipe", "pty", or "console".
  */
 transport_kind selected_transport();
 

@@ -294,6 +294,12 @@ The stdio transport (`stdio_client_transport` / `stdio_server_transport`,
 self-delimiting byte sequence anywhere in a text-oriented byte stream (e.g.
 a process's stdin/stdout, or a pseudo-terminal master fd):
 
+`--transport=console` (`src/console/console_process.hpp`) uses this exact
+same framing unchanged — the only difference from `--transport=pty` is
+where the fds come from: a subprocess spawned via libuv's `uv_spawn`
+instead of a pty master. There is no separate `console_*_transport`, no new
+wire format, and the connect-time handshake below behaves identically.
+
 ```
 BISON<base64(envelope bytes)>
 ```

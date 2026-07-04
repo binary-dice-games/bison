@@ -23,10 +23,10 @@ namespace bdg::bison::app {
  * `run()` from `main()`.
  *
  * Supported gflags CLI flags:
- *   - `--transport T`   selects the transport: `tcp` (default), `pipe`, or
- *                       `pty`. Only the flags relevant to the selected
- *                       transport are read; the others are simply ignored
- *                       (see `src/app/transport_flags.hpp`).
+ *   - `--transport T`   selects the transport: `tcp` (default), `pipe`,
+ *                       `pty`, or `console`. Only the flags relevant to the
+ *                       selected transport are read; the others are simply
+ *                       ignored (see `src/app/transport_flags.hpp`).
  *   - `--host HOST`     bind host for `--transport=tcp` (default: `0.0.0.0`)
  *   - `--port PORT`     listen port for `--transport=tcp` (default: `7070`)
  *   - `--name PATH`     named-pipe / Unix-socket path, used by
@@ -36,6 +36,14 @@ namespace bdg::bison::app {
  *                       over it (Linux only; see `src/pty/DESIGN.md` and
  *                       `src/rmi/transport/stdio_transport.hpp`). Takes no
  *                       additional flags.
+ *   - `--transport=console` spawn `--cmd` (via libuv, `/bin/sh -c`) and
+ *                       serve RMI framed as `BISON<...>` frames over its
+ *                       piped stdin/stdout — like `--transport=pty` but
+ *                       non-interactive (no terminal, no keystroke
+ *                       forwarding). The server stops once the subprocess
+ *                       exits. See `src/console/console_process.hpp`.
+ *   - `--cmd CMD`       shell command line to spawn, required by
+ *                       `--transport=console`
  *   - `--verbose`       print one request trace line and one response trace
  *                       line per RMI operation to stdout (open, connect,
  *                       instantiate, call, get, set, destroy, disconnect, …)
@@ -163,6 +171,8 @@ class server_app {
    *        (empty function): `std::getline(std::cin, line)`. `--transport=pty`
    *        passes `[&]{ pty.wait(); }` instead, since stdin is being pumped
    *        into the pty and is not available for a shutdown keypress.
+   *        `--transport=console` similarly passes `[&]{ console_proc.wait(); }`,
+   *        so the server stops as soon as the spawned subprocess exits.
    * @return 0 on clean shutdown, non-zero on error.
    */
   virtual int run_with_transport(rmi::transport::server_transport_iface& transport,

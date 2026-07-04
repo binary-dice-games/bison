@@ -8,10 +8,11 @@
 
 #include <gflags/gflags.h>
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, or pty");
+DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
 DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Listen port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
+DEFINE_string(cmd, "", "Command to spawn (transport=console)");
 DEFINE_bool(verbose, false, "Print trace messages to stdout for debugging sessions");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 

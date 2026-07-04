@@ -30,10 +30,10 @@ namespace bdg::bison::app {
  *
  * Transport is chosen by gflags CLI flags:
  *   - `--transport T`           — selects the transport: `tcp` (default),
- *                                 `pipe`, or `pty`. Only the flags relevant
- *                                 to the selected transport are read; the
- *                                 others are simply ignored (see
- *                                 `src/app/transport_flags.hpp`).
+ *                                 `pipe`, `pty`, or `console`. Only the
+ *                                 flags relevant to the selected transport
+ *                                 are read; the others are simply ignored
+ *                                 (see `src/app/transport_flags.hpp`).
  *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`
  *                                 (default: `127.0.0.1:7070`)
  *   - `--name PATH`             — named-pipe / Unix-socket path, used by
@@ -56,6 +56,17 @@ namespace bdg::bison::app {
  *                                 `read_console_line()` rather than
  *                                 `std::cin` directly — see that method's
  *                                 doc comment. Takes no additional flags.
+ *   - `--transport=console`     — same fd 0/1 wrapping as `--transport=pty`,
+ *                                 minus the raw-mode/CRLF terminal handling
+ *                                 (fd 0/1 here are plain pipes, not a tty —
+ *                                 there's no termios/CRLF fallout to fix).
+ *                                 This is the client side of
+ *                                 `server_app`'s `--transport=console`: the
+ *                                 server spawns this process via `--cmd`, so
+ *                                 the client itself takes no `--cmd` and
+ *                                 never spawns anything. Operator input
+ *                                 still goes through `read_console_line()`,
+ *                                 same as `--transport=pty`.
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
  *
  * Lifecycle (inside `run()`):

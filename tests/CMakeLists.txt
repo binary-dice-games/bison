@@ -30,6 +30,9 @@ package_add_test(stdio_transport_test stdio_transport_tests.cpp)
 # pty_process tests (Linux and MSYS2)
 package_add_test(pty_process_test pty_process_tests.cpp)
 
+# console_process tests (libuv uv_spawn)
+package_add_test(console_process_test console_process_tests.cpp)
+
 # raw_mode_guard tests (Linux and MSYS2)
 package_add_test(raw_mode_guard_test raw_mode_guard_tests.cpp)
 

@@ -21,7 +21,10 @@ transport_kind selected_transport() {
     return transport_kind::pipe;
   if (FLAGS_transport == "pty")
     return transport_kind::pty;
-  throw std::runtime_error("invalid --transport value '" + FLAGS_transport + "' (expected tcp, pipe, or pty)");
+  if (FLAGS_transport == "console")
+    return transport_kind::console;
+  throw std::runtime_error(
+      "invalid --transport value '" + FLAGS_transport + "' (expected tcp, pipe, pty, or console)");
 }
 
 } // namespace bdg::bison::app

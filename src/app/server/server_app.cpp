@@ -6,6 +6,7 @@
 #include "src/app/server/server_app.hpp"
 
 #include "src/app/transport_flags.hpp"
+#include "src/console/console_process.hpp"
 #include "src/pty/pty_process.hpp"
 #include "src/pty/pty_write.hpp"
 #include "src/rmi/server/server.hpp"
@@ -26,6 +27,7 @@ extern void wait_for_debugger();
 DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(name);
+DECLARE_string(cmd);
 DECLARE_bool(verbose);
 DECLARE_bool(debugger);
 
@@ -99,6 +101,11 @@ void server_app::on_listening() const {
       std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port << " -- press Enter to stop\n"
                 << std::flush;
       return;
+    case transport_kind::console:
+      std::cout << "[server_app] listening via --transport=console (spawned: " << FLAGS_cmd
+                << ") -- exit the subprocess to stop\n"
+                << std::flush;
+      return;
   }
 }
 
@@ -161,6 +168,13 @@ int server_app::run(int argc, char** argv) {
         auto port = static_cast<uint16_t>(FLAGS_port);
         rmi::transport::socket_server_transport socket_transport{FLAGS_host, port};
         return run_with_transport(socket_transport);
+      }
+      case transport_kind::console: {
+        if (FLAGS_cmd.empty())
+          throw std::runtime_error("--transport=console requires --cmd");
+        console::console_process console_proc{FLAGS_cmd};
+        rmi::transport::stdio_server_transport stdio_transport{console_proc.read_fd(), console_proc.write_fd()};
+        return run_with_transport(stdio_transport, [&] { console_proc.wait(); });
       }
     }
     return 1;

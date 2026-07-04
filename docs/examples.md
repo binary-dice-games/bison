@@ -52,6 +52,27 @@ Anything the client doesn't recognize as a `BISON<...>` frame (shell
 prompts, command output typed by the operator) passes straight through to
 the terminal byte-for-byte, so the session stays fully interactive.
 
+## RMI Console (Non-Interactive Subprocess) Hop Mode
+
+`--transport=console` is `--transport=pty`'s non-interactive sibling: the
+server spawns a subprocess given by `--cmd` (via libuv's `uv_spawn`, not a
+pty) and pipes its stdin/stdout through the same `BISON<...>` framing —
+no terminal, no keystroke forwarding. This is for bridging a server and a
+client purely over stdio, e.g. across an SSH hop with no interactive
+terminal involved:
+
+```bash
+./build/src/srv/calc/calc-server --transport=console \
+  --cmd="ssh myuser@example.com ./bison-cli --transport=console"
+```
+
+The server (`--cmd`) side spawns the subprocess and shuts down once it
+exits. The client side never takes a `--cmd` — like `--transport=pty`, it
+just wraps its own inherited fd 0/1 in the `BISON<...>` framing, so
+`./bison-cli --transport=console` on the remote host works whether it was
+launched by SSH, another shell, or directly. See `src/console/console_process.hpp`
+for the `uv_spawn`-based process wrapper.
+
 ## Performance Benchmark
 
 ```bash
