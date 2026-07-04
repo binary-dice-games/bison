@@ -15,6 +15,7 @@
  */
 
 #include <bison.hpp>
+#include <gflags/gflags.h>
 #include <nlohmann/json.hpp>
 #include <yaml.h>
 
@@ -1219,6 +1220,65 @@ std::unordered_map<hash_t, std::string> build_display_dict() {
     }
   }
   return d;
+}
+
+// ─── bison_flags ──────────────────────────────────────────────────────────────
+namespace {
+
+// Placeholder shown after a flag's name in the usage listing, e.g.
+// "--port INT32".  Bool flags take no argument, so they get none.
+std::string flag_value_placeholder(const gflags::CommandLineFlagInfo& info) {
+  if (info.type == "bool")
+    return "";
+  std::string type = info.type;
+  std::transform(type.begin(), type.end(), type.begin(), [](unsigned char c) { return std::toupper(c); });
+  return " " + type;
+}
+
+std::string program_name(const char* argv0) {
+  std::string_view path{argv0};
+  auto pos = path.find_last_of("/\\");
+  return std::string{pos == std::string_view::npos ? path : path.substr(pos + 1)};
+}
+
+} // namespace
+
+bool print_usage(int argc, char** argv, const std::string& description, const char* flags_file) {
+  bool help_requested = false;
+  for (int i = 1; i < argc; ++i) {
+    if (std::string_view{argv[i]} == "--help" || std::string_view{argv[i]} == "-help") {
+      help_requested = true;
+      break;
+    }
+  }
+  if (!help_requested)
+    return false;
+
+  std::vector<gflags::CommandLineFlagInfo> all_flags;
+  gflags::GetAllFlags(&all_flags);
+
+  std::vector<gflags::CommandLineFlagInfo> own_flags;
+  for (const auto& info : all_flags) {
+    if (info.filename == flags_file)
+      own_flags.push_back(info);
+  }
+  std::sort(own_flags.begin(), own_flags.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+
+  size_t width = 0;
+  for (const auto& info : own_flags)
+    width = std::max(width, info.name.size() + 2 + flag_value_placeholder(info).size());
+
+  const std::string prog = program_name(argv[0]);
+  std::cout << prog << " - " << description << "\n\n"
+            << "Usage:\n  " << prog << " [flags]\n\n"
+            << "Flags:\n";
+  for (const auto& info : own_flags) {
+    std::string col = "--" + info.name + flag_value_placeholder(info);
+    std::cout << "  " << std::left << std::setw(static_cast<int>(width) + 2) << col << info.description
+              << " (default: " << info.default_value << ")\n";
+  }
+  std::cout << "\nRun with '--helpfull' for the full list of low-level gflags flags.\n";
+  return true;
 }
 
 } // namespace bdg::bison

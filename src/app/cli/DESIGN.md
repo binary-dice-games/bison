@@ -45,7 +45,7 @@ Cross-platform (Windows, Linux, macOS)
 
 Extensible base class owning the REPL lifecycle.  Extends `client_app`
 (`src/app/client/client_app.hpp`), inheriting its flag parsing and
-transport-selection logic (including `--pty`).
+transport-selection logic (including `--transport=pty`).
 
 - `run(argc, argv) → int` — non-virtual; parses flags, builds transport,
   calls `connect()`, calls `on_session()`, drains all live proxies, calls
@@ -89,15 +89,15 @@ Note: `key_t` is a one-way FNV-1a hash, so the server cannot recover original
 string names for items without `DisplayName`.  Only annotated items appear in
 the server dictionary; unannotated hashes still fall back to `#NNNNNN`.
 
-### Transport factory (private helper in cli_app.cpp)
+### Transport factory (`client_app::run()`, inherited from `client_app.cpp`)
 
-Reads the parsed argv flags and constructs the appropriate transport:
+Reads `--transport` and constructs the appropriate transport:
 
-| Flag(s) | Transport constructed |
+| `--transport` value | Transport constructed |
 |---|---|
-| `--host H --port P` (default) | `socket_client_transport{H, P}` |
-| `--pipe PATH` | `named_pipe_client_transport{PATH}` |
-| `--pty` | `stdio_client_transport{0, 1}` — wraps this process's own inherited stdio, cross-platform; no subprocess or pty is spawned client-side. Also puts fd 0 in raw mode (`pty::raw_mode_guard`, Linux-only) and routes REPL input through `client_app::read_console_line()` instead of `std::cin` — see `src/pty/DESIGN.md` for why fd 0 can't be read directly in this mode |
+| `tcp` (default) | `socket_client_transport{FLAGS_host, FLAGS_port}` |
+| `pipe` | `named_pipe_client_transport{FLAGS_name}` |
+| `pty` | `stdio_client_transport{0, 1}` — wraps this process's own inherited stdio, cross-platform; no subprocess or pty is spawned client-side. Also puts fd 0 in raw mode (`pty::raw_mode_guard`, Linux-only) and routes REPL input through `client_app::read_console_line()` instead of `std::cin` — see `src/pty/DESIGN.md` for why fd 0 can't be read directly in this mode |
 
 ### JSON bridge (private helpers in cli_app.cpp)
 
@@ -224,15 +224,14 @@ Destroys all live proxies, disconnects, and exits with code 0.
 ## 6. CLI Options
 
 ```
-bison-cli [--host HOST] [--port PORT]
-          [--pipe PATH]
-          [--pty]
-          [--timeout MS]    # per-request timeout, default 30000
+bison-cli [--transport tcp|pipe|pty]
+          [--host HOST] [--port PORT]    # transport=tcp (default), default localhost:7070
+          [--name PATH]                  # transport=pipe
+          [--timeout MS]                 # per-request timeout, default 30000
 ```
 
-Exactly one transport mode may be given: `--host`/`--port` (default:
-`localhost:7070`), `--pipe`, or `--pty`. `--pty` takes precedence over
-`--pipe`, which takes precedence over `--host`/`--port`.
+`--transport` selects the transport; only the flags for the selected
+transport are read (the others are ignored).
 
 ## 7. Design Decisions
 
@@ -260,8 +259,8 @@ is human-readable and machine-parseable for scripting.
 Readline requires a `find_package` dependency the project does not carry and
 is not available on all platforms.  `std::getline` is portable and sufficient.
 History and tab-completion can be added later without changing the core design.
-(In `--pty` mode, `client_app::read_console_line()` reads from a passthrough
-queue instead of `std::cin` directly — see the `--pty` note below — but it's
+(In `--transport=pty` mode, `client_app::read_console_line()` reads from a passthrough
+queue instead of `std::cin` directly — see the `--transport=pty` note below — but it's
 still a plain blocking line read from `dispatch()`'s point of view.)
 
 **Per-request timeout via `std::future::wait_for`.**
@@ -274,27 +273,27 @@ RMI errors (`ERR_OBJECT_NOT_FOUND`, timeouts, etc.) are caught, printed to
 stderr, and the REPL resumes.  Only `connect()` failures and unrecoverable
 transport errors terminate the process.
 
-**`--pty` is cross-platform on the client side.**
-`cli_app` never forks a pty itself — `--pty` just wraps this process's own
+**`--transport=pty` is cross-platform on the client side.**
+`cli_app` never forks a pty itself — `--transport=pty` just wraps this process's own
 inherited `fd 0`/`fd 1` in `stdio_client_transport`, which is identical on
 every platform. Only the server-side `pty_process` (`src/pty`), which
 actually forks a terminal, is Linux-only; it throws
 `std::runtime_error` on Windows.
 
-**`--pty` mode can't read `fd 0` via `std::cin`.**
-When launched inside a `bison_server --pty` session, `fd 0`/`fd 1` are the
+**`--transport=pty` mode can't read `fd 0` via `std::cin`.**
+When launched inside a `bison_server --transport=pty` session, `fd 0`/`fd 1` are the
 pty slave the spawned shell also uses, and `stdio_client_transport`'s
 background reader owns `fd 0` (in non-blocking mode, scanning for
 `BISON<...>` frames) for the whole session. A concurrent `std::cin` read on
 the same fd loses that race and fails immediately, ending the REPL before
 the operator can type anything. `client_app::read_console_line()` (declared
-in `client_app.hpp`, since this is a `--pty`-transport concern, not a REPL
-concern) instead reads `std::cin` only in socket/pipe mode; in `--pty` mode
+in `client_app.hpp`, since this is a pty-transport concern, not a REPL
+concern) instead reads `std::cin` only in socket/pipe mode; in `--transport=pty` mode
 it drains a line queue fed by the transport's own passthrough callback,
 which already receives every non-`BISON<...>` byte in arrival order. See
 `src/pty/DESIGN.md` for the matching server-side and framing notes.
 
-**`--pty` mode needs its own local echo and `\r` insertion.**
+**`--transport=pty` mode needs its own local echo and `\r` insertion.**
 `raw_mode_guard` (see `src/pty/DESIGN.md`) turns terminal `ECHO`/`ICANON`
 off on fd 0/1 so the slave doesn't echo frame bytes back and doesn't
 line-buffer input waiting for a `\n` that a `BISON<...>` frame (terminated
@@ -335,7 +334,7 @@ in the listing, keeping the output readable even when hashes are involved.
   before `client.disconnect()` is called. `on_session()` drains the table on
   every exit path before returning.
 - The REPL reads from `std::cin` (socket/pipe transports) or a passthrough
-  line queue (`--pty` transport) via `client_app::read_console_line()`;
+  line queue (`--transport=pty` transport) via `client_app::read_console_line()`;
   redirecting stdin enables non-interactive scripting in the former case.
 - `from_json()` is used for all JSON → dynamic conversions; it throws on
   malformed input. The REPL catches these exceptions and prints to stderr.
@@ -350,8 +349,8 @@ Depends on:
   (`get_dictionary()`, `get_help()`, `describe()`, etc.).
 - `src/rmi/proxy` — `proxy::dynamic` for object handles.
 - `src/rmi/transport/socket_transport` — default TCP transport.
-- `src/rmi/transport/named_pipe_transport` — `--pipe` transport.
-- `src/rmi/transport/stdio_transport` — `--pty` transport (cross-platform;
+- `src/rmi/transport/named_pipe_transport` — `--transport=pipe` transport.
+- `src/rmi/transport/stdio_transport` — `--transport=pty` transport (cross-platform;
   wraps this process's own stdio, does not spawn a pty).
 - `src/bison/bison.hpp` — `bison::dynamic`, `bison::key_t`.
 - `src/bison/bison_object.hpp` — `bdg::bison::extensions::from_json()`.

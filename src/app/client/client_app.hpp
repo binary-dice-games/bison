@@ -28,10 +28,17 @@ namespace bdg::bison::app {
  * lifecycle.  Concrete applications override `on_session()` to drive their
  * domain logic through the connected RMI client.
  *
- * Transport is chosen by gflags CLI flags (all optional):
- *   - `--host HOST --port PORT` — TCP socket (default: `127.0.0.1:7070`)
- *   - `--pipe PATH`             — named-pipe / Unix-socket path
- *   - `--pty`                   — wrap this process's own inherited `fd 0`
+ * Transport is chosen by gflags CLI flags:
+ *   - `--transport T`           — selects the transport: `tcp` (default),
+ *                                 `pipe`, or `pty`. Only the flags relevant
+ *                                 to the selected transport are read; the
+ *                                 others are simply ignored (see
+ *                                 `src/app/transport_flags.hpp`).
+ *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`
+ *                                 (default: `127.0.0.1:7070`)
+ *   - `--name PATH`             — named-pipe / Unix-socket path, used by
+ *                                 `--transport=pipe`
+ *   - `--transport=pty`         — wrap this process's own inherited `fd 0`
  *                                 (read) / `fd 1` (write) in the
  *                                 `BISON<...>` framing instead of opening a
  *                                 socket/pipe. No pty is spawned here — the
@@ -40,7 +47,7 @@ namespace bdg::bison::app {
  *                                 stdio is already connected to a peer that
  *                                 speaks the framing (typically because it
  *                                 was launched inside a server-spawned
- *                                 `--pty` terminal, see
+ *                                 `--transport=pty` terminal, see
  *                                 `src/app/server/server_app.hpp` and
  *                                 `src/rmi/transport/stdio_transport.hpp`).
  *                                 Also puts fd 0 in raw mode for the session
@@ -48,11 +55,8 @@ namespace bdg::bison::app {
  *                                 subclasses to read operator input via
  *                                 `read_console_line()` rather than
  *                                 `std::cin` directly — see that method's
- *                                 doc comment.
+ *                                 doc comment. Takes no additional flags.
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
- *
- * `--pty` takes precedence over `--pipe`, which takes precedence over
- * `--host`/`--port`.
  *
  * Lifecycle (inside `run()`):
  * 1. Parse flags.
@@ -139,14 +143,14 @@ class client_app {
    * @brief Read one line of console (operator) input, blocking until a line
    *        is available.
    *
-   * In `--host`/`--port` and `--pipe` modes this reads `std::cin` directly,
-   * since fd 0 there is the operator's own terminal, untouched by the RMI
-   * transport. In `--pty` mode, fd 0 is instead the wire the transport reads
-   * `BISON<...>` frames from in a background thread — `std::cin` would race
-   * that reader and fail immediately (the transport puts the fd in
-   * non-blocking mode) — so this instead drains lines assembled from the
-   * non-frame bytes the transport hands to its passthrough callback (see
-   * `client_app.cpp` and `src/pty/DESIGN.md`).
+   * In `--transport=tcp` and `--transport=pipe` modes this reads `std::cin`
+   * directly, since fd 0 there is the operator's own terminal, untouched by
+   * the RMI transport. In `--transport=pty` mode, fd 0 is instead the wire
+   * the transport reads `BISON<...>` frames from in a background thread —
+   * `std::cin` would race that reader and fail immediately (the transport
+   * puts the fd in non-blocking mode) — so this instead drains lines
+   * assembled from the non-frame bytes the transport hands to its
+   * passthrough callback (see `client_app.cpp` and `src/pty/DESIGN.md`).
    *
    * @param line Output line, without the trailing newline.
    * @return `false` once no more input is available (EOF on `std::cin`, or
@@ -158,7 +162,7 @@ class client_app {
   std::chrono::milliseconds timeout_{30000};
 
  private:
-  /** @brief State fed by the `--pty` passthrough callback; see `read_console_line()`. */
+  /** @brief State fed by the `--transport=pty` passthrough callback; see `read_console_line()`. */
   struct console_queue_state {
     std::string partial;
     std::queue<std::string> lines;
@@ -178,7 +182,7 @@ class client_app {
   bison::synchronized<console_queue_state> console_queue_;
 
   /**
-   * @brief Non-owning pointer to the `--pty` transport, set right after
+   * @brief Non-owning pointer to the `--transport=pty` transport, set right after
    *        construction and valid for the rest of the process's lifetime;
    *        used only to locally echo the operator's keystrokes.
    *
@@ -187,7 +191,7 @@ class client_app {
    * typed characters are never echoed anywhere — nothing appears on screen
    * while typing, even though the REPL is receiving them correctly. This
    * reimplements just that echo in software, in `feed_console_passthrough`.
-   * Null outside `--pty` mode.
+   * Null outside `--transport=pty` mode.
    */
   rmi::transport::stdio_client_transport* echo_transport_{nullptr};
 };

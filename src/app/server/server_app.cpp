@@ -5,6 +5,7 @@
  */
 #include "src/app/server/server_app.hpp"
 
+#include "src/app/transport_flags.hpp"
 #include "src/pty/pty_process.hpp"
 #include "src/pty/pty_write.hpp"
 #include "src/rmi/server/server.hpp"
@@ -24,8 +25,7 @@ extern void wait_for_debugger();
 
 DECLARE_string(host);
 DECLARE_int32(port);
-DECLARE_string(pipe);
-DECLARE_bool(pty);
+DECLARE_string(name);
 DECLARE_bool(verbose);
 DECLARE_bool(debugger);
 
@@ -75,8 +75,8 @@ class bridged_server : public rmi::server {
 // ── Default hook implementations ──────────────────────────────────────────────
 
 void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string& line) const {
-  if (FLAGS_pty) {
-    // Only reachable once pty_proc (in run()'s --pty branch) has already put
+  if (selected_transport() == transport_kind::pty) {
+    // Only reachable once pty_proc (in run()'s pty branch) has already put
     // the operator's real terminal in raw mode, stripping \r from plain
     // std::cout output — write directly instead, both to correct that and
     // to avoid racing stdio_print_passthrough's own std::cout writes on
@@ -88,15 +88,17 @@ void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string
 }
 
 void server_app::on_listening() const {
-  if (FLAGS_pty) {
-    pty::write_raw(1, pty::to_crlf("[server_app] listening via --pty -- exit the spawned shell to stop\n"));
-    return;
-  }
-  if (!FLAGS_pipe.empty()) {
-    std::cout << "[server_app] listening on pipe " << FLAGS_pipe << " -- press Enter to stop\n" << std::flush;
-  } else {
-    std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port << " -- press Enter to stop\n"
-              << std::flush;
+  switch (selected_transport()) {
+    case transport_kind::pty:
+      pty::write_raw(1, pty::to_crlf("[server_app] listening via --transport=pty -- exit the spawned shell to stop\n"));
+      return;
+    case transport_kind::pipe:
+      std::cout << "[server_app] listening on pipe " << FLAGS_name << " -- press Enter to stop\n" << std::flush;
+      return;
+    case transport_kind::tcp:
+      std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port << " -- press Enter to stop\n"
+                << std::flush;
+      return;
   }
 }
 
@@ -114,8 +116,9 @@ void server_app::on_error(const std::string& msg) const {
 
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
-int server_app::run_with_transport(rmi::transport::server_transport_iface& transport,
-                                    std::function<void()> wait_for_shutdown) {
+int server_app::run_with_transport(
+    rmi::transport::server_transport_iface& transport,
+    std::function<void()> wait_for_shutdown) {
   bridged_server srv{transport, *this};
   srv.listen();
   on_listening();
@@ -139,29 +142,28 @@ int server_app::run(int argc, char** argv) {
   }
 
   try {
+    const transport_kind transport = selected_transport();
+
     register_classes();
 
-    if (FLAGS_pty) {
-      gflags::CommandLineFlagInfo info;
-      const bool host_set = gflags::GetCommandLineFlagInfo("host", &info) && !info.is_default;
-      const bool port_set = gflags::GetCommandLineFlagInfo("port", &info) && !info.is_default;
-      if (host_set || port_set || !FLAGS_pipe.empty())
-        throw std::runtime_error("--pty cannot be combined with --host/--port/--pipe");
-
-      pty::pty_process pty_proc;
-      pty_proc.start_pump();
-      rmi::transport::stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
-      return run_with_transport(transport, [&] { pty_proc.wait(); });
+    switch (transport) {
+      case transport_kind::pty: {
+        pty::pty_process pty_proc;
+        pty_proc.start_pump();
+        rmi::transport::stdio_server_transport stdio_transport{pty_proc.master_fd(), pty_proc.master_fd()};
+        return run_with_transport(stdio_transport, [&] { pty_proc.wait(); });
+      }
+      case transport_kind::pipe: {
+        rmi::transport::named_pipe_server_transport pipe_transport{FLAGS_name};
+        return run_with_transport(pipe_transport);
+      }
+      case transport_kind::tcp: {
+        auto port = static_cast<uint16_t>(FLAGS_port);
+        rmi::transport::socket_server_transport socket_transport{FLAGS_host, port};
+        return run_with_transport(socket_transport);
+      }
     }
-
-    if (!FLAGS_pipe.empty()) {
-      rmi::transport::named_pipe_server_transport transport{FLAGS_pipe};
-      return run_with_transport(transport);
-    }
-
-    auto port = static_cast<uint16_t>(FLAGS_port);
-    rmi::transport::socket_server_transport transport{FLAGS_host, port};
-    return run_with_transport(transport);
+    return 1;
   } catch (const std::exception& ex) {
     on_error(ex.what());
     return 1;

@@ -12,10 +12,10 @@
 #include <gflags/gflags.h>
 
 // ── Transport flags — consumed by server_app and client_app ──────────────────
-DEFINE_string(host, "0.0.0.0", "Bind/connect host address");
-DEFINE_int32(port, 7070, "Listen/connect port");
-DEFINE_string(pipe, "", "Named-pipe / Unix-socket path");
-DEFINE_bool(pty, false, "Use pty/stdio BISON<...> framing instead of socket/pipe");
+DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, or pty");
+DEFINE_string(host, "0.0.0.0", "Bind/connect host address (transport=tcp)");
+DEFINE_int32(port, 7070, "Listen/connect port (transport=tcp)");
+DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
 DEFINE_bool(verbose, false, "Print session trace messages to stdout");
 DEFINE_int32(timeout, 30000, "Connection timeout in milliseconds");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");

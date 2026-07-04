@@ -25,7 +25,7 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 ## RMI PTY / Stdio Hop Mode
 
 `server_app`/`client_app` (the base classes behind `calc-server` and
-`bison-cli`) support a `--pty` flag that tunnels RMI traffic as base64
+`bison-cli`) support `--transport=pty`, which tunnels RMI traffic as base64
 `BISON<...>` frames over an interactive terminal — useful when the only path
 to a remote host is a terminal program (`ssh`, `adb shell`, etc.), not a
 socket or named pipe. See [FORMAT.md](../FORMAT.md) for the wire framing
@@ -34,7 +34,7 @@ and `src/pty/DESIGN.md` for the architecture.
 **Server side** (Linux / WSL only — forks a real pty and your `$SHELL`):
 
 ```bash
-./build-linux/src/srv/calc/calc-server --pty
+./build-linux/src/srv/calc/calc-server --transport=pty
 ```
 
 This drops you into an ordinary, fully interactive shell. From inside it,
@@ -42,10 +42,10 @@ hop to wherever the RMI session needs to run (e.g. `ssh host`), then launch
 a bison client there as a plain child process of that shell:
 
 ```bash
-./bison-cli --pty
+./bison-cli --transport=pty
 ```
 
-The client's `--pty` does not spawn anything — it just wraps its own
+The client's `--transport=pty` does not spawn anything — it just wraps its own
 already-inherited stdin/stdout in the same `BISON<...>` framing, so it
 works identically on Linux and MSYS2 with no subprocess involved.
 Anything the client doesn't recognize as a `BISON<...>` frame (shell

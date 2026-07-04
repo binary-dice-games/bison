@@ -15,6 +15,7 @@
 #pragma once
 
 #include "src/bison/bison_common.hpp"
+#include "src/bison/bison_flags.hpp"
 #include "src/bison/bison_object.hpp"
 #include "src/bison/bison_print.hpp"
 #include "src/bison/bison_serialization.hpp"

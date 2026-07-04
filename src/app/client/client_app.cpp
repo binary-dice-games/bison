@@ -5,6 +5,7 @@
  */
 #include "src/app/client/client_app.hpp"
 
+#include "src/app/transport_flags.hpp"
 #include "src/pty/crlf_output_guard.hpp"
 #include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/client/client.hpp"
@@ -23,8 +24,7 @@ extern void wait_for_debugger();
 
 DECLARE_string(host);
 DECLARE_int32(port);
-DECLARE_string(pipe);
-DECLARE_bool(pty);
+DECLARE_string(name);
 DECLARE_int32(timeout);
 DECLARE_bool(debugger);
 
@@ -115,44 +115,47 @@ int client_app::run(int argc, char** argv) {
   timeout_ = std::chrono::milliseconds{FLAGS_timeout};
 
   try {
-    if (FLAGS_pty) {
-      // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
-      // its ICANON/ECHO processing would stall BISON<...> frames (no \n
-      // terminator to release the kernel's line buffer) or echo them back
-      // at the reader, so put it in raw mode for the RMI session and
-      // restore it on the way out.
-      pty::raw_mode_guard raw{0};
-      // The transport's background reader owns fd 0 (non-blocking, scanning
-      // for BISON<...> frames), so std::cin can't safely read it too — route
-      // operator keystrokes through the passthrough callback instead; see
-      // read_console_line().
-      console_via_passthrough_ = true;
-      auto transport = std::make_unique<rmi::transport::stdio_client_transport>(
-          0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
-      // Raw pointer stays valid for the rest of the process's lifetime: `c`
-      // (inside run_with_transport) owns this transport until it returns,
-      // and nothing else in --pty mode runs after that. See
-      // echo_transport_'s doc comment for what it's used for.
-      echo_transport_ = transport.get();
-      // Raw mode also strips \r from this process's own std::cout/std::cerr
-      // output (turning OPOST off is global to the fd, not scoped to frame
-      // writes) — compensate so ordinary REPL output still displays
-      // starting at the left margin instead of stairstepping. Routed
-      // through the transport's own writer (send), not written to fd 1
-      // directly: read_console_line()'s local echo *also* writes there via
-      // send, and two independent, unsynchronized writers racing on the
-      // same fd is exactly the kind of bug this codebase has been chasing
-      // throughout --pty support. See crlf_output_guard's doc comment.
-      pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send(s); }};
-      return run_with_transport(std::move(transport));
-    }
+    const transport_kind transport = selected_transport();
 
-    if (!FLAGS_pipe.empty()) {
-      return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_pipe));
+    switch (transport) {
+      case transport_kind::pty: {
+        // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
+        // its ICANON/ECHO processing would stall BISON<...> frames (no \n
+        // terminator to release the kernel's line buffer) or echo them back
+        // at the reader, so put it in raw mode for the RMI session and
+        // restore it on the way out.
+        pty::raw_mode_guard raw{0};
+        // The transport's background reader owns fd 0 (non-blocking, scanning
+        // for BISON<...> frames), so std::cin can't safely read it too — route
+        // operator keystrokes through the passthrough callback instead; see
+        // read_console_line().
+        console_via_passthrough_ = true;
+        auto stdio_transport = std::make_unique<rmi::transport::stdio_client_transport>(
+            0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
+        // Raw pointer stays valid for the rest of the process's lifetime: `c`
+        // (inside run_with_transport) owns this transport until it returns,
+        // and nothing else in --transport=pty mode runs after that. See
+        // echo_transport_'s doc comment for what it's used for.
+        echo_transport_ = stdio_transport.get();
+        // Raw mode also strips \r from this process's own std::cout/std::cerr
+        // output (turning OPOST off is global to the fd, not scoped to frame
+        // writes) — compensate so ordinary REPL output still displays
+        // starting at the left margin instead of stairstepping. Routed
+        // through the transport's own writer (send), not written to fd 1
+        // directly: read_console_line()'s local echo *also* writes there via
+        // send, and two independent, unsynchronized writers racing on the
+        // same fd is exactly the kind of bug this codebase has been chasing
+        // throughout --transport=pty support. See crlf_output_guard's doc comment.
+        pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send(s); }};
+        return run_with_transport(std::move(stdio_transport));
+      }
+      case transport_kind::pipe:
+        return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_name));
+      case transport_kind::tcp:
+        return run_with_transport(
+            std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
     }
-
-    return run_with_transport(
-        std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
+    return 1;
 
   } catch (const std::exception& ex) {
     on_error(ex.what());

@@ -212,7 +212,7 @@ c.disconnect();
 
 Key proxy operations: `set(fields)`, `get()`, `get(projection)`, `clear()`, `call(name, args)`, `onEvent(name, handler)`.
 
-See [docs/examples.md](docs/examples.md) for running the socket examples and for `--pty` hop-mode usage on `bison-cli`/`calc-server`.
+See [docs/examples.md](docs/examples.md) for running the socket examples and for `--transport=pty` hop-mode usage on `bison-cli`/`calc-server`.
 
 ## API Reference
 
