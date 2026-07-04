@@ -275,15 +275,21 @@ terminal.
   `crlf_output_guard` with a sink routed through
   `stdio_client_transport::send()`, not the default (direct-to-fd)
   constructor — see the single-writer note in Design Decisions above.
-- `examples/rmi_client_example.cpp` — a second, minimal `--pty` client (no
-  REPL, no local echo) used to validate the transport in isolation from
-  `cli_app`'s REPL machinery. Uses `raw_mode_guard` and the default
-  (direct-to-fd) `crlf_output_guard` constructor — safe here specifically
-  because this example has no background-thread writer to fd 1 to race
-  against (no local echo, no console-passthrough queue).
-- `examples/rmi_server_example.cpp` — a second, minimal `--pty` server,
-  mirroring `server_app.cpp`'s `--pty` branch (`pty_process` +
-  `stdio_server_transport`) without the rest of `server_app`'s
-  flag-parsing/hook scaffolding. Also uses `pty::write_raw()`/`to_crlf()`
+- `examples/rmi_client_example.cpp` — a second, minimal `--transport=pty`
+  client (no REPL, no local echo) used to validate the transport in
+  isolation from `cli_app`'s REPL machinery. Parses the same
+  `--transport`/`--host`/`--port`/`--name`/`--debugger` flags as `client_app`
+  (via `gflags` + `transport_flags.hpp`'s `selected_transport()`) for
+  cross-binary consistency, but builds the transport and drives the RMI
+  session directly instead of going through `client_app`'s hooks. Uses
+  `raw_mode_guard` and the default (direct-to-fd) `crlf_output_guard`
+  constructor — safe here specifically because this example has no
+  background-thread writer to fd 1 to race against (no local echo, no
+  console-passthrough queue).
+- `examples/rmi_server_example.cpp` — a second, minimal `--transport=pty`
+  server, mirroring `server_app.cpp`'s `--pty` branch (`pty_process` +
+  `stdio_server_transport`). Parses the same flag set as `server_app` (same
+  mechanism as the client example above) but without the rest of
+  `server_app`'s hook scaffolding. Also uses `pty::write_raw()`/`to_crlf()`
   for its two status messages, unconditionally (this function only ever
-  runs in `--pty` mode, unlike `server_app`'s hooks).
+  runs in `--transport=pty` mode here, unlike `server_app`'s hooks).

@@ -4,32 +4,68 @@
 // RMI client example using the Bison C ABI (rmi_c.h / bison_abi.dll).
 //
 // This file intentionally uses only the stable C ABI — no C++ templates or
-// internal headers.  Include only "rmi_c.h".
+// internal headers.  Include only "rmi_c.h".  Command-line flags mirror the
+// --transport/--host/--port/--name names used by bison-cli
+// (src/app/cli/main.cpp), so usage is consistent across the project; the C
+// ABI only exposes tcp and pipe transports (no pty/console).
 //
-// Run rmi_abi_server_example on the same host and port before starting this
-// client.  Optional command-line arguments: <host> <port> (defaults: 127.0.0.1
-// 7070).
+// Run rmi_abi_server_example with matching flags before starting this client.
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "rmi_c.h"
 
+static void print_usage(const char* program) {
+  fprintf(
+      stderr,
+      "Usage: %s [--transport=tcp|pipe] [--host=HOST] [--port=PORT] [--name=PATH]\n",
+      program);
+}
+
 int main(int argc, char** argv) {
+  const char* transport = "tcp";
   const char* host = "127.0.0.1";
   uint16_t port = 7070;
+  const char* name = "";
 
-  if (argc > 1)
-    host = argv[1];
-  if (argc > 2) {
-    unsigned long parsed = strtoul(argv[2], NULL, 10);
-    if (parsed > 0 && parsed <= 65535)
+  for (int i = 1; i < argc; ++i) {
+    const char* arg = argv[i];
+    if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
+      print_usage(argv[0]);
+      return 0;
+    } else if (strncmp(arg, "--transport=", 12) == 0) {
+      transport = arg + 12;
+    } else if (strncmp(arg, "--host=", 7) == 0) {
+      host = arg + 7;
+    } else if (strncmp(arg, "--port=", 7) == 0) {
+      unsigned long parsed = strtoul(arg + 7, NULL, 10);
+      if (parsed == 0 || parsed > 65535) {
+        fprintf(stderr, "Invalid --port: %s\n", arg + 7);
+        return 1;
+      }
       port = (uint16_t)parsed;
+    } else if (strncmp(arg, "--name=", 7) == 0) {
+      name = arg + 7;
+    } else {
+      fprintf(stderr, "Unknown option: %s\n", arg);
+      print_usage(argv[0]);
+      return 1;
+    }
   }
 
-  // ── Create and connect the TCP client ────────────────────────────────────
-  rmi_client_handle client = rmi_client_tcp_create(host, port);
+  // ── Create and connect the client ────────────────────────────────────────
+  rmi_client_handle client;
+  if (strcmp(transport, "tcp") == 0) {
+    client = rmi_client_tcp_create(host, port);
+  } else if (strcmp(transport, "pipe") == 0) {
+    client = rmi_client_pipe_create(name);
+  } else {
+    fprintf(stderr, "transport '%s' is not supported by the C ABI example (supported: tcp, pipe)\n", transport);
+    return 1;
+  }
   if (!client) {
     fprintf(stderr, "[Client] failed to allocate client\n");
     return 1;

@@ -4,18 +4,27 @@
 // RMI server example using the Bison C ABI (rmi_c.h / bison_abi.dll).
 //
 // This file intentionally uses only the stable C ABI — no C++ templates or
-// internal headers.  Include only "rmi_c.h".
+// internal headers.  Include only "rmi_c.h".  Command-line flags mirror the
+// --transport/--host/--port/--name names used by calc-server
+// (src/srv/calc/main.cpp), so usage is consistent across the project; the C
+// ABI only exposes tcp and pipe transports (no pty/console).
 //
 // Registers a Calculator class with add, subtract, multiply, and divide
-// methods, then listens for client connections on host:port.  Press Enter to
-// stop.  Optional command-line arguments: <host> <port> (defaults: 127.0.0.1
-// 7070).
+// methods, then listens for client connections.  Press Enter to stop.
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "rmi_c.h"
+
+static void print_usage(const char* program) {
+  fprintf(
+      stderr,
+      "Usage: %s [--transport=tcp|pipe] [--host=HOST] [--port=PORT] [--name=PATH]\n",
+      program);
+}
 
 // ── Method implementations ────────────────────────────────────────────────────
 
@@ -75,20 +84,47 @@ static void register_calculator(void) {
 // ── main ──────────────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
-  const char* host = "127.0.0.1";
+  const char* transport = "tcp";
+  const char* host = "0.0.0.0";
   uint16_t port = 7070;
+  const char* name = "";
 
-  if (argc > 1)
-    host = argv[1];
-  if (argc > 2) {
-    unsigned long parsed = strtoul(argv[2], NULL, 10);
-    if (parsed > 0 && parsed <= 65535)
+  for (int i = 1; i < argc; ++i) {
+    const char* arg = argv[i];
+    if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
+      print_usage(argv[0]);
+      return 0;
+    } else if (strncmp(arg, "--transport=", 12) == 0) {
+      transport = arg + 12;
+    } else if (strncmp(arg, "--host=", 7) == 0) {
+      host = arg + 7;
+    } else if (strncmp(arg, "--port=", 7) == 0) {
+      unsigned long parsed = strtoul(arg + 7, NULL, 10);
+      if (parsed == 0 || parsed > 65535) {
+        fprintf(stderr, "Invalid --port: %s\n", arg + 7);
+        return 1;
+      }
       port = (uint16_t)parsed;
+    } else if (strncmp(arg, "--name=", 7) == 0) {
+      name = arg + 7;
+    } else {
+      fprintf(stderr, "Unknown option: %s\n", arg);
+      print_usage(argv[0]);
+      return 1;
+    }
   }
 
   register_calculator();
 
-  rmi_server_handle server = rmi_server_tcp_create(host, port);
+  rmi_server_handle server;
+  if (strcmp(transport, "tcp") == 0) {
+    server = rmi_server_tcp_create(host, port);
+  } else if (strcmp(transport, "pipe") == 0) {
+    server = rmi_server_pipe_create(name);
+  } else {
+    fprintf(stderr, "transport '%s' is not supported by the C ABI example (supported: tcp, pipe)\n", transport);
+    return 1;
+  }
   if (!server) {
     fprintf(stderr, "[Server] failed to allocate server\n");
     return 1;
@@ -101,7 +137,11 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  printf("[Server] Calculator listening on %s:%u\n", host, (unsigned)port);
+  if (strcmp(transport, "pipe") == 0) {
+    printf("[Server] Calculator listening on pipe %s\n", name);
+  } else {
+    printf("[Server] Calculator listening on %s:%u\n", host, (unsigned)port);
+  }
   printf("[Server] Press Enter to stop...\n");
 
   getchar();

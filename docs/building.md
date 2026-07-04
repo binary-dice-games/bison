@@ -73,7 +73,7 @@ outputs — rely on `PATH` from a real MSYS2 shell instead:
 
 ```bash
 cd build-msys2/examples
-./rmi_server_example.exe --pty
+./rmi_server_example.exe --transport=pty
 ```
 
 Running the same `.exe` from a plain PowerShell/cmd window without MSYS2's

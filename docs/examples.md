@@ -11,7 +11,11 @@ cmake --build build --config Debug --target bison_examples
 
 ## RMI Socket Examples
 
-Two processes: server and client communicating over TCP.
+Two processes: server and client communicating over TCP. `rmi_server_example`
+and `rmi_client_example` build the transport manually with `rmi.hpp` (unlike
+`calc-server`/`bison-cli`, which use the `server_app`/`client_app` scaffold),
+but accept the same `--transport`/`--host`/`--port`/`--name`/`--cmd`/
+`--debugger` flags, so usage is consistent across the project.
 
 ```bash
 cmake --build build --config Debug --target rmi_server_example rmi_client_example
@@ -19,8 +23,13 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 ./build/examples/rmi_server_example
 # Then in another terminal:
 ./build/examples/rmi_client_example
-# Optional args: [host] [port]
+# Optional flags: --host=HOST --port=PORT
 ```
+
+The C-ABI equivalents (`rmi_abi_server_example` / `rmi_abi_client_example`,
+built on `rmi_c.h` only) accept the same `--transport`/`--host`/`--port`/
+`--name` flag names, but only support `tcp` and `pipe` — the C ABI has no
+pty/console transport constructors.
 
 ## RMI PTY / Stdio Hop Mode
 
@@ -28,8 +37,9 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 `bison-cli`) support `--transport=pty`, which tunnels RMI traffic as base64
 `BISON<...>` frames over an interactive terminal — useful when the only path
 to a remote host is a terminal program (`ssh`, `adb shell`, etc.), not a
-socket or named pipe. See [FORMAT.md](../FORMAT.md) for the wire framing
-and `src/pty/DESIGN.md` for the architecture.
+socket or named pipe. `rmi_server_example`/`rmi_client_example` support the
+same flag directly against `rmi.hpp`. See [FORMAT.md](../FORMAT.md) for the
+wire framing and `src/pty/DESIGN.md` for the architecture.
 
 **Server side** (Linux / WSL only — forks a real pty and your `$SHELL`):
 
