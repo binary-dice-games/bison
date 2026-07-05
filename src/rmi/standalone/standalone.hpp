@@ -78,10 +78,12 @@ class standalone : public proxy_backend {
   // ── Client-compatible interface ──────────────────────────────────────────
 
   /**
-   * @brief No-op compatibility shim for code that calls `connect` generically.
+   * @brief Compatibility shim for code that calls `connect` generically.
    *
-   * The worker thread starts in the constructor; this function always returns
-   * immediately without error.
+   * The worker thread starts in the constructor, so this never opens
+   * anything -- but the *first* call fires `on_session_created()` (with
+   * `ctx_`'s lock already released, so the hook may safely call back into
+   * `instantiate()`/other operations).  Subsequent calls are no-ops.
    *
    * @param params Ignored.
    */
@@ -128,11 +130,11 @@ class standalone : public proxy_backend {
   void destroy(proxy::dynamic&& proxy);
 
   /**
-   * @brief No-op compatibility shim for code that calls `disconnect`
-   * generically.
+   * @brief Compatibility shim for code that calls `disconnect` generically.
    *
-   * There is no transport to close in standalone mode; this function always
-   * returns immediately without error.
+   * There is no transport to close in standalone mode, but the *first* call
+   * fires `on_session_destroyed()` before stopping the worker thread.
+   * Subsequent calls are no-ops.
    */
   void disconnect();
 
@@ -212,6 +214,95 @@ class standalone : public proxy_backend {
     return ctx_;
   }
 
+ protected:
+  // ── Extensibility hooks (mirror bison::rmi::server's hooks of the same
+  //    name/signature) ───────────────────────────────────────────────────
+
+  /**
+   * @brief Called once, the first time `connect()` is invoked.
+   *
+   * Fires on the calling thread with `ctx_`'s lock already released, so the
+   * override is free to call back into `instantiate()`/other operations
+   * (which run on the worker thread) without deadlocking.  Override to
+   * attach per-session state.
+   *
+   * @param ctx The standalone session's context.
+   */
+  virtual void on_session_created(context& ctx) {
+    (void)ctx;
+  }
+
+  /**
+   * @brief Called once, the first time `disconnect()` is invoked.
+   *
+   * Fires on the calling thread with `ctx_`'s lock already released.
+   *
+   * @note Not called when the destructor triggers worker shutdown as a
+   *       safety net (i.e. `disconnect()` was never called explicitly) —
+   *       virtual dispatch is unavailable once the derived part of the
+   *       object has been torn down, mirroring `client::on_disconnect()`'s
+   *       documented caveat.  Call `disconnect()` explicitly before
+   *       destruction if this hook must fire.
+   *
+   * @param ctx The standalone session's context.
+   */
+  virtual void on_session_destroyed(context& ctx) {
+    (void)ctx;
+  }
+
+  /**
+   * @brief Factory hook called when a client instantiates a new object.
+   *
+   * The default implementation is `bison::dynamic::create_instance`, which
+   * (unlike `bison::dynamic::instantiate`) respects a factory registered via
+   * `dynamic::addClass(..., factory)` -- override to return a session-aware
+   * subclass instead (e.g. a handler holding a reference to per-session
+   * application state).
+   *
+   * Called from the worker thread with `ctx_`'s write lock held for the
+   * duration of the call -- do not perform blocking operations that require
+   * the worker thread (e.g. `.get()` on a future from `instantiate()` or
+   * `send_request()`), since the worker thread is currently executing this
+   * call and cannot service nested requests.
+   *
+   * @param ctx   The standalone session's context.
+   * @param ns    Namespace key of the requested class.
+   * @param klass Class key of the requested type.
+   * @return Heap-allocated `dynamic` (or subclass) for the new object.
+   */
+  virtual bison::dynamic_ptr on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) {
+    (void)ctx;
+    return bison::dynamic::create_instance(ns, klass);
+  }
+
+  /**
+   * @brief Called on the worker thread immediately before dispatching each
+   *        queued operation (`describe`, `instantiate`, `clear`, `set`,
+   *        `get`, `call`, `destroy`, `get_dictionary`, `get_help`).
+   *
+   * Override to acquire per-session resources (e.g. a render mutex) before
+   * the operation runs.  Paired with `on_after_dispatch`.
+   *
+   * @param ctx The standalone session's context.
+   */
+  virtual void on_before_dispatch(context& ctx) {
+    (void)ctx;
+  }
+
+  /**
+   * @brief Called on the worker thread immediately after each queued
+   *        operation completes, whether it succeeded or threw.
+   *
+   * Guaranteed to be called exactly once per `on_before_dispatch` call.
+   * Must not throw -- override to release resources acquired in
+   * `on_before_dispatch`.
+   *
+   * @param ctx The standalone session's context.
+   */
+  virtual void on_after_dispatch(context& ctx) noexcept {
+    (void)ctx;
+  }
+
  private:
   // ── Task queue ────────────────────────────────────────────────────────────
 
@@ -258,6 +349,17 @@ class standalone : public proxy_backend {
   bison::dynamic handle_call(bison::key_t object_id, bison::dynamic payload, bool oneway);
   bison::dynamic handle_destroy(bison::key_t object_id);
 
+  /**
+   * @brief Run @p work bracketed by `on_before_dispatch`/`on_after_dispatch`.
+   *
+   * Obtains a stable `context&` via a brief `ctx_` lock that is released
+   * before the hooks or @p work run, then calls `on_before_dispatch(ctx)`,
+   * runs @p work, and calls `on_after_dispatch(ctx)` -- even if @p work
+   * throws.  Called from the worker thread for every queued operation
+   * (`instantiate` and each `send_request` op).
+   */
+  bison::dynamic dispatch(const std::function<bison::dynamic()>& work);
+
   // ── State ─────────────────────────────────────────────────────────────────
 
   /**
@@ -277,6 +379,10 @@ class standalone : public proxy_backend {
   bison::synchronized<std::queue<task_item>> queue_;
   std::atomic<bool> running_{false};
   std::thread worker_;
+
+  /// Guards one-time firing of on_session_created()/on_session_destroyed().
+  std::atomic<bool> session_created_{false};
+  std::atomic<bool> session_destroyed_{false};
 };
 
 } // namespace bdg::bison::rmi

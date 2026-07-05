@@ -1352,6 +1352,131 @@ TEST_F(StandaloneTests, TwoProxiesAreIsolated) {
   sa.destroy(std::move(p2));
 }
 
+// ── Extensibility hooks ───────────────────────────────────────────────────────
+
+// A dynamic subclass registered with a factory (via make_factory) so that
+// InstantiateHonorsRegisteredFactory can prove standalone::instantiate now
+// goes through the registered factory instead of building a plain dynamic.
+class marked_widget : public dynamic {
+ public:
+  explicit marked_widget(dynamic&& d) : dynamic(std::move(d)) {
+    (*this)["marker"_key] = std::string{"factory"};
+  }
+};
+
+TEST_F(StandaloneTests, InstantiateHonorsRegisteredFactory) {
+  auto proto = dynamic_ptr{"Marked"_key, {}};
+  dynamic::addClass(0U, proto, bison_key_t{0U}, dynamic::make_factory<marked_widget>(0U, "Marked"_key));
+
+  standalone sa;
+  auto proxy = sa.instantiate(0U, "Marked"_key).get();
+  auto snap = proxy.get().get();
+
+  ASSERT_NE(snap.findField("marker"_key), nullptr);
+  EXPECT_EQ(snap.as<std::string>("marker"_key), "factory");
+
+  sa.destroy(std::move(proxy));
+}
+
+// Subclass overriding all five hooks so the fixture below can assert each
+// fires the expected number of times and with a usable context&.
+class hook_tracking_standalone : public standalone {
+ public:
+  std::atomic<int> created{0};
+  std::atomic<int> destroyed{0};
+  std::atomic<int> create_object_calls{0};
+  std::atomic<int> before_dispatch_calls{0};
+  std::atomic<int> after_dispatch_calls{0};
+
+ protected:
+  void on_session_created(context& ctx) override {
+    EXPECT_NE(static_cast<hash_t>(ctx.session_id), 0u);
+    ++created;
+  }
+  void on_session_destroyed(context& ctx) override {
+    (void)ctx;
+    ++destroyed;
+  }
+  dynamic_ptr on_create_object(context& ctx, bison_key_t ns, bison_key_t klass) override {
+    ++create_object_calls;
+    return standalone::on_create_object(ctx, ns, klass);
+  }
+  void on_before_dispatch(context& ctx) override {
+    (void)ctx;
+    ++before_dispatch_calls;
+  }
+  void on_after_dispatch(context& ctx) noexcept override {
+    (void)ctx;
+    ++after_dispatch_calls;
+  }
+};
+
+TEST_F(StandaloneTests, SessionHooksFireExactlyOnce) {
+  hook_tracking_standalone sa;
+  EXPECT_EQ(sa.created.load(), 0);
+
+  sa.connect();
+  EXPECT_EQ(sa.created.load(), 1);
+  sa.connect(); // idempotent: second call must not re-fire the hook
+  EXPECT_EQ(sa.created.load(), 1);
+
+  EXPECT_EQ(sa.destroyed.load(), 0);
+  sa.disconnect();
+  EXPECT_EQ(sa.destroyed.load(), 1);
+  sa.disconnect(); // idempotent
+  EXPECT_EQ(sa.destroyed.load(), 1);
+}
+
+TEST_F(StandaloneTests, DispatchHooksBracketEveryOperation) {
+  auto proto = dynamic_ptr{"Hooked"_key, {{"v"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  hook_tracking_standalone sa;
+
+  auto proxy = sa.instantiate(0U, "Hooked"_key).get();
+  EXPECT_EQ(sa.create_object_calls.load(), 1);
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+  int after_instantiate = sa.before_dispatch_calls.load();
+  EXPECT_GE(after_instantiate, 1);
+
+  dynamic fields;
+  fields["v"_key] = int32_t{5};
+  proxy.set(std::move(fields)).get();
+  EXPECT_GT(sa.before_dispatch_calls.load(), after_instantiate);
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+
+  proxy.get().get();
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+
+  sa.destroy(std::move(proxy));
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+  EXPECT_EQ(sa.create_object_calls.load(), 1); // destroy does not re-create
+}
+
+// A hook that calls back into instantiate().get() from within
+// on_session_created() must not deadlock -- proves ctx_'s lock is released
+// before the hook runs.
+class reentrant_standalone : public standalone {
+ public:
+  bool instantiated_from_hook = false;
+
+ protected:
+  void on_session_created(context& /*ctx*/) override {
+    auto proxy = instantiate(0U, "Reentrant"_key).get();
+    instantiated_from_hook = proxy.valid();
+    destroy(std::move(proxy));
+  }
+};
+
+TEST_F(StandaloneTests, SessionCreatedHookMayCallInstantiateWithoutDeadlock) {
+  auto proto = dynamic_ptr{"Reentrant"_key, {}};
+  dynamic::addClass(0U, proto);
+
+  reentrant_standalone sa;
+  sa.connect();
+  EXPECT_TRUE(sa.instantiated_from_hook);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 17. Describe with attribute metadata — standalone
 // ═════════════════════════════════════════════════════════════════════════════
