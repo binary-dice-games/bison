@@ -466,7 +466,14 @@ passthrough callback.
 The connect-time handshake (`START BISON/1.0` / `BISON/1.0 OK` /
 `STOP BISON/1.0`, §5.2.1) is reused verbatim and unchanged in both
 directions — plain ASCII, not OSC-99-framed, for the same reasons given
-there.
+there. One difference from §5.2's server: because the term server's read
+side is the spawned shell's conout, which the shell itself (and any other
+child process using it) also writes to, the server recognizes a client's
+`START BISON/1.0` by its literal 16-byte token alone, without requiring the
+trailing `\r\n` to be contiguous with it — an unrelated write landing on
+that shared stream (e.g. cmd.exe's own `ESC ] 0 ; <title> BEL` window-title
+updates) can otherwise interleave between the `\r` and the `\n` and cause
+an exact-literal match to miss.
 
 ---
 

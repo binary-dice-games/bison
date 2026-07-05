@@ -347,19 +347,15 @@ TEST(TermTransport, ClientSendStringViewBypassesFraming) {
   EXPECT_EQ(std::string(buf2, static_cast<size_t>(n2)), "raw echo");
 }
 
-TEST(TermTransport, WireFormatIsDirectionBound) {
-  // Pins the client/server->format mapping documented in FORMAT.md §5.3: a
-  // future regression that silently swaps the two directions' formats (e.g.
-  // reintroducing OSC-99 on the server->client side, which is what caused
-  // the ConPTY-input hang this test guards against) should fail here even
-  // though other tests only assert decoded payload equality.
+TEST(TermTransport, ClientToServerWireFormatIsOsc99) {
+  // Pins the client->server format documented in FORMAT.md §5.3. Only a
+  // term_client_transport is created here (no term_server_transport, whose
+  // background reader would otherwise race this test for bytes on
+  // p.server_read) -- same pattern as ClientSendStringViewBypassesFraming.
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
-  server_t.start(dynamic{});
-  auto conn = server_t.accept();
-  ASSERT_TRUE(conn != nullptr);
+  write_raw(p.server_write, "BISON/1.0 OK\r\n");
 
   term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
   client_t.open(dynamic{});
@@ -369,16 +365,36 @@ TEST(TermTransport, WireFormatIsDirectionBound) {
   const auto handshake_n = read_raw(p.server_read, handshake_buf, sizeof(handshake_buf));
   ASSERT_GT(handshake_n, 0);
 
-  // Client->server: must be OSC-99, never a bare BISON<...> marker.
   client_t.send(buffer{'p', 'i', 'n', 'g'});
   char c2s_buf[256]{};
   const auto c2s_n = read_raw(p.server_read, c2s_buf, sizeof(c2s_buf));
   ASSERT_GT(c2s_n, 0);
   const std::string c2s_wire(c2s_buf, static_cast<size_t>(c2s_n));
   EXPECT_EQ(c2s_wire.rfind("\x1b]99;", 0), 0U);
+}
 
-  // Server->client: must be a bare BISON<...> marker with no ESC byte,
-  // never OSC-99 (which ConPTY's input pipe would silently swallow).
+TEST(TermTransport, ServerToClientWireFormatIsMarker) {
+  // Pins the server->client format documented in FORMAT.md §5.3: a bare
+  // BISON<...> marker with no ESC byte, never OSC-99 (which ConPTY's input
+  // pipe would silently swallow -- the root cause this fix addresses). Only
+  // a term_server_transport is created here (no term_client_transport,
+  // whose background reader would otherwise race this test for bytes on
+  // p.client_read).
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+
+  write_raw(p.client_write, "START BISON/1.0\r\n");
+  auto conn = server_t.accept();
+  ASSERT_TRUE(conn != nullptr);
+
+  // Consume the handshake's "BISON/1.0 OK\r\n" before checking raw wire bytes.
+  char handshake_buf[64]{};
+  const auto handshake_n = read_raw(p.client_read, handshake_buf, sizeof(handshake_buf));
+  ASSERT_GT(handshake_n, 0);
+
   conn->send(buffer{'p', 'o', 'n', 'g'});
   char s2c_buf[256]{};
   const auto s2c_n = read_raw(p.client_read, s2c_buf, sizeof(s2c_buf));
@@ -427,6 +443,32 @@ TEST(TermTransportHandshake, ServerRepliesOkWhenClientOpens) {
 
   term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
   EXPECT_NO_THROW(client_t.open(dynamic{}));
+}
+
+TEST(TermTransportHandshake, ServerRepliesOkWhenStartCrlfIsInterleavedWithOtherOutput) {
+  // Regression test: on term transport, the server's read side is the
+  // spawned shell's conout, which the shell itself (e.g. cmd.exe's window-
+  // title OSC updates) may also write to. Those writes can land between the
+  // client's "\r" and "\n", so the accepted client "START BISON/1.0" write
+  // must still be recognized even when its trailing CRLF is split by
+  // unrelated bytes -- see kHandshakeStartToken's doc comment.
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+
+  write_raw(p.client_write, "START BISON/1.0\x0d");
+  write_raw(p.client_write, "\x1b]0;C:\\Windows\\SYSTEM32\\cmd.exe\x07");
+  write_raw(p.client_write, "\x0a");
+
+  auto conn = server_t.accept(std::chrono::milliseconds{2000});
+  ASSERT_TRUE(conn != nullptr);
+
+  char buf[64]{};
+  const auto n = read_raw(p.client_read, buf, sizeof(buf));
+  ASSERT_GT(n, 0);
+  EXPECT_EQ(std::string(buf, static_cast<size_t>(n)), "BISON/1.0 OK\r\n");
 }
 
 TEST(TermTransportHandshake, ShutdownSendsStop) {

@@ -251,6 +251,20 @@ constexpr std::string_view kHandshakeOk = "BISON/1.0 OK\r\n";
 constexpr std::string_view kHandshakeStop = "STOP BISON/1.0\r\n";
 constexpr size_t kHandshakeAccumCap = 256;
 
+// Token-only (no trailing "\r\n") match used solely by the server's
+// watch_for_handshake_start(), below. The server's read side is the spawned
+// shell's conout, which the shell itself (and any other child processes)
+// also write to -- e.g. cmd.exe emits its own `ESC ] 0 ; <title> BEL`
+// window-title updates on that same stream. Those writes can interleave
+// with the client's "START BISON/1.0\r\n" write at an arbitrary byte
+// boundary, so the trailing "\r\n" is not guaranteed to arrive contiguous
+// with the token; requiring the full literal (including "\r\n") caused
+// intermittent handshake-timeout failures when a title update landed
+// between the "\r" and the "\n". The client's own accum.find(kHandshakeOk)
+// below has no such risk: conin is written only by this transport's peer,
+// never shared with another process.
+constexpr std::string_view kHandshakeStartToken = kHandshakeStart.substr(0, kHandshakeStart.size() - 2);
+
 } // namespace
 
 // ── term_pipe_thread: shared loop/thread lifecycle ──────────────────────────
@@ -438,7 +452,11 @@ struct term_reader {
         complete_sequence();
       } else {
         capture.push_back(static_cast<char>(b));
-        if (capture.size() > kMaxCaptureBytes) {
+        // The size cap only makes sense for OSC-99 bodies (bounded by
+        // kMaxOscSequenceBytes per chunk); marker bodies are un-chunked by
+        // design (see kMarkerPrefix's doc comment) and may legitimately be
+        // much larger than that.
+        if (osc_format && capture.size() > kMaxCaptureBytes) {
           std::cerr << "[term_transport] warning: sequence exceeded max size, discarding\n";
           capture.clear();
           in_seq = false;
@@ -778,10 +796,10 @@ struct term_conn_state {
     bool matched = false;
     server_handshake_accum.withWLock([&](std::string& accum) {
       accum.append(chunk);
-      const auto pos = accum.find(kHandshakeStart);
+      const auto pos = accum.find(kHandshakeStartToken);
       if (pos != std::string::npos) {
         matched = true;
-        accum.erase(0, pos + kHandshakeStart.size());
+        accum.erase(0, pos + kHandshakeStartToken.size());
       }
       if (accum.size() > kHandshakeAccumCap)
         accum.erase(0, accum.size() - kHandshakeAccumCap);
