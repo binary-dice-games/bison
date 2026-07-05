@@ -99,28 +99,64 @@ lowest implementation level (e.g. inside custom data structures).
 
 ## Platform Support
 
-Most of Bison targets **Linux and MSYS2 only** (native Windows/MSVC builds
-of `src/pty`/`src/console` are not supported). MSYS2 provides the same
-POSIX layer as Linux (`forkpty()`, `termios`, etc.), so it shares the same
-implementation — do not add a separate platform-suffixed file (e.g.
-`protocol_win.cpp`) for it. Avoid conditional compilation (`#ifdef`,
-`#if defined(...)`) to branch on OS behavior; if a genuine platform
-difference arises within the Linux/MSYS2 target (for example native
-Linux's `eventfd` vs. MSYS2's lack of it), keep it as a small,
-narrowly-scoped `#if defined(__linux__)` guard within the shared file
-rather than a full file split.
+Bison builds on three platform configurations: Linux, MSYS2, and native
+Windows (MSVC or mingw64, *not* MSYS2/Cygwin). MSYS2 provides the same
+POSIX layer as Linux (`forkpty()`, `termios`, `unistd.h`, etc.), so Linux
+and MSYS2 always share one implementation. `CMakeLists.txt` distinguishes
+"genuinely native Windows" from MSYS2/Cygwin with the condition
+`WIN32 AND NOT MSYS AND NOT CYGWIN`.
 
-**Exception: `src/term` (`--transport=term`) supports native Windows.**
-Unlike `src/pty`, `src/term/terminal_win.cpp` implements terminal spawning
-via ConPTY (`CreatePseudoConsole`) for a genuinely native (non-MSYS2,
-non-Cygwin) Windows build, alongside `src/term/terminal_posix.cpp`
-(`forkpty()`, used on Linux and MSYS2). These are two separate files, not
-one `#ifdef`-branched file, because `forkpty()` and ConPTY are different OS
-subsystems entirely, not a narrow platform delta — the same reasoning that
-justifies file splits elsewhere in this rule. `CMakeLists.txt` selects
-between them with `WIN32 AND NOT MSYS AND NOT CYGWIN` (native Windows) vs.
-its `else()` branch (Linux and MSYS2/Cygwin). `src/rmi/transport/term_transport.cpp`
-itself is platform-independent (built on libuv) and compiles unconditionally.
+**Rule: when a file needs a real, different implementation on native
+Windows than on Linux/MSYS2, split it into a `_posix.cpp`/`_win.cpp` pair
+sharing one header, selected in `CMakeLists.txt` via
+`if(WIN32 AND NOT MSYS AND NOT CYGWIN) ... else() ... endif()`.** This is
+not limited to any one subsystem — apply it anywhere a genuine OS-level
+difference shows up: process/terminal spawning (`forkpty()` vs. ConPTY),
+fd/socket duplication (`dup()`/`_dup()`, or `WSADuplicateSocket` for
+Winsock `SOCKET`s, which aren't plain fds), console raw-mode APIs
+(`termios` vs. `GetConsoleMode`/`SetConsoleMode`), debugger-attachment
+detection (`/proc/self/status` vs. `IsDebuggerPresent()`), and similar
+cases. Do not add a separate platform-suffixed file for a difference that
+MSYS2 already resolves the same way Linux does (MSYS2 is never the
+"other" side of one of these splits). Prefer a pImpl / opaque-state header
+(forward-declare a `struct foo_state;`, defined differently per `.cpp`) so
+the shared header needs no platform-specific members, matching
+`src/pty/raw_mode_guard.hpp`.
+
+Avoid conditional compilation (`#ifdef`, `#if defined(...)`) to branch on
+OS behavior *within* a shared file. If a genuine platform difference is
+narrow enough to stay inline (for example native Linux's `eventfd` vs.
+MSYS2's lack of it, both still within the POSIX target), keep it as a
+small, narrowly-scoped `#if defined(__linux__)` guard rather than a full
+file split. Reserve the full split for cases where the two
+implementations use different OS subsystems entirely (`forkpty()` vs.
+ConPTY, `termios` vs. console-mode APIs, etc.) — that's not a narrow
+delta, so a single `#ifdef`-branched file would be worse than two clean
+ones.
+
+**Some subsystems are deliberately Linux/MSYS2-only and are excluded from
+native Windows builds entirely**, rather than split: `src/pty/pty_process.cpp`
+and `src/console/console_process.cpp` (forkpty()-based process spawning has
+no native Windows equivalent; ConPTY-based spawning lives in `src/term`
+instead) and the `util` system library they link against. `CMakeLists.txt`
+gates their sources and link behind `NOT (WIN32 AND NOT MSYS AND NOT CYGWIN)`
+and defines `BISON_NATIVE_WINDOWS` on the native-Windows build so
+`server_app.cpp` can report a runtime error for `--transport=pty`/
+`--transport=console` there instead of failing to compile. When adding a
+new file, decide up front whether it belongs in this "excluded" category
+or the "real per-platform implementation" category above — don't leave it
+unconditionally compiled and let native Windows fail on it later.
+
+`src/term` (`--transport=term`) is the reference example of the file-split
+pattern: `src/term/terminal_win.cpp` implements terminal spawning via
+ConPTY (`CreatePseudoConsole`) for native Windows, alongside
+`src/term/terminal_posix.cpp` (`forkpty()`, used on Linux and MSYS2).
+`src/rmi/transport/term_transport.cpp` itself is platform-independent
+(built on libuv) and compiles unconditionally, same as the rest of
+`src/rmi/transport` — transport code should stay portable by delegating
+any OS-specific pieces (e.g. fd duplication, socket duplication) to a
+`_posix.cpp`/`_win.cpp` helper pair rather than including a POSIX header
+directly.
 
 ## Testing Style (GoogleTest)
 

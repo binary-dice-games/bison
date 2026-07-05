@@ -19,9 +19,8 @@
  *
  * Implemented with libuv (matching `pipe_transport`/`named_pipe_transport`/
  * `socket_transport`). Duplicating an fd so that closing a connection never
- * closes the caller's original fd (see `dup_stdio_fd`'s doc comment in
- * `stdio_transport.cpp`) is a plain POSIX `dup()` call, same as
- * `socket_transport`'s `duplicate_tcp_socket`.
+ * closes the caller's original fd is done via the shared `dup_fd()` helper
+ * (see `fd_dup.hpp`), same as `socket_transport`'s socket duplication.
  */
 #pragma once
 

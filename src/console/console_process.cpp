@@ -81,8 +81,8 @@ console_process::console_process(const std::string& cmd) : state_(std::make_uniq
     throw std::runtime_error(std::string{"console_process: uv_spawn failed: "} + uv_strerror(r));
 
   // Extract the parent-side fds uv_spawn created, then hand the two pipe
-  // handles off entirely — stdio_server_transport (via dup_stdio_fd) becomes
-  // the sole reader/writer of the duplicated fds, preserving the
+  // handles off entirely — stdio_server_transport (via its dup_fd() call)
+  // becomes the sole reader/writer of the duplicated fds, preserving the
   // single-reader invariant documented in src/pty/DESIGN.md.
   uv_os_fd_t fd{};
   if (uv_fileno(reinterpret_cast<uv_handle_t*>(&state_->child_stdin), &fd) != 0)

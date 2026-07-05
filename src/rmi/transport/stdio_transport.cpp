@@ -6,11 +6,10 @@
  *        contract.
  */
 #include "src/rmi/transport/stdio_transport.hpp"
+#include "src/rmi/transport/fd_dup.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <uv.h>
-
-#include <unistd.h>
 
 #include <array>
 #include <cstdint>
@@ -141,26 +140,6 @@ constexpr size_t kHandshakeAccumCap = 256;
 
 } // namespace
 
-/**
- * @brief Duplicate @p fd so a libuv pipe handle can own the duplicate.
- *
- * `uv_close()` on a `uv_pipe_t` opened with `uv_pipe_open()` closes the
- * wrapped fd. That's fine when the fd is exclusively the transport's own
- * (e.g. plain stdin/stdout), but `read_fd_`/`write_fd_` can be a fd another
- * component still owns and needs to keep open past this connection's
- * lifetime — a pty master fd shared with `pty_process` (see
- * `src/pty/DESIGN.md`) being the motivating case: without duplicating it
- * here, a client disconnecting (`stdio_server_connection::close()`) would
- * close the master fd out from under `pty_process`, which both invalidates
- * its `write()`s from `pump_loop()` and hangs up the pty's session (the
- * spawned shell), for what should be just one RMI session ending. Wrapping
- * a duplicate instead means closing the handle only ever closes the
- * duplicate, never the caller's original fd.
- */
-int dup_stdio_fd(int fd) {
-  return dup(fd);
-}
-
 // ── stdio_pipe_thread: shared loop/thread lifecycle ─────────────────────────────
 
 /**
@@ -181,10 +160,10 @@ struct stdio_pipe_thread {
   void init_pipe(int fd, const char* which, uv_async_cb on_stop, void* owner) {
     uv_loop_init(&loop);
     uv_pipe_init(&loop, &handle, 0);
-    const int dup_fd = dup_stdio_fd(fd);
-    if (dup_fd < 0)
+    const int duped_fd = dup_fd(fd);
+    if (duped_fd < 0)
       throw std::runtime_error(std::string{"stdio_transport: dup ("} + which + ") failed");
-    const int r = uv_pipe_open(&handle, dup_fd);
+    const int r = uv_pipe_open(&handle, duped_fd);
     if (r != 0)
       throw std::runtime_error(std::string{"stdio_transport: uv_pipe_open ("} + which + ") failed: " + uv_strerror(r));
     handle.data = owner;

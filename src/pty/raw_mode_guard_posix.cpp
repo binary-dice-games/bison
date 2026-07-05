@@ -1,6 +1,6 @@
 // MIT License © 2025 Binary Dice Games
 /**
- * @file raw_mode_guard.cpp
+ * @file raw_mode_guard_posix.cpp
  * @brief Linux/MSYS2 implementation of raw_mode_guard using termios.
  */
 #include "src/pty/raw_mode_guard.hpp"

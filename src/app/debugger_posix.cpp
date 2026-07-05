@@ -1,14 +1,19 @@
-#include <chrono>
-#include <iostream>
-#include <thread>
+// MIT License © 2025 Binary Dice Games
+/**
+ * @file debugger_posix.cpp
+ * @brief Linux/MSYS2 implementation of debugger.hpp, polling
+ *        /proc/self/status for a non-zero TracerPid.
+ */
+#include "src/app/debugger.hpp"
 
 #include <unistd.h>
-#include <fstream>
-#include <string>
 
-/**
- * @brief Blocks until a debugger is attached.
- */
+#include <chrono>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <thread>
+
 void wait_for_debugger() {
   std::cout << "Waiting for debugger... (PID: " << getpid() << ")" << std::endl;
 
@@ -19,7 +24,6 @@ void wait_for_debugger() {
 
     while (std::getline(statusFile, line)) {
       if (line.compare(0, 10, "TracerPid:") == 0) {
-        // Extraer el PID del proceso que está trazando/depurando a este
         int tracerPid = std::stoi(line.substr(10));
         if (tracerPid > 0) {
           debuggerPresent = true;

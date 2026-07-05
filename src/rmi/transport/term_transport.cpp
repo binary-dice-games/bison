@@ -5,11 +5,10 @@
  *        See term_transport.hpp and FORMAT.md §5.3 for the framing contract.
  */
 #include "src/rmi/transport/term_transport.hpp"
+#include "src/rmi/transport/fd_dup.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <uv.h>
-
-#include <unistd.h>
 
 #include <array>
 #include <cstdint>
@@ -174,10 +173,10 @@ struct term_pipe_thread {
   void init_pipe(int fd, const char* which, uv_async_cb on_stop, void* owner) {
     uv_loop_init(&loop);
     uv_pipe_init(&loop, &handle, 0);
-    const int dup_fd = dup(fd);
-    if (dup_fd < 0)
+    const int duped_fd = dup_fd(fd);
+    if (duped_fd < 0)
       throw std::runtime_error(std::string{"term_transport: dup ("} + which + ") failed");
-    const int r = uv_pipe_open(&handle, dup_fd);
+    const int r = uv_pipe_open(&handle, duped_fd);
     if (r != 0)
       throw std::runtime_error(std::string{"term_transport: uv_pipe_open ("} + which + ") failed: " + uv_strerror(r));
     handle.data = owner;

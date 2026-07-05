@@ -30,25 +30,34 @@ package_add_test(stdio_transport_test stdio_transport_tests.cpp)
 # term (OSC-99 chunked) transport tests — cross-platform
 package_add_test(term_transport_test term_transport_tests.cpp)
 
-# pty_process tests (Linux and MSYS2)
-package_add_test(pty_process_test pty_process_tests.cpp)
+# pty_process tests (Linux and MSYS2 only; pty_process.cpp isn't built on native Windows)
+if(NOT WIN32 OR MSYS OR CYGWIN)
+    package_add_test(pty_process_test pty_process_tests.cpp)
+endif()
 
 # terminal tests (Linux and MSYS2; native-Windows ConPTY path is untested here)
 if(NOT WIN32 OR MSYS OR CYGWIN)
     package_add_test(terminal_posix_test terminal_posix_tests.cpp)
 endif()
 
-# console_process tests (libuv uv_spawn)
-package_add_test(console_process_test console_process_tests.cpp)
+# console_process tests (libuv uv_spawn; Linux and MSYS2 only, see CMakeLists.txt)
+if(NOT WIN32 OR MSYS OR CYGWIN)
+    package_add_test(console_process_test console_process_tests.cpp)
+endif()
 
-# raw_mode_guard tests (Linux and MSYS2)
-package_add_test(raw_mode_guard_test raw_mode_guard_tests.cpp)
+# raw_mode_guard tests (POSIX termios behavior; native-Windows console-mode path is untested here)
+if(NOT WIN32 OR MSYS OR CYGWIN)
+    package_add_test(raw_mode_guard_test raw_mode_guard_tests.cpp)
+endif()
 
 # crlf_output_guard tests
 package_add_test(crlf_output_guard_test crlf_output_guard_tests.cpp)
 
-# pty_write tests
-package_add_test(pty_write_test pty_write_tests.cpp)
+# pty_write tests (uses POSIX pipe()/read() to exercise write_raw(); the
+# Windows write_raw() implementation itself is untested here, see CMakeLists.txt)
+if(NOT WIN32 OR MSYS OR CYGWIN)
+    package_add_test(pty_write_test pty_write_tests.cpp)
+endif()
 
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)

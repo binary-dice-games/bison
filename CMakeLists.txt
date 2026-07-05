@@ -92,33 +92,49 @@ target_sources(bison PRIVATE
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
   src/app/transport_flags.cpp
-  src/app/debugger.cpp
   src/pty/crlf_output_guard.cpp
   src/pty/pty_write.cpp
 )
 
 target_include_directories(bison PRIVATE src/rmi)
 
-if(WIN32)
-  target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+# ─── Platform-specific implementation pairs ────────────────────────────────
+# Bison targets Linux and MSYS2 as one shared POSIX implementation, plus a
+# genuinely native (non-MSYS2/Cygwin) Windows build for the pieces that
+# support it. `WIN32 AND NOT MSYS AND NOT CYGWIN` isolates that native case;
+# terminal_posix.cpp/terminal_win.cpp (src/term) established this pattern,
+# reused here for every other file with a real per-OS implementation.
+if(WIN32 AND NOT MSYS AND NOT CYGWIN)
+  target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS)
+  target_sources(bison PRIVATE
+    src/term/terminal_win.cpp
+    src/rmi/transport/fd_dup_win.cpp
+    src/rmi/transport/socket_dup_win.cpp
+    src/pty/raw_mode_guard_win.cpp
+    src/pty/pty_write_raw_win.cpp
+    src/app/debugger_win.cpp
+  )
+else()
+  if(WIN32)
+    target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  endif()
+  target_sources(bison PRIVATE
+    src/term/terminal_posix.cpp
+    src/rmi/transport/fd_dup_posix.cpp
+    src/rmi/transport/socket_dup_posix.cpp
+    src/pty/raw_mode_guard_posix.cpp
+    src/pty/pty_write_raw_posix.cpp
+    src/app/debugger_posix.cpp
+  )
 endif()
 
-# ─── pty support (src/pty) — Linux and MSYS2 only ──────────────────────────
-target_sources(bison PRIVATE src/pty/pty_process.cpp src/pty/raw_mode_guard.cpp)
-target_link_libraries(bison PRIVATE util)
-
-# ─── console-process support (src/console) ─────────────────────────────────
-target_sources(bison PRIVATE src/console/console_process.cpp)
-
-# ─── term support (src/term) — interactive terminal spawn for term_transport
-# terminal_posix.cpp: forkpty(), used on Linux and MSYS2 (both provide the
-# POSIX pty API even though MSYS2 also has WIN32 defined).
-# terminal_win.cpp: ConPTY, used on a genuinely native (non-MSYS2/Cygwin)
-# Windows build only.
-if(WIN32 AND NOT MSYS AND NOT CYGWIN)
-  target_sources(bison PRIVATE src/term/terminal_win.cpp)
-else()
-  target_sources(bison PRIVATE src/term/terminal_posix.cpp)
+# ─── pty/console process spawning (src/pty, src/console) — Linux and MSYS2
+# only. forkpty()-based process spawning has no native Windows equivalent
+# (ConPTY-based spawning lives in src/term instead); --transport=pty and
+# --transport=console report an error on native Windows (see server_app.cpp).
+if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN))
+  target_sources(bison PRIVATE src/pty/pty_process.cpp src/console/console_process.cpp)
+  target_link_libraries(bison PRIVATE util)
 endif()
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
@@ -128,8 +144,13 @@ add_library(bison_abi SHARED
   src/bison/bison_c.cpp
   src/rmi/rmi_c.cpp
   src/app/abi_flags.cpp
-  src/app/debugger.cpp
 )
+
+if(WIN32 AND NOT MSYS AND NOT CYGWIN)
+  target_sources(bison_abi PRIVATE src/app/debugger_win.cpp)
+else()
+  target_sources(bison_abi PRIVATE src/app/debugger_posix.cpp)
+endif()
 
 target_compile_definitions(bison_abi PRIVATE BISON_BUILDING_DLL)
 target_include_directories(bison_abi
@@ -140,7 +161,9 @@ target_include_directories(bison_abi
   src/rmi
 )
 target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags)
-target_link_libraries(bison_abi PRIVATE util)
+if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN))
+  target_link_libraries(bison_abi PRIVATE util)
+endif()
 
 if(PACKAGE_TESTS)
     enable_testing()

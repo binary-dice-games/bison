@@ -5,6 +5,7 @@
  */
 #include "src/app/client/client_app.hpp"
 
+#include "src/app/debugger.hpp"
 #include "src/app/transport_flags.hpp"
 #include "src/pty/crlf_output_guard.hpp"
 #include "src/pty/raw_mode_guard.hpp"
@@ -20,8 +21,6 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
-
-extern void wait_for_debugger();
 
 DECLARE_string(host);
 DECLARE_int32(port);
