@@ -10,9 +10,12 @@
 
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
+#include "src/pty/raw_mode_guard.hpp"
+
+#if !defined(BISON_NATIVE_WINDOWS)
 #include "src/console/console_process.hpp"
 #include "src/pty/pty_process.hpp"
-#include "src/pty/raw_mode_guard.hpp"
+#endif
 
 #include <cstring>
 #include <memory>
@@ -155,8 +158,10 @@ static inline bool client_handle_is_valid(rmi_client_handle h) {
  * `server_owner` is destroyed first.
  */
 struct server_state {
+#if !defined(BISON_NATIVE_WINDOWS)
   std::unique_ptr<pty::pty_process> pty_owner;
   std::unique_ptr<console::console_process> console_owner;
+#endif
   std::unique_ptr<server> server_owner;
 };
 
@@ -790,6 +795,10 @@ RMI_API rmi_server_handle rmi_server_pipe_create(const char* path) {
 }
 
 RMI_API rmi_server_handle rmi_server_pty_create(const char* cmd) {
+#if defined(BISON_NATIVE_WINDOWS)
+  (void)cmd;
+  return nullptr; // --transport=pty is not supported on native Windows
+#else
   try {
     auto state = std::make_unique<server_state>();
     state->pty_owner = std::make_unique<pty::pty_process>(cmd ? std::string(cmd) : std::string());
@@ -800,9 +809,14 @@ RMI_API rmi_server_handle rmi_server_pty_create(const char* cmd) {
   } catch (...) {
     return nullptr;
   }
+#endif
 }
 
 RMI_API rmi_server_handle rmi_server_console_create(const char* cmd) {
+#if defined(BISON_NATIVE_WINDOWS)
+  (void)cmd;
+  return nullptr; // --transport=console is not supported on native Windows
+#else
   if (!cmd || !*cmd)
     return nullptr;
   try {
@@ -814,6 +828,7 @@ RMI_API rmi_server_handle rmi_server_console_create(const char* cmd) {
   } catch (...) {
     return nullptr;
   }
+#endif
 }
 
 RMI_API rmi_error rmi_server_listen(rmi_server_handle h, bison_handle params) {

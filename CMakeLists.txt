@@ -147,8 +147,12 @@ add_library(bison_abi SHARED
 )
 
 if(WIN32 AND NOT MSYS AND NOT CYGWIN)
+  target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS)
   target_sources(bison_abi PRIVATE src/app/debugger_win.cpp)
 else()
+  if(WIN32)
+    target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+  endif()
   target_sources(bison_abi PRIVATE src/app/debugger_posix.cpp)
 endif()
 

@@ -13,6 +13,7 @@
 #include "src/pty/crlf_output_guard.hpp"
 #include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/rmi.hpp"
+#include "src/rmi/transport/term_transport.hpp"
 
 #include <gflags/gflags.h>
 
@@ -26,7 +27,7 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
+DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, console, or term");
 DEFINE_string(host, "127.0.0.1", "Server host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Server TCP port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
@@ -126,6 +127,13 @@ int main(int argc, char** argv) {
       case app::transport_kind::tcp:
         return run_with_transport(
             std::make_unique<socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
+      case app::transport_kind::term: {
+        // Same raw-mode/CRLF rationale as --transport=pty above, but framed
+        // as OSC-99 instead of BISON<...> (see term_transport.hpp).
+        pty::raw_mode_guard raw{0};
+        pty::crlf_output_guard output_guard;
+        return run_with_transport(std::make_unique<term_client_transport>(0, 1));
+      }
     }
     return 1;
   } catch (const std::exception& ex) {

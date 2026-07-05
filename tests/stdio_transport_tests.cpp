@@ -11,7 +11,12 @@
 #include <string>
 #include <thread>
 
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi::transport;
@@ -19,16 +24,28 @@ using namespace bdg::bison::rmi::transport;
 namespace {
 
 bool make_pipe(int fds[2]) {
+#if defined(_WIN32)
+  return _pipe(fds, 4096, _O_BINARY) == 0;
+#else
   return pipe(fds) == 0;
+#endif
 }
 
 void write_raw(int fd, const std::string& data) {
+#if defined(_WIN32)
+  ASSERT_EQ(_write(fd, data.data(), static_cast<unsigned int>(data.size())), static_cast<int>(data.size()));
+#else
   ASSERT_EQ(write(fd, data.data(), data.size()), static_cast<ssize_t>(data.size()));
+#endif
 }
 
 /** @brief Blocking read of whatever's currently available; -1 on error. */
 long read_raw(int fd, char* buf, size_t len) {
+#if defined(_WIN32)
+  return _read(fd, buf, static_cast<unsigned int>(len));
+#else
   return read(fd, buf, len);
+#endif
 }
 
 /** @brief A client/server fd pair: two unidirectional pipes forming one full-duplex channel. */

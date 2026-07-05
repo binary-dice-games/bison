@@ -15,8 +15,6 @@
  */
 #include "src/term/terminal.hpp"
 
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
 #include <windows.h>
 
 #include <fcntl.h>
@@ -77,7 +75,7 @@ terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_st
   if (FAILED(hr))
     throw std::runtime_error("terminal: CreatePseudoConsole failed");
 
-  size_t attr_list_size = 0;
+  SIZE_T attr_list_size = 0;
   InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_list_size);
   state_->attr_list_buf.resize(attr_list_size);
   state_->attr_list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(state_->attr_list_buf.data());

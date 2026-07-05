@@ -85,3 +85,10 @@ target_link_libraries(bison_performance PRIVATE bison nlohmann_json::nlohmann_js
 target_link_libraries(rmi_server_example PRIVATE bison gflags)
 target_link_libraries(rmi_client_example PRIVATE bison gflags)
 target_link_libraries(rmi_standalone_example PRIVATE bison)
+
+# rmi_server_example directly instantiates pty::pty_process/console::console_process
+# (excluded from the bison static lib on native Windows, see root CMakeLists.txt),
+# so it needs the same BISON_NATIVE_WINDOWS guard server_app.cpp uses.
+if(WIN32 AND NOT MSYS AND NOT CYGWIN)
+  target_compile_definitions(rmi_server_example PRIVATE BISON_NATIVE_WINDOWS)
+endif()

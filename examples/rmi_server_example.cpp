@@ -10,10 +10,15 @@
 
 #include "src/app/transport_flags.hpp"
 #include "src/bison/bison_flags.hpp"
-#include "src/console/console_process.hpp"
-#include "src/pty/pty_process.hpp"
 #include "src/pty/pty_write.hpp"
 #include "src/rmi/rmi.hpp"
+#include "src/rmi/transport/term_transport.hpp"
+#include "src/term/terminal.hpp"
+
+#if !defined(BISON_NATIVE_WINDOWS)
+#include "src/console/console_process.hpp"
+#include "src/pty/pty_process.hpp"
+#endif
 
 #include <gflags/gflags.h>
 
@@ -27,7 +32,7 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
+DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, console, or term");
 DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Listen port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
@@ -94,6 +99,9 @@ int main(int argc, char** argv) {
   try {
     switch (app::selected_transport()) {
       case app::transport_kind::pty: {
+#if defined(BISON_NATIVE_WINDOWS)
+        throw std::runtime_error("--transport=pty is not supported on native Windows");
+#else
         pty::pty_process pty_proc;
         pty_proc.start_pump();
         stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
@@ -117,8 +125,12 @@ int main(int argc, char** argv) {
         srv.stop();
         pty::write_raw(1, pty::to_crlf("[Server] stopped.\n"));
         return 0;
+#endif
       }
       case app::transport_kind::console: {
+#if defined(BISON_NATIVE_WINDOWS)
+        throw std::runtime_error("--transport=console is not supported on native Windows");
+#else
         if (FLAGS_cmd.empty())
           throw std::runtime_error("--transport=console requires --cmd");
 
@@ -134,6 +146,28 @@ int main(int argc, char** argv) {
         console_proc.wait();
         srv.stop();
         std::cout << "[Server] stopped." << '\n';
+        return 0;
+#endif
+      }
+      case app::transport_kind::term: {
+        term::terminal term_proc{FLAGS_cmd};
+        term_proc.start_pump();
+        term_server_transport transport{term_proc.read_handle(), term_proc.write_handle()};
+        server srv{transport};
+        srv.listen();
+
+        // Same raw-mode/CRLF rationale as the pty case above, but the
+        // terminal's own constructor already handles the operator's real
+        // terminal (see src/term/DESIGN.md), so a plain write_raw suffices.
+        pty::write_raw(
+            1,
+            pty::to_crlf("[Server] Calculator listening via --transport=term. This terminal is now the "
+                         "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
+                         "shell to stop.\n"));
+
+        term_proc.wait();
+        srv.stop();
+        pty::write_raw(1, pty::to_crlf("[Server] stopped.\n"));
         return 0;
       }
       case app::transport_kind::pipe: {
