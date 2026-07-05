@@ -375,18 +375,45 @@ passthrough (so it can't be mistaken for, say, a typed REPL command).
 > envelope format in §4 need to be implemented to interoperate over a TCP
 > connection.
 
-### 5.3 Term transport (OSC-99)
+### 5.3 Term transport (OSC-99 client→server, `BISON<...>` server→client)
 
 The term transport (`term_client_transport` / `term_server_transport`,
-`src/rmi/transport/term_transport.hpp`) frames each envelope inside one or
-more ANSI OSC (Operating System Command) escape sequences, instead of the
-literal `BISON<...>` text used by §5.2. This is what lets it survive being
-relayed through a real pseudo-console (ConPTY on Windows, a pty on
-Linux/MSYS2, via `src/term/terminal.hpp`): terminal emulators and ConPTY
-are built to shepherd OSC sequences through as atomic, opaque units — even
-ones they don't recognize — rather than mangling arbitrary text embedded
-in the stream, which is what made `BISON<...>` unreliable when relayed
-through ConPTY.
+`src/rmi/transport/term_transport.hpp`) is relayed through a real
+pseudo-console (ConPTY on Windows, a pty on Linux/MSYS2, via
+`src/term/terminal.hpp`). Unlike every other transport in this document, it
+uses **two different wire formats**, one per direction, because a
+pseudo-console's two pipes are not symmetric:
+
+- **Client→server** (client's stdout → pseudo-console's *output* pipe →
+  server's read fd): terminal emulators and ConPTY are built to shepherd
+  OSC (Operating System Command) escape sequences through as atomic, opaque
+  units — even ones they don't recognize — rather than mangling arbitrary
+  text embedded in the stream, which is what makes the literal `BISON<...>`
+  text from §5.2 unreliable here. This direction uses OSC-99 framing
+  (below).
+- **Server→client** (server's write fd → pseudo-console's *input* pipe →
+  client's stdin): this side is not a passthrough channel. On Windows,
+  ConPTY runs everything written here through its VT **input** state
+  machine to synthesize keyboard `INPUT_RECORD`s for the child process; it
+  only recognizes a small fixed table of real input sequences (arrow/
+  function keys, mouse reports, bracketed paste, focus events) and has no
+  "pass unrecognized bytes through verbatim" contract, so an OSC-99
+  sequence written here is silently absorbed by the input parser and never
+  reaches the child as literal bytes. This direction instead reuses §5.2's
+  literal `BISON<base64(frame)>` text verbatim, un-chunked: plain ASCII
+  with no `ESC` byte anywhere, so it can never be mistaken for an input
+  control sequence, and the pseudo-console delivers it to the child exactly
+  like typed characters. (This exact asymmetry, and the same fix, is
+  independently documented in this repo's `src/term/ANALYSIS.md` §2, which
+  uses plain literal text for its own parent→child command channel for the
+  identical reason.)
+
+This split is a protocol-level property of the term transport, not a
+platform branch: a POSIX pty passes either wire format through unmolested
+in both directions, so the same code runs unchanged on Linux/MSYS2 — it
+just only matters operationally on native Windows/ConPTY.
+
+#### 5.3.1 Client→server: OSC-99 framing
 
 Each chunk has the form:
 
@@ -420,9 +447,26 @@ i.e. `\x1b]99;<seq>;<total>;<base64(chunk)>\x07`, where:
   as window-title updates, etc.) is forwarded verbatim to a passthrough
   callback, keeping the terminal session fully interactive.
 
+#### 5.3.2 Server→client: `BISON<...>` marker framing
+
+Identical to §5.2's framing:
+
+```
+BISON< base64(frame bytes) >
+```
+
+One marker per whole envelope — no chunking, no `kMaxOscSequenceBytes`-style
+size cap, since that cap exists only to bound a single escape sequence's
+length, and this format is not an escape sequence. As with OSC-99, every
+byte that is not part of a recognized marker is forwarded verbatim to a
+passthrough callback.
+
+#### 5.3.3 Handshake
+
 The connect-time handshake (`START BISON/1.0` / `BISON/1.0 OK` /
-`STOP BISON/1.0`, §5.2.1) is reused verbatim and unchanged — plain ASCII,
-not OSC-99-framed, for the same reasons given there.
+`STOP BISON/1.0`, §5.2.1) is reused verbatim and unchanged in both
+directions — plain ASCII, not OSC-99-framed, for the same reasons given
+there.
 
 ---
 

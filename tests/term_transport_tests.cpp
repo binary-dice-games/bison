@@ -1,7 +1,8 @@
 // MIT License © 2025 Binary Dice Games
-// Tests for bdg::bison::rmi::transport::term_transport (OSC-99-chunked
-// framing over a pair of raw fds). See FORMAT.md §5.3 for the wire framing
-// contract.
+// Tests for bdg::bison::rmi::transport::term_transport, which frames
+// client->server envelopes as OSC-99-chunked escape sequences and
+// server->client envelopes as un-chunked BISON<...> markers over a pair of
+// raw fds. See FORMAT.md §5.3 for the wire framing contract.
 
 #include "src/rmi/transport/term_transport.hpp"
 
@@ -155,6 +156,34 @@ TEST(TermTransport, LargeFrameSpansMultipleOscChunks) {
 
   buffer received;
   ASSERT_TRUE(conn->receive(received, std::chrono::milliseconds{2000}));
+  EXPECT_EQ(received, frame);
+}
+
+TEST(TermTransport, LargeFrameServerToClientRoundTrip) {
+  // Comfortably larger than kMaxOscSequenceBytes (4096) -- the client->server
+  // path would have to split a frame this size into multiple OSC-99 chunks,
+  // but the server->client path uses the un-chunked BISON<...> marker
+  // format, which has no such cap. Round-tripping it correctly proves the
+  // marker path handles large payloads in a single frame.
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+  auto conn = server_t.accept();
+  ASSERT_TRUE(conn != nullptr);
+
+  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  client_t.open(dynamic{});
+
+  buffer frame;
+  frame.reserve(20000);
+  for (size_t i = 0; i < 20000; ++i)
+    frame.push_back(static_cast<uint8_t>(i % 256));
+  conn->send(frame);
+
+  buffer received;
+  ASSERT_TRUE(client_t.receive(received, std::chrono::milliseconds{2000}));
   EXPECT_EQ(received, frame);
 }
 
@@ -316,6 +345,47 @@ TEST(TermTransport, ClientSendStringViewBypassesFraming) {
   const auto n2 = read_raw(p.server_read, buf2, sizeof(buf2));
   ASSERT_GT(n2, 0);
   EXPECT_EQ(std::string(buf2, static_cast<size_t>(n2)), "raw echo");
+}
+
+TEST(TermTransport, WireFormatIsDirectionBound) {
+  // Pins the client/server->format mapping documented in FORMAT.md §5.3: a
+  // future regression that silently swaps the two directions' formats (e.g.
+  // reintroducing OSC-99 on the server->client side, which is what caused
+  // the ConPTY-input hang this test guards against) should fail here even
+  // though other tests only assert decoded payload equality.
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  server_t.start(dynamic{});
+  auto conn = server_t.accept();
+  ASSERT_TRUE(conn != nullptr);
+
+  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  client_t.open(dynamic{});
+
+  // Consume the handshake's "START BISON/1.0\r\n" before checking raw wire bytes.
+  char handshake_buf[64]{};
+  const auto handshake_n = read_raw(p.server_read, handshake_buf, sizeof(handshake_buf));
+  ASSERT_GT(handshake_n, 0);
+
+  // Client->server: must be OSC-99, never a bare BISON<...> marker.
+  client_t.send(buffer{'p', 'i', 'n', 'g'});
+  char c2s_buf[256]{};
+  const auto c2s_n = read_raw(p.server_read, c2s_buf, sizeof(c2s_buf));
+  ASSERT_GT(c2s_n, 0);
+  const std::string c2s_wire(c2s_buf, static_cast<size_t>(c2s_n));
+  EXPECT_EQ(c2s_wire.rfind("\x1b]99;", 0), 0U);
+
+  // Server->client: must be a bare BISON<...> marker with no ESC byte,
+  // never OSC-99 (which ConPTY's input pipe would silently swallow).
+  conn->send(buffer{'p', 'o', 'n', 'g'});
+  char s2c_buf[256]{};
+  const auto s2c_n = read_raw(p.client_read, s2c_buf, sizeof(s2c_buf));
+  ASSERT_GT(s2c_n, 0);
+  const std::string s2c_wire(s2c_buf, static_cast<size_t>(s2c_n));
+  EXPECT_EQ(s2c_wire.rfind("BISON<", 0), 0U);
+  EXPECT_EQ(s2c_wire.find('\x1b'), std::string::npos);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

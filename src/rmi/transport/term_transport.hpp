@@ -1,31 +1,40 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file term_transport.hpp
- * @brief RMI transport that frames envelopes as OSC-99 escape sequences over
- *        a pair of raw fds (a `bdg::bison::term::terminal`'s I/O handles, or
- *        a process's own inherited stdio).
+ * @brief RMI transport that frames envelopes over a pair of raw fds (a
+ *        `bdg::bison::term::terminal`'s I/O handles, or a process's own
+ *        inherited stdio) — using a *different* wire format in each
+ *        direction, because a pseudo-console's two pipes aren't symmetric.
  *
- * Wire framing: `ESC ] 99 ; <seq> ; <total> ; <base64(chunk)> BEL`
- * (`\x1b]99;<seq>;<total>;<base64(chunk)>\x07`). Unlike
- * `src/rmi/transport/stdio_transport.hpp`'s `BISON<...>` framing, this is
- * designed to survive being relayed through a real pseudo-console (ConPTY on
- * Windows, a pty on Linux/MSYS2): terminal emulators and ConPTY are built to
- * shepherd OSC (Operating System Command) escape sequences through as atomic
- * units — even ones they don't recognize — rather than mangling arbitrary
- * embedded text, which is what made `BISON<...>` framing unreliable when
- * relayed through ConPTY (see `src/term/ANALYSIS.md`).
+ * Client -> server envelopes: `ESC ] 99 ; <seq> ; <total> ; <base64(chunk)>
+ * BEL` (`\x1b]99;<seq>;<total>;<base64(chunk)>\x07`), split into one or more
+ * `<seq>;<total>;...` chunks capped at `kMaxOscSequenceBytes` total sequence
+ * length. This direction is relayed client-stdout -> ConPTY *output* pipe
+ * (Windows) / pty (Linux/MSYS2) -> server-read, and terminal emulators and
+ * ConPTY are built to shepherd OSC (Operating System Command) escape
+ * sequences through as atomic units — even ones they don't recognize —
+ * making this format safe to relay unmangled.
  *
- * Every envelope is split into one or more `<seq>;<total>;...` chunks capped
- * at `kMaxOscSequenceBytes` total sequence length, so a single large envelope
- * can never produce an oversized escape sequence that a pseudo-console might
- * mishandle. See `term_transport.cpp` for the chunking and reassembly
- * details, and `FORMAT.md` §5.3 for the full wire format.
+ * Server -> client envelopes: `stdio_transport.hpp`'s `BISON<base64>` marker
+ * text verbatim, un-chunked. This direction is relayed server-write ->
+ * ConPTY's *input* pipe -> client-stdin, and that pipe is not a passthrough
+ * channel: ConPTY runs it through a VT *input* state machine to synthesize
+ * keyboard events for the child process, which only recognizes a small
+ * fixed table of real input sequences and has no "relay anything
+ * unrecognized" contract — an OSC-99 sequence written there is absorbed by
+ * the parser and never reaches the client as literal bytes. Plain marker
+ * text with no ESC byte is what survives this direction instead (this
+ * asymmetry, and the same fix, is documented in `src/term/ANALYSIS.md` §2).
  *
- * Non-OSC-99 bytes (the shell/console's actual output, including other,
- * unrelated OSC sequences such as window-title updates) are forwarded
- * verbatim to a caller-supplied passthrough callback, exactly as
- * `stdio_transport` does — this is what keeps the terminal session fully
- * interactive.
+ * See `term_transport.cpp`'s `term_role` for how each side picks its
+ * send/receive format, the chunking and reassembly details, and `FORMAT.md`
+ * §5.3 for the full wire format.
+ *
+ * Bytes that don't match either sequence (the shell/console's actual
+ * output, including other, unrelated OSC sequences such as window-title
+ * updates) are forwarded verbatim to a caller-supplied passthrough
+ * callback, exactly as `stdio_transport` does — this is what keeps the
+ * terminal session fully interactive.
  *
  * Reuses `stdio_transport.hpp`'s `stdio_passthrough_cb` type and default
  * passthrough callbacks, and its plain-text connect-time handshake

@@ -32,7 +32,7 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, console, or term");
+DEFINE_string(transport, "term", "Transport to use: tcp, pipe, pty, console, or term");
 DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Listen port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
@@ -117,9 +117,10 @@ int main(int argc, char** argv) {
         // text and racing it -- see pty_write.hpp's doc comment.
         pty::write_raw(
             1,
-            pty::to_crlf("[Server] Calculator listening via --transport=pty. This terminal is now the "
-                         "spawned shell; run `rmi_client_example --transport=pty` from inside it. Exit the "
-                         "shell to stop.\n"));
+            pty::to_crlf(
+                "[Server] Calculator listening via --transport=pty. This terminal is now the "
+                "spawned shell; run `rmi_client_example --transport=pty` from inside it. Exit the "
+                "shell to stop.\n"));
 
         pty_proc.wait();
         srv.stop();
@@ -140,8 +141,8 @@ int main(int argc, char** argv) {
         srv.listen();
 
         std::cout << "[Server] Calculator listening via --transport=console (spawned: " << FLAGS_cmd
-                   << ") -- exit the subprocess to stop\n"
-                   << std::flush;
+                  << ") -- exit the subprocess to stop\n"
+                  << std::flush;
 
         console_proc.wait();
         srv.stop();
@@ -161,9 +162,10 @@ int main(int argc, char** argv) {
         // terminal (see src/term/DESIGN.md), so a plain write_raw suffices.
         pty::write_raw(
             1,
-            pty::to_crlf("[Server] Calculator listening via --transport=term. This terminal is now the "
-                         "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
-                         "shell to stop.\n"));
+            pty::to_crlf(
+                "[Server] Calculator listening via --transport=term. This terminal is now the "
+                "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
+                "shell to stop.\n"));
 
         term_proc.wait();
         srv.stop();
@@ -176,7 +178,7 @@ int main(int argc, char** argv) {
         srv.listen();
 
         std::cout << "[Server] Calculator listening on pipe " << FLAGS_name << " -- press Enter to stop\n"
-                   << std::flush;
+                  << std::flush;
 
         std::string line;
         std::getline(std::cin, line);

@@ -1,29 +1,88 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file term_transport.cpp
- * @brief libuv-backed implementation of the OSC-99-framed term transport.
+ * @brief libuv-backed implementation of the term transport, which frames
+ *        client->server envelopes as OSC-99 sequences and server->client
+ *        envelopes as `BISON<...>` markers (see term_role's doc comment for
+ *        why the two directions need different wire formats).
  *        See term_transport.hpp and FORMAT.md §5.3 for the framing contract.
  */
 #include "src/rmi/transport/term_transport.hpp"
 #include "src/rmi/transport/fd_dup.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
+#include <gflags/gflags.h>
 #include <uv.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <queue>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
 
+// Temporary debug aid: path to append term_transport diagnostic trace logs
+// to (handle setup, handshake progress, raw read/write activity). Empty
+// (the default) disables tracing entirely. Used to diagnose ConPTY/console
+// interop issues that don't reproduce under Linux/MSYS2 and are hard to
+// observe interactively since the process under test owns the console.
+DEFINE_string(
+    trace,
+    "C:\\tmp\\bison.log",
+    "Path to append term_transport diagnostic trace logs to; empty disables tracing");
+
 namespace bdg::bison::rmi::transport {
 
 namespace {
+
+bison::synchronized<std::ofstream>& trace_file() {
+  static bison::synchronized<std::ofstream> instance;
+  return instance;
+}
+
+bool trace_open() {
+  static const bool opened = [] {
+    if (FLAGS_trace.empty())
+      return false;
+    trace_file().wlock()->open(FLAGS_trace, std::ios::app);
+    return trace_file().rlock()->is_open();
+  }();
+  return opened;
+}
+
+void trace(std::string_view tag, const std::string& msg) {
+  if (!trace_open())
+    return;
+  const auto ms =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  trace_file().withWLock([&](std::ofstream& f) { f << ms << " [" << tag << "] " << msg << std::endl; });
+}
+
+std::string hex_preview(const uint8_t* data, size_t len) {
+  static constexpr size_t kMax = 48;
+  std::ostringstream oss;
+  oss << "len=" << len << " bytes=\"";
+  for (size_t i = 0; i < std::min(len, kMax); ++i) {
+    const uint8_t b = data[i];
+    if (b >= 0x20 && b < 0x7f)
+      oss << static_cast<char>(b);
+    else
+      oss << "\\x" << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b) << std::dec;
+  }
+  if (len > kMax)
+    oss << "...";
+  oss << "\"";
+  return oss.str();
+}
 
 // ── Base64 (duplicated from stdio_transport.cpp's anonymous-namespace helper
 //    of the same name — not shared across translation units on purpose, to
@@ -126,7 +185,28 @@ bool parse_uint(std::string_view s, uint32_t& out) {
   return true;
 }
 
-// ── OSC-99 framing constants ────────────────────────────────────────────────
+// ── Wire role: which framing to use in which direction ──────────────────────
+//
+// ConPTY's two pipes are not symmetric the way a POSIX pty's master/slave
+// is. Data flowing client-stdout -> ConPTY's *output* pipe -> server-read
+// passes through ConPTY's output engine, which is built to shepherd OSC
+// escape sequences through as atomic, opaque units (see the OSC-99 framing
+// constants below and term_transport.hpp's doc comment) -- that direction
+// is safe for OSC-99. Data flowing server-write -> ConPTY's *input* pipe ->
+// client-stdin is not a passthrough channel: ConPTY runs it through a VT
+// *input* state machine that only recognizes a small fixed table of real
+// input sequences (arrow/function keys, mouse, bracketed paste, focus) to
+// synthesize keyboard INPUT_RECORDs for the child process -- there is no
+// "pass unrecognized bytes through verbatim" contract there, so an OSC-99
+// sequence written into it is silently absorbed and never reaches the
+// client as literal bytes. This exact asymmetry is documented in this
+// repo's src/term/ANALYSIS.md §2, which uses plain literal text for the
+// parent->child direction for the same reason. So: the client role sends
+// OSC-99 (client-stdout direction) and receives the marker format
+// (client-stdin direction); the server role does the reverse.
+enum class term_role { client, server };
+
+// ── OSC-99 framing constants (client -> server direction) ───────────────────
 
 constexpr std::string_view kOscPrefix = "\x1b]99;";
 constexpr char kOscTerminator = '\x07';
@@ -142,6 +222,19 @@ constexpr size_t kSeqDigitBudget = 10;
 constexpr size_t kBase64Budget = kMaxOscSequenceBytes - kOscFixedOverhead - 2 * kSeqDigitBudget;
 constexpr size_t kChunkRawBytes = (kBase64Budget / 4) * 3;
 static_assert(kChunkRawBytes > 0, "kMaxOscSequenceBytes is too small to fit any chunk payload");
+
+// ── Marker framing constants (server -> client direction) ───────────────────
+//
+// Reuses stdio_transport.cpp's exact BISON<...> wire text (duplicated, same
+// rationale as the base64 helpers above): plain ASCII, no ESC byte anywhere,
+// so it can never be mis-parsed as a terminal input control sequence, and
+// ConPTY delivers it to the child exactly like typed characters. One marker
+// per whole envelope, no chunking -- matching stdio_transport's precedent,
+// since the kMaxOscSequenceBytes safety cap is specific to escape-sequence
+// relaying and doesn't apply here.
+
+constexpr std::string_view kMarkerPrefix = "BISON<";
+constexpr char kMarkerSuffix = '>';
 
 // Bound on how long a capturing-but-unterminated OSC-99 body is allowed to
 // grow before it's treated as corrupt and discarded — well above what any
@@ -162,26 +255,74 @@ constexpr size_t kHandshakeAccumCap = 256;
 
 // ── term_pipe_thread: shared loop/thread lifecycle ──────────────────────────
 
-/** @brief Owns one libuv loop, one uv_pipe_t wrapping a duplicate of a caller-supplied fd, and its thread. */
+/**
+ * @brief Owns one libuv loop, one stream handle wrapping a duplicate of a
+ *        caller-supplied fd, and its thread.
+ *
+ * The wrapped fd is usually a real pipe (a `terminal`'s ConPTY/pty I/O
+ * handle), but when this process is itself running attached to a console
+ * (e.g. a client launched directly inside the shell a `--transport=term`
+ * server spawned), fd 0/1 are a console handle instead. `uv_pipe_open()`
+ * only accepts real pipe/disk-file handles on native Windows — it rejects
+ * console handles outright — so `uv_guess_handle()` picks the right libuv
+ * stream constructor (`uv_pipe_open` vs `uv_tty_init`) at runtime. This is
+ * not a platform branch: `uv_guess_handle()` returns the correct answer on
+ * every platform, and POSIX's `uv_pipe_open()` already happens to accept
+ * tty fds too, so this only changes behavior where the old code failed
+ * outright (a Windows console handle).
+ */
 struct term_pipe_thread {
   uv_loop_t loop{};
-  uv_pipe_t handle{};
+  uv_any_handle handle{};
+  uv_stream_t* stream{nullptr};
   uv_async_t stop_async{};
   std::atomic<bool> stopped{false};
   std::thread loop_thread;
 
   void init_pipe(int fd, const char* which, uv_async_cb on_stop, void* owner) {
     uv_loop_init(&loop);
-    uv_pipe_init(&loop, &handle, 0);
     const int duped_fd = dup_fd(fd);
     if (duped_fd < 0)
       throw std::runtime_error(std::string{"term_transport: dup ("} + which + ") failed");
-    const int r = uv_pipe_open(&handle, duped_fd);
-    if (r != 0)
-      throw std::runtime_error(std::string{"term_transport: uv_pipe_open ("} + which + ") failed: " + uv_strerror(r));
-    handle.data = owner;
+
+    const uv_handle_type guess = uv_guess_handle(duped_fd);
+    trace(
+        "init_pipe",
+        std::string{which} + ": fd=" + std::to_string(fd) + " duped_fd=" + std::to_string(duped_fd) +
+            " uv_guess_handle=" + uv_handle_type_name(guess));
+
+    if (guess == UV_TTY) {
+      const bool readable = std::strcmp(which, "read") == 0;
+      const int r = uv_tty_init(&loop, &handle.tty, duped_fd, readable);
+      if (r != 0)
+        throw std::runtime_error(std::string{"term_transport: uv_tty_init ("} + which + ") failed: " + uv_strerror(r));
+      // uv_tty_init() alone leaves the handle in UV_TTY_MODE_NORMAL, where
+      // libuv's Windows console reader waits for a full line and performs
+      // its own key/escape translation for interactive use — it never
+      // delivers raw bytes as they're written, which is fatal to a framed
+      // byte-stream protocol like ours (the handshake just hangs). RAW mode
+      // makes libuv treat the console as a plain byte stream instead. This
+      // is a no-op on POSIX (uv_tty_set_mode there just adjusts termios,
+      // already unnecessary since we're wrapping a real pipe).
+      if (readable) {
+        const int mode_r = uv_tty_set_mode(&handle.tty, UV_TTY_MODE_RAW);
+        trace("init_pipe", std::string{which} + ": uv_tty_set_mode(RAW) -> " + std::to_string(mode_r));
+        if (mode_r != 0)
+          throw std::runtime_error(
+              std::string{"term_transport: uv_tty_set_mode ("} + which + ") failed: " + uv_strerror(mode_r));
+      }
+      stream = reinterpret_cast<uv_stream_t*>(&handle.tty);
+    } else {
+      uv_pipe_init(&loop, &handle.pipe, 0);
+      const int r = uv_pipe_open(&handle.pipe, duped_fd);
+      if (r != 0)
+        throw std::runtime_error(std::string{"term_transport: uv_pipe_open ("} + which + ") failed: " + uv_strerror(r));
+      stream = reinterpret_cast<uv_stream_t*>(&handle.pipe);
+    }
+    stream->data = owner;
     uv_async_init(&loop, &stop_async, on_stop);
     stop_async.data = owner;
+    trace("init_pipe", std::string{which} + ": init complete");
   }
 
   template <typename PreRun, typename PostRun>
@@ -205,16 +346,23 @@ struct term_pipe_thread {
   }
 };
 
-// ── Reader: OSC-99 scanner + chunk reassembly over one fd ───────────────────
+// ── Reader: OSC-99/marker scanner + chunk reassembly over one fd ────────────
 
 struct term_reader {
   // See stdio_reader::kIdleFlushMs's doc comment — same rationale applies to
-  // a partial match against kOscPrefix.
+  // a partial match against prefix.
   static constexpr uint64_t kIdleFlushMs = 50;
 
   term_pipe_thread io;
   std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
   uv_timer_t idle_timer{};
+
+  // Which format this side expects to *receive* — the opposite of what its
+  // own role sends, per the client/server table on term_role's doc comment.
+  // Set once in init(), read-only afterwards.
+  std::string_view prefix;
+  char terminator{};
+  bool osc_format{true};
 
   // Scanner state — loop thread only.
   bool in_seq{false};
@@ -242,8 +390,13 @@ struct term_reader {
   term_reader(const term_reader&) = delete;
   term_reader& operator=(const term_reader&) = delete;
 
-  void init(int fd, stdio_passthrough_cb cb) {
+  void init(int fd, stdio_passthrough_cb cb, term_role role) {
     passthrough = std::move(cb);
+    // See term_role's doc comment: a side receives the format the *other*
+    // side's role sends, not its own.
+    osc_format = role == term_role::server;
+    prefix = osc_format ? kOscPrefix : kMarkerPrefix;
+    terminator = osc_format ? kOscTerminator : kMarkerSuffix;
     io.init_pipe(fd, "read", on_stop, this);
     uv_timer_init(&io.loop, &idle_timer);
     idle_timer.data = this;
@@ -251,7 +404,7 @@ struct term_reader {
 
   void start_loop() {
     io.start(
-        [this] { uv_read_start(reinterpret_cast<uv_stream_t*>(&io.handle), alloc_cb, on_read); },
+        [this] { uv_read_start(io.stream, alloc_cb, on_read); },
         [this] {
           recv_closed.store(true);
           recv_queue.notify_all();
@@ -281,12 +434,12 @@ struct term_reader {
 
   void feed_byte(uint8_t b) {
     if (in_seq) {
-      if (b == static_cast<uint8_t>(kOscTerminator)) {
+      if (b == static_cast<uint8_t>(terminator)) {
         complete_sequence();
       } else {
         capture.push_back(static_cast<char>(b));
         if (capture.size() > kMaxCaptureBytes) {
-          std::cerr << "[term_transport] warning: OSC-99 sequence exceeded max size, discarding\n";
+          std::cerr << "[term_transport] warning: sequence exceeded max size, discarding\n";
           capture.clear();
           in_seq = false;
         }
@@ -294,10 +447,10 @@ struct term_reader {
       return;
     }
 
-    if (b == static_cast<uint8_t>(kOscPrefix[match_pos])) {
+    if (b == static_cast<uint8_t>(prefix[match_pos])) {
       speculative.push_back(static_cast<char>(b));
       ++match_pos;
-      if (match_pos == kOscPrefix.size()) {
+      if (match_pos == prefix.size()) {
         in_seq = true;
         speculative.clear();
         capture.clear();
@@ -318,7 +471,7 @@ struct term_reader {
     }
     match_pos = 0;
 
-    if (b == static_cast<uint8_t>(kOscPrefix[0])) {
+    if (b == static_cast<uint8_t>(prefix[0])) {
       match_pos = 1;
       speculative.push_back(static_cast<char>(b));
       arm_idle_flush();
@@ -343,11 +496,26 @@ struct term_reader {
   }
 
   void complete_sequence() {
-    parse_and_complete(capture);
+    if (osc_format)
+      parse_and_complete(capture);
+    else
+      complete_marker(capture);
     capture.clear();
     in_seq = false;
     match_pos = 0;
     speculative.clear();
+  }
+
+  // ── Marker (BISON<base64>) completion: one frame per marker, no chunking —
+  //    see kMarkerPrefix's doc comment. ────────────────────────────────────
+  void complete_marker(const std::string& body) {
+    auto decoded = base64_decode(body);
+    if (!decoded) {
+      std::cerr << "[term_transport] warning: malformed BISON<...> marker payload ignored\n";
+      return;
+    }
+    recv_queue.withWLock([&](auto& q) { q.push(std::move(*decoded)); });
+    recv_queue.notify_one();
   }
 
   void parse_and_complete(const std::string& body) {
@@ -382,7 +550,7 @@ struct term_reader {
     if (seq == 0) {
       if (assem.active && assem.expected_seq != assem.total) {
         std::cerr << "[term_transport] warning: stalled OSC-99 reassembly discarded (" << assem.expected_seq << "/"
-                   << assem.total << ")\n";
+                  << assem.total << ")\n";
       }
       assem = reassembly{};
       assem.active = true;
@@ -391,7 +559,7 @@ struct term_reader {
 
     if (!assem.active || seq != assem.expected_seq || total != assem.total) {
       std::cerr << "[term_transport] warning: out-of-sequence OSC-99 chunk discarded (seq=" << seq
-                 << ", expected=" << assem.expected_seq << ")\n";
+                << ", expected=" << assem.expected_seq << ")\n";
       assem = reassembly{};
       return;
     }
@@ -416,6 +584,7 @@ struct term_reader {
   static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* /*buf*/) {
     auto* self = static_cast<term_reader*>(stream->data);
     if (nread < 0) {
+      trace("on_read", std::string{"error/EOF: "} + uv_strerror(static_cast<int>(nread)));
       self->recv_closed.store(true);
       self->recv_queue.notify_all();
       self->passthrough(std::string_view{}); // signals closure; see stdio_passthrough_cb's doc comment
@@ -424,13 +593,14 @@ struct term_reader {
     }
     if (nread == 0)
       return;
+    trace("on_read", hex_preview(self->read_buf.data(), static_cast<size_t>(nread)));
     for (ssize_t i = 0; i < nread; ++i)
       self->feed_byte(self->read_buf[static_cast<size_t>(i)]);
   }
 
   static void on_stop(uv_async_t* h) {
     auto* self = static_cast<term_reader*>(h->data);
-    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.handle));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(self->io.stream));
     uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.stop_async));
     uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->idle_timer));
   }
@@ -471,18 +641,20 @@ struct term_writer {
   void enqueue_bytes(std::vector<uint8_t> data) {
     if (stopped.load())
       return;
+    trace("enqueue_bytes", hex_preview(data.data(), data.size()));
     send_queue.withWLock([&](auto& q) { q.push(std::move(data)); });
     uv_async_send(&send_async);
   }
 
   static void on_send(uv_async_t* h) {
     auto* self = static_cast<term_writer*>(h->data);
-    uv_flush_write_queue(self->send_queue, reinterpret_cast<uv_stream_t*>(&self->io.handle));
+    trace("on_send", "flushing write queue");
+    uv_flush_write_queue(self->send_queue, self->io.stream);
   }
 
   static void on_stop(uv_async_t* h) {
     auto* self = static_cast<term_writer*>(h->data);
-    uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.handle));
+    uv_close_if_active(reinterpret_cast<uv_handle_t*>(self->io.stream));
     uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->send_async));
     uv_close_if_active(reinterpret_cast<uv_handle_t*>(&self->io.stop_async));
   }
@@ -494,6 +666,7 @@ struct term_conn_state {
   term_reader reader;
   term_writer writer;
   std::atomic<bool> closed{false};
+  term_role role{term_role::client};
 
   struct client_handshake_state {
     bool done = false;
@@ -503,28 +676,44 @@ struct term_conn_state {
 
   bison::synchronized<std::string> server_handshake_accum;
 
-  void start(int read_fd, int write_fd, stdio_passthrough_cb passthrough) {
-    reader.init(read_fd, std::move(passthrough));
+  void start(int read_fd, int write_fd, stdio_passthrough_cb passthrough, term_role r) {
+    role = r;
+    trace("term_conn_state", "start: read_fd=" + std::to_string(read_fd) + " write_fd=" + std::to_string(write_fd));
+    reader.init(read_fd, std::move(passthrough), role);
     writer.init(write_fd);
     reader.start_loop();
     writer.start_loop();
+    trace("term_conn_state", "start: loops running");
   }
 
   /**
-   * @brief Encode @p frame as one or more `\x1b]99;<seq>;<total>;<base64>\x07`
-   *        chunks (see kChunkRawBytes) and enqueue them as a single write.
+   * @brief Encode @p frame for the wire and enqueue it as a single write.
+   *        Client role: one or more `\x1b]99;<seq>;<total>;<base64>\x07`
+   *        chunks (see kChunkRawBytes) — safe over the client-stdout ->
+   *        ConPTY-output direction. Server role: a single un-chunked
+   *        `BISON<base64>` marker — required over the server-write ->
+   *        ConPTY-input direction (see term_role's doc comment).
    */
   void send_frame(const bison::buffer& frame) {
     if (closed.load())
       throw std::runtime_error("term_transport: send on closed connection");
+
+    if (role == term_role::server) {
+      std::string out;
+      out.append(kMarkerPrefix);
+      out.append(base64_encode(frame));
+      out.push_back(kMarkerSuffix);
+      writer.enqueue_bytes(std::vector<uint8_t>(out.begin(), out.end()));
+      return;
+    }
 
     const size_t total_chunks = frame.empty() ? 1 : (frame.size() + kChunkRawBytes - 1) / kChunkRawBytes;
     std::string out;
     for (size_t i = 0; i < total_chunks; ++i) {
       const size_t offset = i * kChunkRawBytes;
       const size_t len = std::min(kChunkRawBytes, frame.size() - offset);
-      const bison::buffer chunk_bytes(frame.begin() + static_cast<ptrdiff_t>(offset),
-                                       frame.begin() + static_cast<ptrdiff_t>(offset + len));
+      const bison::buffer chunk_bytes(
+          frame.begin() + static_cast<ptrdiff_t>(offset), frame.begin() + static_cast<ptrdiff_t>(offset + len));
       out.append(kOscPrefix);
       out.append(std::to_string(i));
       out.push_back(';');
@@ -543,6 +732,7 @@ struct term_conn_state {
   }
 
   void client_passthrough(std::string_view chunk, const stdio_passthrough_cb& real) {
+    trace("client_passthrough", hex_preview(reinterpret_cast<const uint8_t*>(chunk.data()), chunk.size()));
     if (chunk.empty()) {
       real(chunk);
       return;
@@ -582,6 +772,7 @@ struct term_conn_state {
   }
 
   void watch_for_handshake_start(std::string_view chunk) {
+    trace("watch_for_handshake_start", hex_preview(reinterpret_cast<const uint8_t*>(chunk.data()), chunk.size()));
     if (chunk.empty())
       return;
     bool matched = false;
@@ -595,8 +786,10 @@ struct term_conn_state {
       if (accum.size() > kHandshakeAccumCap)
         accum.erase(0, accum.size() - kHandshakeAccumCap);
     });
-    if (matched)
+    if (matched) {
+      trace("watch_for_handshake_start", "matched START, sending OK");
       send_raw(kHandshakeOk);
+    }
   }
 
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
@@ -621,9 +814,12 @@ term_client_transport::term_client_transport(
     std::chrono::milliseconds handshake_timeout)
     : state_(std::make_unique<term_conn_state>()), handshake_timeout_(handshake_timeout) {
   auto* state_ptr = state_.get();
-  state_->start(read_fd, write_fd, [state_ptr, real_passthrough = std::move(passthrough)](std::string_view chunk) {
-    state_ptr->client_passthrough(chunk, real_passthrough);
-  });
+  state_->start(
+      read_fd, write_fd,
+      [state_ptr, real_passthrough = std::move(passthrough)](std::string_view chunk) {
+        state_ptr->client_passthrough(chunk, real_passthrough);
+      },
+      term_role::client);
 }
 
 term_client_transport::~term_client_transport() {
@@ -632,10 +828,12 @@ term_client_transport::~term_client_transport() {
 }
 
 void term_client_transport::open(bison::dynamic /*params*/) {
+  trace("open", "sending START, waiting up to " + std::to_string(handshake_timeout_.count()) + "ms for OK");
   state_->send_raw(kHandshakeStart);
   if (!state_->wait_for_client_handshake(handshake_timeout_)) {
+    trace("open", "handshake timed out");
     throw std::runtime_error(
-        "term_transport: handshake timed out — sent START BISON/1.0 but got no BISON/1.0 OK "
+        "term_transport: handshake timed out - sent START BISON/1.0 but got no BISON/1.0 OK "
         "from the peer (is there a bison_server --transport=term running on the other end?)");
   }
 }
@@ -701,10 +899,13 @@ void term_server_transport::start(bison::dynamic /*params*/) {
   stopped_.store(false);
   state_ = std::make_shared<term_conn_state>();
   auto* state_ptr = state_.get();
-  state_->start(read_fd_, write_fd_, [state_ptr, real_passthrough = passthrough_](std::string_view chunk) {
-    real_passthrough(chunk);
-    state_ptr->watch_for_handshake_start(chunk);
-  });
+  state_->start(
+      read_fd_, write_fd_,
+      [state_ptr, real_passthrough = passthrough_](std::string_view chunk) {
+        real_passthrough(chunk);
+        state_ptr->watch_for_handshake_start(chunk);
+      },
+      term_role::server);
 }
 
 std::unique_ptr<server_connection_iface> term_server_transport::accept(std::chrono::milliseconds timeout) {
