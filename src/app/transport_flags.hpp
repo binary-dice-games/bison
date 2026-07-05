@@ -18,6 +18,7 @@ enum class transport_kind {
   pipe,    ///< `--name` named-pipe / Unix-socket path.
   pty,     ///< pty/stdio `BISON<...>` framing; no additional flags.
   console, ///< non-interactive stdio `BISON<...>` framing; server spawns `--cmd`.
+  term,    ///< interactive pty/stdio OSC-99 framing (Linux/MSYS2 forkpty or Windows ConPTY); optional `--cmd`.
 };
 
 /**
@@ -29,7 +30,7 @@ enum class transport_kind {
  *
  * @return The selected transport.
  * @throws std::runtime_error if `FLAGS_transport` is not one of "tcp",
- *         "pipe", "pty", or "console".
+ *         "pipe", "pty", "console", or "term".
  */
 transport_kind selected_transport();
 

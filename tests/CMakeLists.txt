@@ -27,8 +27,16 @@ package_add_test(bridge_test bridge_tests.cpp)
 # stdio (BISON: line-framed) transport tests — cross-platform
 package_add_test(stdio_transport_test stdio_transport_tests.cpp)
 
+# term (OSC-99 chunked) transport tests — cross-platform
+package_add_test(term_transport_test term_transport_tests.cpp)
+
 # pty_process tests (Linux and MSYS2)
 package_add_test(pty_process_test pty_process_tests.cpp)
+
+# terminal tests (Linux and MSYS2; native-Windows ConPTY path is untested here)
+if(NOT WIN32 OR MSYS OR CYGWIN)
+    package_add_test(terminal_posix_test terminal_posix_tests.cpp)
+endif()
 
 # console_process tests (libuv uv_spawn)
 package_add_test(console_process_test console_process_tests.cpp)

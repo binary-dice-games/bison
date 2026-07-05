@@ -82,6 +82,7 @@ target_sources(bison PRIVATE
   src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
   src/rmi/transport/stdio_transport.cpp
+  src/rmi/transport/term_transport.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
@@ -108,6 +109,17 @@ target_link_libraries(bison PRIVATE util)
 
 # ─── console-process support (src/console) ─────────────────────────────────
 target_sources(bison PRIVATE src/console/console_process.cpp)
+
+# ─── term support (src/term) — interactive terminal spawn for term_transport
+# terminal_posix.cpp: forkpty(), used on Linux and MSYS2 (both provide the
+# POSIX pty API even though MSYS2 also has WIN32 defined).
+# terminal_win.cpp: ConPTY, used on a genuinely native (non-MSYS2/Cygwin)
+# Windows build only.
+if(WIN32 AND NOT MSYS AND NOT CYGWIN)
+  target_sources(bison PRIVATE src/term/terminal_win.cpp)
+else()
+  target_sources(bison PRIVATE src/term/terminal_posix.cpp)
+endif()
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
 add_library(bison_abi SHARED

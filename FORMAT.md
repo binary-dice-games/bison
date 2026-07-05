@@ -375,6 +375,55 @@ passthrough (so it can't be mistaken for, say, a typed REPL command).
 > envelope format in §4 need to be implemented to interoperate over a TCP
 > connection.
 
+### 5.3 Term transport (OSC-99)
+
+The term transport (`term_client_transport` / `term_server_transport`,
+`src/rmi/transport/term_transport.hpp`) frames each envelope inside one or
+more ANSI OSC (Operating System Command) escape sequences, instead of the
+literal `BISON<...>` text used by §5.2. This is what lets it survive being
+relayed through a real pseudo-console (ConPTY on Windows, a pty on
+Linux/MSYS2, via `src/term/terminal.hpp`): terminal emulators and ConPTY
+are built to shepherd OSC sequences through as atomic, opaque units — even
+ones they don't recognize — rather than mangling arbitrary text embedded
+in the stream, which is what made `BISON<...>` unreliable when relayed
+through ConPTY.
+
+Each chunk has the form:
+
+```
+ESC ] 99 ; <seq> ; <total> ; base64(chunk bytes) BEL
+```
+
+i.e. `\x1b]99;<seq>;<total>;<base64(chunk)>\x07`, where:
+
+- `<seq>` is the 0-based index of this chunk within the envelope, in
+  decimal ASCII.
+- `<total>` is the total chunk count for the envelope, in decimal ASCII.
+- The whole sequence, including the `\x1b]99;`/`;`/`;`/`\x07` framing
+  bytes, is capped at `kMaxOscSequenceBytes` (4096) bytes. An envelope
+  small enough to fit in one chunk is sent as a single `seq=0;total=1`
+  sequence — chunking only activates for larger envelopes, so the common
+  case carries no extra round trips.
+- A multi-chunk envelope's chunks are sent back-to-back, in order, with no
+  other OSC-99 traffic interleaved between them; the receiver reassembles
+  by concatenating decoded chunk bytes as `seq` runs from `0` to
+  `total - 1`, then delivers the full envelope once `seq == total - 1`
+  completes.
+- Receiving `seq == 0` always starts a fresh reassembly, discarding (with a
+  logged warning) any prior incomplete one. Receiving a chunk whose `seq`
+  or `total` doesn't match the in-progress reassembly's expectations also
+  discards the in-progress reassembly (logged) and drops that chunk — this
+  bounds memory on a stalled/interrupted transfer instead of accumulating
+  forever.
+- Exactly like `BISON<...>`, every byte that is not part of a recognized
+  OSC-99 sequence (the shell's actual output, unrelated OSC sequences such
+  as window-title updates, etc.) is forwarded verbatim to a passthrough
+  callback, keeping the terminal session fully interactive.
+
+The connect-time handshake (`START BISON/1.0` / `BISON/1.0 OK` /
+`STOP BISON/1.0`, §5.2.1) is reused verbatim and unchanged — plain ASCII,
+not OSC-99-framed, for the same reasons given there.
+
 ---
 
 ## 6. Annotated Byte-Level Examples

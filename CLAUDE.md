@@ -99,15 +99,28 @@ lowest implementation level (e.g. inside custom data structures).
 
 ## Platform Support
 
-Bison targets **Linux and MSYS2 only** (native Windows/MSVC builds are not
-supported). MSYS2 provides the same POSIX layer as Linux (`forkpty()`,
-`termios`, etc.), so it shares the same implementation — do not add a
-separate platform-suffixed file (e.g. `protocol_win.cpp`) for it. Avoid
-conditional compilation (`#ifdef`, `#if defined(...)`) to branch on OS
-behavior; if a genuine platform difference arises within the Linux/MSYS2
-target (for example native Linux's `eventfd` vs. MSYS2's lack of it), keep
-it as a small, narrowly-scoped `#if defined(__linux__)` guard within the
-shared file rather than a full file split.
+Most of Bison targets **Linux and MSYS2 only** (native Windows/MSVC builds
+of `src/pty`/`src/console` are not supported). MSYS2 provides the same
+POSIX layer as Linux (`forkpty()`, `termios`, etc.), so it shares the same
+implementation — do not add a separate platform-suffixed file (e.g.
+`protocol_win.cpp`) for it. Avoid conditional compilation (`#ifdef`,
+`#if defined(...)`) to branch on OS behavior; if a genuine platform
+difference arises within the Linux/MSYS2 target (for example native
+Linux's `eventfd` vs. MSYS2's lack of it), keep it as a small,
+narrowly-scoped `#if defined(__linux__)` guard within the shared file
+rather than a full file split.
+
+**Exception: `src/term` (`--transport=term`) supports native Windows.**
+Unlike `src/pty`, `src/term/terminal_win.cpp` implements terminal spawning
+via ConPTY (`CreatePseudoConsole`) for a genuinely native (non-MSYS2,
+non-Cygwin) Windows build, alongside `src/term/terminal_posix.cpp`
+(`forkpty()`, used on Linux and MSYS2). These are two separate files, not
+one `#ifdef`-branched file, because `forkpty()` and ConPTY are different OS
+subsystems entirely, not a narrow platform delta — the same reasoning that
+justifies file splits elsewhere in this rule. `CMakeLists.txt` selects
+between them with `WIN32 AND NOT MSYS AND NOT CYGWIN` (native Windows) vs.
+its `else()` branch (Linux and MSYS2/Cygwin). `src/rmi/transport/term_transport.cpp`
+itself is platform-independent (built on libuv) and compiles unconditionally.
 
 ## Testing Style (GoogleTest)
 

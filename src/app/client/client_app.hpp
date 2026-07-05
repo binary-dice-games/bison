@@ -10,14 +10,11 @@
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <queue>
 #include <string>
 #include <string_view>
-
-namespace bdg::bison::rmi::transport {
-class stdio_client_transport;
-} // namespace bdg::bison::rmi::transport
 
 namespace bdg::bison::app {
 
@@ -30,10 +27,10 @@ namespace bdg::bison::app {
  *
  * Transport is chosen by gflags CLI flags:
  *   - `--transport T`           — selects the transport: `tcp` (default),
- *                                 `pipe`, `pty`, or `console`. Only the
- *                                 flags relevant to the selected transport
- *                                 are read; the others are simply ignored
- *                                 (see `src/app/transport_flags.hpp`).
+ *                                 `pipe`, `pty`, `console`, or `term`. Only
+ *                                 the flags relevant to the selected
+ *                                 transport are read; the others are simply
+ *                                 ignored (see `src/app/transport_flags.hpp`).
  *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`
  *                                 (default: `127.0.0.1:7070`)
  *   - `--name PATH`             — named-pipe / Unix-socket path, used by
@@ -67,6 +64,13 @@ namespace bdg::bison::app {
  *                                 never spawns anything. Operator input
  *                                 still goes through `read_console_line()`,
  *                                 same as `--transport=pty`.
+ *   - `--transport=term`        — same fd 0/1 wrapping and raw-mode/CRLF
+ *                                 handling as `--transport=pty`, but framed
+ *                                 as OSC-99 escape sequences instead of
+ *                                 `BISON<...>` (see
+ *                                 `src/rmi/transport/term_transport.hpp`).
+ *                                 Client side of `server_app`'s
+ *                                 `--transport=term`; no additional flags.
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
  *
  * Lifecycle (inside `run()`):
@@ -193,18 +197,22 @@ class client_app {
   bison::synchronized<console_queue_state> console_queue_;
 
   /**
-   * @brief Non-owning pointer to the `--transport=pty` transport, set right after
-   *        construction and valid for the rest of the process's lifetime;
-   *        used only to locally echo the operator's keystrokes.
+   * @brief Writes raw bytes to the active transport for local keystroke echo,
+   *        set right after construction and valid for the rest of the
+   *        process's lifetime. Bound to the concrete transport's own
+   *        `send(std::string_view)` overload (`stdio_client_transport` for
+   *        `--transport=pty`, `term_client_transport` for
+   *        `--transport=term`) so this class doesn't need to know which
+   *        transport type is active.
    *
    * `raw_mode_guard` disables the pty slave's kernel `ECHO` (see its doc
    * comment for why), which as a side effect means the operator's own
    * typed characters are never echoed anywhere — nothing appears on screen
    * while typing, even though the REPL is receiving them correctly. This
    * reimplements just that echo in software, in `feed_console_passthrough`.
-   * Null outside `--transport=pty` mode.
+   * Empty (falsy) outside `--transport=pty`/`--transport=term` mode.
    */
-  rmi::transport::stdio_client_transport* echo_transport_{nullptr};
+  std::function<void(std::string_view)> echo_fn_;
 };
 
 } // namespace bdg::bison::app

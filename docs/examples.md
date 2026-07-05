@@ -90,6 +90,39 @@ just wraps its own inherited fd 0/1 in the `BISON<...>` framing, so
 launched by SSH, another shell, or directly. See `src/console/console_process.hpp`
 for the `uv_spawn`-based process wrapper.
 
+## RMI Term Hop Mode (OSC-99, Linux/MSYS2 and Windows)
+
+`--transport=term` is `--transport=pty`'s sibling: also an interactive
+terminal hop, spawning a real shell (or `--cmd`) via `src/term/terminal.hpp`,
+but framing RMI traffic as OSC-99 escape sequences instead of literal
+`BISON<...>` text (see [FORMAT.md](../FORMAT.md) §5.3). This is designed to
+survive being relayed through a Windows ConPTY, which tends to mangle
+literal `BISON<...>` text embedded in the stream but reliably shepherds OSC
+sequences through untouched. Unlike `--transport=pty` (Linux/MSYS2 only,
+`forkpty()`), `--transport=term`'s server side also builds on native
+Windows via ConPTY — see `src/term/terminal_win.cpp`.
+
+**Server side:**
+
+```bash
+./build/src/srv/calc/calc-server --transport=term
+```
+
+Optionally pass `--cmd` to spawn something other than the default shell
+(`$SHELL` on Linux/MSYS2, `cmd.exe` on native Windows).
+
+**Client side**, launched from inside the spawned terminal exactly like
+`--transport=pty`:
+
+```bash
+./bison-cli --transport=term
+```
+
+The client does not spawn anything here either — it wraps its own
+inherited stdin/stdout in OSC-99 framing. Non-OSC-99 bytes (shell prompts,
+operator-typed output) pass straight through, so the session stays fully
+interactive.
+
 ## Performance Benchmark
 
 ```bash

@@ -12,6 +12,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/stdio_transport.hpp"
+#include "src/rmi/transport/term_transport.hpp"
 
 #include <gflags/gflags.h>
 
@@ -54,13 +55,13 @@ void client_app::feed_console_passthrough(std::string_view chunk) {
       if (c == 0x7f || c == 0x08) { // DEL / BS: erase one character
         if (!st.partial.empty()) {
           st.partial.pop_back();
-          if (echo_transport_)
-            echo_transport_->send("\b \b");
+          if (echo_fn_)
+            echo_fn_("\b \b");
         }
         continue;
       }
-      if (echo_transport_)
-        echo_transport_->send(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
+      if (echo_fn_)
+        echo_fn_(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
       st.partial.push_back(c);
       if (c == '\n') {
         st.lines.push(st.partial.substr(0, st.partial.size() - 1));
@@ -132,11 +133,13 @@ int client_app::run(int argc, char** argv) {
         console_via_passthrough_ = true;
         auto stdio_transport = std::make_unique<rmi::transport::stdio_client_transport>(
             0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
-        // Raw pointer stays valid for the rest of the process's lifetime: `c`
-        // (inside run_with_transport) owns this transport until it returns,
-        // and nothing else in --transport=pty mode runs after that. See
-        // echo_transport_'s doc comment for what it's used for.
-        echo_transport_ = stdio_transport.get();
+        // Raw pointer captured by value into echo_fn_ stays valid for the
+        // rest of the process's lifetime: `c` (inside run_with_transport)
+        // owns this transport until it returns, and nothing else in
+        // --transport=pty mode runs after that. See echo_fn_'s doc comment
+        // for what it's used for.
+        auto* raw_transport = stdio_transport.get();
+        echo_fn_ = [raw_transport](std::string_view s) { raw_transport->send(s); };
         // Raw mode also strips \r from this process's own std::cout/std::cerr
         // output (turning OPOST off is global to the fd, not scoped to frame
         // writes) — compensate so ordinary REPL output still displays
@@ -146,7 +149,7 @@ int client_app::run(int argc, char** argv) {
         // send, and two independent, unsynchronized writers racing on the
         // same fd is exactly the kind of bug this codebase has been chasing
         // throughout --transport=pty support. See crlf_output_guard's doc comment.
-        pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_transport_->send(s); }};
+        pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_fn_(s); }};
         return run_with_transport(std::move(stdio_transport));
       }
       case transport_kind::pipe:
@@ -165,6 +168,18 @@ int client_app::run(int argc, char** argv) {
         auto stdio_transport = std::make_unique<rmi::transport::stdio_client_transport>(
             0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
         return run_with_transport(std::move(stdio_transport));
+      }
+      case transport_kind::term: {
+        // Same raw-mode/CRLF rationale as --transport=pty above, but framed
+        // as OSC-99 instead of BISON<...> (see term_transport.hpp).
+        pty::raw_mode_guard raw{0};
+        console_via_passthrough_ = true;
+        auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
+            0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
+        auto* raw_transport = term_transport.get();
+        echo_fn_ = [raw_transport](std::string_view s) { raw_transport->send(s); };
+        pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_fn_(s); }};
+        return run_with_transport(std::move(term_transport));
       }
     }
     return 1;
