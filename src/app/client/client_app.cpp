@@ -7,7 +7,6 @@
 
 #include "src/app/debugger.hpp"
 #include "src/app/transport_flags.hpp"
-#include "src/pty/crlf_output_guard.hpp"
 #include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
@@ -39,52 +38,10 @@ void client_app::on_error(const std::string& msg) const {
   std::cerr << "[client_app] error: " << msg << '\n';
 }
 
-// ── Console input (see read_console_line()'s doc comment for why) ─────────────
-
-void client_app::feed_console_passthrough(std::string_view chunk) {
-  if (chunk.empty()) {
-    console_queue_.withWLock([&](auto& st) { st.closed = true; });
-    console_queue_.notify_all();
-    return;
-  }
-
-  console_queue_.withWLock([&](auto& st) {
-    for (const char c : chunk) {
-      if (c == 0x7f || c == 0x08) { // DEL / BS: erase one character
-        if (!st.partial.empty()) {
-          st.partial.pop_back();
-          if (echo_fn_)
-            echo_fn_("\b \b");
-        }
-        continue;
-      }
-      if (echo_fn_)
-        echo_fn_(c == '\n' ? std::string_view{"\r\n"} : std::string_view{&c, 1});
-      st.partial.push_back(c);
-      if (c == '\n') {
-        st.lines.push(st.partial.substr(0, st.partial.size() - 1));
-        st.partial.clear();
-      }
-    }
-  });
-  console_queue_.notify_all();
-}
+// ── Console input ──────────────────────────────────────────────────────────────
 
 bool client_app::read_console_line(std::string& line) {
-  if (!console_via_passthrough_)
-    return static_cast<bool>(std::getline(std::cin, line));
-
-  bool got = false;
-  console_queue_.wait([&](auto& st) {
-    if (!st.lines.empty()) {
-      line = std::move(st.lines.front());
-      st.lines.pop();
-      got = true;
-      return true;
-    }
-    return st.closed;
-  });
-  return got;
+  return static_cast<bool>(std::getline(std::cin, line));
 }
 
 // ── run_with_transport ────────────────────────────────────────────────────────
@@ -124,13 +81,7 @@ int client_app::run(int argc, char** argv) {
             std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
       case transport_kind::term: {
         pty::raw_mode_guard raw{0};
-        console_via_passthrough_ = true;
-        auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
-            0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
-        auto* raw_transport = term_transport.get();
-        echo_fn_ = [raw_transport](std::string_view s) { raw_transport->send(s); };
-        pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_fn_(s); }};
-        return run_with_transport(std::move(term_transport));
+        return run_with_transport(std::make_unique<rmi::transport::term_client_transport>(0, 1));
       }
     }
     return 1;

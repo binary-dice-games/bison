@@ -145,44 +145,6 @@ class client_app {
 
   /** @brief Per-request timeout; set from `--timeout` before `on_session()`. */
   std::chrono::milliseconds timeout_{30000};
-
- private:
-  /** @brief State fed by the `--transport=pty` passthrough callback; see `read_console_line()`. */
-  struct console_queue_state {
-    std::string partial;
-    std::queue<std::string> lines;
-    bool closed{false};
-  };
-
-  /**
-   * @brief Splits passthrough bytes into lines for `read_console_line()`,
-   *        applying basic backspace handling (`0x7f`/`0x08`) so the line
-   *        buffer matches what's on screen. An empty chunk signals stream
-   *        closure. Also locally echoes each byte via `echo_transport_`
-   *        (see that member's doc comment for why this is needed at all).
-   */
-  void feed_console_passthrough(std::string_view chunk);
-
-  bool console_via_passthrough_{false};
-  bison::synchronized<console_queue_state> console_queue_;
-
-  /**
-   * @brief Writes raw bytes to the active transport for local keystroke echo,
-   *        set right after construction and valid for the rest of the
-   *        process's lifetime. Bound to the concrete transport's own
-   *        `send(std::string_view)` overload (`stdio_client_transport` for
-   *        `--transport=pty`, `term_client_transport` for
-   *        `--transport=term`) so this class doesn't need to know which
-   *        transport type is active.
-   *
-   * `raw_mode_guard` disables the pty slave's kernel `ECHO` (see its doc
-   * comment for why), which as a side effect means the operator's own
-   * typed characters are never echoed anywhere — nothing appears on screen
-   * while typing, even though the REPL is receiving them correctly. This
-   * reimplements just that echo in software, in `feed_console_passthrough`.
-   * Empty (falsy) outside `--transport=pty`/`--transport=term` mode.
-   */
-  std::function<void(std::string_view)> echo_fn_;
 };
 
 } // namespace bdg::bison::app

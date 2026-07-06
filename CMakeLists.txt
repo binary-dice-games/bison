@@ -90,7 +90,6 @@ target_sources(bison PRIVATE
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
   src/app/transport_flags.cpp
-  src/pty/crlf_output_guard.cpp
   src/pty/pty_write.cpp
 )
 
