@@ -10,6 +10,8 @@
 
 #include "src/app/transport_flags.hpp"
 #include "src/bison/bison_flags.hpp"
+#include "src/pty/crlf_output_guard.hpp"
+#include "src/pty/raw_mode_guard.hpp"
 #include "src/rmi/rmi.hpp"
 #include "src/rmi/transport/term_transport.hpp"
 
@@ -110,6 +112,10 @@ int main(int argc, char** argv) {
         return run_with_transport(
             std::make_unique<socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
       case app::transport_kind::term: {
+        // Same raw-mode/CRLF rationale as --transport=pty above, but framed
+        // as OSC-99 instead of BISON<...> (see term_transport.hpp).
+        pty::raw_mode_guard raw{0};
+        pty::crlf_output_guard output_guard;
         return run_with_transport(std::make_unique<term_client_transport>(0, 1));
       }
     }

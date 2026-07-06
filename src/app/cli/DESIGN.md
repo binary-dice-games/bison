@@ -97,6 +97,7 @@ Reads `--transport` and constructs the appropriate transport:
 |---|---|
 | `tcp` (default) | `socket_client_transport{FLAGS_host, FLAGS_port}` |
 | `pipe` | `named_pipe_client_transport{FLAGS_name}` |
+| `pty` | `stdio_client_transport{0, 1}` — wraps this process's own inherited stdio, cross-platform; no subprocess or pty is spawned client-side. Also puts fd 0 in raw mode (`pty::raw_mode_guard`, Linux-only) and routes REPL input through `client_app::read_console_line()` instead of `std::cin` — see `src/pty/DESIGN.md` for why fd 0 can't be read directly in this mode |
 
 ### JSON bridge (private helpers in cli_app.cpp)
 

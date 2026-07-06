@@ -10,6 +10,7 @@
 
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
+#include "src/pty/raw_mode_guard.hpp"
 
 #include <cstring>
 #include <memory>
@@ -24,6 +25,11 @@ using namespace bdg::bison::rmi::transport;
 using bison_dynamic_ptr = std::shared_ptr<dynamic>;
 
 struct client_state {
+  // Declared first so it is destroyed *last* (members are torn down in
+  // reverse declaration order): the pty slave must stay in raw mode for the
+  // whole lifetime of client_owner's transport, which reads/writes it -- see
+  // raw_mode_owner's doc comment at rmi_client_pty_create().
+  std::unique_ptr<pty::raw_mode_guard> raw_mode_owner;
   std::unique_ptr<client> client_owner;
   std::unique_ptr<standalone> standalone_owner;
   client* borrowed_client = nullptr;
