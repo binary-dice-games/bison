@@ -152,7 +152,7 @@ class client_app {
    * @param transport  Heap-allocated transport to take ownership of.
    * @return Return value of `on_session()`.
    */
-  int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
+  virtual int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
 
   /**
    * @brief Read one line of console (operator) input, blocking until a line
