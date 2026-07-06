@@ -62,6 +62,9 @@ terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_st
   HANDLE pty_in_read = nullptr;   // ConPTY's end: reads the child's stdin
   HANDLE pty_out_write = nullptr; // ConPTY's end: writes the child's stdout
 
+  SetConsoleCP(CP_UTF8);
+  SetConsoleOutputCP(CP_UTF8);
+
   if (CreatePipe(&pty_in_read, &state_->conpty_in_write, nullptr, 0) == 0)
     throw std::runtime_error("terminal: CreatePipe (input) failed");
   if (CreatePipe(&state_->conpty_out_read, &pty_out_write, nullptr, 0) == 0)
