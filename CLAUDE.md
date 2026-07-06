@@ -120,8 +120,7 @@ cases. Do not add a separate platform-suffixed file for a difference that
 MSYS2 already resolves the same way Linux does (MSYS2 is never the
 "other" side of one of these splits). Prefer a pImpl / opaque-state header
 (forward-declare a `struct foo_state;`, defined differently per `.cpp`) so
-the shared header needs no platform-specific members, matching
-`src/pty/raw_mode_guard.hpp`.
+the shared header needs no platform-specific members.
 
 Avoid conditional compilation (`#ifdef`, `#if defined(...)`) to branch on
 OS behavior *within* a shared file. If a genuine platform difference is

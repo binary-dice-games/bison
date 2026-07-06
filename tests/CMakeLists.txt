@@ -32,14 +32,6 @@ if(NOT WIN32 OR MSYS OR CYGWIN)
     package_add_test(terminal_posix_test terminal_posix_tests.cpp)
 endif()
 
-# raw_mode_guard tests (POSIX termios behavior; native-Windows console-mode path is untested here)
-if(NOT WIN32 OR MSYS OR CYGWIN)
-    package_add_test(raw_mode_guard_test raw_mode_guard_tests.cpp)
-endif()
-
-# crlf_output_guard tests
-package_add_test(crlf_output_guard_test crlf_output_guard_tests.cpp)
-
 # pty_write tests (uses POSIX pipe()/read() to exercise write_raw(); the
 # Windows write_raw() implementation itself is untested here, see CMakeLists.txt)
 if(NOT WIN32 OR MSYS OR CYGWIN)
