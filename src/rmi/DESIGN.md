@@ -21,7 +21,6 @@ Source tree:
 - `src/rmi/client`: client runtime, remote object proxy, threading, request dispatch.
 - `src/rmi/server`: server runtime, session context, request handlers, lifecycle.
 - `src/rmi/transport`: all transport implementations. Each transport is a single cross-platform file backed by libuv:
-- `pipe_transport.cpp` — anonymous in-process pipe channel
 - `socket_transport.cpp` — TCP socket transport
 - `named_pipe_transport.cpp` — named pipe / Unix domain socket transport
 - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
@@ -47,7 +46,7 @@ All transport I/O is implemented using **libuv** (`extern/libuv`, static target 
 
 - Every transport file is a single `.cpp` file with no platform conditionals in I/O behavior.
 - libuv handles OS differences transparently: process spawning, TTY raw mode, and socket I/O.
-- The only permitted `#ifdef` in transport code is for narrow, single-line differences (e.g. `pty_process.cpp`'s `eventfd` vs. self-pipe fallback), not a behavioral split.
+- The only permitted `#ifdef` in transport code is for narrow, single-line differences, not a behavioral split.
 - `socket_transport.cpp`'s socket-duplication step (see §2) is implemented directly with POSIX `dup()`, since both supported targets (Linux and MSYS2) share that API; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
 
 ### 3.3 libuv Dependency

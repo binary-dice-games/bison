@@ -134,19 +134,6 @@ ConPTY, `termios` vs. console-mode APIs, etc.) — that's not a narrow
 delta, so a single `#ifdef`-branched file would be worse than two clean
 ones.
 
-**Some subsystems are deliberately Linux/MSYS2-only and are excluded from
-native Windows builds entirely**, rather than split: `src/pty/pty_process.cpp`
-and `src/console/console_process.cpp` (forkpty()-based process spawning has
-no native Windows equivalent; ConPTY-based spawning lives in `src/term`
-instead) and the `util` system library they link against. `CMakeLists.txt`
-gates their sources and link behind `NOT (WIN32 AND NOT MSYS AND NOT CYGWIN)`
-and defines `BISON_NATIVE_WINDOWS` on the native-Windows build so
-`server_app.cpp` can report a runtime error for `--transport=pty`/
-`--transport=console` there instead of failing to compile. When adding a
-new file, decide up front whether it belongs in this "excluded" category
-or the "real per-platform implementation" category above — don't leave it
-unconditionally compiled and let native Windows fail on it later.
-
 `src/term` (`--transport=term`) is the reference example of the file-split
 pattern: `src/term/terminal_win.cpp` implements terminal spawning via
 ConPTY (`CreatePseudoConsole`) for native Windows, alongside

@@ -273,41 +273,6 @@ RMI errors (`ERR_OBJECT_NOT_FOUND`, timeouts, etc.) are caught, printed to
 stderr, and the REPL resumes.  Only `connect()` failures and unrecoverable
 transport errors terminate the process.
 
-**`--transport=pty` is cross-platform on the client side.**
-`cli_app` never forks a pty itself — `--transport=pty` just wraps this process's own
-inherited `fd 0`/`fd 1` in `stdio_client_transport`, which is identical on
-every platform. Only the server-side `pty_process` (`src/pty`), which
-actually forks a terminal, is Linux-only; it throws
-`std::runtime_error` on Windows.
-
-**`--transport=pty` mode can't read `fd 0` via `std::cin`.**
-When launched inside a `bison_server --transport=pty` session, `fd 0`/`fd 1` are the
-pty slave the spawned shell also uses, and `stdio_client_transport`'s
-background reader owns `fd 0` (in non-blocking mode, scanning for
-`BISON<...>` frames) for the whole session. A concurrent `std::cin` read on
-the same fd loses that race and fails immediately, ending the REPL before
-the operator can type anything. `client_app::read_console_line()` (declared
-in `client_app.hpp`, since this is a pty-transport concern, not a REPL
-concern) instead reads `std::cin` only in socket/pipe mode; in `--transport=pty` mode
-it drains a line queue fed by the transport's own passthrough callback,
-which already receives every non-`BISON<...>` byte in arrival order. See
-`src/pty/DESIGN.md` for the matching server-side and framing notes.
-
-**`--transport=pty` mode needs its own local echo and `\r` insertion.**
-`raw_mode_guard` (see `src/pty/DESIGN.md`) turns terminal `ECHO`/`ICANON`
-off on fd 0/1 so the slave doesn't echo frame bytes back and doesn't
-line-buffer input waiting for a `\n` that a `BISON<...>` frame (terminated
-by `>`) never sends. `OPOST` is disabled too, as a side effect — that
-also means nothing echoes the operator's keystrokes back to the screen, and
-nothing adds `\r` before `\n` in this process's own output, so without
-compensation the REPL looks frozen while typing and its output stairsteps
-down the screen. `client_app::feed_console_passthrough()` re-implements
-basic echo (plus `0x7f`/`0x08` backspace handling) and pairs a
-`crlf_output_guard` with `stdio_client_transport::send()` to fix both —
-see `src/pty/DESIGN.md`'s Design Decisions for the full rationale, including
-why both must be routed through the transport's one writer rather than
-writing fd 1 directly.
-
 **`proxy::dynamic` stored directly in `std::unordered_map`.**
 `proxy::dynamic` is move-only.  Insertion uses `try_emplace`; removal uses
 `extract()` to take ownership before passing to `client.destroy()`.
@@ -350,7 +315,6 @@ Depends on:
 - `src/rmi/proxy` — `proxy::dynamic` for object handles.
 - `src/rmi/transport/socket_transport` — default TCP transport.
 - `src/rmi/transport/named_pipe_transport` — `--transport=pipe` transport.
-- `src/rmi/transport/stdio_transport` — `--transport=pty` transport (cross-platform;
   wraps this process's own stdio, does not spawn a pty).
 - `src/bison/bison.hpp` — `bison::dynamic`, `bison::key_t`.
 - `src/bison/bison_object.hpp` — `bdg::bison::extensions::from_json()`.

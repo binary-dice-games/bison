@@ -12,7 +12,6 @@
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-#include "src/rmi/transport/stdio_transport.hpp"
 #include "src/rmi/transport/term_transport.hpp"
 
 #include <gflags/gflags.h>
@@ -118,59 +117,12 @@ int client_app::run(int argc, char** argv) {
     const transport_kind transport = selected_transport();
 
     switch (transport) {
-      case transport_kind::pty: {
-        // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
-        // its ICANON/ECHO processing would stall BISON<...> frames (no \n
-        // terminator to release the kernel's line buffer) or echo them back
-        // at the reader, so put it in raw mode for the RMI session and
-        // restore it on the way out.
-        pty::raw_mode_guard raw{0};
-        // The transport's background reader owns fd 0 (non-blocking, scanning
-        // for BISON<...> frames), so std::cin can't safely read it too — route
-        // operator keystrokes through the passthrough callback instead; see
-        // read_console_line().
-        console_via_passthrough_ = true;
-        auto stdio_transport = std::make_unique<rmi::transport::stdio_client_transport>(
-            0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
-        // Raw pointer captured by value into echo_fn_ stays valid for the
-        // rest of the process's lifetime: `c` (inside run_with_transport)
-        // owns this transport until it returns, and nothing else in
-        // --transport=pty mode runs after that. See echo_fn_'s doc comment
-        // for what it's used for.
-        auto* raw_transport = stdio_transport.get();
-        echo_fn_ = [raw_transport](std::string_view s) { raw_transport->send(s); };
-        // Raw mode also strips \r from this process's own std::cout/std::cerr
-        // output (turning OPOST off is global to the fd, not scoped to frame
-        // writes) — compensate so ordinary REPL output still displays
-        // starting at the left margin instead of stairstepping. Routed
-        // through the transport's own writer (send), not written to fd 1
-        // directly: read_console_line()'s local echo *also* writes there via
-        // send, and two independent, unsynchronized writers racing on the
-        // same fd is exactly the kind of bug this codebase has been chasing
-        // throughout --transport=pty support. See crlf_output_guard's doc comment.
-        pty::crlf_output_guard output_guard{[this](std::string_view s) { echo_fn_(s); }};
-        return run_with_transport(std::move(stdio_transport));
-      }
       case transport_kind::pipe:
         return run_with_transport(std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_name));
       case transport_kind::tcp:
         return run_with_transport(
             std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
-      case transport_kind::console: {
-        // No subprocess spawning here — the server is the one that spawns
-        // this process (see server_app's --transport=console/--cmd); this
-        // side just wraps its own inherited fd 0/1 in the BISON<...>
-        // framing, same as --transport=pty's client case, but with no
-        // raw_mode_guard/crlf_output_guard: there's no terminal here (fd 0/1
-        // are piped, not a tty), so there's no termios/CRLF fallout to fix.
-        console_via_passthrough_ = true;
-        auto stdio_transport = std::make_unique<rmi::transport::stdio_client_transport>(
-            0, 1, [this](std::string_view chunk) { feed_console_passthrough(chunk); });
-        return run_with_transport(std::move(stdio_transport));
-      }
       case transport_kind::term: {
-        // Same raw-mode/CRLF rationale as --transport=pty above, but framed
-        // as OSC-99 instead of BISON<...> (see term_transport.hpp).
         pty::raw_mode_guard raw{0};
         console_via_passthrough_ = true;
         auto term_transport = std::make_unique<rmi::transport::term_client_transport>(

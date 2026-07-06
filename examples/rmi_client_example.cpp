@@ -27,7 +27,7 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, console, or term");
+DEFINE_string(transport, "term", "Transport to use: tcp, pipe or term");
 DEFINE_string(host, "127.0.0.1", "Server host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Server TCP port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
@@ -106,22 +106,6 @@ int main(int argc, char** argv) {
 
   try {
     switch (app::selected_transport()) {
-      case app::transport_kind::pty: {
-        // fd 0/1 are a pty slave left in cooked mode (see src/pty/DESIGN.md):
-        // put it in raw mode for the RMI session and restore it on the way
-        // out, and compensate for raw mode stripping \r from this process's
-        // own std::cout/std::cerr output (see crlf_output_guard's doc comment).
-        pty::raw_mode_guard raw{0};
-        pty::crlf_output_guard output_guard;
-        return run_with_transport(std::make_unique<stdio_client_transport>(0, 1));
-      }
-      case app::transport_kind::console:
-        // No subprocess spawning here -- the server is the one that spawns
-        // this process (see server's --transport=console/--cmd); this side
-        // just wraps its own inherited fd 0/1 in the BISON<...> framing, same
-        // as --transport=pty, but with no raw_mode_guard/crlf_output_guard:
-        // fd 0/1 here are piped, not a tty.
-        return run_with_transport(std::make_unique<stdio_client_transport>(0, 1));
       case app::transport_kind::pipe:
         return run_with_transport(std::make_unique<named_pipe_client_transport>(FLAGS_name));
       case app::transport_kind::tcp:

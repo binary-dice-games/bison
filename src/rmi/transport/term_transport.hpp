@@ -15,8 +15,7 @@
  * sequences through as atomic units — even ones they don't recognize —
  * making this format safe to relay unmangled.
  *
- * Server -> client envelopes: `stdio_transport.hpp`'s `BISON<base64>` marker
- * text verbatim, un-chunked. This direction is relayed server-write ->
+ * Server -> client envelopes: This direction is relayed server-write ->
  * ConPTY's *input* pipe -> client-stdin, and that pipe is not a passthrough
  * channel: ConPTY runs it through a VT *input* state machine to synthesize
  * keyboard events for the child process, which only recognizes a small
@@ -33,18 +32,12 @@
  * Bytes that don't match either sequence (the shell/console's actual
  * output, including other, unrelated OSC sequences such as window-title
  * updates) are forwarded verbatim to a caller-supplied passthrough
- * callback, exactly as `stdio_transport` does — this is what keeps the
- * terminal session fully interactive.
+ * callback — this is what keeps the terminal session fully interactive.
  *
- * Reuses `stdio_transport.hpp`'s `stdio_passthrough_cb` type and default
- * passthrough callbacks, and its plain-text connect-time handshake
- * (`START BISON/1.0` / `BISON/1.0 OK` / `STOP BISON/1.0`) verbatim — framing
- * is the only thing this transport does differently.
  */
 #pragma once
 
 #include "src/bison/bison.hpp"
-#include "src/rmi/transport/stdio_transport.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <atomic>
@@ -57,6 +50,23 @@ namespace bdg::bison::rmi::transport {
 
 /** @brief Opaque libuv-backed connection state. Defined in the .cpp. */
 struct term_conn_state;
+
+/**
+ * @brief Callback invoked with each chunk of non-`BISON<...>` bytes, in arrival
+ *        order. Called once more with an empty chunk when the read side
+ *        closes (EOF or error), as a stream-closed signal; this never
+ *        happens mid-stream otherwise since empty reads are not forwarded.
+ */
+using term_passthrough_cb = std::function<void(std::string_view chunk)>;
+
+/** @brief Default passthrough: write the chunk verbatim to stdout. */
+void term_print_passthrough(std::string_view chunk);
+
+/** @brief Default passthrough: discard the chunk. */
+void term_discard_passthrough(std::string_view chunk);
+
+/** @brief Default wait for open()'s connect-time handshake; see its doc comment. */
+inline constexpr std::chrono::milliseconds kDefaultHandshakeTimeout{1000};
 
 /**
  * @brief Cap, in bytes, on one whole OSC-99 escape sequence
@@ -90,7 +100,7 @@ class term_client_transport : public client_transport_iface {
   term_client_transport(
       int read_fd,
       int write_fd,
-      stdio_passthrough_cb passthrough = stdio_discard_passthrough,
+      term_passthrough_cb passthrough = term_discard_passthrough,
       std::chrono::milliseconds handshake_timeout = kDefaultHandshakeTimeout);
   ~term_client_transport() override;
 
@@ -169,7 +179,7 @@ class term_server_transport : public server_transport_iface {
    * @param write_fd     Fd to write frames and pass-through bytes to.
    * @param passthrough  Called with non-OSC-99 bytes read from `read_fd`.
    */
-  term_server_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough = stdio_print_passthrough);
+  term_server_transport(int read_fd, int write_fd, term_passthrough_cb passthrough = term_print_passthrough);
   ~term_server_transport() override;
 
   term_server_transport(const term_server_transport&) = delete;
@@ -183,7 +193,7 @@ class term_server_transport : public server_transport_iface {
  private:
   int read_fd_;
   int write_fd_;
-  stdio_passthrough_cb passthrough_;
+  term_passthrough_cb passthrough_;
   std::atomic<bool> stopped_{false};
   bison::synchronized<bool> checked_out_{false};
   std::shared_ptr<term_conn_state> state_;

@@ -8,7 +8,7 @@
 
 #include <gflags/gflags.h>
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
+DEFINE_string(transport, "term", "Transport to use: tcp, pipe or term");
 DEFINE_string(host, "127.0.0.1", "Server host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Server TCP port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");

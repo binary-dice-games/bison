@@ -27,43 +27,13 @@ namespace bdg::bison::app {
  *
  * Transport is chosen by gflags CLI flags:
  *   - `--transport T`           — selects the transport: `tcp` (default),
- *                                 `pipe`, `pty`, `console`, or `term`. Only
- *                                 the flags relevant to the selected
- *                                 transport are read; the others are simply
- *                                 ignored (see `src/app/transport_flags.hpp`).
+ *                                 `pipe` or `term`. Only the flags relevant
+ *                                 to the selected transport are read; the others
+ *                                 are simply ignored (see `src/app/transport_flags.hpp`).
  *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`
  *                                 (default: `127.0.0.1:7070`)
  *   - `--name PATH`             — named-pipe / Unix-socket path, used by
  *                                 `--transport=pipe`
- *   - `--transport=pty`         — wrap this process's own inherited `fd 0`
- *                                 (read) / `fd 1` (write) in the
- *                                 `BISON<...>` framing instead of opening a
- *                                 socket/pipe. No pty is spawned here — the
- *                                 client never forks a terminal; this is for
- *                                 running as a plain child process whose
- *                                 stdio is already connected to a peer that
- *                                 speaks the framing (typically because it
- *                                 was launched inside a server-spawned
- *                                 `--transport=pty` terminal, see
- *                                 `src/app/server/server_app.hpp` and
- *                                 `src/rmi/transport/stdio_transport.hpp`).
- *                                 Also puts fd 0 in raw mode for the session
- *                                 (`pty::raw_mode_guard`) and requires
- *                                 subclasses to read operator input via
- *                                 `read_console_line()` rather than
- *                                 `std::cin` directly — see that method's
- *                                 doc comment. Takes no additional flags.
- *   - `--transport=console`     — same fd 0/1 wrapping as `--transport=pty`,
- *                                 minus the raw-mode/CRLF terminal handling
- *                                 (fd 0/1 here are plain pipes, not a tty —
- *                                 there's no termios/CRLF fallout to fix).
- *                                 This is the client side of
- *                                 `server_app`'s `--transport=console`: the
- *                                 server spawns this process via `--cmd`, so
- *                                 the client itself takes no `--cmd` and
- *                                 never spawns anything. Operator input
- *                                 still goes through `read_console_line()`,
- *                                 same as `--transport=pty`.
  *   - `--transport=term`        — same fd 0/1 wrapping and raw-mode/CRLF
  *                                 handling as `--transport=pty`, but framed
  *                                 as OSC-99 escape sequences instead of

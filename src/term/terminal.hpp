@@ -5,22 +5,18 @@
  *        portable across Linux/MSYS2 (`forkpty()`) and native Windows
  *        (ConPTY).
  *
- * `terminal` is the Windows-capable sibling of `src/pty/pty_process.hpp`:
- * it spawns a child process (a shell by default) attached to a real,
+ * `terminal` spawns a child process (a shell by default) attached to a real,
  * interactive pseudo-terminal, and pumps the operator's own real terminal
- * input into it. Unlike `pty_process`, it is not Linux/MSYS2-only — see
- * `terminal_posix.cpp` (forkpty) and `terminal_win.cpp` (ConPTY via
- * `CreatePseudoConsole()`) for the two platform-specific spawn paths.
+ * input into it.
  *
  * @note Both platform implementations expose the child's pty I/O as plain
  *       CRT file descriptors (`read_handle()`/`write_handle()`), not as a
  *       `uv_stream_t*` bound to a loop this class owns. `uv_pipe_open()`
  *       accepts a CRT fd on both platforms (on Windows, one obtained from a
- *       HANDLE via `_open_osfhandle()`), so `term_transport` — which, like
- *       `stdio_transport`, owns the libuv loop(s) the pty I/O actually runs
- *       on — can wrap either platform's descriptor identically. This keeps
- *       the platform divergence entirely inside `src/term`, and
- *       `term_transport.cpp` free of `#ifdef`.
+ *       HANDLE via `_open_osfhandle()`), so `term_transport` — which owns the
+ *       libuv loop(s) the pty I/O actually runs on — can wrap either platform's
+ *       descriptor identically. This keeps the platform divergence entirely
+ *       inside `src/term`, and `term_transport.cpp` free of `#ifdef`.
  * @note Only the inbound direction (operator's real input -> pty) is pumped
  *       by this class. The pty's *output* direction is read by whatever
  *       transport is layered on top of `read_handle()` (see

@@ -1,8 +1,5 @@
 // MIT License © 2025 Binary Dice Games
 // Tests for bdg::bison::term::terminal (Linux/MSYS2 forkpty() behavior).
-// Mirrors tests/pty_process_tests.cpp — see src/term/terminal_posix.cpp's
-// doc comment for how closely the two implementations share their spawn
-// logic.
 
 #include "src/term/terminal.hpp"
 

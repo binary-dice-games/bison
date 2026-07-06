@@ -168,7 +168,7 @@ auto ctx = std::dynamic_pointer_cast<MyContext>(obj.getUserdata());
 
 The RMI subsystem lets a client invoke methods and read/write fields on objects hosted by a server, over a transport of choice. The protocol is request/response with async futures; the server can also push events to connected clients.
 
-**Transports:** TCP socket (`socket_*_transport`), in-memory queues (`memory_*_transport`), and stdin/stdout (`stdio_*_transport`), including an interactive pty hop (`--transport=pty`), a non-interactive subprocess hop (`--transport=console`, spawns `--cmd` via libuv and pipes its stdio), and an interactive terminal hop framed as OSC-99 escape sequences for ConPTY-safe relaying (`--transport=term`, `term_*_transport`; also builds on native Windows). The `standalone` class combines client and server in-process with no serialization overhead.
+**Transports:** TCP socket (`socket_*_transport`), in-memory queues (`memory_*_transport`), and stdin/stdout (`stdio_*_transport`), including an interactive terminal hop framed as OSC-99 escape sequences for ConPTY-safe relaying (`--transport=term`, `term_*_transport`). The `standalone` class combines client and server in-process with no serialization overhead.
 
 **Server** — register classes, then listen:
 
@@ -212,7 +212,7 @@ c.disconnect();
 
 Key proxy operations: `set(fields)`, `get()`, `get(projection)`, `clear()`, `call(name, args)`, `onEvent(name, handler)`.
 
-See [docs/examples.md](docs/examples.md) for running the socket examples and for `--transport=pty`/`--transport=console`/`--transport=term` hop-mode usage on `bison-cli`/`calc-server`.
+See [docs/examples.md](docs/examples.md) for running the socket examples and for `--transport=term` hop-mode usage on `bison-cli`/`calc-server`.
 
 ## API Reference
 

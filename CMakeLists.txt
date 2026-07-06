@@ -78,10 +78,8 @@ target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
   src/rmi/transport/named_pipe_transport.cpp
-  src/rmi/transport/pipe_transport.cpp
   src/rmi/transport/socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
-  src/rmi/transport/stdio_transport.cpp
   src/rmi/transport/term_transport.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
@@ -126,15 +124,6 @@ else()
     src/pty/pty_write_raw_posix.cpp
     src/app/debugger_posix.cpp
   )
-endif()
-
-# ─── pty/console process spawning (src/pty, src/console) — Linux and MSYS2
-# only. forkpty()-based process spawning has no native Windows equivalent
-# (ConPTY-based spawning lives in src/term instead); --transport=pty and
-# --transport=console report an error on native Windows (see server_app.cpp).
-if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN))
-  target_sources(bison PRIVATE src/pty/pty_process.cpp src/console/console_process.cpp)
-  target_link_libraries(bison PRIVATE util)
 endif()
 
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────

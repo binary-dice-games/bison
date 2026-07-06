@@ -10,8 +10,7 @@
  * independent, unidirectional pipes (one for the child's output, one for its
  * input). `read_handle()`/`write_handle()` on this platform are therefore
  * two distinct fds, not the same one twice — term_transport already
- * supports that shape (its constructor takes read/write separately, exactly
- * like src/console/console_process.hpp's two-pipe case).
+ * supports that shape (its constructor takes read/write separately).
  */
 #include "src/term/terminal.hpp"
 
@@ -32,7 +31,7 @@ struct terminal_state {
   LPPROC_THREAD_ATTRIBUTE_LIST attr_list{nullptr};
   std::vector<uint8_t> attr_list_buf;
 
-  HANDLE conpty_in_write{nullptr};  // our end; write_handle_ wraps this
+  HANDLE conpty_in_write{nullptr}; // our end; write_handle_ wraps this
   HANDLE conpty_out_read{nullptr}; // our end; read_handle_ wraps this
 
   HANDLE console_in{nullptr};
@@ -59,7 +58,7 @@ COORD query_console_size() {
 } // namespace
 
 terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_state>()) {
-  HANDLE pty_in_read = nullptr;   // ConPTY's end: reads the child's stdin
+  HANDLE pty_in_read = nullptr; // ConPTY's end: reads the child's stdin
   HANDLE pty_out_write = nullptr; // ConPTY's end: writes the child's stdout
 
   SetConsoleCP(CP_UTF8);
@@ -85,13 +84,8 @@ terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_st
   if (InitializeProcThreadAttributeList(state_->attr_list, 1, 0, &attr_list_size) == 0)
     throw std::runtime_error("terminal: InitializeProcThreadAttributeList failed");
   if (UpdateProcThreadAttribute(
-          state_->attr_list,
-          0,
-          PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-          state_->hpc,
-          sizeof(HPCON),
-          nullptr,
-          nullptr) == 0) {
+          state_->attr_list, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, state_->hpc, sizeof(HPCON), nullptr, nullptr) ==
+      0) {
     DeleteProcThreadAttributeList(state_->attr_list);
     throw std::runtime_error("terminal: UpdateProcThreadAttribute failed");
   }

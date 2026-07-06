@@ -29,64 +29,11 @@
 #include <thread>
 #include <vector>
 
-// Temporary debug aid: path to append term_transport diagnostic trace logs
-// to (handle setup, handshake progress, raw read/write activity). Empty
-// (the default) disables tracing entirely. Used to diagnose ConPTY/console
-// interop issues that don't reproduce under Linux/MSYS2 and are hard to
-// observe interactively since the process under test owns the console.
-DEFINE_string(
-    trace,
-    "C:\\tmp\\bison.log",
-    "Path to append term_transport diagnostic trace logs to; empty disables tracing");
-
 namespace bdg::bison::rmi::transport {
 
 namespace {
 
-bison::synchronized<std::ofstream>& trace_file() {
-  static bison::synchronized<std::ofstream> instance;
-  return instance;
-}
-
-bool trace_open() {
-  static const bool opened = [] {
-    if (FLAGS_trace.empty())
-      return false;
-    trace_file().wlock()->open(FLAGS_trace, std::ios::app);
-    return trace_file().rlock()->is_open();
-  }();
-  return opened;
-}
-
-void trace(std::string_view tag, const std::string& msg) {
-  if (!trace_open())
-    return;
-  const auto ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  trace_file().withWLock([&](std::ofstream& f) { f << ms << " [" << tag << "] " << msg << std::endl; });
-}
-
-std::string hex_preview(const uint8_t* data, size_t len) {
-  static constexpr size_t kMax = 48;
-  std::ostringstream oss;
-  oss << "len=" << len << " bytes=\"";
-  for (size_t i = 0; i < std::min(len, kMax); ++i) {
-    const uint8_t b = data[i];
-    if (b >= 0x20 && b < 0x7f)
-      oss << static_cast<char>(b);
-    else
-      oss << "\\x" << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b) << std::dec;
-  }
-  if (len > kMax)
-    oss << "...";
-  oss << "\"";
-  return oss.str();
-}
-
-// ── Base64 (duplicated from stdio_transport.cpp's anonymous-namespace helper
-//    of the same name — not shared across translation units on purpose, to
-//    keep this file's framing changes isolated from that stable one) ────────
+// ── Base64 encoding/decoding ────────────────────────────────────────────────
 
 constexpr char kBase64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -225,13 +172,6 @@ static_assert(kChunkRawBytes > 0, "kMaxOscSequenceBytes is too small to fit any 
 
 // ── Marker framing constants (server -> client direction) ───────────────────
 //
-// Reuses stdio_transport.cpp's exact BISON<...> wire text (duplicated, same
-// rationale as the base64 helpers above): plain ASCII, no ESC byte anywhere,
-// so it can never be mis-parsed as a terminal input control sequence, and
-// ConPTY delivers it to the child exactly like typed characters. One marker
-// per whole envelope, no chunking -- matching stdio_transport's precedent,
-// since the kMaxOscSequenceBytes safety cap is specific to escape-sequence
-// relaying and doesn't apply here.
 
 constexpr std::string_view kMarkerPrefix = "BISON<";
 constexpr char kMarkerSuffix = '>';
@@ -242,9 +182,7 @@ constexpr char kMarkerSuffix = '>';
 // this only ever trips on a genuinely malformed/truncated sequence.
 constexpr size_t kMaxCaptureBytes = kMaxOscSequenceBytes * 4;
 
-// ── Connect-time handshake (verbatim reuse of stdio_transport's wire text —
-//    see its doc comment; duplicated here rather than shared across
-//    translation units, same rationale as the base64 helpers above) ─────────
+// ── Connect-time handshake  ─────────────────────────────────────────────────
 
 constexpr std::string_view kHandshakeStart = "START BISON/1.0\r\n";
 constexpr std::string_view kHandshakeOk = "BISON/1.0 OK\r\n";
@@ -266,6 +204,15 @@ constexpr size_t kHandshakeAccumCap = 256;
 constexpr std::string_view kHandshakeStartToken = kHandshakeStart.substr(0, kHandshakeStart.size() - 2);
 
 } // namespace
+
+// ── Default passthrough callbacks ───────────────────────────────────────────────
+
+void term_print_passthrough(std::string_view chunk) {
+  std::cout.write(chunk.data(), static_cast<std::streamsize>(chunk.size()));
+  std::cout.flush();
+}
+
+void term_discard_passthrough(std::string_view /*chunk*/) {}
 
 // ── term_pipe_thread: shared loop/thread lifecycle ──────────────────────────
 
@@ -300,10 +247,6 @@ struct term_pipe_thread {
       throw std::runtime_error(std::string{"term_transport: dup ("} + which + ") failed");
 
     const uv_handle_type guess = uv_guess_handle(duped_fd);
-    trace(
-        "init_pipe",
-        std::string{which} + ": fd=" + std::to_string(fd) + " duped_fd=" + std::to_string(duped_fd) +
-            " uv_guess_handle=" + uv_handle_type_name(guess));
 
     if (guess == UV_TTY) {
       const bool readable = std::strcmp(which, "read") == 0;
@@ -333,7 +276,6 @@ struct term_pipe_thread {
 #if defined(_WIN32)
       if (readable) {
         const int mode_r = uv_tty_set_mode(&handle.tty, UV_TTY_MODE_RAW);
-        trace("init_pipe", std::string{which} + ": uv_tty_set_mode(RAW) -> " + std::to_string(mode_r));
         if (mode_r != 0)
           throw std::runtime_error(
               std::string{"term_transport: uv_tty_set_mode ("} + which + ") failed: " + uv_strerror(mode_r));
@@ -350,7 +292,6 @@ struct term_pipe_thread {
     stream->data = owner;
     uv_async_init(&loop, &stop_async, on_stop);
     stop_async.data = owner;
-    trace("init_pipe", std::string{which} + ": init complete");
   }
 
   template <typename PreRun, typename PostRun>
@@ -407,7 +348,7 @@ struct term_reader {
   };
   reassembly assem;
 
-  stdio_passthrough_cb passthrough;
+  term_passthrough_cb passthrough;
   bison::synchronized<std::queue<bison::buffer>> recv_queue;
   std::atomic<bool> recv_closed{false};
 
@@ -418,7 +359,7 @@ struct term_reader {
   term_reader(const term_reader&) = delete;
   term_reader& operator=(const term_reader&) = delete;
 
-  void init(int fd, stdio_passthrough_cb cb, term_role role) {
+  void init(int fd, term_passthrough_cb cb, term_role role) {
     passthrough = std::move(cb);
     // See term_role's doc comment: a side receives the format the *other*
     // side's role sends, not its own.
@@ -616,16 +557,14 @@ struct term_reader {
   static void on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* /*buf*/) {
     auto* self = static_cast<term_reader*>(stream->data);
     if (nread < 0) {
-      trace("on_read", std::string{"error/EOF: "} + uv_strerror(static_cast<int>(nread)));
       self->recv_closed.store(true);
       self->recv_queue.notify_all();
-      self->passthrough(std::string_view{}); // signals closure; see stdio_passthrough_cb's doc comment
+      self->passthrough(std::string_view{}); // signals closure; see term_passthrough_cb's doc comment
       uv_read_stop(stream);
       return;
     }
     if (nread == 0)
       return;
-    trace("on_read", hex_preview(self->read_buf.data(), static_cast<size_t>(nread)));
     for (ssize_t i = 0; i < nread; ++i)
       self->feed_byte(self->read_buf[static_cast<size_t>(i)]);
   }
@@ -673,14 +612,12 @@ struct term_writer {
   void enqueue_bytes(std::vector<uint8_t> data) {
     if (stopped.load())
       return;
-    trace("enqueue_bytes", hex_preview(data.data(), data.size()));
     send_queue.withWLock([&](auto& q) { q.push(std::move(data)); });
     uv_async_send(&send_async);
   }
 
   static void on_send(uv_async_t* h) {
     auto* self = static_cast<term_writer*>(h->data);
-    trace("on_send", "flushing write queue");
     uv_flush_write_queue(self->send_queue, self->io.stream);
   }
 
@@ -708,14 +645,12 @@ struct term_conn_state {
 
   bison::synchronized<std::string> server_handshake_accum;
 
-  void start(int read_fd, int write_fd, stdio_passthrough_cb passthrough, term_role r) {
+  void start(int read_fd, int write_fd, term_passthrough_cb passthrough, term_role r) {
     role = r;
-    trace("term_conn_state", "start: read_fd=" + std::to_string(read_fd) + " write_fd=" + std::to_string(write_fd));
     reader.init(read_fd, std::move(passthrough), role);
     writer.init(write_fd);
     reader.start_loop();
     writer.start_loop();
-    trace("term_conn_state", "start: loops running");
   }
 
   /**
@@ -763,8 +698,7 @@ struct term_conn_state {
     writer.enqueue_bytes(std::vector<uint8_t>(bytes.begin(), bytes.end()));
   }
 
-  void client_passthrough(std::string_view chunk, const stdio_passthrough_cb& real) {
-    trace("client_passthrough", hex_preview(reinterpret_cast<const uint8_t*>(chunk.data()), chunk.size()));
+  void client_passthrough(std::string_view chunk, const term_passthrough_cb& real) {
     if (chunk.empty()) {
       real(chunk);
       return;
@@ -804,7 +738,6 @@ struct term_conn_state {
   }
 
   void watch_for_handshake_start(std::string_view chunk) {
-    trace("watch_for_handshake_start", hex_preview(reinterpret_cast<const uint8_t*>(chunk.data()), chunk.size()));
     if (chunk.empty())
       return;
     bool matched = false;
@@ -819,7 +752,6 @@ struct term_conn_state {
         accum.erase(0, accum.size() - kHandshakeAccumCap);
     });
     if (matched) {
-      trace("watch_for_handshake_start", "matched START, sending OK");
       send_raw(kHandshakeOk);
     }
   }
@@ -842,12 +774,13 @@ struct term_conn_state {
 term_client_transport::term_client_transport(
     int read_fd,
     int write_fd,
-    stdio_passthrough_cb passthrough,
+    term_passthrough_cb passthrough,
     std::chrono::milliseconds handshake_timeout)
     : state_(std::make_unique<term_conn_state>()), handshake_timeout_(handshake_timeout) {
   auto* state_ptr = state_.get();
   state_->start(
-      read_fd, write_fd,
+      read_fd,
+      write_fd,
       [state_ptr, real_passthrough = std::move(passthrough)](std::string_view chunk) {
         state_ptr->client_passthrough(chunk, real_passthrough);
       },
@@ -860,10 +793,8 @@ term_client_transport::~term_client_transport() {
 }
 
 void term_client_transport::open(bison::dynamic /*params*/) {
-  trace("open", "sending START, waiting up to " + std::to_string(handshake_timeout_.count()) + "ms for OK");
   state_->send_raw(kHandshakeStart);
   if (!state_->wait_for_client_handshake(handshake_timeout_)) {
-    trace("open", "handshake timed out");
     throw std::runtime_error(
         "term_transport: handshake timed out - sent START BISON/1.0 but got no BISON/1.0 OK "
         "from the peer (is there a bison_server --transport=term running on the other end?)");
@@ -919,7 +850,7 @@ bool term_server_connection::is_closed() const {
 
 // ── term_server_transport ─────────────────────────────────────────────────────
 
-term_server_transport::term_server_transport(int read_fd, int write_fd, stdio_passthrough_cb passthrough)
+term_server_transport::term_server_transport(int read_fd, int write_fd, term_passthrough_cb passthrough)
     : read_fd_(read_fd), write_fd_(write_fd), passthrough_(std::move(passthrough)) {}
 
 term_server_transport::~term_server_transport() {
@@ -932,7 +863,8 @@ void term_server_transport::start(bison::dynamic /*params*/) {
   state_ = std::make_shared<term_conn_state>();
   auto* state_ptr = state_.get();
   state_->start(
-      read_fd_, write_fd_,
+      read_fd_,
+      write_fd_,
       [state_ptr, real_passthrough = passthrough_](std::string_view chunk) {
         real_passthrough(chunk);
         state_ptr->watch_for_handshake_start(chunk);

@@ -78,12 +78,12 @@ TEST(TermTransport, ClientSendServerReceive) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   const buffer frame{'H', 'e', 'l', 'l', 'o'};
@@ -98,12 +98,12 @@ TEST(TermTransport, ServerSendClientReceive) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   const buffer reply{'O', 'K'};
@@ -118,12 +118,12 @@ TEST(TermTransport, EmptyFrameRoundTrip) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   client_t.send(buffer{});
@@ -140,12 +140,12 @@ TEST(TermTransport, LargeFrameSpansMultipleOscChunks) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   buffer frame;
@@ -168,12 +168,12 @@ TEST(TermTransport, LargeFrameServerToClientRoundTrip) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   buffer frame;
@@ -191,7 +191,7 @@ TEST(TermTransport, IsClosedAfterClose) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
@@ -207,7 +207,7 @@ TEST(TermTransport, ShutdownPreventsClientReceive) {
 
   write_raw(p.server_write, "BISON/1.0 OK\r\n");
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
   client_t.shutdown();
 
@@ -221,7 +221,7 @@ TEST(TermTransport, PassthroughReceivesNonOscBytes) {
 
   std::mutex m;
   std::string collected;
-  stdio_passthrough_cb collect = [&](std::string_view chunk) {
+  term_passthrough_cb collect = [&](std::string_view chunk) {
     std::lock_guard<std::mutex> lock(m);
     collected.append(chunk);
   };
@@ -246,7 +246,7 @@ TEST(TermTransport, PassthroughAndFrameCoexist) {
 
   std::mutex m;
   std::string collected;
-  stdio_passthrough_cb collect = [&](std::string_view chunk) {
+  term_passthrough_cb collect = [&](std::string_view chunk) {
     std::lock_guard<std::mutex> lock(m);
     collected.append(chunk);
   };
@@ -258,7 +258,7 @@ TEST(TermTransport, PassthroughAndFrameCoexist) {
 
   write_raw(p.client_write, "shell output\n");
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
   const buffer frame{'p', 'i', 'n', 'g'};
   client_t.send(frame);
@@ -278,7 +278,7 @@ TEST(TermTransport, MalformedOscSequenceIsDiscardedNotDelivered) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
@@ -291,7 +291,7 @@ TEST(TermTransport, MalformedOscSequenceIsDiscardedNotDelivered) {
   EXPECT_FALSE(conn->receive(received, std::chrono::milliseconds{200}));
 
   // The connection must still work normally afterwards.
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
   const buffer frame{'o', 'k'};
   client_t.send(frame);
@@ -303,7 +303,7 @@ TEST(TermTransport, StalledReassemblyDiscardedWithoutCorruptingNextEnvelope) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
@@ -316,7 +316,7 @@ TEST(TermTransport, StalledReassemblyDiscardedWithoutCorruptingNextEnvelope) {
   buffer received;
   EXPECT_FALSE(conn->receive(received, std::chrono::milliseconds{200}));
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
   const buffer frame{'f', 'r', 'e', 's', 'h'};
   client_t.send(frame);
@@ -331,7 +331,7 @@ TEST(TermTransport, ClientSendStringViewBypassesFraming) {
 
   write_raw(p.server_write, "BISON/1.0 OK\r\n");
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   // Consume the handshake's "START BISON/1.0\r\n" before checking raw echo.
@@ -357,7 +357,7 @@ TEST(TermTransport, ClientToServerWireFormatIsOsc99) {
 
   write_raw(p.server_write, "BISON/1.0 OK\r\n");
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
   // Consume the handshake's "START BISON/1.0\r\n" before checking raw wire bytes.
@@ -383,7 +383,7 @@ TEST(TermTransport, ServerToClientWireFormatIsMarker) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
 
   write_raw(p.client_write, "START BISON/1.0\r\n");
@@ -405,7 +405,7 @@ TEST(TermTransport, ServerToClientWireFormatIsMarker) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Connect-time handshake (reused verbatim from stdio_transport — see FORMAT.md)
+// Connect-time handshake (see FORMAT.md)
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST(TermTransportHandshake, OpenSendsStartAndSucceedsWhenPeerReplies) {
@@ -414,7 +414,7 @@ TEST(TermTransportHandshake, OpenSendsStartAndSucceedsWhenPeerReplies) {
 
   write_raw(p.server_write, "BISON/1.0 OK\r\n");
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   EXPECT_NO_THROW(client_t.open(dynamic{}));
 
   char buf[64]{};
@@ -427,8 +427,8 @@ TEST(TermTransportHandshake, OpenThrowsWhenNoPeerResponds) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough,
-                                  std::chrono::milliseconds{100}};
+  term_client_transport client_t{
+      p.client_read, p.client_write, term_discard_passthrough, std::chrono::milliseconds{100}};
   EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
 }
 
@@ -436,12 +436,12 @@ TEST(TermTransportHandshake, ServerRepliesOkWhenClientOpens) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   EXPECT_NO_THROW(client_t.open(dynamic{}));
 }
 
@@ -455,7 +455,7 @@ TEST(TermTransportHandshake, ServerRepliesOkWhenStartCrlfIsInterleavedWithOtherO
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  term_server_transport server_t{p.server_read, p.server_write, stdio_discard_passthrough};
+  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
 
   write_raw(p.client_write, "START BISON/1.0\x0d");
@@ -477,7 +477,7 @@ TEST(TermTransportHandshake, ShutdownSendsStop) {
 
   write_raw(p.server_write, "BISON/1.0 OK\r\n");
 
-  term_client_transport client_t{p.client_read, p.client_write, stdio_discard_passthrough};
+  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   ASSERT_NO_THROW(client_t.open(dynamic{})); // consumes "START BISON/1.0\r\n" off p.server_read
   client_t.shutdown();
 

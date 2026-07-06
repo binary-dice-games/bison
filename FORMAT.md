@@ -287,95 +287,7 @@ The length field is written using `htonl` / read using `ntohl`, i.e. standard
 network byte order (big-endian), and represents the number of bytes in the
 payload that immediately follows.
 
-### 5.2 Stdio transport
-
-The stdio transport (`stdio_client_transport` / `stdio_server_transport`,
-`src/rmi/transport/stdio_transport.hpp`) frames each envelope as a
-self-delimiting byte sequence anywhere in a text-oriented byte stream (e.g.
-a process's stdin/stdout, or a pseudo-terminal master fd):
-
-`--transport=console` (`src/console/console_process.hpp`) uses this exact
-same framing unchanged — the only difference from `--transport=pty` is
-where the fds come from: a subprocess spawned via libuv's `uv_spawn`
-instead of a pty master. There is no separate `console_*_transport`, no new
-wire format, and the connect-time handshake below behaves identically.
-
-```
-BISON<base64(envelope bytes)>
-```
-
-- The frame starts with the literal bytes `BISON<` and ends at the first
-  `>` byte that follows. `>` (`0x3E`) is not part of the base64 alphabet, so
-  it cannot appear anywhere inside a well-formed payload and is an
-  unambiguous terminator.
-- No chunking, no sequence numbers, and no dependency on `\n`/`\r\n` at
-  all — a frame can start and end anywhere in the stream, including in the
-  middle of an otherwise-unrelated line of passthrough text.
-- Every byte that is not part of a recognized `BISON<...>` sequence is
-  forwarded verbatim, as soon as it arrives, to a passthrough callback
-  (default: print to stdout). This lets the same byte stream carry both RMI
-  traffic and ordinary interactive terminal output (shell prompts, command
-  output) without buffering delay — see `src/pty/DESIGN.md`.
-- A sequence that starts with `BISON<` but whose payload fails to
-  base64-decode by the time the closing `>` is reached is treated as
-  malformed: a warning is logged and the raw text (`BISON<payload>`) is
-  handed to the passthrough callback instead of being treated as an
-  envelope.
-- When the read side closes (EOF or error), the passthrough callback is
-  invoked once more with an empty chunk as a closed-stream signal; this
-  never otherwise occurs mid-stream.
-
-#### 5.2.1 Connect-time handshake
-
-Before exchanging any `BISON<...>` frames, `stdio_client_transport::open()` runs
-a plain-text handshake so that connecting with no peer on the other end of
-the fds (a real terminal with nothing reading it, a pipe to `/dev/null`, ...)
-fails after a bounded wait instead of hanging forever:
-
-```
-Client → peer:  START BISON/1.0\r\n
-Peer → client:  BISON/1.0 OK\r\n
-```
-
-The client sends `START BISON/1.0\r\n` and waits (5 seconds by default) for
-`BISON/1.0 OK\r\n` to come back; if it doesn't arrive in time, `open()`
-throws and the connection attempt fails. `stdio_server_transport` answers
-this automatically — `START BISON/1.0` is recognized anywhere in the byte
-stream (not gated behind `accept()`/connection state) and always answered
-with `BISON/1.0 OK`, so it keeps working across every reconnect for the
-transport's whole lifetime.
-
-When the client transport shuts down, it also sends:
-
-```
-Client → peer:  STOP BISON/1.0\r\n
-```
-
-This is advisory only — the server doesn't structurally depend on seeing it;
-real server-side cleanup is already driven by the RMI-level `OP_DISCONNECT`
-request (§ current session lifecycle), which is sent first. `STOP` exists
-purely as a human-visible "the transport is going away now" marker.
-
-These three lines are intentionally plain ASCII, not `BISON<...>`-framed
-envelopes: the entire point of `--pty` mode is that an operator may be
-looking directly at the raw byte stream, so the handshake (and its failure
-mode) needs to be legible without decoding base64. `\r\n` line endings are
-deliberate too, not `\n`: the handshake always runs with the fd already in
-raw terminal mode (`OPOST` off — see `src/pty/DESIGN.md`), so nothing else
-adds the `\r` a terminal needs to return output to the left margin.
-
-`START`/`STOP` lines the server sees are left in its normal passthrough
-stream (visible to whatever's watching `--pty` output) rather than being
-consumed; `BISON/1.0 OK` on the client side is withheld from the caller's
-passthrough (so it can't be mistaken for, say, a typed REPL command).
-
-> The stdio framing protocol — including this handshake — is an
-> implementation detail of the C++ reference transport and is not required
-> for socket-based implementations.  Only the TCP framing in §5.1 and the
-> envelope format in §4 need to be implemented to interoperate over a TCP
-> connection.
-
-### 5.3 Term transport (OSC-99 client→server, `BISON<...>` server→client)
+### 5.2 Term transport (OSC-99 client→server, `BISON<...>` server→client)
 
 The term transport (`term_client_transport` / `term_server_transport`,
 `src/rmi/transport/term_transport.hpp`) is relayed through a real
@@ -413,7 +325,7 @@ platform branch: a POSIX pty passes either wire format through unmolested
 in both directions, so the same code runs unchanged on Linux/MSYS2 — it
 just only matters operationally on native Windows/ConPTY.
 
-#### 5.3.1 Client→server: OSC-99 framing
+#### 5.2.1 Client→server: OSC-99 framing
 
 Each chunk has the form:
 
@@ -447,7 +359,7 @@ i.e. `\x1b]99;<seq>;<total>;<base64(chunk)>\x07`, where:
   as window-title updates, etc.) is forwarded verbatim to a passthrough
   callback, keeping the terminal session fully interactive.
 
-#### 5.3.2 Server→client: `BISON<...>` marker framing
+#### 5.2.2 Server→client: `BISON<...>` marker framing
 
 Identical to §5.2's framing:
 
@@ -461,7 +373,7 @@ length, and this format is not an escape sequence. As with OSC-99, every
 byte that is not part of a recognized marker is forwarded verbatim to a
 passthrough callback.
 
-#### 5.3.3 Handshake
+#### 5.2.3 Handshake
 
 The connect-time handshake (`START BISON/1.0` / `BISON/1.0 OK` /
 `STOP BISON/1.0`, §5.2.1) is reused verbatim and unchanged in both

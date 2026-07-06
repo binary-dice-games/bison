@@ -11,14 +11,8 @@
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-#include "src/rmi/transport/stdio_transport.hpp"
 #include "src/rmi/transport/term_transport.hpp"
 #include "src/term/terminal.hpp"
-
-#if !defined(BISON_NATIVE_WINDOWS)
-#include "src/console/console_process.hpp"
-#include "src/pty/pty_process.hpp"
-#endif
 
 #include <gflags/gflags.h>
 
@@ -81,7 +75,7 @@ class bridged_server : public rmi::server {
 // ── Default hook implementations ──────────────────────────────────────────────
 
 void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string& line) const {
-  if (selected_transport() == transport_kind::pty || selected_transport() == transport_kind::term) {
+  if (selected_transport() == transport_kind::term) {
     // Only reachable once the pty/terminal (in run()'s pty/term branch) has
     // already put the operator's real terminal in raw mode, stripping \r
     // from plain std::cout output — write directly instead, both to correct
@@ -95,9 +89,6 @@ void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string
 
 void server_app::on_listening() const {
   switch (selected_transport()) {
-    case transport_kind::pty:
-      pty::write_raw(1, pty::to_crlf("[server_app] listening via --transport=pty -- exit the spawned shell to stop\n"));
-      return;
     case transport_kind::pipe:
       std::cout << "[server_app] listening on pipe " << FLAGS_name << " -- press Enter to stop\n" << std::flush;
       return;
@@ -105,13 +96,9 @@ void server_app::on_listening() const {
       std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port << " -- press Enter to stop\n"
                 << std::flush;
       return;
-    case transport_kind::console:
-      std::cout << "[server_app] listening via --transport=console (spawned: " << FLAGS_cmd
-                << ") -- exit the subprocess to stop\n"
-                << std::flush;
-      return;
     case transport_kind::term:
-      pty::write_raw(1, pty::to_crlf("[server_app] listening via --transport=term -- exit the spawned terminal to stop\n"));
+      pty::write_raw(
+          1, pty::to_crlf("[server_app] listening via --transport=term -- exit the spawned terminal to stop\n"));
       return;
   }
 }
@@ -161,16 +148,6 @@ int server_app::run(int argc, char** argv) {
     register_classes();
 
     switch (transport) {
-      case transport_kind::pty: {
-#if defined(BISON_NATIVE_WINDOWS)
-        throw std::runtime_error("--transport=pty is not supported on native Windows");
-#else
-        pty::pty_process pty_proc;
-        pty_proc.start_pump();
-        rmi::transport::stdio_server_transport stdio_transport{pty_proc.master_fd(), pty_proc.master_fd()};
-        return run_with_transport(stdio_transport, [&] { pty_proc.wait(); });
-#endif
-      }
       case transport_kind::pipe: {
         rmi::transport::named_pipe_server_transport pipe_transport{FLAGS_name};
         return run_with_transport(pipe_transport);
@@ -179,17 +156,6 @@ int server_app::run(int argc, char** argv) {
         auto port = static_cast<uint16_t>(FLAGS_port);
         rmi::transport::socket_server_transport socket_transport{FLAGS_host, port};
         return run_with_transport(socket_transport);
-      }
-      case transport_kind::console: {
-#if defined(BISON_NATIVE_WINDOWS)
-        throw std::runtime_error("--transport=console is not supported on native Windows");
-#else
-        if (FLAGS_cmd.empty())
-          throw std::runtime_error("--transport=console requires --cmd");
-        console::console_process console_proc{FLAGS_cmd};
-        rmi::transport::stdio_server_transport stdio_transport{console_proc.read_fd(), console_proc.write_fd()};
-        return run_with_transport(stdio_transport, [&] { console_proc.wait(); });
-#endif
       }
       case transport_kind::term: {
         term::terminal term_proc{FLAGS_cmd};

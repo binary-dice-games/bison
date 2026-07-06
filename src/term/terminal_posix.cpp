@@ -1,9 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file terminal_posix.cpp
- * @brief Linux/MSYS2 implementation of terminal using forkpty(). Spawn logic
- *        mirrors src/pty/pty_process.cpp; see that file's comments for the
- *        raw-mode/termios rationale, which applies unchanged here.
+ * @brief Linux/MSYS2 implementation of terminal using forkpty().
  */
 #include "src/term/terminal.hpp"
 
@@ -62,8 +60,7 @@ terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_st
   write_handle_ = master_fd;
   state_->child_pid = pid;
 
-  // Raw mode applies to our own real terminal (fd 0), not the pty slave —
-  // see pty_process.cpp's identical block for the full rationale.
+  // Raw mode applies to our own real terminal (fd 0), not the pty slave
   if (tcgetattr(STDIN_FILENO, &state_->saved_termios) == 0) {
     state_->termios_saved = true;
     struct termios raw = state_->saved_termios;
