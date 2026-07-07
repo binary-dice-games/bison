@@ -90,6 +90,7 @@ target_sources(bison PRIVATE
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
   src/app/transport_flags.cpp
+  src/term/scoped_terminal_config.cpp
   src/pty/crlf_output_guard.cpp
   src/pty/pty_write.cpp
 )
@@ -106,6 +107,7 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
   target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS)
   target_sources(bison PRIVATE
     src/term/terminal_win.cpp
+    src/term/scoped_terminal_config_win.cpp
     src/rmi/transport/fd_dup_win.cpp
     src/rmi/transport/socket_dup_win.cpp
     src/pty/raw_mode_guard_win.cpp
@@ -118,6 +120,7 @@ else()
   endif()
   target_sources(bison PRIVATE
     src/term/terminal_posix.cpp
+    src/term/scoped_terminal_config_posix.cpp
     src/rmi/transport/fd_dup_posix.cpp
     src/rmi/transport/socket_dup_posix.cpp
     src/pty/raw_mode_guard_posix.cpp
