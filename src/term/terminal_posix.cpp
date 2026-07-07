@@ -158,7 +158,7 @@ int terminal::wait() {
 }
 
 void terminal::print(const std::string& line) {
-  const std::string bytes = to_crlf(line + "\n");
+  const std::string bytes = to_crlf(line);
   size_t written = 0;
   while (written < bytes.size()) {
     const ssize_t n = write(STDOUT_FILENO, bytes.data() + written, bytes.size() - written);
