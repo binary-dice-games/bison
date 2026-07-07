@@ -797,23 +797,76 @@ class dynamic {
   virtual ~dynamic() {}
 
   /**
-   * @brief Return a deep copy of this object.
+   * @brief Copy this object's fields, methods, userdata and factory into
+   *        @p dst, recursively cloning nested `dynamic_ptr` fields via their
+   *        own (virtual) `clone_ptr()`.
    *
-   * All fields are copied; nested `dynamic_ptr` fields are recursively cloned
-   * so the result shares no mutable state with the original.  Methods are
-   * copied by value (their `method_fn` callables are shared, which is safe
-   * since they are immutable).  The `userdata` pointer is shallow-copied.
+   * Shared building block for `clone_ptr()` overrides: a subclass override
+   * only needs to allocate a fresh instance of its own concrete type and
+   * hand it to this method to fill in, rather than re-implementing the
+   * field-copying/recursion logic itself.
+   *
+   * @param dst  Freshly constructed object to copy this object's state into.
    */
-  inline dynamic clone() const {
-    dynamic copy{static_cast<const dynamic&>(*this)};
-    for (auto& kv : copy.fields_) {
+  inline void clone_into(dynamic& dst) const {
+    dst.fields_ = fields_;
+    dst.methods_ = methods_;
+    dst.userdata_ = userdata_;
+    dst.factory_ = factory_;
+    dst.field_lookup_.clear();
+    for (auto& kv : dst.fields_) {
       if (kv.second.is<dynamic_ptr>()) {
         auto& ptr = kv.second.as<dynamic_ptr>();
         if (ptr != nullptr)
-          ptr = dynamic_ptr{std::make_shared<dynamic>(ptr->clone())};
+          ptr = ptr->clone_ptr();
       }
     }
-    return copy;
+  }
+
+  /**
+   * @brief Return a deep copy of this object as a `dynamic_ptr`, preserving
+   *        the concrete C++ type at every level of the tree.
+   *
+   * Unlike `clone()` (which returns `dynamic` by value and therefore slices
+   * any subclass identity at the top level), `clone_ptr()` is virtual: a
+   * subclass with extra behavior (but no extra data members beyond bison
+   * fields — the common case for `dynamic` subclasses in this codebase)
+   * should override it to allocate a fresh instance of its own type and
+   * delegate to `clone_into()`, e.g.:
+   * ```cpp
+   * dynamic_ptr clone_ptr() const override {
+   *   dynamic_ptr result{std::make_shared<my_subclass>(dynamic{})};
+   *   clone_into(*result);
+   *   return result;
+   * }
+   * ```
+   * The base implementation (used when no override exists) allocates a plain
+   * `dynamic`. Because nested `dynamic_ptr` fields are cloned by calling
+   * `clone_ptr()` on the child (not `clone()` wrapped in a fresh plain
+   * `dynamic`), every level of a cloned tree preserves its original
+   * subclass, so `dynamic_cast` to that subclass keeps working on the clone.
+   */
+  virtual dynamic_ptr clone_ptr() const {
+    dynamic_ptr result{std::make_shared<dynamic>()};
+    clone_into(*result);
+    return result;
+  }
+
+  /**
+   * @brief Return a deep copy of this object.
+   *
+   * All fields are copied; nested `dynamic_ptr` fields are recursively cloned
+   * (via `clone_ptr()`, so their concrete subclass type is preserved) so the
+   * result shares no mutable state with the original.  Methods are copied by
+   * value (their `method_fn` callables are shared, which is safe since they
+   * are immutable).  The `userdata` pointer is shallow-copied.
+   *
+   * The top-level return is `dynamic` by value, so callers that need a typed
+   * root (e.g. a tree whose root itself is a registered subclass) should call
+   * `clone_ptr()` directly and downcast instead.
+   */
+  inline dynamic clone() const {
+    return std::move(*clone_ptr());
   }
 
   /**

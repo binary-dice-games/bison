@@ -1672,6 +1672,70 @@ struct BarChild : public dynamic {
   explicit BarChild(dynamic&& b) : dynamic(std::move(b)) {}
 };
 
+// ── clone_ptr(): virtual clone preserves subclass identity ──────────────────
+
+// A dynamic subclass that opts into type-preserving cloning by overriding
+// clone_ptr() and delegating the field-copy work to clone_into().
+struct CloningWidget : public dynamic {
+  int tag = 0;
+  explicit CloningWidget(dynamic&& base) : dynamic(std::move(base)) {}
+
+  dynamic_ptr clone_ptr() const override {
+    dynamic_ptr result{std::make_shared<CloningWidget>(dynamic{})};
+    clone_into(*result);
+    static_cast<CloningWidget&>(*result).tag = tag;
+    return result;
+  }
+};
+
+TEST(DynamicTests, CloneWithoutOverrideSlicesNestedSubclass) {
+  // FooChild does not override clone_ptr(), so the base implementation's
+  // fallback (plain `dynamic`) applies — this documents today's default,
+  // opt-in-only behavior rather than asserting it is desirable.
+  dynamic parent;
+  parent["child"_key] = dynamic_ptr(std::make_shared<FooChild>(dynamic::instantiate(bison_key_t{0U})));
+
+  dynamic copy = parent.clone();
+  auto cloned_child = copy["child"_key].as<dynamic_ptr>();
+  ASSERT_NE(cloned_child, nullptr);
+  EXPECT_EQ(dynamic_cast<FooChild*>(cloned_child.get()), nullptr);
+}
+
+TEST(DynamicTests, ClonePtrPreservesSubclassAtEveryDepth) {
+  auto grandchild = std::make_shared<CloningWidget>(dynamic::instantiate(bison_key_t{0U}));
+  grandchild->tag = 3;
+  (*grandchild)["v"_key] = int32_t{30};
+
+  auto child = std::make_shared<CloningWidget>(dynamic::instantiate(bison_key_t{0U}));
+  child->tag = 2;
+  (*child)["grandchild"_key] = dynamic_ptr{grandchild};
+
+  auto root = std::make_shared<CloningWidget>(dynamic::instantiate(bison_key_t{0U}));
+  root->tag = 1;
+  (*root)["child"_key] = dynamic_ptr{child};
+
+  dynamic_ptr cloned = root->clone_ptr();
+
+  auto* cloned_root = dynamic_cast<CloningWidget*>(cloned.get());
+  ASSERT_NE(cloned_root, nullptr);
+  EXPECT_EQ(cloned_root->tag, 1);
+
+  auto cloned_child_field = (*cloned_root)["child"_key].as<dynamic_ptr>();
+  auto* cloned_child = dynamic_cast<CloningWidget*>(cloned_child_field.get());
+  ASSERT_NE(cloned_child, nullptr);
+  EXPECT_EQ(cloned_child->tag, 2);
+
+  auto cloned_grandchild_field = (*cloned_child)["grandchild"_key].as<dynamic_ptr>();
+  auto* cloned_grandchild = dynamic_cast<CloningWidget*>(cloned_grandchild_field.get());
+  ASSERT_NE(cloned_grandchild, nullptr);
+  EXPECT_EQ(cloned_grandchild->tag, 3);
+  EXPECT_EQ((*cloned_grandchild)["v"_key].as<int32_t>(), 30);
+
+  // Mutating the clone must not affect the original.
+  (*cloned_grandchild)["v"_key] = int32_t{999};
+  EXPECT_EQ((*grandchild)["v"_key].as<int32_t>(), 30);
+}
+
 class SubclassTest : public ::testing::Test {
  protected:
   void SetUp() override {
