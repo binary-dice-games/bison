@@ -101,8 +101,9 @@ TEST_F(BridgeTest, InstantiateCreatesObjectOnUpstream) {
   {
     auto lp = upstream_srv_->session_contexts().rlock();
     bool found = false;
-    for (auto& [id, ctx] : *lp) {
-      if (!ctx->objects.empty()) {
+    for (auto& [id, holder] : *lp) {
+      auto clp = holder->rlock();
+      if (!(*clp)->objects.empty()) {
         found = true;
         break;
       }
@@ -128,8 +129,9 @@ TEST_F(BridgeTest, DestroyRemovesObjectFromUpstream) {
   // After destroy the upstream should have no objects.
   {
     auto lp = upstream_srv_->session_contexts().rlock();
-    for (auto& [id, ctx] : *lp) {
-      EXPECT_TRUE(ctx->objects.empty()) << "upstream session still holds objects after destroy";
+    for (auto& [id, holder] : *lp) {
+      auto clp = holder->rlock();
+      EXPECT_TRUE((*clp)->objects.empty()) << "upstream session still holds objects after destroy";
     }
   }
 
@@ -248,12 +250,13 @@ TEST_F(BridgeTest, EventRoutedToCorrectClient) {
   // that corresponds to c1's proxy1.  Find it via upstream session_contexts.
   {
     auto lp = upstream_srv_->session_contexts().rlock();
-    for (auto& [id, ctx] : *lp) {
-      if (!ctx->objects.empty() && ctx->emit_event) {
+    for (auto& [id, holder] : *lp) {
+      auto clp = holder->rlock();
+      if (!(*clp)->objects.empty() && (*clp)->emit_event) {
         // There are two upstream objects (one per downstream proxy).
         // Emit for the first object we find.
-        auto it = ctx->objects.begin();
-        ctx->emit_event(it->first, "onTick"_key, dynamic{});
+        auto it = (*clp)->objects.begin();
+        (*clp)->emit_event(it->first, "onTick"_key, dynamic{});
         break;
       }
     }

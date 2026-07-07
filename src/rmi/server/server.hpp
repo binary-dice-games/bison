@@ -108,24 +108,41 @@ class server {
   void stop();
 
   /**
+   * @brief Per-session context holder: an individually lockable slot in
+   *        `session_contexts_`.
+   *
+   * The `context` is held behind a `unique_ptr` (rather than embedded
+   * directly in the `synchronized<>`) so that `on_create_context` may return
+   * a polymorphic subclass without slicing -- `bison::synchronized<T>` stores
+   * `T` by value, so `synchronized<context>` could never hold a derived type,
+   * but `synchronized<unique_ptr<context>>` can.
+   */
+  using context_holder = std::shared_ptr<bison::synchronized<std::unique_ptr<context>>>;
+
+  /**
    * @brief Return a reference to the map of active session contexts.
    *
-   * The map is keyed by session-ID hash.  Each value is a
-   * `shared_ptr<context>` that remains valid as long as the connection is
-   * open; the pointer is removed from the map when the connection closes.
+   * The map is keyed by session-ID hash.  Each value is a `context_holder`
+   * that remains valid as long as the connection is open; the pointer is
+   * removed from the map when the connection closes.
    *
-   * Access the map safely from any thread via `rlock()` and `wlock()`:
+   * Each entry is individually lockable, so external readers never race the
+   * owning worker thread's per-request dispatch:
    * @code
    *   auto lp = srv.session_contexts().rlock();
-   *   for (auto& [id, ctx] : *lp) { ... }
+   *   for (auto& [id, holder] : *lp) {
+   *     auto clp = holder->rlock();   // lock this one context
+   *     const context& ctx = **clp;   // dereference the unique_ptr
+   *     ...
+   *   }
    * @endcode
    */
-  bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<context>>>& session_contexts() {
+  bison::synchronized<std::unordered_map<bison::hash_t, context_holder>>& session_contexts() {
     return session_contexts_;
   }
 
   /** @brief Const overload of `session_contexts()`. */
-  const bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<context>>>& session_contexts() const {
+  const bison::synchronized<std::unordered_map<bison::hash_t, context_holder>>& session_contexts() const {
     return session_contexts_;
   }
 
@@ -210,6 +227,26 @@ class server {
   virtual bison::dynamic_ptr on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) {
     (void)ctx;
     return bison::dynamic::create_instance(ns, klass);
+  }
+
+  /**
+   * @brief Factory hook called once per connection to construct the
+   *        session's `context` object.
+   *
+   * The default implementation constructs a plain `context`.  Override to
+   * return an application-specific subclass with extra per-session state
+   * (e.g. `wish::server` returns a `wish::context`).  The returned object is
+   * immediately wrapped in its own lockable slot and inserted into
+   * `session_contexts_` before `on_session_created` fires.
+   *
+   * Called from the session worker thread, before the context is registered
+   * or locked by anything else.
+   *
+   * @param session_id Freshly generated identifier for the new session.
+   * @return Heap-allocated `context` (or subclass) for the new session.
+   */
+  virtual std::unique_ptr<context> on_create_context(bison::key_t session_id) {
+    return std::make_unique<context>(session_id);
   }
 
   /**
@@ -353,7 +390,7 @@ class server {
 
   bison::synchronized<std::vector<std::thread>> workers_;
 
-  bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<context>>> session_contexts_;
+  bison::synchronized<std::unordered_map<bison::hash_t, context_holder>> session_contexts_;
 };
 
 } // namespace bdg::bison::rmi

@@ -285,26 +285,33 @@ void server::accept_loop() {
  * @param conn Active connection object.
  */
 void server::client_worker(std::unique_ptr<transport::server_connection_iface> conn) {
-  auto ctx_ptr = std::make_shared<context>();
-  context& ctx = *ctx_ptr;
-  ctx.session_id = shared::generate_id();
-  ctx.emit_event = [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
-    bison::dynamic ev_payload;
-    ev_payload[FIELD_NAME] = name;
-    ev_payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
-    shared::envelope event_env;
-    event_env.kind = KIND_EVENT;
-    event_env.op = OP_EVENT;
-    event_env.object_id = oid;
-    event_env.oneway = true;
-    event_env.payload = std::move(ev_payload);
-    auto frame = event_env.encode();
-    conn->send(std::move(frame));
-  };
+  auto session_id = shared::generate_id();
+  auto ctx_holder = std::make_shared<bison::synchronized<std::unique_ptr<context>>>(
+      std::in_place, on_create_context(session_id));
+
+  {
+    auto lp = ctx_holder->wlock();
+    (*lp)->emit_event = [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
+      bison::dynamic ev_payload;
+      ev_payload[FIELD_NAME] = name;
+      ev_payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
+      shared::envelope event_env;
+      event_env.kind = KIND_EVENT;
+      event_env.op = OP_EVENT;
+      event_env.object_id = oid;
+      event_env.oneway = true;
+      event_env.payload = std::move(ev_payload);
+      auto frame = event_env.encode();
+      conn->send(std::move(frame));
+    };
+  }
 
   // Register the context so external observers can access it.
-  session_contexts_.wlock()->emplace(ctx.session_id.id, ctx_ptr);
-  on_session_created(ctx);
+  session_contexts_.wlock()->emplace(session_id.id, ctx_holder);
+  {
+    auto lp = ctx_holder->wlock();
+    on_session_created(**lp);
+  }
 
   while (running_.load(std::memory_order_acquire) && !conn->is_closed()) {
     bison::buffer frame;
@@ -332,24 +339,32 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
       continue;
     }
 
-    on_before_dispatch(ctx);
-    try {
-      handle_request(ctx, env, *conn);
-      on_after_dispatch(ctx);
-    } catch (const std::exception& e) {
-      on_after_dispatch(ctx);
+    {
+      auto lp = ctx_holder->wlock();
+      context& ctx = **lp;
+      on_before_dispatch(ctx);
       try {
-        send_error(ctx, *conn, env, env.op, ERR_INVALID_REQUEST, e.what());
-      } catch (...) {
+        handle_request(ctx, env, *conn);
+        on_after_dispatch(ctx);
+      } catch (const std::exception& e) {
+        on_after_dispatch(ctx);
+        try {
+          send_error(ctx, *conn, env, env.op, ERR_INVALID_REQUEST, e.what());
+        } catch (...) {
+        }
       }
     }
   }
 
-  on_session_destroyed(ctx);
-  cleanup_context(ctx);
+  {
+    auto lp = ctx_holder->wlock();
+    context& ctx = **lp;
+    on_session_destroyed(ctx);
+    cleanup_context(ctx);
+  }
 
   // Unregister and clear emit_event to prevent dangling references to conn.
-  session_contexts_.wlock()->erase(ctx.session_id.id);
+  session_contexts_.wlock()->erase(session_id.id);
 }
 
 // ── Envelope helpers

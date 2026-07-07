@@ -16,8 +16,18 @@ namespace bdg::bison::rmi {
 
 /**
  * @brief Mutable context owned by a server worker for one client session.
+ *
+ * Polymorphic: subclasses may attach application-specific per-session state.
+ * See `server::on_create_context` for the extension point.
  */
 struct context {
+  context() = default;
+
+  /** @brief Construct with a known session id. */
+  explicit context(bison::key_t session_id) : session_id(session_id) {}
+
+  virtual ~context() = default;
+
   /** @brief Unique session identifier for the connected client. */
   bison::key_t session_id;
 
