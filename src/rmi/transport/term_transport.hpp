@@ -65,7 +65,7 @@ void term_print_passthrough(std::string_view chunk);
 /** @brief Default passthrough: discard the chunk. */
 void term_discard_passthrough(std::string_view chunk);
 
-/** @brief Default wait for open()'s connect-time handshake; see its doc comment. */
+/** @brief Default wait for the first confirming frame after open(); see is_connected()'s doc comment. */
 inline constexpr std::chrono::milliseconds kDefaultHandshakeTimeout{1000};
 
 /**
@@ -94,8 +94,9 @@ class term_client_transport : public client_transport_iface {
    * @param read_fd           Fd to read peer bytes from.
    * @param write_fd          Fd to write frames and pass-through bytes to.
    * @param passthrough       Called with non-OSC-99 bytes read from `read_fd`.
-   * @param handshake_timeout How long `open()` waits for `BISON/1.0 OK`
-   *                          before giving up.
+   * @param handshake_timeout How long, after `open()`, `is_connected()`
+   *                          keeps reporting `true` while no frame has yet
+   *                          been received from the peer.
    */
   term_client_transport(
       int read_fd,
@@ -105,11 +106,11 @@ class term_client_transport : public client_transport_iface {
   ~term_client_transport() override;
 
   /**
-   * @brief Starts the background I/O loops, then runs the connect-time
-   *        handshake: sends `START BISON/1.0\r\n` and blocks until either
-   *        `BISON/1.0 OK\r\n` arrives from the peer or `handshake_timeout`
-   *        elapses.
-   * @throws std::runtime_error if no `BISON/1.0 OK` arrives in time.
+   * @brief Arms the `is_connected()` deadline (see its doc comment). The
+   *        background I/O loops are already running (started at
+   *        construction time) — real connect confirmation is the caller's
+   *        `OP_CONNECT` request/response round trip over the now-live
+   *        OSC-99/marker channel, not anything done here.
    */
   void open(bison::dynamic params) override;
 
@@ -128,14 +129,27 @@ class term_client_transport : public client_transport_iface {
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout = std::chrono::milliseconds{5000}) override;
 
   /**
-   * @brief Sends `STOP BISON/1.0\r\n` (best-effort) then stops the
-   *        background I/O loops; pending and future receives return `false`.
+   * @brief Stops the background I/O loops; pending and future receives
+   *        return `false`. The caller (`client::disconnect()`) sends
+   *        `OP_DISCONNECT` over the normal frame path before calling this.
    */
   void shutdown() override;
+
+  /**
+   * @brief `false` once the peer's read side has closed, or once
+   *        `handshake_timeout` (passed to the constructor) has elapsed
+   *        since `open()` without any frame ever having been received from
+   *        the peer; `true` otherwise. This is what gives a `connect()`
+   *        against a dead/nonexistent peer a bounded failure instead of
+   *        hanging: `client::worker_loop()` treats a `false` result here as
+   *        a transport failure and fails the pending `OP_CONNECT` future.
+   */
+  bool is_connected() const override;
 
  private:
   std::unique_ptr<term_conn_state> state_;
   std::chrono::milliseconds handshake_timeout_;
+  std::chrono::steady_clock::time_point connect_deadline_;
 };
 
 // ── Server-side connection ────────────────────────────────────────────────────

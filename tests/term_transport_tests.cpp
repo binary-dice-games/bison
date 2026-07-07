@@ -205,8 +205,6 @@ TEST(TermTransport, ShutdownPreventsClientReceive) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  write_raw(p.server_write, "BISON/1.0 OK\r\n");
-
   term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
   client_t.shutdown();
@@ -329,22 +327,15 @@ TEST(TermTransport, ClientSendStringViewBypassesFraming) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  write_raw(p.server_write, "BISON/1.0 OK\r\n");
-
   term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
 
-  // Consume the handshake's "START BISON/1.0\r\n" before checking raw echo.
+  client_t.send(std::string_view{"raw echo"});
+
   char buf[64]{};
   const auto n = read_raw(p.server_read, buf, sizeof(buf));
   ASSERT_GT(n, 0);
-
-  client_t.send(std::string_view{"raw echo"});
-
-  char buf2[64]{};
-  const auto n2 = read_raw(p.server_read, buf2, sizeof(buf2));
-  ASSERT_GT(n2, 0);
-  EXPECT_EQ(std::string(buf2, static_cast<size_t>(n2)), "raw echo");
+  EXPECT_EQ(std::string(buf, static_cast<size_t>(n)), "raw echo");
 }
 
 TEST(TermTransport, ClientToServerWireFormatIsOsc99) {
@@ -355,15 +346,8 @@ TEST(TermTransport, ClientToServerWireFormatIsOsc99) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  write_raw(p.server_write, "BISON/1.0 OK\r\n");
-
   term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
   client_t.open(dynamic{});
-
-  // Consume the handshake's "START BISON/1.0\r\n" before checking raw wire bytes.
-  char handshake_buf[64]{};
-  const auto handshake_n = read_raw(p.server_read, handshake_buf, sizeof(handshake_buf));
-  ASSERT_GT(handshake_n, 0);
 
   client_t.send(buffer{'p', 'i', 'n', 'g'});
   char c2s_buf[256]{};
@@ -386,14 +370,8 @@ TEST(TermTransport, ServerToClientWireFormatIsMarker) {
   term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
   server_t.start(dynamic{});
 
-  write_raw(p.client_write, "START BISON/1.0\r\n");
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
-
-  // Consume the handshake's "BISON/1.0 OK\r\n" before checking raw wire bytes.
-  char handshake_buf[64]{};
-  const auto handshake_n = read_raw(p.client_read, handshake_buf, sizeof(handshake_buf));
-  ASSERT_GT(handshake_n, 0);
 
   conn->send(buffer{'p', 'o', 'n', 'g'});
   char s2c_buf[256]{};
@@ -405,34 +383,34 @@ TEST(TermTransport, ServerToClientWireFormatIsMarker) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Connect-time handshake (see FORMAT.md)
+// Connect timeout (is_connected(); see FORMAT.md §5.2.3)
 // ═════════════════════════════════════════════════════════════════════════════
 
-TEST(TermTransportHandshake, OpenSendsStartAndSucceedsWhenPeerReplies) {
+TEST(TermTransportConnect, IsConnectedStaysTrueBeforeDeadlineWithNoFrame) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
-  write_raw(p.server_write, "BISON/1.0 OK\r\n");
-
-  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
-  EXPECT_NO_THROW(client_t.open(dynamic{}));
-
-  char buf[64]{};
-  const auto n = read_raw(p.server_read, buf, sizeof(buf));
-  ASSERT_GT(n, 0);
-  EXPECT_EQ(std::string(buf, static_cast<size_t>(n)), "START BISON/1.0\r\n");
+  term_client_transport client_t{
+      p.client_read, p.client_write, term_discard_passthrough, std::chrono::milliseconds{2000}};
+  client_t.open(dynamic{});
+  EXPECT_TRUE(client_t.is_connected());
 }
 
-TEST(TermTransportHandshake, OpenThrowsWhenNoPeerResponds) {
+TEST(TermTransportConnect, IsConnectedBecomesFalseAfterDeadlineWithNoFrame) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
   term_client_transport client_t{
       p.client_read, p.client_write, term_discard_passthrough, std::chrono::milliseconds{100}};
-  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+  client_t.open(dynamic{});
+
+  for (int i = 0; i < 100 && client_t.is_connected(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+
+  EXPECT_FALSE(client_t.is_connected());
 }
 
-TEST(TermTransportHandshake, ServerRepliesOkWhenClientOpens) {
+TEST(TermTransportConnect, IsConnectedStaysTrueAfterDeadlineOnceAFrameArrived) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
@@ -441,52 +419,14 @@ TEST(TermTransportHandshake, ServerRepliesOkWhenClientOpens) {
   auto conn = server_t.accept();
   ASSERT_TRUE(conn != nullptr);
 
-  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
-  EXPECT_NO_THROW(client_t.open(dynamic{}));
-}
+  term_client_transport client_t{
+      p.client_read, p.client_write, term_discard_passthrough, std::chrono::milliseconds{100}};
+  client_t.open(dynamic{});
+  conn->send(buffer{'o', 'k'});
 
-TEST(TermTransportHandshake, ServerRepliesOkWhenStartCrlfIsInterleavedWithOtherOutput) {
-  // Regression test: on term transport, the server's read side is the
-  // spawned shell's conout, which the shell itself (e.g. cmd.exe's window-
-  // title OSC updates) may also write to. Those writes can land between the
-  // client's "\r" and "\n", so the accepted client "START BISON/1.0" write
-  // must still be recognized even when its trailing CRLF is split by
-  // unrelated bytes -- see kHandshakeStartToken's doc comment.
-  duplex_pipes p{};
-  ASSERT_TRUE(make_duplex_pipes(p));
+  buffer received;
+  ASSERT_TRUE(client_t.receive(received, std::chrono::milliseconds{2000}));
 
-  term_server_transport server_t{p.server_read, p.server_write, term_discard_passthrough};
-  server_t.start(dynamic{});
-
-  write_raw(p.client_write, "START BISON/1.0\x0d");
-  write_raw(p.client_write, "\x1b]0;C:\\Windows\\SYSTEM32\\cmd.exe\x07");
-  write_raw(p.client_write, "\x0a");
-
-  auto conn = server_t.accept(std::chrono::milliseconds{2000});
-  ASSERT_TRUE(conn != nullptr);
-
-  char buf[64]{};
-  const auto n = read_raw(p.client_read, buf, sizeof(buf));
-  ASSERT_GT(n, 0);
-  EXPECT_EQ(std::string(buf, static_cast<size_t>(n)), "BISON/1.0 OK\r\n");
-}
-
-TEST(TermTransportHandshake, ShutdownSendsStop) {
-  duplex_pipes p{};
-  ASSERT_TRUE(make_duplex_pipes(p));
-
-  write_raw(p.server_write, "BISON/1.0 OK\r\n");
-
-  term_client_transport client_t{p.client_read, p.client_write, term_discard_passthrough};
-  ASSERT_NO_THROW(client_t.open(dynamic{})); // consumes "START BISON/1.0\r\n" off p.server_read
-  client_t.shutdown();
-
-  std::string received;
-  char buf[64]{};
-  while (received.find("STOP BISON/1.0\r\n") == std::string::npos) {
-    const auto n = read_raw(p.server_read, buf, sizeof(buf));
-    ASSERT_GT(n, 0);
-    received.append(buf, static_cast<size_t>(n));
-  }
-  EXPECT_NE(received.find("STOP BISON/1.0\r\n"), std::string::npos);
+  std::this_thread::sleep_for(std::chrono::milliseconds{150}); // past the 100ms deadline
+  EXPECT_TRUE(client_t.is_connected());
 }

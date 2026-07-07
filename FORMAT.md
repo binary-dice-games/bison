@@ -373,19 +373,17 @@ length, and this format is not an escape sequence. As with OSC-99, every
 byte that is not part of a recognized marker is forwarded verbatim to a
 passthrough callback.
 
-#### 5.2.3 Handshake
+#### 5.2.3 Connect / disconnect
 
-The connect-time handshake (`START BISON/1.0` / `BISON/1.0 OK` /
-`STOP BISON/1.0`, §5.2.1) is reused verbatim and unchanged in both
-directions — plain ASCII, not OSC-99-framed, for the same reasons given
-there. One difference from §5.2's server: because the term server's read
-side is the spawned shell's conout, which the shell itself (and any other
-child process using it) also writes to, the server recognizes a client's
-`START BISON/1.0` by its literal 16-byte token alone, without requiring the
-trailing `\r\n` to be contiguous with it — an unrelated write landing on
-that shared stream (e.g. cmd.exe's own `ESC ] 0 ; <title> BEL` window-title
-updates) can otherwise interleave between the `\r` and the `\n` and cause
-an exact-literal match to miss.
+Term transport has no transport-level handshake. `"connect"`/`"disconnect"`
+(§4.3) are ordinary envelopes sent through the normal client/server RMI
+round trip (`client::connect()`/`client::disconnect()`), carried over the
+same §5.2.1/§5.2.2 framing as every other operation — a `"connect"`
+request is one more OSC-99 sequence client→server, its response one more
+`BISON<...>` marker server→client. The transport's `open()` performs no
+I/O; it only arms a timeout so that a client with no live peer on the
+other end fails the connect call instead of hanging (see
+`term_client_transport::is_connected()`'s doc comment).
 
 ---
 

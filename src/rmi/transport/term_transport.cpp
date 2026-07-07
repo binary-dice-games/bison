@@ -198,27 +198,6 @@ constexpr char kMarkerSuffix = '>';
 // this only ever trips on a genuinely malformed/truncated sequence.
 constexpr size_t kMaxCaptureBytes = kMaxOscSequenceBytes * 4;
 
-// ── Connect-time handshake  ─────────────────────────────────────────────────
-
-constexpr std::string_view kHandshakeStart = "START BISON/1.0\r\n";
-constexpr std::string_view kHandshakeOk = "BISON/1.0 OK\r\n";
-constexpr std::string_view kHandshakeStop = "STOP BISON/1.0\r\n";
-constexpr size_t kHandshakeAccumCap = 256;
-
-// Token-only (no trailing "\r\n") match used solely by the server's
-// watch_for_handshake_start(), below. The server's read side is the spawned
-// shell's conout, which the shell itself (and any other child processes)
-// also write to -- e.g. cmd.exe emits its own `ESC ] 0 ; <title> BEL`
-// window-title updates on that same stream. Those writes can interleave
-// with the client's "START BISON/1.0\r\n" write at an arbitrary byte
-// boundary, so the trailing "\r\n" is not guaranteed to arrive contiguous
-// with the token; requiring the full literal (including "\r\n") caused
-// intermittent handshake-timeout failures when a title update landed
-// between the "\r" and the "\n". The client's own accum.find(kHandshakeOk)
-// below has no such risk: conin is written only by this transport's peer,
-// never shared with another process.
-constexpr std::string_view kHandshakeStartToken = kHandshakeStart.substr(0, kHandshakeStart.size() - 2);
-
 } // namespace
 
 // ── Default passthrough callbacks ───────────────────────────────────────────────
@@ -347,6 +326,9 @@ struct term_reader {
   term_passthrough_cb passthrough;
   bison::synchronized<std::queue<bison::buffer>> recv_queue;
   std::atomic<bool> recv_closed{false};
+  // Set the moment any frame is ever delivered to recv_queue; see
+  // term_client_transport::is_connected()'s doc comment.
+  std::atomic<bool> received_any{false};
 
   term_reader() = default;
   ~term_reader() {
@@ -484,6 +466,7 @@ struct term_reader {
       return;
     }
     recv_queue.withWLock([&](auto& q) { q.push(std::move(*decoded)); });
+    received_any.store(true);
     recv_queue.notify_one();
   }
 
@@ -537,6 +520,7 @@ struct term_reader {
     ++assem.expected_seq;
     if (assem.expected_seq == assem.total) {
       recv_queue.withWLock([&](auto& q) { q.push(std::move(assem.buf)); });
+      received_any.store(true);
       recv_queue.notify_one();
       assem = reassembly{};
     }
@@ -633,14 +617,6 @@ struct term_conn_state {
   std::atomic<bool> closed{false};
   term_role role{term_role::client};
 
-  struct client_handshake_state {
-    bool done = false;
-    std::string accum;
-  };
-  bison::synchronized<client_handshake_state> client_handshake;
-
-  bison::synchronized<std::string> server_handshake_accum;
-
   void start(int read_fd, int write_fd, term_passthrough_cb passthrough, term_role r) {
     role = r;
     reader.init(read_fd, std::move(passthrough), role);
@@ -694,64 +670,6 @@ struct term_conn_state {
     writer.enqueue_bytes(std::vector<uint8_t>(bytes.begin(), bytes.end()));
   }
 
-  void client_passthrough(std::string_view chunk, const term_passthrough_cb& real) {
-    if (chunk.empty()) {
-      real(chunk);
-      return;
-    }
-    bool already_done = false;
-    bool just_resolved = false;
-    std::string leftover;
-    client_handshake.withWLock([&](auto& hs) {
-      if (hs.done) {
-        already_done = true;
-        return;
-      }
-      hs.accum.append(chunk);
-      const auto pos = hs.accum.find(kHandshakeOk);
-      if (pos != std::string::npos) {
-        hs.done = true;
-        just_resolved = true;
-        leftover = hs.accum.substr(pos + kHandshakeOk.size());
-        hs.accum.clear();
-      } else if (hs.accum.size() > kHandshakeAccumCap) {
-        hs.accum.erase(0, hs.accum.size() - kHandshakeAccumCap);
-      }
-    });
-    if (already_done) {
-      real(chunk);
-      return;
-    }
-    if (just_resolved) {
-      client_handshake.notify_all();
-      if (!leftover.empty())
-        real(leftover);
-    }
-  }
-
-  bool wait_for_client_handshake(std::chrono::milliseconds timeout) {
-    return client_handshake.wait_for(timeout, [](const auto& hs) { return hs.done; });
-  }
-
-  void watch_for_handshake_start(std::string_view chunk) {
-    if (chunk.empty())
-      return;
-    bool matched = false;
-    server_handshake_accum.withWLock([&](std::string& accum) {
-      accum.append(chunk);
-      const auto pos = accum.find(kHandshakeStartToken);
-      if (pos != std::string::npos) {
-        matched = true;
-        accum.erase(0, pos + kHandshakeStartToken.size());
-      }
-      if (accum.size() > kHandshakeAccumCap)
-        accum.erase(0, accum.size() - kHandshakeAccumCap);
-    });
-    if (matched) {
-      send_raw(kHandshakeOk);
-    }
-  }
-
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout) {
     if (closed.load())
       return false;
@@ -773,14 +691,7 @@ term_client_transport::term_client_transport(
     term_passthrough_cb passthrough,
     std::chrono::milliseconds handshake_timeout)
     : state_(std::make_unique<term_conn_state>()), handshake_timeout_(handshake_timeout) {
-  auto* state_ptr = state_.get();
-  state_->start(
-      read_fd,
-      write_fd,
-      [state_ptr, real_passthrough = std::move(passthrough)](std::string_view chunk) {
-        state_ptr->client_passthrough(chunk, real_passthrough);
-      },
-      term_role::client);
+  state_->start(read_fd, write_fd, std::move(passthrough), term_role::client);
 }
 
 term_client_transport::~term_client_transport() {
@@ -789,12 +700,7 @@ term_client_transport::~term_client_transport() {
 }
 
 void term_client_transport::open(bison::dynamic /*params*/) {
-  state_->send_raw(kHandshakeStart);
-  if (!state_->wait_for_client_handshake(handshake_timeout_)) {
-    throw std::runtime_error(
-        "term_transport: handshake timed out - sent START BISON/1.0 but got no BISON/1.0 OK "
-        "from the peer (is there a bison_server --transport=term running on the other end?)");
-  }
+  connect_deadline_ = std::chrono::steady_clock::now() + handshake_timeout_;
 }
 
 void term_client_transport::send(bison::buffer frame) {
@@ -810,8 +716,15 @@ bool term_client_transport::receive(bison::buffer& frame, std::chrono::milliseco
 }
 
 void term_client_transport::shutdown() {
-  state_->send_raw(kHandshakeStop);
   state_->stop();
+}
+
+bool term_client_transport::is_connected() const {
+  if (state_->reader.recv_closed.load())
+    return false;
+  if (state_->reader.received_any.load())
+    return true;
+  return std::chrono::steady_clock::now() < connect_deadline_;
 }
 
 // ── term_server_connection ───────────────────────────────────────────────────
@@ -857,15 +770,7 @@ term_server_transport::~term_server_transport() {
 void term_server_transport::start(bison::dynamic /*params*/) {
   stopped_.store(false);
   state_ = std::make_shared<term_conn_state>();
-  auto* state_ptr = state_.get();
-  state_->start(
-      read_fd_,
-      write_fd_,
-      [state_ptr, real_passthrough = passthrough_](std::string_view chunk) {
-        real_passthrough(chunk);
-        state_ptr->watch_for_handshake_start(chunk);
-      },
-      term_role::server);
+  state_->start(read_fd_, write_fd_, passthrough_, term_role::server);
 }
 
 std::unique_ptr<server_connection_iface> term_server_transport::accept(std::chrono::milliseconds timeout) {
