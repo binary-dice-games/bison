@@ -21,8 +21,25 @@
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 
 namespace bdg::bison::term {
+
+namespace {
+
+/** @brief Rewrites `'\n'` to `"\r\n"` in @p text, returning the result. */
+std::string to_crlf(std::string_view text) {
+  std::string out;
+  out.reserve(text.size() + 8);
+  for (const char c : text) {
+    if (c == '\n')
+      out.push_back('\r');
+    out.push_back(c);
+  }
+  return out;
+}
+
+} // namespace
 
 struct terminal_state {
   struct termios saved_termios{};
@@ -138,6 +155,22 @@ int terminal::wait() {
   if (WIFSIGNALED(status))
     return 128 + WTERMSIG(status);
   return status;
+}
+
+void terminal::print(const std::string& line) {
+  const std::string bytes = to_crlf(line + "\n");
+  size_t written = 0;
+  while (written < bytes.size()) {
+    const ssize_t n = write(STDOUT_FILENO, bytes.data() + written, bytes.size() - written);
+    if (n < 0) {
+      if (errno == EINTR)
+        continue;
+      return;
+    }
+    if (n == 0)
+      return;
+    written += static_cast<size_t>(n);
+  }
 }
 
 void terminal::pump_loop() {

@@ -21,6 +21,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace bdg::bison::term {
@@ -42,6 +43,18 @@ struct terminal_state {
 };
 
 namespace {
+
+/** @brief Rewrites `'\n'` to `"\r\n"` in @p text, returning the result. */
+std::string to_crlf(std::string_view text) {
+  std::string out;
+  out.reserve(text.size() + 8);
+  for (const char c : text) {
+    if (c == '\n')
+      out.push_back('\r');
+    out.push_back(c);
+  }
+  return out;
+}
 
 /** @brief Best-effort child window size; falls back to 80x24 if the real console can't report one. */
 COORD query_console_size() {
@@ -189,6 +202,17 @@ int terminal::wait() {
   DWORD code = 0;
   GetExitCodeProcess(state_->pi.hProcess, &code);
   return static_cast<int>(code);
+}
+
+void terminal::print(const std::string& line) const {
+  const std::string bytes = to_crlf(line + "\n");
+  size_t written = 0;
+  while (written < bytes.size()) {
+    const int n = _write(1, bytes.data() + written, static_cast<unsigned>(bytes.size() - written));
+    if (n <= 0)
+      return;
+    written += static_cast<size_t>(n);
+  }
 }
 
 void terminal::pump_loop() {

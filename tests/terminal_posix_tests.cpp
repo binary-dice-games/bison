@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+
 using bdg::bison::term::terminal;
 
 TEST(Terminal, SpawnsHandlesAndExitsCleanly) {
@@ -36,5 +38,30 @@ TEST(Terminal, ReadAndWriteHandleShareOnePtyMaster) {
   // ConPTY's two unidirectional pipes on Windows (see terminal_win.cpp).
   terminal t{"/bin/true"};
   EXPECT_EQ(t.read_handle(), t.write_handle());
+  t.wait();
+}
+
+TEST(Terminal, PrintWritesCrlfLineToFd1) {
+  terminal t{"/bin/true"};
+
+  int pipe_fds[2];
+  ASSERT_EQ(pipe(pipe_fds), 0);
+  const int saved_stdout = dup(STDOUT_FILENO);
+  ASSERT_GE(saved_stdout, 0);
+  ASSERT_GE(dup2(pipe_fds[1], STDOUT_FILENO), 0);
+  close(pipe_fds[1]);
+
+  t.print("hello");
+
+  ASSERT_GE(dup2(saved_stdout, STDOUT_FILENO), 0);
+  close(saved_stdout);
+
+  char buf[64] = {};
+  const ssize_t n = read(pipe_fds[0], buf, sizeof(buf) - 1);
+  close(pipe_fds[0]);
+
+  ASSERT_GT(n, 0);
+  EXPECT_EQ(std::string(buf, static_cast<size_t>(n)), "hello\r\n");
+
   t.wait();
 }

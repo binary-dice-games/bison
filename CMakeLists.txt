@@ -91,8 +91,6 @@ target_sources(bison PRIVATE
   src/app/server/server_app.cpp
   src/app/transport_flags.cpp
   src/term/scoped_terminal_config.cpp
-  src/pty/crlf_output_guard.cpp
-  src/pty/pty_write.cpp
 )
 
 target_include_directories(bison PRIVATE src/rmi)
@@ -110,8 +108,6 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
     src/term/scoped_terminal_config_win.cpp
     src/rmi/transport/fd_dup_win.cpp
     src/rmi/transport/socket_dup_win.cpp
-    src/pty/raw_mode_guard_win.cpp
-    src/pty/pty_write_raw_win.cpp
     src/app/debugger_win.cpp
   )
 else()
@@ -123,8 +119,6 @@ else()
     src/term/scoped_terminal_config_posix.cpp
     src/rmi/transport/fd_dup_posix.cpp
     src/rmi/transport/socket_dup_posix.cpp
-    src/pty/raw_mode_guard_posix.cpp
-    src/pty/pty_write_raw_posix.cpp
     src/app/debugger_posix.cpp
   )
 endif()

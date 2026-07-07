@@ -7,7 +7,6 @@
 
 #include "src/app/debugger.hpp"
 #include "src/app/transport_flags.hpp"
-#include "src/pty/pty_write.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
@@ -76,12 +75,7 @@ class bridged_server : public rmi::server {
 
 void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string& line) const {
   if (selected_transport() == transport_kind::term) {
-    // Only reachable once the pty/terminal (in run()'s pty/term branch) has
-    // already put the operator's real terminal in raw mode, stripping \r
-    // from plain std::cout output — write directly instead, both to correct
-    // that and to avoid racing stdio_print_passthrough's own std::cout
-    // writes on another thread. See pty_write.hpp's doc comment.
-    pty::write_raw(1, pty::to_crlf(line + "\n"));
+    term::terminal::print(line + "\n");
   } else {
     std::cout << line << '\n';
   }
@@ -97,8 +91,7 @@ void server_app::on_listening() const {
                 << std::flush;
       return;
     case transport_kind::term:
-      pty::write_raw(
-          1, pty::to_crlf("[server_app] listening via --transport=term -- exit the spawned terminal to stop\n"));
+      term::terminal::print("[server_app] listening via --transport=term -- exit the spawned terminal to stop\n");
       return;
   }
 }

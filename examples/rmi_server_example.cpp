@@ -10,7 +10,6 @@
 
 #include "src/app/transport_flags.hpp"
 #include "src/bison/bison_flags.hpp"
-#include "src/pty/pty_write.hpp"
 #include "src/rmi/rmi.hpp"
 #include "src/rmi/transport/term_transport.hpp"
 #include "src/term/terminal.hpp"
@@ -100,19 +99,14 @@ int main(int argc, char** argv) {
         server srv{transport};
         srv.listen();
 
-        // Same raw-mode/CRLF rationale as the pty case above, but the
-        // terminal's own constructor already handles the operator's real
-        // terminal (see src/term/DESIGN.md), so a plain write_raw suffices.
-        pty::write_raw(
-            1,
-            pty::to_crlf(
-                "[Server] Calculator listening via --transport=term. This terminal is now the "
-                "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
-                "shell to stop.\n"));
+        term::terminal::print(
+            "[Server] Calculator listening via --transport=term. This terminal is now the "
+            "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
+            "shell to stop.\n");
 
         term_proc.wait();
         srv.stop();
-        pty::write_raw(1, pty::to_crlf("[Server] stopped.\n"));
+        term::terminal::print("[Server] stopped.\n");
         return 0;
       }
       case app::transport_kind::pipe: {

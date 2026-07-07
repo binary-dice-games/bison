@@ -64,8 +64,7 @@ class server_app {
    * Default: prints a ready message to stdout.  The default implementation
    * uses `FLAGS_host` and `FLAGS_port` to report the socket address (or, in
    * `--transport=pty` mode, writes directly to fd 1 with `\r\n` line endings
-   * instead — see `pty_write.hpp`'s doc comment for why plain `std::cout`
-   * isn't safe there).
+   * instead.
    */
   virtual void on_listening() const;
 

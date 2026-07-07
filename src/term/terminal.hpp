@@ -71,6 +71,20 @@ class terminal {
   /** @brief Block until the child exits. @return The child's exit status. */
   int wait();
 
+  /**
+   * @brief Write @p line, newline-terminated, straight to the operator's
+   *        real terminal (fd 1), bypassing the pty entirely.
+   *
+   * Rewrites `'\n'` to `"\r\n"` before writing, since raw mode (set by this
+   * class's constructor) has disabled the tty's own newline translation.
+   * Writes the raw bytes directly rather than through buffered iostreams, so
+   * this is safe to call concurrently with the pump thread and with whatever
+   * is forwarding the pty's own output to the same fd. Best-effort:
+   * write errors are ignored, matching that a status message failing to
+   * display isn't worth crashing the process over.
+   */
+  static void print(const std::string& line);
+
  private:
   void pump_loop();
 

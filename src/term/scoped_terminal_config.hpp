@@ -16,11 +16,10 @@ namespace bdg::bison::term {
  *        traffic, restoring everything on destruction.
  *
  * Puts `params::read_fd` into raw mode and rewrites `std::cout`/`std::cerr`'s
- * outgoing `'\n'` to `"\r\n"` (see `crlf_output_guard`'s doc comment) for the
- * object's lifetime. If `params::sink` is set, translated CRLF output is
- * forwarded there instead of being written to the real streambuf directly
- * — use this when something else (e.g. a transport's synchronized writer)
- * must be the sole writer of `params::write_fd`.
+ * outgoing `'\n'` to `"\r\n"` for the object's lifetime. If `params::sink` is
+ * set, translated CRLF output is forwarded there instead of being written to
+ * the real streambuf directly — use this when something else (e.g. a transport's
+ * synchronized writer) must be the sole writer of `params::write_fd`.
  */
 class scoped_terminal_config {
  public:
