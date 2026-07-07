@@ -197,6 +197,17 @@ RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port)
 RMI_API rmi_client_handle rmi_client_pipe_create(const char* path);
 
 /**
+ * @brief Create a terminal (OSC-99 framed) client.
+ *
+ * Wraps the calling process's own inherited stdio (fd 0 for reads, fd 1 for
+ * writes) with the term transport. Intended for a client process that is
+ * itself running as the child spawned by `rmi_server_term_create()`.
+ *
+ * @return New client handle, or `NULL` on allocation failure.
+ */
+RMI_API rmi_client_handle rmi_client_term_create(void);
+
+/**
  * @brief Create a standalone in-process client.
  *
  * The returned handle can be used with all existing `rmi_client_*` and
@@ -467,6 +478,26 @@ RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port)
  * @return New server handle, or `NULL` on allocation failure.
  */
 RMI_API rmi_server_handle rmi_server_pipe_create(const char* path);
+
+/**
+ * @brief Create a terminal (OSC-99 framed) server listener.
+ *
+ * Spawns a child process attached to a new pseudo-terminal and wires the
+ * term transport to its pty I/O; the calling process's own real input is
+ * pumped into the pty for the lifetime of the server. The server is not
+ * listening until `rmi_server_listen()` is called.
+ *
+ * @param cmd Command to exec in the spawned child, or `NULL`/empty to spawn
+ *            the operator's default shell.
+ * @return New server handle, or `NULL` on allocation failure.
+ *
+ * @code{.c}
+ * rmi_server_handle server = rmi_server_term_create(NULL);
+ * // ... use server ...
+ * rmi_server_release(server);
+ * @endcode
+ */
+RMI_API rmi_server_handle rmi_server_term_create(const char* cmd);
 
 /**
  * @brief Start the server listener.

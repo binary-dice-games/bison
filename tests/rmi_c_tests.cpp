@@ -130,6 +130,13 @@ TEST(ServerLifecycleTests, TcpCreateReturnsNonNull) {
   EXPECT_NE(server.h, nullptr);
 }
 
+TEST(ServerLifecycleTests, TermCreateReturnsNonNull) {
+  // NULL spawns the platform default shell; release() closes the pty master,
+  // which delivers EOF to the shell's stdin and lets it exit on its own.
+  ScopedServerHandle server{rmi_server_term_create(nullptr)};
+  EXPECT_NE(server.h, nullptr);
+}
+
 TEST(ServerLifecycleTests, ReleaseNullIsSafe) {
   rmi_server_release(nullptr); // must not crash
 }

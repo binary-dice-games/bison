@@ -51,7 +51,8 @@ TEST(Terminal, PrintWritesCrlfLineToFd1) {
   ASSERT_GE(dup2(pipe_fds[1], STDOUT_FILENO), 0);
   close(pipe_fds[1]);
 
-  t.print("hello");
+  // print() does not append a trailing newline; callers pass one if wanted.
+  t.print("hello\n");
 
   ASSERT_GE(dup2(saved_stdout, STDOUT_FILENO), 0);
   close(saved_stdout);

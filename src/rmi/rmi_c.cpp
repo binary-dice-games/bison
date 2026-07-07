@@ -10,6 +10,8 @@
 
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
+#include "src/rmi/transport/term_transport.hpp"
+#include "src/term/terminal.hpp"
 
 #include <cstring>
 #include <memory>
@@ -138,8 +140,14 @@ static inline bool client_handle_is_valid(rmi_client_handle h) {
 
 /**
  * @brief Owns a `server`.
+ *
+ * `term_owner` is declared before `server_owner` so that, on destruction,
+ * `server_owner` (whose transport may reference the terminal's pty fds) is
+ * torn down first, and the terminal (which closes those fds) is torn down
+ * only afterward.
  */
 struct server_state {
+  std::unique_ptr<term::terminal> term_owner;
   std::unique_ptr<server> server_owner;
 };
 
@@ -406,6 +414,14 @@ RMI_API rmi_client_handle rmi_client_pipe_create(const char* path) {
     return nullptr;
   try {
     return make_owned_client_handle(std::make_unique<client>(std::make_unique<named_pipe_client_transport>(path)));
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+RMI_API rmi_client_handle rmi_client_term_create(void) {
+  try {
+    return make_owned_client_handle(std::make_unique<client>(std::make_unique<term_client_transport>(0, 1)));
   } catch (...) {
     return nullptr;
   }
@@ -739,6 +755,19 @@ RMI_API rmi_server_handle rmi_server_pipe_create(const char* path) {
   try {
     auto state = std::make_unique<server_state>();
     state->server_owner = std::make_unique<server>(std::make_unique<named_pipe_server_transport>(path));
+    return as_server_handle(state.release());
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+RMI_API rmi_server_handle rmi_server_term_create(const char* cmd) {
+  try {
+    auto state = std::make_unique<server_state>();
+    state->term_owner = std::make_unique<term::terminal>(cmd ? cmd : std::string{});
+    state->term_owner->start_pump();
+    state->server_owner = std::make_unique<server>(
+        std::make_unique<term_server_transport>(state->term_owner->read_handle(), state->term_owner->write_handle()));
     return as_server_handle(state.release());
   } catch (...) {
     return nullptr;

@@ -72,16 +72,17 @@ class terminal {
   int wait();
 
   /**
-   * @brief Write @p line, newline-terminated, straight to the operator's
-   *        real terminal (fd 1), bypassing the pty entirely.
+   * @brief Write @p line straight to the operator's real terminal (fd 1),
+   *        bypassing the pty entirely.
    *
    * Rewrites `'\n'` to `"\r\n"` before writing, since raw mode (set by this
-   * class's constructor) has disabled the tty's own newline translation.
-   * Writes the raw bytes directly rather than through buffered iostreams, so
-   * this is safe to call concurrently with the pump thread and with whatever
-   * is forwarding the pty's own output to the same fd. Best-effort:
-   * write errors are ignored, matching that a status message failing to
-   * display isn't worth crashing the process over.
+   * class's constructor) has disabled the tty's own newline translation. No
+   * trailing newline is appended — pass one in @p line if the caller wants
+   * one. Writes the raw bytes directly rather than through buffered
+   * iostreams, so this is safe to call concurrently with the pump thread and
+   * with whatever is forwarding the pty's own output to the same fd.
+   * Best-effort: write errors are ignored, matching that a status message
+   * failing to display isn't worth crashing the process over.
    */
   static void print(const std::string& line);
 
