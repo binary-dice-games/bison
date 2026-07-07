@@ -16,8 +16,8 @@ struct scoped_terminal_config::impl {
   bool saved{false};
 };
 
-scoped_terminal_config::impl* scoped_terminal_config::create_state(const params& p) {
-  auto* state = new impl();
+scoped_terminal_config::impl_ptr scoped_terminal_config::create_state(const params& p) {
+  impl_ptr state(new impl(), [](impl* s) { delete s; });
 
   if (isatty(p.read_fd) == 0)
     return state;
@@ -31,10 +31,9 @@ scoped_terminal_config::impl* scoped_terminal_config::create_state(const params&
   return state;
 }
 
-void scoped_terminal_config::release_state(impl* state) {
+void scoped_terminal_config::release_state(impl_ptr state) {
   if (state->saved)
     tcsetattr(params_.read_fd, TCSANOW, &state->saved_termios);
-  delete state;
 }
 
 } // namespace bdg::bison::term

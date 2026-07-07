@@ -63,29 +63,30 @@ struct scoped_terminal_config::crlf_state {
         saved_cerr(std::cerr.rdbuf(&cerr_filter)) {}
 };
 
-scoped_terminal_config::crlf_state* scoped_terminal_config::create_crlf_state(const params& p) {
+scoped_terminal_config::crlf_ptr scoped_terminal_config::create_crlf_state(const params& p) {
   if (p.sink) {
-    return new crlf_state(p.sink, p.sink);
+    return crlf_ptr(new crlf_state(p.sink, p.sink), [](crlf_state* s) { delete s; });
   }
   auto* orig_cout = std::cout.rdbuf();
   auto* orig_cerr = std::cerr.rdbuf();
-  return new crlf_state(
-      [orig_cout](std::string_view s) { orig_cout->sputn(s.data(), static_cast<std::streamsize>(s.size())); },
-      [orig_cerr](std::string_view s) { orig_cerr->sputn(s.data(), static_cast<std::streamsize>(s.size())); });
+  return crlf_ptr(
+      new crlf_state(
+          [orig_cout](std::string_view s) { orig_cout->sputn(s.data(), static_cast<std::streamsize>(s.size())); },
+          [orig_cerr](std::string_view s) { orig_cerr->sputn(s.data(), static_cast<std::streamsize>(s.size())); }),
+      [](crlf_state* s) { delete s; });
 }
 
-void scoped_terminal_config::release_crlf_state(crlf_state* state) {
+void scoped_terminal_config::release_crlf_state(crlf_ptr state) {
   std::cout.rdbuf(state->saved_cout);
   std::cerr.rdbuf(state->saved_cerr);
-  delete state;
 }
 
 scoped_terminal_config::scoped_terminal_config(params&& p)
     : params_(std::move(p)), impl_(create_state(params_)), crlf_(create_crlf_state(params_)) {}
 
 scoped_terminal_config::~scoped_terminal_config() {
-  release_crlf_state(crlf_);
-  release_state(impl_);
+  release_crlf_state(std::move(crlf_));
+  release_state(std::move(impl_));
 }
 
 } // namespace bdg::bison::term

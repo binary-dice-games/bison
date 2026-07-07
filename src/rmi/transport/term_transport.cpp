@@ -253,26 +253,6 @@ struct term_pipe_thread {
       const int r = uv_tty_init(&loop, &handle.tty, duped_fd, readable);
       if (r != 0)
         throw std::runtime_error(std::string{"term_transport: uv_tty_init ("} + which + ") failed: " + uv_strerror(r));
-      // uv_tty_init() alone leaves the handle in UV_TTY_MODE_NORMAL, where
-      // libuv's Windows console reader waits for a full line and performs
-      // its own key/escape translation for interactive use — it never
-      // delivers raw bytes as they're written, which is fatal to a framed
-      // byte-stream protocol like ours (the handshake just hangs). RAW mode
-      // makes libuv treat the console as a plain byte stream instead.
-      //
-      // Skipped on POSIX: unlike a Windows console handle, a POSIX fd
-      // classified UV_TTY here isn't necessarily *this process's own*
-      // terminal — on the server side of --transport=term it's the
-      // forkpty() master feeding the spawned shell, and tcsetattr() on a
-      // pty master mutates the *same shared termios* the slave-side shell
-      // runs on (isatty(master_fd) is true, and get/set are forwarded to
-      // the paired slave). Calling uv_tty_set_mode(RAW) there clobbers the
-      // spawned shell's own terminal settings (echo, canonical mode) out
-      // from under it. The legitimate POSIX case — a client wrapping its
-      // own real stdio — already puts that terminal in raw mode itself via
-      // pty::raw_mode_guard before construction, so this call is redundant
-      // there and actively harmful for the pty-master case; only native
-      // Windows needs it.
 #if defined(_WIN32)
       if (readable) {
         const int mode_r = uv_tty_set_mode(&handle.tty, UV_TTY_MODE_RAW);

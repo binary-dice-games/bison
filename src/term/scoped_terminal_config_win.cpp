@@ -18,8 +18,8 @@ struct scoped_terminal_config::impl {
   bool saved{false};
 };
 
-scoped_terminal_config::impl* scoped_terminal_config::create_state(const params& p) {
-  auto* state = new impl();
+scoped_terminal_config::impl_ptr scoped_terminal_config::create_state(const params& p) {
+  impl_ptr state(new impl(), [](impl* s) { delete s; });
 
   const HANDLE handle = reinterpret_cast<HANDLE>(_get_osfhandle(p.read_fd));
   if (handle == INVALID_HANDLE_VALUE)
@@ -31,16 +31,14 @@ scoped_terminal_config::impl* scoped_terminal_config::create_state(const params&
   state->handle = handle;
   state->saved_mode = mode;
   state->saved = true;
-  const DWORD raw_mode = mode & ~static_cast<DWORD>(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT |
-                                                     ENABLE_PROCESSED_INPUT);
+  const DWORD raw_mode = mode & ~static_cast<DWORD>(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT);
   SetConsoleMode(handle, raw_mode);
   return state;
 }
 
-void scoped_terminal_config::release_state(impl* state) {
+void scoped_terminal_config::release_state(impl_ptr state) {
   if (state->saved)
     SetConsoleMode(state->handle, state->saved_mode);
-  delete state;
 }
 
 } // namespace bdg::bison::term
