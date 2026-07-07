@@ -1562,6 +1562,44 @@ class dynamic {
   }
 };
 
+/**
+ * @brief CRTP mixin that gives a `dynamic` subclass a correct,
+ *        type-preserving `clone_ptr()` without writing it by hand.
+ *
+ * Writing `clone_ptr()` manually on every subclass (see `dynamic::clone_ptr`)
+ * is easy to forget — and every subclass override looks identical, since it
+ * always just allocates a fresh instance of its own type and delegates to
+ * `clone_into()`. Inheriting from `cloneable_dynamic<Derived>` instead of
+ * `dynamic` directly generates that override once, correctly, for you:
+ * ```cpp
+ * class my_subclass : public bison::cloneable_dynamic<my_subclass> {
+ *  public:
+ *   explicit my_subclass(dynamic&& base) : cloneable_dynamic(std::move(base)) {}
+ * };
+ * ```
+ *
+ * Requires `Derived` to have a `Derived(dynamic&&)` constructor — the same
+ * convention every `dynamic` subclass in this codebase already follows for
+ * `dynamic::instantiate<T>()`.
+ *
+ * Only the immediate `Derived` gets a correct `clone_ptr()` this way: a
+ * further subclass of `Derived` (multi-level hierarchies) still needs its
+ * own `cloneable_dynamic<MoreDerived>` (or a manual override) to stay
+ * clone-correct at its own level, exactly as it would need its own
+ * `dynamic::instantiate<MoreDerived>()` call site today.
+ */
+template <typename Derived>
+class cloneable_dynamic : public dynamic {
+ public:
+  explicit cloneable_dynamic(dynamic&& base) : dynamic(std::move(base)) {}
+
+  dynamic_ptr clone_ptr() const override {
+    dynamic_ptr result{std::make_shared<Derived>(dynamic{})};
+    clone_into(*result);
+    return result;
+  }
+};
+
 inline dynamic method::call(dynamic& self, const dynamic& params) const {
   return fn_(self, params);
 }

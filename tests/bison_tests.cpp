@@ -1736,6 +1736,38 @@ TEST(DynamicTests, ClonePtrPreservesSubclassAtEveryDepth) {
   EXPECT_EQ((*grandchild)["v"_key].as<int32_t>(), 30);
 }
 
+// A dynamic subclass using the cloneable_dynamic<Derived> CRTP mixin instead
+// of a hand-written clone_ptr() override — should behave identically to
+// CloningWidget above without writing the override at all. Note this mixin
+// only clones `dynamic` state (bison fields); a subclass with extra raw C++
+// data members (like CloningWidget's `tag`) would still need to copy those
+// itself, which is why this test keeps all identifying state in fields.
+struct AutoCloningWidget : public cloneable_dynamic<AutoCloningWidget> {
+  explicit AutoCloningWidget(dynamic&& base) : cloneable_dynamic(std::move(base)) {}
+};
+
+TEST(DynamicTests, CloneableDynamicMixinPreservesSubclassAtEveryDepth) {
+  auto child = std::make_shared<AutoCloningWidget>(dynamic::instantiate(bison_key_t{0U}));
+  (*child)["v"_key] = int32_t{20};
+
+  auto root = std::make_shared<AutoCloningWidget>(dynamic::instantiate(bison_key_t{0U}));
+  (*root)["child"_key] = dynamic_ptr{child};
+
+  dynamic_ptr cloned = root->clone_ptr();
+
+  auto* cloned_root = dynamic_cast<AutoCloningWidget*>(cloned.get());
+  ASSERT_NE(cloned_root, nullptr);
+
+  auto cloned_child_field = (*cloned_root)["child"_key].as<dynamic_ptr>();
+  auto* cloned_child = dynamic_cast<AutoCloningWidget*>(cloned_child_field.get());
+  ASSERT_NE(cloned_child, nullptr);
+  EXPECT_EQ((*cloned_child)["v"_key].as<int32_t>(), 20);
+
+  // Mutating the clone must not affect the original.
+  (*cloned_child)["v"_key] = int32_t{999};
+  EXPECT_EQ((*child)["v"_key].as<int32_t>(), 20);
+}
+
 class SubclassTest : public ::testing::Test {
  protected:
   void SetUp() override {
