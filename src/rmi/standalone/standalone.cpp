@@ -161,17 +161,32 @@ standalone::~standalone() {
 
 /** @copydoc bdg::bison::rmi::standalone::connect */
 void standalone::connect(bison::dynamic /*params*/) {
-  // Worker already running from constructor; nothing to do.
+  // Worker already running from constructor. Fire on_session_created()
+  // exactly once, with ctx_'s lock released first so the hook may safely
+  // call back into instantiate()/other operations without deadlocking
+  // against the single worker thread.
+  if (!session_created_.exchange(true, std::memory_order_acq_rel)) {
+    context* ctx_ptr;
+    {
+      auto lp = ctx_.wlock();
+      ctx_ptr = &*lp;
+    }
+    on_session_created(*ctx_ptr);
+  }
 }
 
 /** @copydoc bdg::bison::rmi::standalone::describe */
 std::future<bison::dynamic> standalone::describe(bison::key_t ns, bison::key_t klass) {
-  return enqueue([this, ns, klass]() { return handle_describe(ns, klass); });
+  return enqueue([this, ns, klass]() -> bison::dynamic {
+    return dispatch([this, ns, klass]() -> bison::dynamic { return handle_describe(ns, klass); });
+  });
 }
 
 std::future<proxy::dynamic> standalone::instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params) {
-  auto f = enqueue([this, ns, klass, params = std::move(params)]() mutable {
-    return handle_instantiate(ns, klass, std::move(params));
+  auto f = enqueue([this, ns, klass, params = std::move(params)]() mutable -> bison::dynamic {
+    return dispatch([this, ns, klass, &params]() -> bison::dynamic {
+      return handle_instantiate(ns, klass, std::move(params));
+    });
   });
   return std::async(std::launch::async, [this, f = std::move(f)]() mutable {
     auto result = f.get();
@@ -189,44 +204,58 @@ void standalone::destroy(proxy::dynamic&& proxy) {
   proxy.valid_ = false;
   proxy.backend_ = nullptr;
 
-  enqueue([this, oid]() { return handle_destroy(oid); }).get();
+  enqueue([this, oid]() -> bison::dynamic {
+    return dispatch([this, oid]() -> bison::dynamic { return handle_destroy(oid); });
+  }).get();
 }
 
 /** @copydoc bdg::bison::rmi::standalone::disconnect */
 void standalone::disconnect() {
+  // Fire on_session_destroyed() exactly once, before stopping the worker,
+  // with ctx_'s lock released first (same reasoning as connect()).
+  if (!session_destroyed_.exchange(true, std::memory_order_acq_rel)) {
+    context* ctx_ptr;
+    {
+      auto lp = ctx_.wlock();
+      ctx_ptr = &*lp;
+    }
+    on_session_destroyed(*ctx_ptr);
+  }
   stop_worker();
 }
 
 /** @copydoc bdg::bison::rmi::standalone::get_dictionary */
 std::future<bison::dynamic> standalone::get_dictionary() {
-  return enqueue([this]() { return handle_dictionary(); });
+  return enqueue([this]() -> bison::dynamic { return dispatch([this]() -> bison::dynamic { return handle_dictionary(); }); });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::get_help */
 std::future<bison::dynamic> standalone::get_help() {
-  return enqueue([this]() { return handle_help(); });
+  return enqueue([this]() -> bison::dynamic { return dispatch([this]() -> bison::dynamic { return handle_help(); }); });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::send_request */
 std::future<bison::dynamic>
 standalone::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway) {
   return enqueue([this, op, object_id, payload = std::move(payload), oneway]() mutable -> bison::dynamic {
-    if (op == OP_CLEAR) {
-      return handle_clear(object_id);
-    }
-    if (op == OP_SET) {
-      return handle_set(object_id, std::move(payload));
-    }
-    if (op == OP_GET) {
-      return handle_get(object_id, std::move(payload));
-    }
-    if (op == OP_CALL) {
-      return handle_call(object_id, std::move(payload), oneway);
-    }
-    if (op == OP_DESTROY) {
-      return handle_destroy(object_id);
-    }
-    throw std::runtime_error("Unsupported operation in standalone mode");
+    return dispatch([this, op, object_id, &payload, oneway]() -> bison::dynamic {
+      if (op == OP_CLEAR) {
+        return handle_clear(object_id);
+      }
+      if (op == OP_SET) {
+        return handle_set(object_id, std::move(payload));
+      }
+      if (op == OP_GET) {
+        return handle_get(object_id, std::move(payload));
+      }
+      if (op == OP_CALL) {
+        return handle_call(object_id, std::move(payload), oneway);
+      }
+      if (op == OP_DESTROY) {
+        return handle_destroy(object_id);
+      }
+      throw std::runtime_error("Unsupported operation in standalone mode");
+    });
   });
 }
 
@@ -301,6 +330,29 @@ void standalone::stop_worker() {
   queue_.notify_all();
   if (worker_.joinable())
     worker_.join();
+}
+
+/**
+ * @brief Run @p work bracketed by on_before_dispatch()/on_after_dispatch().
+ *
+ * Called from the worker thread. Obtains a stable context& via a brief
+ * ctx_ lock released before the hooks or @p work run.
+ */
+bison::dynamic standalone::dispatch(const std::function<bison::dynamic()>& work) {
+  context* ctx_ptr;
+  {
+    auto lp = ctx_.wlock();
+    ctx_ptr = &*lp;
+  }
+  on_before_dispatch(*ctx_ptr);
+  try {
+    bison::dynamic result = work();
+    on_after_dispatch(*ctx_ptr);
+    return result;
+  } catch (...) {
+    on_after_dispatch(*ctx_ptr);
+    throw;
+  }
 }
 
 // ── Private operation handlers ────────────────────────────────────────────
@@ -383,8 +435,11 @@ bison::dynamic standalone::handle_describe(bison::key_t ns, bison::key_t klass) 
 /**
  * @brief Create and store a new object instance.
  *
- * Mirrors `server::handle_instantiate` without transport.  Returns the
- * response payload containing the new object ID.
+ * Mirrors `server::handle_instantiate` without transport: creates the
+ * object via `on_create_object` (default `bison::dynamic::create_instance`,
+ * which -- unlike `bison::dynamic::instantiate` -- honors a factory
+ * registered via `dynamic::addClass(..., factory)`). Returns the response
+ * payload containing the new object ID.
  */
 bison::dynamic standalone::handle_instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params) {
   {
@@ -396,16 +451,16 @@ bison::dynamic standalone::handle_instantiate(bison::key_t ns, bison::key_t klas
           std::to_string(static_cast<bison::hash_t>(klass)));
   }
 
-  auto obj = std::make_shared<bison::dynamic>(bison::dynamic::instantiate(ns, klass));
+  const bison::key_t oid = shared::generate_id();
+  bison::dynamic_ptr obj;
+  {
+    auto lp = ctx_.wlock();
+    obj = on_create_object(*lp, ns, klass);
+    lp->objects[oid.id] = obj;
+  }
 
   if (obj->findMethod(HOOK_CONSTRUCT) != nullptr) {
     obj->call(HOOK_CONSTRUCT, params);
-  }
-
-  const bison::key_t oid = shared::generate_id();
-  {
-    auto lp = ctx_.wlock();
-    lp->objects[oid.id] = obj;
   }
 
   bison::dynamic resp;

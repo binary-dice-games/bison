@@ -25,7 +25,7 @@
  * factor out the write-queue-drain-and-uv_write pump and close-handle
  * pattern used by `uv_stream_state::on_send`/`on_stop` above. They take
  * plain libuv handles/queues rather than a `uv_stream_state`, so
- * `stdio_transport.cpp`'s writer (which has an identically-shaped send
+ * `term_transport.cpp`'s writer (which has an identically-shaped send
  * queue but a separate, non-bidirectional handle and doesn't otherwise fit
  * this template) reuses them too.
  */
@@ -73,7 +73,7 @@ inline void on_uv_write_done(uv_write_t* req, int /*status*/) {
  * @brief Drain @p queue, issuing one `uv_write()` per entry against @p target.
  *
  * Shared write-queue pump used by `uv_stream_state::on_send` and by
- * `stdio_transport.cpp`'s writer half, which has an identically-shaped send
+ * `term_transport.cpp`'s writer half, which has an identically-shaped send
  * queue but a separate (non-bidirectional) handle.
  */
 inline void uv_flush_write_queue(bison::synchronized<std::queue<std::vector<uint8_t>>>& queue, uv_stream_t* target) {
@@ -123,7 +123,9 @@ struct uv_stream_state {
   bool asyncs_ready{false};
 
   uv_stream_state() = default;
-  ~uv_stream_state() { stop(); }
+  ~uv_stream_state() {
+    stop();
+  }
 
   uv_stream_state(const uv_stream_state&) = delete;
   uv_stream_state& operator=(const uv_stream_state&) = delete;

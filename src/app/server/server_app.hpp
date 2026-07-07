@@ -31,19 +31,6 @@ namespace bdg::bison::app {
  *   - `--port PORT`     listen port for `--transport=tcp` (default: `7070`)
  *   - `--name PATH`     named-pipe / Unix-socket path, used by
  *                       `--transport=pipe`
- *   - `--transport=pty` spawn an interactive pty running the operator's
- *                       `$SHELL` and serve RMI framed as `BISON<...>` frames
- *                       over it (Linux only; see `src/pty/DESIGN.md` and
- *                       `src/rmi/transport/stdio_transport.hpp`). Takes no
- *                       additional flags.
- *   - `--transport=console` spawn `--cmd` (via libuv, `/bin/sh -c`) and
- *                       serve RMI framed as `BISON<...>` frames over its
- *                       piped stdin/stdout — like `--transport=pty` but
- *                       non-interactive (no terminal, no keystroke
- *                       forwarding). The server stops once the subprocess
- *                       exits. See `src/console/console_process.hpp`.
- *   - `--cmd CMD`       shell command line to spawn, required by
- *                       `--transport=console`
  *   - `--verbose`       print one request trace line and one response trace
  *                       line per RMI operation to stdout (open, connect,
  *                       instantiate, call, get, set, destroy, disconnect, …)
@@ -77,8 +64,7 @@ class server_app {
    * Default: prints a ready message to stdout.  The default implementation
    * uses `FLAGS_host` and `FLAGS_port` to report the socket address (or, in
    * `--transport=pty` mode, writes directly to fd 1 with `\r\n` line endings
-   * instead — see `pty_write.hpp`'s doc comment for why plain `std::cout`
-   * isn't safe there).
+   * instead.
    */
   virtual void on_listening() const;
 
@@ -104,17 +90,6 @@ class server_app {
 
   /**
    * @brief Called on fatal errors before `run()` returns 1.
-   *
-   * Default: writes to `std::cerr`, unconditionally — including in
-   * `--transport=pty` mode, where this can stairstep (see `on_listening()`'s
-   * note on `pty_write.hpp`). Deliberately not fixed the same way
-   * `on_listening()`/`on_verbose_trace()` are: those only ever fire once
-   * `--transport=pty`'s `pty_process` has already put the terminal in raw
-   * mode, but `on_error()` can also fire for failures *before* that (e.g. an
-   * invalid `--transport` value), when the terminal is still in cooked
-   * mode — writing pre-translated `\r\n` there would double up with the
-   * kernel's own `ONLCR`. A rare, cosmetic-only edge case not worth the
-   * added complexity of tracking that distinction here.
    *
    * @param msg  Human-readable error description.
    */
@@ -175,8 +150,9 @@ class server_app {
    *        so the server stops as soon as the spawned subprocess exits.
    * @return 0 on clean shutdown, non-zero on error.
    */
-  virtual int run_with_transport(rmi::transport::server_transport_iface& transport,
-                                  std::function<void()> wait_for_shutdown = nullptr);
+  virtual int run_with_transport(
+      rmi::transport::server_transport_iface& transport,
+      std::function<void()> wait_for_shutdown = nullptr);
 };
 
 } // namespace bdg::bison::app

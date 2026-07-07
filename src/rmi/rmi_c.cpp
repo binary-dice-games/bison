@@ -10,9 +10,6 @@
 
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
-#include "src/console/console_process.hpp"
-#include "src/pty/pty_process.hpp"
-#include "src/pty/raw_mode_guard.hpp"
 
 #include <cstring>
 #include <memory>
@@ -27,11 +24,6 @@ using namespace bdg::bison::rmi::transport;
 using bison_dynamic_ptr = std::shared_ptr<dynamic>;
 
 struct client_state {
-  // Declared first so it is destroyed *last* (members are torn down in
-  // reverse declaration order): the pty slave must stay in raw mode for the
-  // whole lifetime of client_owner's transport, which reads/writes it -- see
-  // raw_mode_owner's doc comment at rmi_client_pty_create().
-  std::unique_ptr<pty::raw_mode_guard> raw_mode_owner;
   std::unique_ptr<client> client_owner;
   std::unique_ptr<standalone> standalone_owner;
   client* borrowed_client = nullptr;
@@ -145,18 +137,9 @@ static inline bool client_handle_is_valid(rmi_client_handle h) {
 }
 
 /**
- * @brief Owns a `server` plus, for the pty/console transports, the
- *        spawned-process resource that backs its transport's fds.
- *
- * Declaration order matters: members are destroyed in reverse declaration
- * order, and `server_owner` must be torn down (stopping the background I/O
- * threads that read/write those fds) before `pty_owner`/`console_owner`
- * close them out from under it. Declaring the process owners first ensures
- * `server_owner` is destroyed first.
+ * @brief Owns a `server`.
  */
 struct server_state {
-  std::unique_ptr<pty::pty_process> pty_owner;
-  std::unique_ptr<console::console_process> console_owner;
   std::unique_ptr<server> server_owner;
 };
 
@@ -423,33 +406,6 @@ RMI_API rmi_client_handle rmi_client_pipe_create(const char* path) {
     return nullptr;
   try {
     return make_owned_client_handle(std::make_unique<client>(std::make_unique<named_pipe_client_transport>(path)));
-  } catch (...) {
-    return nullptr;
-  }
-}
-
-RMI_API rmi_client_handle rmi_client_pty_create(void) {
-  try {
-    auto state = std::make_unique<client_state>();
-    // fd 0/1 are a pty slave left in cooked mode by the shell that spawned
-    // this process (see src/pty/DESIGN.md): ICANON line-buffering/ECHO would
-    // stall the BISON<...> framing (no \n terminator to release the kernel's
-    // line buffer) or echo it back at the reader. Put it in raw mode for the
-    // lifetime of this handle -- restored by raw_mode_owner's destructor in
-    // rmi_client_release(). Note this also disables OPOST on the fd, so
-    // plain stdout writes from this process will not get \r inserted (no
-    // C-ABI equivalent of client_app's crlf_output_guard is provided here).
-    state->raw_mode_owner = std::make_unique<pty::raw_mode_guard>(0);
-    state->client_owner = std::make_unique<client>(std::make_unique<stdio_client_transport>(0, 1));
-    return as_client_handle(state.release());
-  } catch (...) {
-    return nullptr;
-  }
-}
-
-RMI_API rmi_client_handle rmi_client_console_create(void) {
-  try {
-    return make_owned_client_handle(std::make_unique<client>(std::make_unique<stdio_client_transport>(0, 1)));
   } catch (...) {
     return nullptr;
   }
@@ -783,33 +739,6 @@ RMI_API rmi_server_handle rmi_server_pipe_create(const char* path) {
   try {
     auto state = std::make_unique<server_state>();
     state->server_owner = std::make_unique<server>(std::make_unique<named_pipe_server_transport>(path));
-    return as_server_handle(state.release());
-  } catch (...) {
-    return nullptr;
-  }
-}
-
-RMI_API rmi_server_handle rmi_server_pty_create(const char* cmd) {
-  try {
-    auto state = std::make_unique<server_state>();
-    state->pty_owner = std::make_unique<pty::pty_process>(cmd ? std::string(cmd) : std::string());
-    state->pty_owner->start_pump();
-    const int fd = state->pty_owner->master_fd();
-    state->server_owner = std::make_unique<server>(std::make_unique<stdio_server_transport>(fd, fd));
-    return as_server_handle(state.release());
-  } catch (...) {
-    return nullptr;
-  }
-}
-
-RMI_API rmi_server_handle rmi_server_console_create(const char* cmd) {
-  if (!cmd || !*cmd)
-    return nullptr;
-  try {
-    auto state = std::make_unique<server_state>();
-    state->console_owner = std::make_unique<console::console_process>(cmd);
-    state->server_owner = std::make_unique<server>(
-        std::make_unique<stdio_server_transport>(state->console_owner->read_fd(), state->console_owner->write_fd()));
     return as_server_handle(state.release());
   } catch (...) {
     return nullptr;

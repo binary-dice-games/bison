@@ -8,14 +8,6 @@
 // --transport/--host/--port/--name names used by calc-server
 // (src/srv/calc/main.cpp), so usage is consistent across the project.
 //
-// This example only wires up tcp/pipe: it uses "press Enter to stop" to know
-// when to shut down, but the pty/console transports have no such signal
-// available on fd 0 (it's either being pumped into the pty or is the spawned
-// subprocess's own stdin -- see rmi_server_pty_create()/
-// rmi_server_console_create() in rmi_c.h) without a wait-for-child primitive
-// this minimal example doesn't expose. Registers a Calculator class with add,
-// subtract, multiply, and divide methods, then listens for client
-// connections.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -25,10 +17,7 @@
 #include "rmi_c.h"
 
 static void print_usage(const char* program) {
-  fprintf(
-      stderr,
-      "Usage: %s [--transport=tcp|pipe] [--host=HOST] [--port=PORT] [--name=PATH]\n",
-      program);
+  fprintf(stderr, "Usage: %s [--transport=tcp|pipe] [--host=HOST] [--port=PORT] [--name=PATH]\n", program);
 }
 
 // ── Method implementations ────────────────────────────────────────────────────

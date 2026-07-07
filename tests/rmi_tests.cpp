@@ -408,116 +408,6 @@ TEST(StreamTransport, EmptyFrameRoundTrip) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 7. PipeTransport
-// ═════════════════════════════════════════════════════════════════════════════
-
-TEST(PipeTransport, ClientToServerRoundTrip) {
-  pipe_server_transport server_t;
-  server_t.start(dynamic{});
-
-  auto client_t = server_t.connect();
-  auto server_conn = server_t.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(server_conn != nullptr);
-
-  const buffer frame{'H', 'i'};
-  client_t.send(frame);
-
-  buffer received;
-  ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{500}));
-  EXPECT_EQ(received, frame);
-}
-
-TEST(PipeTransport, ServerToClientRoundTrip) {
-  pipe_server_transport server_t;
-  server_t.start(dynamic{});
-
-  auto client_t = server_t.connect();
-  auto server_conn = server_t.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(server_conn != nullptr);
-
-  const buffer reply{'O', 'K'};
-  server_conn->send(reply);
-
-  buffer got;
-  ASSERT_TRUE(client_t.receive(got, std::chrono::milliseconds{500}));
-  EXPECT_EQ(got, reply);
-}
-
-TEST(PipeTransport, AcceptTimeoutReturnsNullptr) {
-  pipe_server_transport t;
-  t.start(dynamic{});
-  auto r = t.accept(std::chrono::milliseconds{50});
-  EXPECT_EQ(r, nullptr);
-  t.stop();
-}
-
-TEST(PipeTransport, StopUnblocksAccept) {
-  pipe_server_transport t;
-  t.start(dynamic{});
-  t.stop();
-  EXPECT_EQ(t.accept(std::chrono::milliseconds{50}), nullptr);
-}
-
-TEST(PipeTransport, ShutdownPreventsClientReceive) {
-  pipe_server_transport server_t;
-  server_t.start(dynamic{});
-  auto client_t = server_t.connect();
-  client_t.shutdown();
-
-  buffer frame;
-  EXPECT_FALSE(client_t.receive(frame, std::chrono::milliseconds{50}));
-}
-
-TEST(PipeTransport, IsClosedAfterClose) {
-  pipe_server_transport server_t;
-  server_t.start(dynamic{});
-  server_t.connect(); // create channel
-  auto conn = server_t.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(conn != nullptr);
-  EXPECT_FALSE(conn->is_closed());
-  conn->close();
-  EXPECT_TRUE(conn->is_closed());
-}
-
-TEST(PipeTransport, EmptyFrameRoundTrip) {
-  pipe_server_transport server_t;
-  server_t.start(dynamic{});
-  auto client_t = server_t.connect();
-  auto server_conn = server_t.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(server_conn != nullptr);
-
-  client_t.send(buffer{});
-
-  buffer received;
-  ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{500}));
-  EXPECT_TRUE(received.empty());
-}
-
-TEST(PipeTransport, ConcurrentSendReceive) {
-  pipe_server_transport server_t;
-  server_t.start(dynamic{});
-
-  auto client_t = server_t.connect();
-  auto server_conn = server_t.accept(std::chrono::milliseconds{500});
-  ASSERT_TRUE(server_conn != nullptr);
-
-  constexpr int kMessages = 20;
-  std::thread sender([&] {
-    for (int i = 0; i < kMessages; ++i) {
-      buffer f{static_cast<uint8_t>(i)};
-      client_t.send(f);
-    }
-  });
-
-  for (int i = 0; i < kMessages; ++i) {
-    buffer received;
-    ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{1000}));
-    EXPECT_EQ(received, (buffer{static_cast<uint8_t>(i)}));
-  }
-  sender.join();
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
 // 9. End-to-end: connect / disconnect
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1350,6 +1240,131 @@ TEST_F(StandaloneTests, TwoProxiesAreIsolated) {
 
   sa.destroy(std::move(p1));
   sa.destroy(std::move(p2));
+}
+
+// ── Extensibility hooks ───────────────────────────────────────────────────────
+
+// A dynamic subclass registered with a factory (via make_factory) so that
+// InstantiateHonorsRegisteredFactory can prove standalone::instantiate now
+// goes through the registered factory instead of building a plain dynamic.
+class marked_widget : public dynamic {
+ public:
+  explicit marked_widget(dynamic&& d) : dynamic(std::move(d)) {
+    (*this)["marker"_key] = std::string{"factory"};
+  }
+};
+
+TEST_F(StandaloneTests, InstantiateHonorsRegisteredFactory) {
+  auto proto = dynamic_ptr{"Marked"_key, {}};
+  dynamic::addClass(0U, proto, bison_key_t{0U}, dynamic::make_factory<marked_widget>(0U, "Marked"_key));
+
+  standalone sa;
+  auto proxy = sa.instantiate(0U, "Marked"_key).get();
+  auto snap = proxy.get().get();
+
+  ASSERT_NE(snap.findField("marker"_key), nullptr);
+  EXPECT_EQ(snap.as<std::string>("marker"_key), "factory");
+
+  sa.destroy(std::move(proxy));
+}
+
+// Subclass overriding all five hooks so the fixture below can assert each
+// fires the expected number of times and with a usable context&.
+class hook_tracking_standalone : public standalone {
+ public:
+  std::atomic<int> created{0};
+  std::atomic<int> destroyed{0};
+  std::atomic<int> create_object_calls{0};
+  std::atomic<int> before_dispatch_calls{0};
+  std::atomic<int> after_dispatch_calls{0};
+
+ protected:
+  void on_session_created(context& ctx) override {
+    EXPECT_NE(static_cast<hash_t>(ctx.session_id), 0u);
+    ++created;
+  }
+  void on_session_destroyed(context& ctx) override {
+    (void)ctx;
+    ++destroyed;
+  }
+  dynamic_ptr on_create_object(context& ctx, bison_key_t ns, bison_key_t klass) override {
+    ++create_object_calls;
+    return standalone::on_create_object(ctx, ns, klass);
+  }
+  void on_before_dispatch(context& ctx) override {
+    (void)ctx;
+    ++before_dispatch_calls;
+  }
+  void on_after_dispatch(context& ctx) noexcept override {
+    (void)ctx;
+    ++after_dispatch_calls;
+  }
+};
+
+TEST_F(StandaloneTests, SessionHooksFireExactlyOnce) {
+  hook_tracking_standalone sa;
+  EXPECT_EQ(sa.created.load(), 0);
+
+  sa.connect();
+  EXPECT_EQ(sa.created.load(), 1);
+  sa.connect(); // idempotent: second call must not re-fire the hook
+  EXPECT_EQ(sa.created.load(), 1);
+
+  EXPECT_EQ(sa.destroyed.load(), 0);
+  sa.disconnect();
+  EXPECT_EQ(sa.destroyed.load(), 1);
+  sa.disconnect(); // idempotent
+  EXPECT_EQ(sa.destroyed.load(), 1);
+}
+
+TEST_F(StandaloneTests, DispatchHooksBracketEveryOperation) {
+  auto proto = dynamic_ptr{"Hooked"_key, {{"v"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  hook_tracking_standalone sa;
+
+  auto proxy = sa.instantiate(0U, "Hooked"_key).get();
+  EXPECT_EQ(sa.create_object_calls.load(), 1);
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+  int after_instantiate = sa.before_dispatch_calls.load();
+  EXPECT_GE(after_instantiate, 1);
+
+  dynamic fields;
+  fields["v"_key] = int32_t{5};
+  proxy.set(std::move(fields)).get();
+  EXPECT_GT(sa.before_dispatch_calls.load(), after_instantiate);
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+
+  proxy.get().get();
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+
+  sa.destroy(std::move(proxy));
+  EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
+  EXPECT_EQ(sa.create_object_calls.load(), 1); // destroy does not re-create
+}
+
+// A hook that calls back into instantiate().get() from within
+// on_session_created() must not deadlock -- proves ctx_'s lock is released
+// before the hook runs.
+class reentrant_standalone : public standalone {
+ public:
+  bool instantiated_from_hook = false;
+
+ protected:
+  void on_session_created(context& /*ctx*/) override {
+    auto proxy = instantiate(0U, "Reentrant"_key).get();
+    instantiated_from_hook = proxy.valid();
+    destroy(std::move(proxy));
+  }
+};
+
+TEST_F(StandaloneTests, SessionCreatedHookMayCallInstantiateWithoutDeadlock) {
+  auto proto = dynamic_ptr{"Reentrant"_key, {}};
+  dynamic::addClass(0U, proto);
+
+  reentrant_standalone sa;
+  sa.connect();
+  EXPECT_TRUE(sa.instantiated_from_hook);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

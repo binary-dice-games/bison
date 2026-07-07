@@ -5,14 +5,13 @@
  */
 #include "src/app/server/server_app.hpp"
 
+#include "src/app/debugger.hpp"
 #include "src/app/transport_flags.hpp"
-#include "src/console/console_process.hpp"
-#include "src/pty/pty_process.hpp"
-#include "src/pty/pty_write.hpp"
 #include "src/rmi/server/server.hpp"
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
-#include "src/rmi/transport/stdio_transport.hpp"
+#include "src/rmi/transport/term_transport.hpp"
+#include "src/term/terminal.hpp"
 
 #include <gflags/gflags.h>
 
@@ -21,8 +20,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-
-extern void wait_for_debugger();
 
 DECLARE_string(host);
 DECLARE_int32(port);
@@ -77,13 +74,8 @@ class bridged_server : public rmi::server {
 // ── Default hook implementations ──────────────────────────────────────────────
 
 void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string& line) const {
-  if (selected_transport() == transport_kind::pty) {
-    // Only reachable once pty_proc (in run()'s pty branch) has already put
-    // the operator's real terminal in raw mode, stripping \r from plain
-    // std::cout output — write directly instead, both to correct that and
-    // to avoid racing stdio_print_passthrough's own std::cout writes on
-    // another thread. See pty_write.hpp's doc comment.
-    pty::write_raw(1, pty::to_crlf(line + "\n"));
+  if (selected_transport() == transport_kind::term) {
+    term::terminal::print(line + "\n");
   } else {
     std::cout << line << '\n';
   }
@@ -91,9 +83,6 @@ void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string
 
 void server_app::on_listening() const {
   switch (selected_transport()) {
-    case transport_kind::pty:
-      pty::write_raw(1, pty::to_crlf("[server_app] listening via --transport=pty -- exit the spawned shell to stop\n"));
-      return;
     case transport_kind::pipe:
       std::cout << "[server_app] listening on pipe " << FLAGS_name << " -- press Enter to stop\n" << std::flush;
       return;
@@ -101,10 +90,8 @@ void server_app::on_listening() const {
       std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port << " -- press Enter to stop\n"
                 << std::flush;
       return;
-    case transport_kind::console:
-      std::cout << "[server_app] listening via --transport=console (spawned: " << FLAGS_cmd
-                << ") -- exit the subprocess to stop\n"
-                << std::flush;
+    case transport_kind::term:
+      term::terminal::print("[server_app] listening via --transport=term -- exit the spawned terminal to stop\n");
       return;
   }
 }
@@ -154,12 +141,6 @@ int server_app::run(int argc, char** argv) {
     register_classes();
 
     switch (transport) {
-      case transport_kind::pty: {
-        pty::pty_process pty_proc;
-        pty_proc.start_pump();
-        rmi::transport::stdio_server_transport stdio_transport{pty_proc.master_fd(), pty_proc.master_fd()};
-        return run_with_transport(stdio_transport, [&] { pty_proc.wait(); });
-      }
       case transport_kind::pipe: {
         rmi::transport::named_pipe_server_transport pipe_transport{FLAGS_name};
         return run_with_transport(pipe_transport);
@@ -169,12 +150,11 @@ int server_app::run(int argc, char** argv) {
         rmi::transport::socket_server_transport socket_transport{FLAGS_host, port};
         return run_with_transport(socket_transport);
       }
-      case transport_kind::console: {
-        if (FLAGS_cmd.empty())
-          throw std::runtime_error("--transport=console requires --cmd");
-        console::console_process console_proc{FLAGS_cmd};
-        rmi::transport::stdio_server_transport stdio_transport{console_proc.read_fd(), console_proc.write_fd()};
-        return run_with_transport(stdio_transport, [&] { console_proc.wait(); });
+      case transport_kind::term: {
+        term::terminal term_proc{FLAGS_cmd};
+        term_proc.start_pump();
+        rmi::transport::term_server_transport term_transport{term_proc.read_handle(), term_proc.write_handle()};
+        return run_with_transport(term_transport, [&] { term_proc.wait(); });
       }
     }
     return 1;

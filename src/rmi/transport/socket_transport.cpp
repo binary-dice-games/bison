@@ -16,7 +16,11 @@
 
 #include <uv.h>
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#include <winsock2.h>
+#else
 #include <unistd.h>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -28,20 +32,41 @@
 
 namespace bdg::bison::rmi::transport {
 
-using tcp_conn_state = uv_stream_state<uv_tcp_t>;
+namespace {
 
-/**
- * @brief Duplicate the OS socket underlying @p handle.
- * @param handle An open, connected uv_tcp_t (e.g. one just populated by uv_accept).
- * @return A duplicate socket descriptor suitable for uv_tcp_open() on another
- *         loop, or an invalid descriptor on failure.
- */
+// Duplicates the OS socket underlying an open uv_tcp_t handle. A plain
+// `dup()` works for a POSIX socket fd but not for a Winsock `SOCKET`, which
+// requires `WSADuplicateSocket`.
 uv_os_sock_t duplicate_tcp_socket(uv_tcp_t* handle) {
   uv_os_fd_t fd{};
+
+#if defined(_WIN32) || defined(__CYGWIN__)
+  if (uv_fileno(reinterpret_cast<uv_handle_t*>(handle), &fd) != 0)
+    return INVALID_SOCKET;
+
+  // Winsock `SOCKET` handles aren't plain fds, so `dup()` doesn't apply.
+  // `WSADuplicateSocketW()` produces a `WSAPROTOCOL_INFOW` blob describing
+  // the socket, which `WSASocketW(..., FROM_PROTOCOL_INFO, ...)` turns into
+  // a new socket handle in the target process — here, the same process,
+  // since this is only used to hand a socket off from a temporary uv_tcp_t
+  // to a fresh one on another loop.
+  const SOCKET sock = reinterpret_cast<SOCKET>(fd);
+  WSAPROTOCOL_INFOW info{};
+  if (WSADuplicateSocketW(sock, GetCurrentProcessId(), &info) != 0)
+    return INVALID_SOCKET;
+
+  return WSASocketW(FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, FROM_PROTOCOL_INFO, &info, 0, 0);
+#else
   if (uv_fileno(reinterpret_cast<uv_handle_t*>(handle), &fd) != 0)
     return -1;
+
   return dup(fd);
+#endif
 }
+
+} // namespace
+
+using tcp_conn_state = uv_stream_state<uv_tcp_t>;
 
 // ── socket_client_transport::impl ────────────────────────────────────────────
 

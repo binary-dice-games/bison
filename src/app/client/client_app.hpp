@@ -10,14 +10,11 @@
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <queue>
 #include <string>
 #include <string_view>
-
-namespace bdg::bison::rmi::transport {
-class stdio_client_transport;
-} // namespace bdg::bison::rmi::transport
 
 namespace bdg::bison::app {
 
@@ -30,43 +27,20 @@ namespace bdg::bison::app {
  *
  * Transport is chosen by gflags CLI flags:
  *   - `--transport T`           — selects the transport: `tcp` (default),
- *                                 `pipe`, `pty`, or `console`. Only the
- *                                 flags relevant to the selected transport
- *                                 are read; the others are simply ignored
- *                                 (see `src/app/transport_flags.hpp`).
+ *                                 `pipe` or `term`. Only the flags relevant
+ *                                 to the selected transport are read; the others
+ *                                 are simply ignored (see `src/app/transport_flags.hpp`).
  *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`
  *                                 (default: `127.0.0.1:7070`)
  *   - `--name PATH`             — named-pipe / Unix-socket path, used by
  *                                 `--transport=pipe`
- *   - `--transport=pty`         — wrap this process's own inherited `fd 0`
- *                                 (read) / `fd 1` (write) in the
- *                                 `BISON<...>` framing instead of opening a
- *                                 socket/pipe. No pty is spawned here — the
- *                                 client never forks a terminal; this is for
- *                                 running as a plain child process whose
- *                                 stdio is already connected to a peer that
- *                                 speaks the framing (typically because it
- *                                 was launched inside a server-spawned
- *                                 `--transport=pty` terminal, see
- *                                 `src/app/server/server_app.hpp` and
- *                                 `src/rmi/transport/stdio_transport.hpp`).
- *                                 Also puts fd 0 in raw mode for the session
- *                                 (`pty::raw_mode_guard`) and requires
- *                                 subclasses to read operator input via
- *                                 `read_console_line()` rather than
- *                                 `std::cin` directly — see that method's
- *                                 doc comment. Takes no additional flags.
- *   - `--transport=console`     — same fd 0/1 wrapping as `--transport=pty`,
- *                                 minus the raw-mode/CRLF terminal handling
- *                                 (fd 0/1 here are plain pipes, not a tty —
- *                                 there's no termios/CRLF fallout to fix).
- *                                 This is the client side of
- *                                 `server_app`'s `--transport=console`: the
- *                                 server spawns this process via `--cmd`, so
- *                                 the client itself takes no `--cmd` and
- *                                 never spawns anything. Operator input
- *                                 still goes through `read_console_line()`,
- *                                 same as `--transport=pty`.
+ *   - `--transport=term`        — same fd 0/1 wrapping and raw-mode/CRLF
+ *                                 handling as `--transport=pty`, but framed
+ *                                 as OSC-99 escape sequences instead of
+ *                                 `BISON<...>` (see
+ *                                 `src/rmi/transport/term_transport.hpp`).
+ *                                 Client side of `server_app`'s
+ *                                 `--transport=term`; no additional flags.
  *   - `--timeout MS`            — per-request timeout stored in `timeout_`
  *
  * Lifecycle (inside `run()`):
@@ -148,7 +122,7 @@ class client_app {
    * @param transport  Heap-allocated transport to take ownership of.
    * @return Return value of `on_session()`.
    */
-  int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
+  virtual int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
 
   /**
    * @brief Read one line of console (operator) input, blocking until a line
@@ -171,40 +145,6 @@ class client_app {
 
   /** @brief Per-request timeout; set from `--timeout` before `on_session()`. */
   std::chrono::milliseconds timeout_{30000};
-
- private:
-  /** @brief State fed by the `--transport=pty` passthrough callback; see `read_console_line()`. */
-  struct console_queue_state {
-    std::string partial;
-    std::queue<std::string> lines;
-    bool closed{false};
-  };
-
-  /**
-   * @brief Splits passthrough bytes into lines for `read_console_line()`,
-   *        applying basic backspace handling (`0x7f`/`0x08`) so the line
-   *        buffer matches what's on screen. An empty chunk signals stream
-   *        closure. Also locally echoes each byte via `echo_transport_`
-   *        (see that member's doc comment for why this is needed at all).
-   */
-  void feed_console_passthrough(std::string_view chunk);
-
-  bool console_via_passthrough_{false};
-  bison::synchronized<console_queue_state> console_queue_;
-
-  /**
-   * @brief Non-owning pointer to the `--transport=pty` transport, set right after
-   *        construction and valid for the rest of the process's lifetime;
-   *        used only to locally echo the operator's keystrokes.
-   *
-   * `raw_mode_guard` disables the pty slave's kernel `ECHO` (see its doc
-   * comment for why), which as a side effect means the operator's own
-   * typed characters are never echoed anywhere — nothing appears on screen
-   * while typing, even though the REPL is receiving them correctly. This
-   * reimplements just that echo in software, in `feed_console_passthrough`.
-   * Null outside `--transport=pty` mode.
-   */
-  rmi::transport::stdio_client_transport* echo_transport_{nullptr};
 };
 
 } // namespace bdg::bison::app

@@ -10,10 +10,9 @@
 
 #include "src/app/transport_flags.hpp"
 #include "src/bison/bison_flags.hpp"
-#include "src/console/console_process.hpp"
-#include "src/pty/pty_process.hpp"
-#include "src/pty/pty_write.hpp"
 #include "src/rmi/rmi.hpp"
+#include "src/rmi/transport/term_transport.hpp"
+#include "src/term/terminal.hpp"
 
 #include <gflags/gflags.h>
 
@@ -27,11 +26,11 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-DEFINE_string(transport, "tcp", "Transport to use: tcp, pipe, pty, or console");
+DEFINE_string(transport, "term", "Transport to use: tcp, pipe, or term");
 DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Listen port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
-DEFINE_string(cmd, "", "Command to spawn (transport=console)");
+DEFINE_string(cmd, "", "Command to spawn (transport=term)");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 
 extern void wait_for_debugger();
@@ -93,47 +92,21 @@ int main(int argc, char** argv) {
 
   try {
     switch (app::selected_transport()) {
-      case app::transport_kind::pty: {
-        pty::pty_process pty_proc;
-        pty_proc.start_pump();
-        stdio_server_transport transport{pty_proc.master_fd(), pty_proc.master_fd()};
+      case app::transport_kind::term: {
+        term::terminal term_proc{FLAGS_cmd};
+        term_proc.start_pump();
+        term_server_transport transport{term_proc.read_handle(), term_proc.write_handle()};
         server srv{transport};
         srv.listen();
 
-        // pty_proc's constructor already put the operator's own real terminal
-        // in raw mode (for pump_loop() -- see src/pty/DESIGN.md), which strips
-        // \r from plain std::cout output. Writing directly via pty::write_raw
-        // here (rather than through std::cout, which stdio_print_passthrough
-        // is also concurrently writing to from another thread to forward
-        // pty-master bytes verbatim) avoids both corrupting that forwarded
-        // text and racing it -- see pty_write.hpp's doc comment.
-        pty::write_raw(
-            1,
-            pty::to_crlf("[Server] Calculator listening via --transport=pty. This terminal is now the "
-                         "spawned shell; run `rmi_client_example --transport=pty` from inside it. Exit the "
-                         "shell to stop.\n"));
+        term::terminal::print(
+            "[Server] Calculator listening via --transport=term. This terminal is now the "
+            "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
+            "shell to stop.\n");
 
-        pty_proc.wait();
+        term_proc.wait();
         srv.stop();
-        pty::write_raw(1, pty::to_crlf("[Server] stopped.\n"));
-        return 0;
-      }
-      case app::transport_kind::console: {
-        if (FLAGS_cmd.empty())
-          throw std::runtime_error("--transport=console requires --cmd");
-
-        console::console_process console_proc{FLAGS_cmd};
-        stdio_server_transport transport{console_proc.read_fd(), console_proc.write_fd()};
-        server srv{transport};
-        srv.listen();
-
-        std::cout << "[Server] Calculator listening via --transport=console (spawned: " << FLAGS_cmd
-                   << ") -- exit the subprocess to stop\n"
-                   << std::flush;
-
-        console_proc.wait();
-        srv.stop();
-        std::cout << "[Server] stopped." << '\n';
+        term::terminal::print("[Server] stopped.\n");
         return 0;
       }
       case app::transport_kind::pipe: {
@@ -142,7 +115,7 @@ int main(int argc, char** argv) {
         srv.listen();
 
         std::cout << "[Server] Calculator listening on pipe " << FLAGS_name << " -- press Enter to stop\n"
-                   << std::flush;
+                  << std::flush;
 
         std::string line;
         std::getline(std::cin, line);

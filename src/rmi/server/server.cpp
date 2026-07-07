@@ -24,29 +24,22 @@ using namespace transport;
 namespace {
 
 static const char* op_to_label(bison::key_t op) {
-  if (op == OP_CONNECT)
-    return "connect    ";
-  if (op == OP_DISCONNECT)
-    return "disconnect ";
-  if (op == OP_INSTANTIATE)
-    return "instantiate";
-  if (op == OP_CALL)
-    return "call       ";
-  if (op == OP_GET)
-    return "get        ";
-  if (op == OP_SET)
-    return "set        ";
-  if (op == OP_DESTROY)
-    return "destroy    ";
-  if (op == OP_CLEAR)
-    return "clear      ";
-  if (op == OP_DESCRIBE)
-    return "describe   ";
-  if (op == OP_DICTIONARY)
-    return "dictionary ";
-  if (op == OP_HELP)
-    return "help       ";
-  return "unknown    ";
+  static const std::unordered_map<bison::key_t, const char*, bison::key_t, bison::key_t> labels = {
+      {OP_CONNECT, "connect    "},
+      {OP_DISCONNECT, "disconnect "},
+      {OP_INSTANTIATE, "instantiate"},
+      {OP_CALL, "call       "},
+      {OP_GET, "get        "},
+      {OP_SET, "set        "},
+      {OP_DESTROY, "destroy    "},
+      {OP_CLEAR, "clear      "},
+      {OP_DESCRIBE, "describe   "},
+      {OP_DICTIONARY, "dictionary "},
+      {OP_HELP, "help       "},
+  };
+
+  auto it = labels.find(op);
+  return it != labels.end() ? it->second : "unknown    ";
 }
 
 // Built lazily on first trace call; thread-safe via static-local init.
