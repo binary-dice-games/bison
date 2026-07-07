@@ -106,8 +106,6 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
   target_sources(bison PRIVATE
     src/term/terminal_win.cpp
     src/term/scoped_terminal_config_win.cpp
-    src/rmi/transport/fd_dup_win.cpp
-    src/rmi/transport/socket_dup_win.cpp
     src/app/debugger_win.cpp
   )
 else()
@@ -117,8 +115,6 @@ else()
   target_sources(bison PRIVATE
     src/term/terminal_posix.cpp
     src/term/scoped_terminal_config_posix.cpp
-    src/rmi/transport/fd_dup_posix.cpp
-    src/rmi/transport/socket_dup_posix.cpp
     src/app/debugger_posix.cpp
   )
 endif()

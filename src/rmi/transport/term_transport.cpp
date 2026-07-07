@@ -8,11 +8,16 @@
  *        See term_transport.hpp and FORMAT.md §5.3 for the framing contract.
  */
 #include "src/rmi/transport/term_transport.hpp"
-#include "src/rmi/transport/fd_dup.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <gflags/gflags.h>
 #include <uv.h>
+
+#if defined(_WIN32) || defined(__CYGWIN__)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -32,6 +37,17 @@
 namespace bdg::bison::rmi::transport {
 
 namespace {
+
+// Duplicates a plain file descriptor: `dup()` and the CRT's `_dup()` both
+// take and return a plain `int`, so the platform difference is narrow
+// enough to keep inline here.
+int dup_fd(int fd) {
+#if defined(_WIN32) || defined(__CYGWIN__)
+  return _dup(fd);
+#else
+  return dup(fd);
+#endif
+}
 
 // ── Base64 encoding/decoding ────────────────────────────────────────────────
 
