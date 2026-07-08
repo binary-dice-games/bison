@@ -97,12 +97,26 @@ class term_client_transport : public client_transport_iface {
    * @param handshake_timeout How long, after `open()`, `is_connected()`
    *                          keeps reporting `true` while no frame has yet
    *                          been received from the peer.
+   * @param before_destroy    If set, called at the start of both
+   *                          `shutdown()` and the destructor (whichever
+   *                          runs first — safe to call more than once),
+   *                          before any internal state is torn down or
+   *                          marked closed. Lets a caller that handed this
+   *                          transport a callback capturing a pointer back
+   *                          to itself (e.g.
+   *                          `scoped_terminal_config::set_output_channel()`)
+   *                          stop using — and flush anything already
+   *                          buffered through — that pointer before it
+   *                          dangles, instead of racing this transport's
+   *                          own teardown against a background thread that
+   *                          might still be mid-flight calling `send()`.
    */
   term_client_transport(
       int read_fd,
       int write_fd,
       term_passthrough_cb passthrough = term_discard_passthrough,
-      std::chrono::milliseconds handshake_timeout = kDefaultHandshakeTimeout);
+      std::chrono::milliseconds handshake_timeout = kDefaultHandshakeTimeout,
+      std::function<void()> before_destroy = nullptr);
   ~term_client_transport() override;
 
   /**
@@ -150,6 +164,7 @@ class term_client_transport : public client_transport_iface {
   std::unique_ptr<term_conn_state> state_;
   std::chrono::milliseconds handshake_timeout_;
   std::chrono::steady_clock::time_point connect_deadline_;
+  std::function<void()> before_destroy_;
 };
 
 // ── Server-side connection ────────────────────────────────────────────────────

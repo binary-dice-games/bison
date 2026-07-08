@@ -111,8 +111,15 @@ int main(int argc, char** argv) {
         return run_with_transport(
             std::make_unique<socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
       case app::transport_kind::term: {
-        term::scoped_terminal_config stc{{0, 0, nullptr}};
-        return run_with_transport(std::make_unique<term_client_transport>(0, 1));
+        term::scoped_terminal_config stc{{0, 1}};
+        auto transport = std::make_unique<term_client_transport>(
+            stc.upstream_read_fd(),
+            stc.upstream_write_fd(),
+            [&stc](std::string_view s) { stc.on_passthrough(s); },
+            kDefaultHandshakeTimeout,
+            [&stc] { stc.stop_output_pump(); });
+        stc.set_output_channel([raw = transport.get()](std::string_view s) { raw->send(s); });
+        return run_with_transport(std::move(transport));
       }
     }
     return 1;

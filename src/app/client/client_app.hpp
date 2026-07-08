@@ -128,18 +128,15 @@ class client_app {
    * @brief Read one line of console (operator) input, blocking until a line
    *        is available.
    *
-   * In `--transport=tcp` and `--transport=pipe` modes this reads `std::cin`
-   * directly, since fd 0 there is the operator's own terminal, untouched by
-   * the RMI transport. In `--transport=pty` mode, fd 0 is instead the wire
-   * the transport reads `BISON<...>` frames from in a background thread —
-   * `std::cin` would race that reader and fail immediately (the transport
-   * puts the fd in non-blocking mode) — so this instead drains lines
-   * assembled from the non-frame bytes the transport hands to its
-   * passthrough callback (see `client_app.cpp` and `src/pty/DESIGN.md`).
+   * Always just `std::getline(std::cin, line)`. In `--transport=term` mode
+   * fd 0 is backed by `term::scoped_terminal_config`, which redirects the
+   * transport's real, framed read fd elsewhere and feeds this class only
+   * the non-frame pass-through bytes (see `client_app.cpp` and
+   * `src/term/scoped_terminal_config.hpp`) — so plain `std::cin` reads are
+   * always safe here, regardless of transport.
    *
    * @param line Output line, without the trailing newline.
-   * @return `false` once no more input is available (EOF on `std::cin`, or
-   *         the pty stream closed).
+   * @return `false` once no more input is available (EOF on `std::cin`).
    */
   bool read_console_line(std::string& line);
 

@@ -32,9 +32,11 @@ if(NOT WIN32 OR MSYS OR CYGWIN)
     package_add_test(terminal_posix_test terminal_posix_tests.cpp)
 endif()
 
-# scoped_terminal_config tests (raw-mode assertions are POSIX-only, same as
-# raw_mode_guard_test; CRLF assertions run everywhere)
-package_add_test(scoped_terminal_config_test scoped_terminal_config_tests.cpp)
+# scoped_terminal_config tests (Linux and MSYS2; native-Windows console-mode
+# path is untested here, same as terminal_posix_test)
+if(NOT WIN32 OR MSYS OR CYGWIN)
+    package_add_test(scoped_terminal_config_test scoped_terminal_config_tests.cpp)
+endif()
 
 # C API tests — link bison_abi shared library instead of bison static library
 add_executable(bison_c_test bison_c_tests.cpp)

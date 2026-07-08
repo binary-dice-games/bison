@@ -689,12 +689,17 @@ term_client_transport::term_client_transport(
     int read_fd,
     int write_fd,
     term_passthrough_cb passthrough,
-    std::chrono::milliseconds handshake_timeout)
-    : state_(std::make_unique<term_conn_state>()), handshake_timeout_(handshake_timeout) {
+    std::chrono::milliseconds handshake_timeout,
+    std::function<void()> before_destroy)
+    : state_(std::make_unique<term_conn_state>()),
+      handshake_timeout_(handshake_timeout),
+      before_destroy_(std::move(before_destroy)) {
   state_->start(read_fd, write_fd, std::move(passthrough), term_role::client);
 }
 
 term_client_transport::~term_client_transport() {
+  if (before_destroy_)
+    before_destroy_();
   if (state_)
     state_->stop();
 }
@@ -716,6 +721,15 @@ bool term_client_transport::receive(bison::buffer& frame, std::chrono::milliseco
 }
 
 void term_client_transport::shutdown() {
+  // Run before_destroy_ here too (not just in the destructor): client::
+  // disconnect() calls shutdown() well before this object is actually
+  // destroyed, and state_->stop() below marks the connection closed, after
+  // which send_raw() silently drops anything still buffered. Flushing here
+  // means output produced right up to disconnect isn't lost. Safe to run
+  // twice — the callback (scoped_terminal_config::stop_output_pump()) is
+  // idempotent.
+  if (before_destroy_)
+    before_destroy_();
   state_->stop();
 }
 
