@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <unistd.h>
+#include <string_view>
 
 using bdg::bison::term::terminal;
 
@@ -31,6 +32,37 @@ TEST(Terminal, WaitIsIdempotentAfterReap) {
 TEST(Terminal, ExecFailureExitsWith127) {
   terminal t{"/no/such/executable"};
   EXPECT_EQ(t.wait(), 127);
+}
+
+// terminal only execl()s cmd directly (no shell word-splitting), so these
+// tests spawn the default $SHELL (empty cmd) and drive it by writing a
+// command line to write_handle(), the same way an interactive operator
+// would -- this is what lets the child stay alive long enough to observe
+// has_exited() returning false before it exits.
+
+TEST(Terminal, HasExitedIsNonBlockingAndDetectsExit) {
+  terminal t{};
+  EXPECT_FALSE(t.has_exited());
+  const std::string_view cmd = "sleep 0.2; exit\n";
+  ASSERT_EQ(write(t.write_handle(), cmd.data(), cmd.size()), static_cast<ssize_t>(cmd.size()));
+  EXPECT_FALSE(t.has_exited());
+  for (int i = 0; i < 100 && !t.has_exited(); ++i)
+    usleep(20 * 1000);
+  EXPECT_TRUE(t.has_exited());
+}
+
+TEST(Terminal, HasExitedIsIdempotentAfterReap) {
+  terminal t{};
+  const std::string_view cmd = "exit\n";
+  ASSERT_EQ(write(t.write_handle(), cmd.data(), cmd.size()), static_cast<ssize_t>(cmd.size()));
+  for (int i = 0; i < 100 && !t.has_exited(); ++i)
+    usleep(20 * 1000);
+  ASSERT_TRUE(t.has_exited());
+  // Already reaped; a second call must not block or double-reap.
+  EXPECT_TRUE(t.has_exited());
+  // wait() after has_exited() already reaped the child returns -1, mirroring
+  // WaitIsIdempotentAfterReap above.
+  EXPECT_EQ(t.wait(), -1);
 }
 
 TEST(Terminal, ReadAndWriteHandleShareOnePtyMaster) {

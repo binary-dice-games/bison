@@ -111,7 +111,8 @@ void server_app::on_error(const std::string& msg) const {
 
 int server_app::run_with_transport(
     rmi::transport::server_transport_iface& transport,
-    std::function<void()> wait_for_shutdown) {
+    std::function<void()> wait_for_shutdown,
+    std::function<bool()> /*is_shutdown_requested*/) {
   bridged_server srv{transport, *this};
   srv.listen();
   on_listening();
@@ -153,7 +154,8 @@ int server_app::run(int argc, char** argv) {
         term::terminal term_proc{FLAGS_cmd};
         term_proc.start_pump();
         rmi::transport::term_server_transport term_transport{term_proc.read_handle(), term_proc.write_handle()};
-        return run_with_transport(term_transport, [&] { term_proc.wait(); });
+        return run_with_transport(
+            term_transport, [&] { term_proc.wait(); }, [&] { return term_proc.has_exited(); });
       }
     }
     return 1;

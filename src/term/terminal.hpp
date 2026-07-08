@@ -82,6 +82,19 @@ class terminal {
   /** @brief Block until the child exits. @return The child's exit status. */
   int wait();
 
+  /**
+   * @brief Non-blocking check for whether the child has exited.
+   *
+   * Lets a caller poll for exit alongside other shutdown conditions (e.g. a
+   * renderer's own close signal) instead of blocking in `wait()`. Reaps the
+   * child as a side effect once it has exited, so a later `wait()` or the
+   * destructor's own reap will not double-`waitpid()`/re-wait on it.
+   *
+   * @return `true` once the child has exited (or was already reaped);
+   *         `false` if it is still running.
+   */
+  bool has_exited();
+
  private:
   void pump_loop();
   void stdio_pump_loop();

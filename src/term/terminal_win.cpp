@@ -241,6 +241,12 @@ int terminal::wait() {
   return static_cast<int>(code);
 }
 
+bool terminal::has_exited() {
+  if (state_->pi.hProcess == nullptr)
+    return true;
+  return WaitForSingleObject(state_->pi.hProcess, 0) == WAIT_OBJECT_0;
+}
+
 void terminal::stdio_pump_loop() {
   char buf[4096];
   for (;;) {

@@ -148,11 +148,20 @@ class server_app {
    *        into the pty and is not available for a shutdown keypress.
    *        `--transport=console` similarly passes `[&]{ console_proc.wait(); }`,
    *        so the server stops as soon as the spawned subprocess exits.
+   * @param is_shutdown_requested  Non-blocking alternative to
+   *        `wait_for_shutdown`, for overrides (e.g. a GUI-driven
+   *        `run_with_transport`) that poll their own shutdown condition
+   *        (a window close, etc.) in a loop and need to check for the
+   *        spawned terminal's exit alongside it rather than blocking on it.
+   *        `--transport=term` passes `[&]{ return term_proc.has_exited(); }`;
+   *        other transports leave this unset. The default implementation
+   *        ignores it and blocks on `wait_for_shutdown` as described above.
    * @return 0 on clean shutdown, non-zero on error.
    */
   virtual int run_with_transport(
       rmi::transport::server_transport_iface& transport,
-      std::function<void()> wait_for_shutdown = nullptr);
+      std::function<void()> wait_for_shutdown = nullptr,
+      std::function<bool()> is_shutdown_requested = nullptr);
 };
 
 } // namespace bdg::bison::app

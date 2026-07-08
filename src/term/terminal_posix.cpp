@@ -194,6 +194,17 @@ int terminal::wait() {
   return status;
 }
 
+bool terminal::has_exited() {
+  if (state_->child_pid <= 0)
+    return true;
+  int status{};
+  const pid_t r = waitpid(state_->child_pid, &status, WNOHANG);
+  if (r == 0)
+    return false;
+  state_->child_pid = -1;
+  return true;
+}
+
 void terminal::stdio_pump_loop() {
   char buf[4096];
   for (;;) {
