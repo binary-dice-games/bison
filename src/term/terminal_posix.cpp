@@ -18,10 +18,12 @@
 #include <termios.h>
 #include <unistd.h>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 
 namespace bdg::bison::term {
 
@@ -49,6 +51,12 @@ struct terminal_state {
   int stop_write_fd{-1};
 #endif
   int child_pid{-1};
+
+  // stdout/stderr redirect (see terminal.hpp's class doc comment).
+  int saved_stdout_fd{-1};
+  int stdio_pipe_read_fd{-1};
+  int stdio_pipe_write_fd{-1};
+  std::thread stdio_pump_thread;
 };
 
 terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_state>()) {
@@ -85,6 +93,20 @@ terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_st
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
   }
 
+  // Redirect fd 1/2 through a pipe + background byte-level CRLF translator
+  // for the object's lifetime (see terminal.hpp's class doc comment).
+  state_->saved_stdout_fd = dup(STDOUT_FILENO);
+  int stdio_pipe_fds[2];
+  if (state_->saved_stdout_fd >= 0 && pipe(stdio_pipe_fds) == 0) {
+    state_->stdio_pipe_read_fd = stdio_pipe_fds[0];
+    state_->stdio_pipe_write_fd = stdio_pipe_fds[1];
+    fflush(stdout);
+    fflush(stderr);
+    dup2(state_->stdio_pipe_write_fd, STDOUT_FILENO);
+    dup2(state_->stdio_pipe_write_fd, STDERR_FILENO);
+    state_->stdio_pump_thread = std::thread([this] { stdio_pump_loop(); });
+  }
+
 #if defined(__linux__)
   state_->stop_read_fd = eventfd(0, EFD_NONBLOCK);
 #else
@@ -109,6 +131,21 @@ terminal::~terminal() {
   }
   if (pump_thread_.joinable())
     pump_thread_.join();
+
+  if (state_->stdio_pipe_write_fd >= 0) {
+    fflush(stdout);
+    fflush(stderr);
+    if (state_->saved_stdout_fd >= 0) {
+      dup2(state_->saved_stdout_fd, STDOUT_FILENO);
+      dup2(state_->saved_stdout_fd, STDERR_FILENO);
+    }
+    close(state_->stdio_pipe_write_fd); // last writer closed -> pump thread sees EOF
+    if (state_->stdio_pump_thread.joinable())
+      state_->stdio_pump_thread.join();
+    close(state_->stdio_pipe_read_fd);
+    if (state_->saved_stdout_fd >= 0)
+      close(state_->saved_stdout_fd);
+  }
 
   if (state_->termios_saved)
     tcsetattr(STDIN_FILENO, TCSANOW, &state_->saved_termios);
@@ -157,19 +194,26 @@ int terminal::wait() {
   return status;
 }
 
-void terminal::print(const std::string& line) {
-  const std::string bytes = to_crlf(line);
-  size_t written = 0;
-  while (written < bytes.size()) {
-    const ssize_t n = write(STDOUT_FILENO, bytes.data() + written, bytes.size() - written);
-    if (n < 0) {
-      if (errno == EINTR)
-        continue;
-      return;
+void terminal::stdio_pump_loop() {
+  char buf[4096];
+  for (;;) {
+    const ssize_t n = read(state_->stdio_pipe_read_fd, buf, sizeof(buf));
+    if (n <= 0)
+      break; // EOF (write end closed in the destructor) or error
+
+    const std::string translated = to_crlf(std::string_view(buf, static_cast<size_t>(n)));
+    size_t written = 0;
+    while (written < translated.size()) {
+      const ssize_t w = write(state_->saved_stdout_fd, translated.data() + written, translated.size() - written);
+      if (w < 0) {
+        if (errno == EINTR)
+          continue;
+        return;
+      }
+      if (w == 0)
+        return;
+      written += static_cast<size_t>(w);
     }
-    if (n == 0)
-      return;
-    written += static_cast<size_t>(n);
   }
 }
 

@@ -19,9 +19,11 @@
 #include <fcntl.h>
 #include <io.h>
 
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace bdg::bison::term {
@@ -40,6 +42,12 @@ struct terminal_state {
   bool console_mode_saved{false};
 
   HANDLE stop_event{nullptr};
+
+  // stdout/stderr redirect (see terminal.hpp's class doc comment).
+  int saved_stdout_fd{-1};
+  int stdio_pipe_read_fd{-1};
+  int stdio_pipe_write_fd{-1};
+  std::thread stdio_pump_thread;
 };
 
 namespace {
@@ -147,6 +155,20 @@ terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_st
   }
 
   state_->stop_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+
+  // Redirect fd 1/2 through a pipe + background byte-level CRLF translator
+  // for the object's lifetime (see terminal.hpp's class doc comment).
+  state_->saved_stdout_fd = _dup(_fileno(stdout));
+  int stdio_pipe_fds[2];
+  if (state_->saved_stdout_fd >= 0 && _pipe(stdio_pipe_fds, 4096, _O_BINARY) == 0) {
+    state_->stdio_pipe_read_fd = stdio_pipe_fds[0];
+    state_->stdio_pipe_write_fd = stdio_pipe_fds[1];
+    fflush(stdout);
+    fflush(stderr);
+    _dup2(state_->stdio_pipe_write_fd, _fileno(stdout));
+    _dup2(state_->stdio_pipe_write_fd, _fileno(stderr));
+    state_->stdio_pump_thread = std::thread([this] { stdio_pump_loop(); });
+  }
 }
 
 terminal::~terminal() {
@@ -155,6 +177,21 @@ terminal::~terminal() {
     SetEvent(state_->stop_event);
   if (pump_thread_.joinable())
     pump_thread_.join();
+
+  if (state_->stdio_pipe_write_fd >= 0) {
+    fflush(stdout);
+    fflush(stderr);
+    if (state_->saved_stdout_fd >= 0) {
+      _dup2(state_->saved_stdout_fd, _fileno(stdout));
+      _dup2(state_->saved_stdout_fd, _fileno(stderr));
+    }
+    _close(state_->stdio_pipe_write_fd); // last writer closed -> pump thread sees EOF
+    if (state_->stdio_pump_thread.joinable())
+      state_->stdio_pump_thread.join();
+    _close(state_->stdio_pipe_read_fd);
+    if (state_->saved_stdout_fd >= 0)
+      _close(state_->saved_stdout_fd);
+  }
 
   if (state_->console_mode_saved)
     SetConsoleMode(state_->console_in, state_->saved_console_mode);
@@ -204,14 +241,22 @@ int terminal::wait() {
   return static_cast<int>(code);
 }
 
-void terminal::print(const std::string& line) {
-  const std::string bytes = to_crlf(line);
-  size_t written = 0;
-  while (written < bytes.size()) {
-    const int n = _write(1, bytes.data() + written, static_cast<unsigned>(bytes.size() - written));
+void terminal::stdio_pump_loop() {
+  char buf[4096];
+  for (;;) {
+    const int n = _read(state_->stdio_pipe_read_fd, buf, sizeof(buf));
     if (n <= 0)
-      return;
-    written += static_cast<size_t>(n);
+      break; // EOF (write end closed in the destructor) or error
+
+    const std::string translated = to_crlf(std::string_view(buf, static_cast<size_t>(n)));
+    size_t written = 0;
+    while (written < translated.size()) {
+      const int w = _write(
+          state_->saved_stdout_fd, translated.data() + written, static_cast<unsigned>(translated.size() - written));
+      if (w <= 0)
+        return;
+      written += static_cast<size_t>(w);
+    }
   }
 }
 

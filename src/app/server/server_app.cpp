@@ -74,11 +74,10 @@ class bridged_server : public rmi::server {
 // ── Default hook implementations ──────────────────────────────────────────────
 
 void server_app::on_verbose_trace(bison::key_t /*session_id*/, const std::string& line) const {
-  if (selected_transport() == transport_kind::term) {
-    term::terminal::print(line + "\n");
-  } else {
-    std::cout << line << '\n';
-  }
+  // term::terminal (constructed for transport_kind::term in run()) already
+  // redirects stdout through a CRLF-safe translator for its lifetime, so no
+  // transport-specific handling is needed here anymore.
+  std::cout << line << '\n';
 }
 
 void server_app::on_listening() const {
@@ -91,7 +90,7 @@ void server_app::on_listening() const {
                 << std::flush;
       return;
     case transport_kind::term:
-      term::terminal::print("[server_app] listening via --transport=term -- exit the spawned terminal to stop\n");
+      std::cout << "[server_app] listening via --transport=term -- exit the spawned terminal to stop\n" << std::flush;
       return;
   }
 }

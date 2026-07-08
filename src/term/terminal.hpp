@@ -9,6 +9,17 @@
  * interactive pseudo-terminal, and pumps the operator's own real terminal
  * input into it.
  *
+ * @note For the object's lifetime, fd 1 (stdout) and fd 2 (stderr) are also
+ *       transparently redirected through a byte-level `'\n'` -> `"\r\n"`
+ *       translator before reaching the real terminal. Raw mode (set by the
+ *       constructor) disables the tty's own newline translation, so without
+ *       this any writer that doesn't know to ask for special handling --
+ *       C stdio (`printf`/`fprintf`), direct `write()`, third-party
+ *       libraries -- would otherwise "staircase" on screen. Translation
+ *       happens as bytes are received, not buffered until a full line, so
+ *       output (including partial, non-newline-terminated writes) appears
+ *       immediately.
+ *
  * @note Both platform implementations expose the child's pty I/O as plain
  *       CRT file descriptors (`read_handle()`/`write_handle()`), not as a
  *       `uv_stream_t*` bound to a loop this class owns. `uv_pipe_open()`
@@ -71,23 +82,9 @@ class terminal {
   /** @brief Block until the child exits. @return The child's exit status. */
   int wait();
 
-  /**
-   * @brief Write @p line straight to the operator's real terminal (fd 1),
-   *        bypassing the pty entirely.
-   *
-   * Rewrites `'\n'` to `"\r\n"` before writing, since raw mode (set by this
-   * class's constructor) has disabled the tty's own newline translation. No
-   * trailing newline is appended — pass one in @p line if the caller wants
-   * one. Writes the raw bytes directly rather than through buffered
-   * iostreams, so this is safe to call concurrently with the pump thread and
-   * with whatever is forwarding the pty's own output to the same fd.
-   * Best-effort: write errors are ignored, matching that a status message
-   * failing to display isn't worth crashing the process over.
-   */
-  static void print(const std::string& line);
-
  private:
   void pump_loop();
+  void stdio_pump_loop();
 
   int read_handle_{-1};
   int write_handle_{-1};

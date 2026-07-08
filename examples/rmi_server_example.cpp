@@ -99,14 +99,15 @@ int main(int argc, char** argv) {
         server srv{transport};
         srv.listen();
 
-        term::terminal::print(
-            "[Server] Calculator listening via --transport=term. This terminal is now the "
-            "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
-            "shell to stop.\n");
+        // term_proc already redirects stdout through a CRLF-safe translator
+        // for its lifetime, so plain std::cout is safe here.
+        std::cout << "[Server] Calculator listening via --transport=term. This terminal is now the "
+                     "spawned shell; run `rmi_client_example --transport=term` from inside it. Exit the "
+                     "shell to stop.\n";
 
         term_proc.wait();
         srv.stop();
-        term::terminal::print("[Server] stopped.\n");
+        std::cout << "[Server] stopped.\n";
         return 0;
       }
       case app::transport_kind::pipe: {
