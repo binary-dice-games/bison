@@ -223,7 +223,13 @@ class dynamic_ptr : public std::shared_ptr<dynamic> {
   dynamic_ptr& operator=(std::shared_ptr<dynamic>&& that);
 
   dynamic_ptr(dynamic&& that);
-  dynamic_ptr(key_t klass = 0U, std::map<key_t, field>&& fields = {});
+  // Split from a single defaulted-argument constructor: MSVC requires
+  // `field` complete to reason about a `std::map<key_t, field>` default
+  // argument, but this header only forward-declares `field` (it is fully
+  // defined in bison_object.hpp). Two non-defaulted overloads avoid ever
+  // needing `field` complete here.
+  dynamic_ptr(key_t klass = 0U);
+  dynamic_ptr(key_t klass, std::map<key_t, field>&& fields);
 
   /// @brief Field access: `ptr[key] = value` without needing `(*ptr)[key]`.
   template <typename K>

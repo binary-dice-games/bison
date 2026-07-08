@@ -1620,6 +1620,8 @@ inline dynamic_ptr& dynamic_ptr::operator=(std::shared_ptr<dynamic>&& that) {
 
 inline dynamic_ptr::dynamic_ptr(dynamic&& that) : std::shared_ptr<dynamic>(new dynamic{std::move(that)}) {}
 
+inline dynamic_ptr::dynamic_ptr(key_t klass) : std::shared_ptr<dynamic>(new dynamic{klass}) {}
+
 inline dynamic_ptr::dynamic_ptr(key_t klass, std::map<key_t, field>&& fields)
     : std::shared_ptr<dynamic>(new dynamic{klass, std::move(fields)}) {}
 
