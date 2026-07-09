@@ -396,8 +396,14 @@ void bridge::route_event(const shared::envelope& env) {
   {
     auto lp = upstream_to_session_.rlock();
     auto it = lp->find(upstream_oid.id);
-    if (it == lp->end())
+    if (it == lp->end()) {
+      // No downstream session owns this object -- it was instantiated by
+      // the bridge itself (e.g. a subclass building its own upstream UI).
+      // Deliver it through the upstream client's own handler table instead
+      // of dropping it.
+      upstream_client_.dispatch_local_event(env);
       return;
+    }
     session_id = it->second.first;
     local_oid = it->second.second;
   }

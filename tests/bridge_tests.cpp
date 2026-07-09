@@ -274,6 +274,75 @@ TEST_F(BridgeTest, EventRoutedToCorrectClient) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// 5b. Events for objects the bridge instantiates for its own use (not on
+//     behalf of any downstream session) must reach handlers the bridge
+//     registers on its own upstream client, not be dropped by route_event.
+// ═════════════════════════════════════════════════════════════════════════════
+
+namespace {
+// Exposes the protected upstream() accessor so the test can instantiate an
+// object directly against the upstream client, mirroring how a bridge
+// subclass (e.g. wish_desktop) builds its own upstream UI.
+class self_owned_object_bridge : public bridge {
+ public:
+  using bridge::bridge;
+  using bridge::upstream;
+};
+} // namespace
+
+TEST_F(BridgeTest, EventForBridgeOwnedObjectDispatchesToBridgeUpstreamClient) {
+  auto proto = dynamic_ptr{"Emitter"_key, {}};
+  proto->addMethod("fire"_key, method{[](dynamic& self, const dynamic& /*p*/) {
+                     struct emit_ud : userdata {
+                       std::function<void(bison_key_t, bison_key_t, dynamic)> fn;
+                     };
+                     auto ud = std::dynamic_pointer_cast<emit_ud>(self.getUserdata());
+                     if (ud && ud->fn) {
+                       dynamic ev;
+                       ev["tick"_key] = int32_t{1};
+                       ud->fn({}, "onTick"_key, std::move(ev));
+                     }
+                     return dynamic{};
+                   }});
+  dynamic::addClass(0U, proto, 0U);
+
+  // Tear down the base fixture's bridge and stand up a self_owned_object_bridge
+  // in its place (assigned back into br_ so TearDown()'s stop()/reset() still
+  // applies), connected to the same upstream/downstream transports.
+  br_->stop();
+  br_ = std::make_unique<self_owned_object_bridge>(
+      downstream_transport_, std::make_unique<memory_client_transport>(upstream_transport_.connect()));
+  br_->start();
+  auto& self_bridge = static_cast<self_owned_object_bridge&>(*br_);
+
+  std::atomic<int> event_count{0};
+  auto proxy = self_bridge.upstream().instantiate(0U, "Emitter"_key).get();
+  proxy.onEvent("onTick"_key, [&](dynamic) { ++event_count; });
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{50});
+
+  // Emit the event from the upstream server directly for this object -- it
+  // was never instantiated through a downstream relay, so upstream_to_session_
+  // has no mapping for it; route_event must fall back to the bridge's own
+  // upstream client dispatch instead of silently dropping the frame.
+  {
+    auto lp = upstream_srv_->session_contexts().rlock();
+    for (auto& [id, holder] : *lp) {
+      auto clp = holder->rlock();
+      if (!(*clp)->objects.empty() && (*clp)->emit_event) {
+        auto it = (*clp)->objects.begin();
+        (*clp)->emit_event(it->first, "onTick"_key, dynamic{});
+        break;
+      }
+    }
+  }
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{80});
+
+  EXPECT_EQ(event_count.load(), 1);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // 6. Cross-client isolation: client B cannot use client A's object ID
 // ═════════════════════════════════════════════════════════════════════════════
 

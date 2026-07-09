@@ -222,6 +222,21 @@ class client : public proxy_backend {
   void unregister_object_events(bison::key_t object_id);
 
   /**
+   * @brief Dispatch an already-decoded event envelope through this client's
+   *        own registered handlers, bypassing the transport receive loop.
+   *
+   * Used by `rmi::bridge` to deliver events for objects it instantiated for
+   * its own use (not on behalf of a downstream session) -- its
+   * event-intercepting upstream transport consumes every `KIND_EVENT` frame
+   * before this client's worker thread would otherwise see it, so those
+   * events need an alternate entry point into `event_handlers_` dispatch.
+   * @param env Decoded envelope; must have `kind == KIND_EVENT`.
+   */
+  void dispatch_local_event(const shared::envelope& env) {
+    process_frame(env);
+  }
+
+  /**
    * @brief Create a proxy for a server-side object whose ID is already known.
    *
    * Use this when the server returns an object ID through a method call result
