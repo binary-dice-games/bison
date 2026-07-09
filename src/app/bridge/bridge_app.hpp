@@ -1,0 +1,158 @@
+// MIT License © 2025 Binary Dice Games
+/**
+ * @file bridge_app.hpp
+ * @brief Generic multi-transport bridge application scaffold.
+ */
+#pragma once
+
+#include "src/bison/bison.hpp"
+#include "src/rmi/server/context.hpp"
+#include "src/rmi/transport/transport_iface.hpp"
+
+#include <functional>
+#include <memory>
+#include <string>
+
+namespace bdg::bison::app {
+
+/**
+ * @brief Extensible base class for bison RMI bridge applications.
+ *
+ * Handles command-line transport selection for both the downstream (client-
+ * accepting) and upstream (single relayed connection) sides of an
+ * `rmi::bridge`, plus the start/stop lifecycle. Concrete bridge applications
+ * override `bridge_description()` and the `on_client_connected`/
+ * `on_client_disconnected` hooks to inject bridge-owned state, then call
+ * `run()` from `main()`.
+ *
+ * Supported gflags CLI flags:
+ *   - `--transport T`            downstream transport: `tcp` (default),
+ *                                `pipe`, or `term`. Same flag/semantics as
+ *                                `server_app`; a bridge's downstream side
+ *                                behaves exactly like a server's.
+ *   - `--host HOST --port PORT` downstream TCP bind address (transport=tcp)
+ *   - `--name PATH`              downstream named-pipe / Unix-socket path
+ *                                (transport=pipe)
+ *   - `--cmd`                    command to spawn for the downstream terminal
+ *                                (transport=term)
+ *   - `--upstream_transport T`   upstream transport: `tcp` (default), `pipe`,
+ *                                or `term`.
+ *   - `--upstream_host HOST --upstream_port PORT` upstream TCP address
+ *                                (upstream_transport=tcp)
+ *   - `--upstream_name PATH`     upstream named-pipe / Unix-socket path
+ *                                (upstream_transport=pipe)
+ *   - `--timeout MS`             upstream per-request timeout
+ *   - `--verbose`                print request/response trace lines for the
+ *                                downstream side (same as `server_app`)
+ *
+ * Typical lifecycle:
+ * 1. Build the downstream transport and the upstream transport from flags.
+ * 2. `run_with_transport(downstream, upstream)` — connects upstream, then
+ *    starts accepting downstream connections.
+ * 3. Call `on_listening()`.
+ * 4. Serve until Enter is pressed (socket / named-pipe downstream) or the
+ *    spawned shell exits (`--transport=term`).
+ * 5. Stop the bridge and disconnect from upstream.
+ */
+class bridge_app {
+ public:
+  virtual ~bridge_app() = default;
+
+  /**
+   * @brief Parse flags, start the bridge, and block until done.
+   *
+   * @param argc  Argument count from `main`.
+   * @param argv  Argument vector from `main`.
+   * @return 0 on clean shutdown, 1 on error.
+   */
+  virtual int run(int argc, char** argv);
+
+  /**
+   * @brief Called after the bridge starts listening for downstream connections.
+   *
+   * Default: prints a ready message describing both the downstream and
+   * upstream endpoints to stdout.
+   */
+  virtual void on_listening() const;
+
+  /**
+   * @brief Called on fatal errors before `run()` returns 1.
+   *
+   * @param msg  Human-readable error description.
+   */
+  virtual void on_error(const std::string& msg) const;
+
+  /**
+   * @brief Return an optional preamble for `OP_HELP` responses.
+   *
+   * Mirrors `server_app::server_description()`. Default: returns an empty
+   * string (no preamble).
+   */
+  virtual std::string bridge_description() const {
+    return {};
+  }
+
+  /**
+   * @brief Called after a downstream client session is registered.
+   *
+   * Forwards `rmi::bridge::on_client_connected()`. Default: no-op.
+   *
+   * Public (not protected) so the internal `rmi::bridge` subclass that
+   * `run_with_transport()` constructs -- which does not inherit from
+   * `bridge_app` -- can forward to it, mirroring
+   * `server_app::on_session_created()`.
+   *
+   * @param ctx Newly registered downstream session context.
+   */
+  virtual void on_client_connected(rmi::context& ctx) const {
+    (void)ctx;
+  }
+
+  /**
+   * @brief Called just before a downstream client session is cleaned up.
+   *
+   * Forwards `rmi::bridge::on_client_disconnected()`. Default: no-op.
+   *
+   * @param ctx Downstream session context about to be destroyed.
+   */
+  virtual void on_client_disconnected(rmi::context& ctx) const {
+    (void)ctx;
+  }
+
+ protected:
+  /**
+   * @brief Populate upstream connection parameters before the bridge connects.
+   *
+   * Default: sets `timeout_ms` to the value of `FLAGS_timeout` (or 30 000 if
+   * not parsed yet).
+   *
+   * @param params In/out parameter map.
+   */
+  virtual void on_upstream_connect_params(bison::dynamic& params) const;
+
+  /**
+   * @brief Construct the bridge, start it, block until shutdown, then stop.
+   *
+   * Subclasses that control transport construction call this directly
+   * instead of going through `run()`.
+   *
+   * Does NOT catch exceptions -- the caller (`run()` or the subclass override)
+   * is responsible for catching and routing them to `on_error()`.
+   *
+   * @param downstream          Downstream server transport (borrowed).
+   * @param upstream_transport  Upstream client transport (owned).
+   * @param wait_for_shutdown   Blocks until the bridge should stop. Default
+   *        (empty function): `std::getline(std::cin, line)`. `--transport=term`
+   *        passes a wait on the spawned terminal instead.
+   * @param is_shutdown_requested  Non-blocking alternative to
+   *        `wait_for_shutdown`, mirroring `server_app::run_with_transport`.
+   * @return 0 on clean shutdown, non-zero on error.
+   */
+  virtual int run_with_transport(
+      rmi::transport::server_transport_iface& downstream,
+      std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
+      std::function<void()> wait_for_shutdown = nullptr,
+      std::function<bool()> is_shutdown_requested = nullptr);
+};
+
+} // namespace bdg::bison::app

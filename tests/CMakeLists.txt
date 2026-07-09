@@ -24,6 +24,13 @@ package_add_test(rmi_test rmi_tests.cpp)
 # Bridge multiplexer tests
 package_add_test(bridge_test bridge_tests.cpp)
 
+# App scaffold tests (standalone_app, bridge_app) — these define gflags flags
+# directly (see the .cpp files for why), so they need gflags linked/included.
+package_add_test(standalone_app_test standalone_app_tests.cpp)
+target_link_libraries(standalone_app_test gflags)
+package_add_test(bridge_app_test bridge_app_tests.cpp)
+target_link_libraries(bridge_app_test gflags)
+
 # term (OSC-99 chunked) transport tests — cross-platform
 package_add_test(term_transport_test term_transport_tests.cpp)
 

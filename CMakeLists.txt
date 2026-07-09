@@ -86,10 +86,13 @@ target_sources(bison PRIVATE
   src/rmi/client/proxy.cpp
   src/rmi/server/server.cpp
   src/rmi/standalone/standalone.cpp
+  src/app/bridge/bridge_app.cpp
   src/app/client/client_app.cpp
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
+  src/app/standalone/standalone_app.cpp
   src/app/transport_flags.cpp
+  src/app/upstream_transport_flags.cpp
   src/term/scoped_terminal_config.cpp
 )
 

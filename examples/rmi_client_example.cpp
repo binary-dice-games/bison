@@ -1,29 +1,22 @@
 // MIT License © 2025 Binary Dice Games
 // examples/rmi_client_example.cpp
 //
-// Standalone RMI client example built directly on rmi::client (rather than
-// the client_app scaffold used by bison-cli), to demonstrate manual
-// transport construction. Takes the same --transport/--host/--port/--name/
-// --timeout/--debugger flags as bison-cli (src/app/cli/main.cpp) so usage is
-// consistent across the project -- see docs/examples.md for per-transport
-// walkthroughs.
+// Standalone RMI client example built on the client_app scaffold (same base
+// class used by bison-cli, src/app/cli/main.cpp), to demonstrate the intended
+// way to build a bison RMI client. Takes the same --transport/--host/--port/
+// --name/--timeout/--debugger flags as bison-cli so usage is consistent
+// across the project -- see docs/examples.md for per-transport walkthroughs.
 
-#include "src/app/transport_flags.hpp"
+#include "src/app/client/client_app.hpp"
 #include "src/bison/bison_flags.hpp"
 #include "src/rmi/rmi.hpp"
-#include "src/rmi/transport/term_transport.hpp"
-#include "src/term/scoped_terminal_config.hpp"
 
 #include <gflags/gflags.h>
 
-#include <cstdint>
 #include <iostream>
-#include <memory>
-#include <string>
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi;
-using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
 DEFINE_string(transport, "term", "Transport to use: tcp, pipe or term");
@@ -32,8 +25,6 @@ DEFINE_int32(port, 7070, "Server TCP port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
 DEFINE_int32(timeout, 30000, "Per-request timeout in milliseconds");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
-
-extern void wait_for_debugger();
 
 /** @brief Runs the calls shared by every transport against a connected client. */
 static void run_calls(client& c) {
@@ -79,55 +70,28 @@ static void run_calls(client& c) {
   c.destroy(std::move(calc));
 }
 
-static int run_with_transport(std::unique_ptr<client_transport_iface> transport) {
-  client c{std::move(transport)};
+namespace {
 
-  dynamic params;
-  params["timeout_ms"_key] = int32_t{FLAGS_timeout};
-  c.connect(std::move(params));
+/** @brief Runs the shared Calculator calls; everything else uses client_app's defaults. */
+class calculator_client_app : public app::client_app {
+ protected:
+  int on_session(client& c) override {
+    run_calls(c);
+    std::cout << "[Client] done." << '\n';
+    return 0;
+  }
 
-  run_calls(c);
+  void on_error(const std::string& msg) const override {
+    std::cerr << "[Client] failed to connect or execute calls: " << msg << '\n';
+  }
+};
 
-  c.disconnect();
-  std::cout << "[Client] done." << '\n';
-  return 0;
-}
+} // namespace
 
 int main(int argc, char** argv) {
   if (bdg::bison::print_usage(argc, argv, "Standalone RMI Calculator client example.", __FILE__))
     return 0;
 
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-  if (FLAGS_debugger) {
-    wait_for_debugger();
-  }
-
-  try {
-    switch (app::selected_transport()) {
-      case app::transport_kind::pipe:
-        return run_with_transport(std::make_unique<named_pipe_client_transport>(FLAGS_name));
-      case app::transport_kind::tcp:
-        return run_with_transport(
-            std::make_unique<socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
-      case app::transport_kind::term: {
-        term::scoped_terminal_config stc{{0, 1}};
-        auto transport = std::make_unique<term_client_transport>(
-            stc.upstream_read_fd(),
-            stc.upstream_write_fd(),
-            [&stc](std::string_view s) { stc.on_passthrough(s); },
-            kDefaultHandshakeTimeout,
-            [&stc] { stc.stop_output_pump(); });
-        stc.set_output_channel([raw = transport.get()](std::string_view s) { raw->send(s); });
-        return run_with_transport(std::move(transport));
-      }
-    }
-    return 1;
-  } catch (const std::exception& ex) {
-    std::cerr << "[Client] failed to connect or execute calls: " << ex.what() << '\n';
-    return 1;
-  } catch (...) {
-    std::cerr << "[Client] unexpected failure" << '\n';
-    return 1;
-  }
+  calculator_client_app app;
+  return app.run(argc, argv);
 }

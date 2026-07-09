@@ -1,49 +1,32 @@
 // MIT License © 2025 Binary Dice Games
-// examples/rmi_example.cpp
+// examples/rmi_standalone_example.cpp
 //
-// Demonstrates the Bison RMI framework using the in-memory transport.
+// Standalone (in-process) RMI example built on the standalone_app scaffold.
+// Native-C++ counterpart to rmi_abi_standalone_example.cpp, which
+// demonstrates the same rmi_standalone_create() C ABI entry point.
 //
 // Topology:
-//   - One server hosting a "Calculator" class with add, subtract and multiply
-//     methods.
-//   - Three client threads that each instantiate a remote Calculator, perform
-//     several operations concurrently, then clean up.
-//
-// Build: the CMakeLists in the examples folder adds this as the
-//        "rmi_example" executable which links against the "bison" static lib.
+//   - No separate server process and no transport. standalone_app registers
+//     a "Calculator" class and drives an rmi::standalone session directly
+//     against the local class registry.
 
+#include "src/app/standalone/standalone_app.hpp"
+#include "src/bison/bison_flags.hpp"
 #include "src/rmi/rmi.hpp"
 
-#include <iostream>
-#include <mutex>
-#include <thread>
-#include <vector>
+#include <gflags/gflags.h>
 
-// ─── Namespaces
-// ───────────────────────────────────────────────────────────────
+#include <iostream>
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi;
-using namespace bdg::bison::rmi::transport;
 using namespace bdg::bison::rmi::shared::constants;
 
-// ─── Shared output mutex (keeps std::cout lines from interleaving)
-// ────────────
-
-static std::mutex g_cout_mutex;
-
-template <typename... Args>
-static void println(Args&&... args) {
-  std::lock_guard<std::mutex> lk(g_cout_mutex);
-  (std::cout << ... << args) << '\n';
-}
-
-// ─── Register the Calculator class ───────────────────────────────────────────
+DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 
 static void register_calculator() {
   auto proto = dynamic_ptr{"Calculator"_key, {}};
 
-  // add(a, b) → result
   proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
                      float a = params["a"_key];
                      float b = params["b"_key];
@@ -52,7 +35,6 @@ static void register_calculator() {
                      return result;
                    }});
 
-  // subtract(a, b) → result
   proto->addMethod("subtract"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
                      float a = params["a"_key];
                      float b = params["b"_key];
@@ -61,7 +43,6 @@ static void register_calculator() {
                      return result;
                    }});
 
-  // multiply(a, b) → result
   proto->addMethod("multiply"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
                      float a = params["a"_key];
                      float b = params["b"_key];
@@ -70,7 +51,6 @@ static void register_calculator() {
                      return result;
                    }});
 
-  // divide(a, b) → result  (returns 0 and logs error on division by zero)
   proto->addMethod("divide"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
                      float a = params["a"_key];
                      float b = params["b"_key];
@@ -87,94 +67,66 @@ static void register_calculator() {
   dynamic::addClass(0U, proto, 0U);
 }
 
-// ─── Client worker
-// ────────────────────────────────────────────────────────────
+namespace {
 
-static void run_client(memory_server_transport& transport, int client_id) {
-  // Each client gets its own isolated connection.
-  client c{transport.connect()};
-  c.connect();
-
-  // Instantiate a Calculator on the server.
-  auto calc = c.instantiate(0U, "Calculator"_key).get();
-
-  println("[Client ", client_id, "] connected, object id=", calc.object_id());
-
-  // ── add ──────────────────────────────────────────────────────────────────
-  {
-    dynamic params;
-    params["a"_key] = float(10.0f * client_id);
-    params["b"_key] = float(3.0f);
-    auto result = calc.call("add"_key, std::move(params)).get();
-    float res = result["result"_key];
-    println("[Client ", client_id, "] add(", 10 * client_id, ", 3) = ", res);
+class calculator_standalone_app : public app::standalone_app {
+ protected:
+  void register_classes() override {
+    register_calculator();
   }
 
-  // ── subtract ─────────────────────────────────────────────────────────────
-  {
-    dynamic params;
-    params["a"_key] = float(100.0f);
-    params["b"_key] = float(7.0f * client_id);
-    auto result = calc.call("subtract"_key, std::move(params)).get();
-    float res = result["result"_key];
-    println("[Client ", client_id, "] subtract(100, ", 7 * client_id, ") = ", res);
+  int on_session(standalone& sa) override {
+    auto calc = sa.instantiate(0U, "Calculator"_key).get();
+    std::cout << "[Standalone] connected, object id=" << calc.object_id() << '\n';
+
+    {
+      dynamic params;
+      params["a"_key] = 10.0f;
+      params["b"_key] = 3.0f;
+      auto result = calc.call("add"_key, std::move(params)).get();
+      float res = result["result"_key];
+      std::cout << "[Standalone] add(10, 3) = " << res << '\n';
+    }
+
+    {
+      dynamic params;
+      params["a"_key] = 100.0f;
+      params["b"_key] = 21.0f;
+      auto result = calc.call("subtract"_key, std::move(params)).get();
+      float res = result["result"_key];
+      std::cout << "[Standalone] subtract(100, 21) = " << res << '\n';
+    }
+
+    {
+      dynamic params;
+      params["a"_key] = 7.0f;
+      params["b"_key] = 6.0f;
+      auto result = calc.call("multiply"_key, std::move(params)).get();
+      float res = result["result"_key];
+      std::cout << "[Standalone] multiply(7, 6) = " << res << '\n';
+    }
+
+    {
+      dynamic params;
+      params["a"_key] = 42.0f;
+      params["b"_key] = 2.0f;
+      auto result = calc.call("divide"_key, std::move(params)).get();
+      float res = result["result"_key];
+      std::cout << "[Standalone] divide(42, 2) = " << res << '\n';
+    }
+
+    sa.destroy(std::move(calc));
+    std::cout << "[Standalone] done." << '\n';
+    return 0;
   }
+};
 
-  // ── multiply ─────────────────────────────────────────────────────────────
-  {
-    dynamic params;
-    params["a"_key] = float(client_id);
-    params["b"_key] = float(client_id);
-    auto result = calc.call("multiply"_key, std::move(params)).get();
-    float res = result["result"_key];
-    println("[Client ", client_id, "] multiply(", client_id, ", ", client_id, ") = ", res);
-  }
+} // namespace
 
-  // ── divide ────────────────────────────────────────────────────────────────
-  {
-    dynamic params;
-    params["a"_key] = float(42.0f);
-    params["b"_key] = float(client_id); // non-zero since client_id >= 1
-    auto result = calc.call("divide"_key, std::move(params)).get();
-    float res = result["result"_key];
-    println("[Client ", client_id, "] divide(42, ", client_id, ") = ", res);
-  }
+int main(int argc, char** argv) {
+  if (bdg::bison::print_usage(argc, argv, "Standalone (in-process) RMI Calculator example.", __FILE__))
+    return 0;
 
-  c.destroy(std::move(calc));
-  c.disconnect();
-  println("[Client ", client_id, "] done.");
-}
-
-// ─── Main
-// ─────────────────────────────────────────────────────────────────────
-
-int main() {
-  // Register the Calculator class in the global Bison class registry.
-  register_calculator();
-
-  // Create the in-memory transport — this is the connection hub.
-  memory_server_transport transport;
-
-  // Create and start the server.
-  server srv{transport};
-  srv.listen();
-  println("[Server] RMI Calculator server started.");
-
-  // Launch three client threads.
-  constexpr int NUM_CLIENTS = 3;
-  std::vector<std::thread> threads;
-  threads.reserve(NUM_CLIENTS);
-  for (int i = 1; i <= NUM_CLIENTS; ++i) {
-    threads.emplace_back(run_client, std::ref(transport), i);
-  }
-
-  // Wait for all clients to finish.
-  for (auto& t : threads)
-    t.join();
-
-  // Shut down the server cleanly.
-  srv.stop();
-  println("[Server] stopped.");
-
-  return 0;
+  calculator_standalone_app app;
+  return app.run(argc, argv);
 }

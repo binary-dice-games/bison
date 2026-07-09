@@ -12,10 +12,10 @@ cmake --build build --config Debug --target bison_examples
 ## RMI Socket Examples
 
 Two processes: server and client communicating over TCP. `rmi_server_example`
-and `rmi_client_example` build the transport manually with `rmi.hpp` (unlike
-`calc-server`/`bison-cli`, which use the `server_app`/`client_app` scaffold),
-but accept the same `--transport`/`--host`/`--port`/`--name`/`--cmd`/
-`--debugger` flags, so usage is consistent across the project.
+and `rmi_client_example` are built directly on the `server_app`/`client_app`
+scaffold (the same base classes used by `calc-server`/`bison-cli`), and accept
+the same `--transport`/`--host`/`--port`/`--name`/`--cmd`/`--debugger` flags,
+so usage is consistent across the project.
 
 ```bash
 cmake --build build --config Debug --target rmi_server_example rmi_client_example
@@ -24,6 +24,40 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 # Then in another terminal:
 ./build/examples/rmi_client_example
 # Optional flags: --host=HOST --port=PORT
+```
+
+## RMI Standalone Example
+
+`rmi_standalone_example` demonstrates `rmi::standalone` (in-process,
+transport-free RMI) via the `standalone_app` scaffold -- the native-C++
+counterpart to `rmi_abi_standalone_example`, which exercises the same
+`rmi_standalone_create()` entry point through the C ABI.
+
+```bash
+cmake --build build --config Debug --target rmi_standalone_example
+./build/examples/rmi_standalone_example
+```
+
+## RMI Bridge Example
+
+`rmi_bridge_example` demonstrates `rmi::bridge` via the `bridge_app` scaffold:
+it accepts downstream client connections and transparently relays every
+operation to one upstream server. Run all three examples together to see a
+client talk through the bridge exactly as if it were talking directly to the
+server:
+
+```bash
+cmake --build build --config Debug --target rmi_server_example rmi_bridge_example rmi_client_example
+
+# 1. Real Calculator server on port 7070:
+./build/examples/rmi_server_example --transport=tcp --port=7070
+
+# 2. Bridge: downstream TCP on 7071, relays to upstream TCP on 7070
+#    (--upstream_transport defaults to term, so pass tcp explicitly here):
+./build/examples/rmi_bridge_example --port=7071 --upstream_transport=tcp --upstream_port=7070
+
+# 3. Client talks to the bridge instead of the real server:
+./build/examples/rmi_client_example --port=7071
 ```
 
 ## RMI Term Hop Mode (OSC-99, Linux/MSYS2 and Windows)

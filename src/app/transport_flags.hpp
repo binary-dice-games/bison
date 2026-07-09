@@ -1,7 +1,8 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file transport_flags.hpp
- * @brief Shared `--transport` flag handling for `server_app` / `client_app`.
+ * @brief Shared `--transport` / `--upstream_transport` flag handling for
+ *        `server_app` / `client_app` / `bridge_app`.
  */
 #pragma once
 
@@ -31,5 +32,19 @@ enum class transport_kind {
  *         "pipe" or "term".
  */
 transport_kind selected_transport();
+
+/**
+ * @brief Parses `FLAGS_upstream_transport` into a `transport_kind`.
+ *
+ * Mirrors `selected_transport()`, but reads `bridge_app`'s upstream-specific
+ * flag set (`--upstream_transport`/`--upstream_host`/`--upstream_port`/
+ * `--upstream_name`) instead of the downstream `--transport`/`--host`/
+ * `--port`/`--name` flags used by `server_app`.
+ *
+ * @return The selected upstream transport.
+ * @throws std::runtime_error if `FLAGS_upstream_transport` is not one of
+ *         "tcp", "pipe" or "term".
+ */
+transport_kind selected_upstream_transport();
 
 } // namespace bdg::bison::app
