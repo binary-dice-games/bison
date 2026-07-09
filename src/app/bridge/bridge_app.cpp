@@ -74,6 +74,13 @@ void bridge_app::on_error(const std::string& msg) const {
   std::cerr << "[bridge_app] error: " << msg << '\n';
 }
 
+std::unique_ptr<rmi::bridge> bridge_app::make_bridge(
+    rmi::transport::server_transport_iface& downstream,
+    std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
+    bison::dynamic upstream_params) {
+  return std::make_unique<bridged_bridge>(downstream, std::move(upstream_transport), std::move(upstream_params), *this);
+}
+
 void bridge_app::on_listening() const {
   std::string downstream_desc;
   switch (selected_transport()) {
@@ -100,8 +107,8 @@ int bridge_app::run_with_transport(
   bison::dynamic upstream_params;
   on_upstream_connect_params(upstream_params);
 
-  bridged_bridge br{downstream, std::move(upstream_transport), std::move(upstream_params), *this};
-  br.start();
+  std::unique_ptr<rmi::bridge> br = make_bridge(downstream, std::move(upstream_transport), std::move(upstream_params));
+  br->start();
   on_listening();
   if (wait_for_shutdown) {
     wait_for_shutdown();
@@ -109,7 +116,7 @@ int bridge_app::run_with_transport(
     std::string line;
     std::getline(std::cin, line);
   }
-  br.stop();
+  br->stop();
   return 0;
 }
 

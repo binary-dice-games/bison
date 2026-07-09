@@ -10,7 +10,12 @@
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <functional>
+#include <memory>
 #include <string>
+
+namespace bdg::bison::rmi {
+class server;
+} // namespace bdg::bison::rmi
 
 namespace bdg::bison::app {
 
@@ -129,6 +134,20 @@ class server_app {
    * `bison::dynamic::addClass()` to register prototype objects.
    */
   virtual void register_classes() = 0;
+
+  /**
+   * @brief Construct the RMI server bound to `transport`.
+   *
+   * Override to return a subclass of `rmi::server` (e.g. one with its own
+   * render loop) so the default `run_with_transport()` -- or an override
+   * that still wants app-hook forwarding -- can use it. Default: an internal
+   * server that forwards `on_session_created`/`on_session_destroyed`/
+   * `on_verbose_trace`/`server_description` to this app's hooks.
+   *
+   * @param transport  Transport the server will accept connections over.
+   * @return Newly constructed server, bound to @p transport.
+   */
+  virtual std::unique_ptr<rmi::server> make_server(rmi::transport::server_transport_iface& transport);
 
   /**
    * @brief Create a server using `transport` and block until shutdown.

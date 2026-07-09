@@ -13,6 +13,10 @@
 #include <memory>
 #include <string>
 
+namespace bdg::bison::rmi {
+class bridge;
+} // namespace bdg::bison::rmi
+
 namespace bdg::bison::app {
 
 /**
@@ -129,6 +133,27 @@ class bridge_app {
    * @param params In/out parameter map.
    */
   virtual void on_upstream_connect_params(bison::dynamic& params) const;
+
+  /**
+   * @brief Construct the bridge bound to the given transports.
+   *
+   * Override to return a subclass of `rmi::bridge` (e.g. one that injects
+   * bridge-owned UI via its own `on_client_connected`/`on_client_disconnected`
+   * overrides, using `upstream()` directly) instead of relying on this
+   * class's `on_client_connected`/`on_client_disconnected` hook forwarding.
+   * Default: an internal bridge that forwards `on_client_connected`/
+   * `on_client_disconnected`/`bridge_description` to this app's hooks of the
+   * same name.
+   *
+   * @param downstream          Downstream server transport (borrowed).
+   * @param upstream_transport  Upstream client transport (owned).
+   * @param upstream_params     Parameters forwarded to `upstream_client_.connect()`.
+   * @return Newly constructed bridge, not yet started.
+   */
+  virtual std::unique_ptr<rmi::bridge> make_bridge(
+      rmi::transport::server_transport_iface& downstream,
+      std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
+      bison::dynamic upstream_params);
 
   /**
    * @brief Construct the bridge, start it, block until shutdown, then stop.

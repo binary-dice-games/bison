@@ -91,6 +91,19 @@ class client_app {
   virtual void on_connected() const {}
 
   /**
+   * @brief Construct the RMI client used for the session.
+   *
+   * Override to return a subclass of `rmi::client` (e.g. one that adds
+   * domain-specific convenience methods) so `on_session()` can access it via
+   * `static_cast` on the reference it's given.  Default: a plain `rmi::client`
+   * wrapping @p transport.
+   *
+   * @param transport Heap-allocated transport to take ownership of.
+   * @return Newly constructed client, owning @p transport.
+   */
+  virtual std::unique_ptr<rmi::client> make_client(std::unique_ptr<rmi::transport::client_transport_iface> transport) const;
+
+  /**
    * @brief Populate connection parameters before `connect()` is called.
    *
    * Default: sets `timeout_ms` to the value of `FLAGS_timeout` (or 30 000 if

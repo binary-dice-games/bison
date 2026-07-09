@@ -107,14 +107,20 @@ void server_app::on_error(const std::string& msg) const {
   std::cerr << "[server_app] error: " << msg << '\n';
 }
 
+// ── make_server — default server construction ─────────────────────────────────
+
+std::unique_ptr<rmi::server> server_app::make_server(rmi::transport::server_transport_iface& transport) {
+  return std::make_unique<bridged_server>(transport, *this);
+}
+
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
 int server_app::run_with_transport(
     rmi::transport::server_transport_iface& transport,
     std::function<void()> wait_for_shutdown,
     std::function<bool()> /*is_shutdown_requested*/) {
-  bridged_server srv{transport, *this};
-  srv.listen();
+  std::unique_ptr<rmi::server> srv = make_server(transport);
+  srv->listen();
   on_listening();
   if (wait_for_shutdown) {
     wait_for_shutdown();
@@ -122,7 +128,7 @@ int server_app::run_with_transport(
     std::string line;
     std::getline(std::cin, line);
   }
-  srv.stop();
+  srv->stop();
   return 0;
 }
 

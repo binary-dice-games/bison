@@ -34,6 +34,11 @@ void client_app::on_connect_params(bison::dynamic& params) const {
   params["timeout_ms"_key] = int32_t{static_cast<int32_t>(timeout_.count())};
 }
 
+std::unique_ptr<rmi::client> client_app::make_client(
+    std::unique_ptr<rmi::transport::client_transport_iface> transport) const {
+  return std::make_unique<rmi::client>(std::move(transport));
+}
+
 void client_app::on_error(const std::string& msg) const {
   std::cerr << "[client_app] error: " << msg << '\n';
 }
@@ -47,15 +52,15 @@ bool client_app::read_console_line(std::string& line) {
 // ── run_with_transport ────────────────────────────────────────────────────────
 
 int client_app::run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport) {
-  rmi::client c{std::move(transport)};
+  std::unique_ptr<rmi::client> c = make_client(std::move(transport));
 
   bison::dynamic params;
   on_connect_params(params);
-  c.connect(std::move(params));
+  c->connect(std::move(params));
   on_connected();
 
-  const int result = on_session(c);
-  c.disconnect();
+  const int result = on_session(*c);
+  c->disconnect();
   return result;
 }
 

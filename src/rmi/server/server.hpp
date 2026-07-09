@@ -96,7 +96,7 @@ class server {
   server(server&&) = delete;
   server& operator=(server&&) = delete;
 
-  ~server();
+  virtual ~server();
 
   /**
    * @brief Start listening for client connections.

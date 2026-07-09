@@ -9,6 +9,7 @@
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/standalone/standalone.hpp"
 
+#include <memory>
 #include <string>
 
 namespace bdg::bison::app {
@@ -81,6 +82,44 @@ class standalone_app {
    * `bison::dynamic::addClass()` to register prototype objects.
    */
   virtual void register_classes() = 0;
+
+  /**
+   * @brief Construct the in-process standalone session.
+   *
+   * Override to return a subclass of `rmi::standalone` (e.g. one that adds
+   * domain-specific convenience methods) so `on_session()` can access it via
+   * `static_cast` on the reference it's given. Default: an internal
+   * standalone that forwards `on_session_created`/`on_session_destroyed` to
+   * this app's hooks of the same name.
+   *
+   * @return Newly constructed, not-yet-connected standalone session.
+   */
+  virtual std::unique_ptr<rmi::standalone> make_standalone();
+
+  /**
+   * @brief Open the session returned by `make_standalone()`.
+   *
+   * Default: calls `sa.connect()`. Override if the concrete session type
+   * needs a different opening call (e.g. one that also registers classes
+   * and starts a background render thread, firing `on_session_created`
+   * itself as part of that call).
+   *
+   * @param sa Session returned by `make_standalone()`.
+   */
+  virtual void open_session(rmi::standalone& sa) {
+    sa.connect();
+  }
+
+  /**
+   * @brief Close the session opened by `open_session()`.
+   *
+   * Default: calls `sa.disconnect()`. Mirrors `open_session()`.
+   *
+   * @param sa Session returned by `make_standalone()`.
+   */
+  virtual void close_session(rmi::standalone& sa) {
+    sa.disconnect();
+  }
 
   /**
    * @brief Main application logic for the in-process session.

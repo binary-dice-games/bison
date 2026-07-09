@@ -45,6 +45,10 @@ void standalone_app::on_error(const std::string& msg) const {
   std::cerr << "[standalone_app] error: " << msg << '\n';
 }
 
+std::unique_ptr<rmi::standalone> standalone_app::make_standalone() {
+  return std::make_unique<bridged_standalone>(*this);
+}
+
 // ── run() — flag parsing and lifecycle ────────────────────────────────────────
 
 int standalone_app::run(int argc, char** argv) {
@@ -57,10 +61,10 @@ int standalone_app::run(int argc, char** argv) {
   try {
     register_classes();
 
-    bridged_standalone sa{*this};
-    sa.connect();
-    const int result = on_session(sa);
-    sa.disconnect();
+    std::unique_ptr<rmi::standalone> sa = make_standalone();
+    open_session(*sa);
+    const int result = on_session(*sa);
+    close_session(*sa);
     return result;
   } catch (const std::exception& ex) {
     on_error(ex.what());
