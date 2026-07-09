@@ -54,7 +54,7 @@ cmake --build build --config Debug --target rmi_server_example rmi_bridge_exampl
 
 # 2. Bridge: downstream TCP on 7071, relays to upstream TCP on 7070
 #    (--upstream_transport defaults to term, so pass tcp explicitly here):
-./build/examples/rmi_bridge_example --port=7071 --upstream_transport=tcp --upstream_port=7070
+./build/examples/rmi_bridge_example --downstream_port=7071 --upstream_transport=tcp --upstream_port=7070
 
 # 3. Client talks to the bridge instead of the real server:
 ./build/examples/rmi_client_example --port=7071

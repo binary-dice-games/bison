@@ -29,6 +29,11 @@ namespace bdg::bison::app {
  * `on_client_disconnected` hooks to inject bridge-owned state, then call
  * `run()` from `main()`.
  *
+ * Every downstream-side flag is `downstream_`-prefixed (mirroring the
+ * existing `upstream_` prefix on the upstream side) so the two transports a
+ * bridge has active at once -- and their host/port/name/transport-kind --
+ * are never confused with each other, e.g. in `--help` output.
+ *
  * Supported gflags CLI flags:
  *   - `--downstream_transport T` downstream transport: `tcp` (default),
  *                                `pipe`, or `term`. Same semantics as
@@ -36,9 +41,9 @@ namespace bdg::bison::app {
  *                                downstream side behaves exactly like a
  *                                server's, but uses its own flag name so it
  *                                is never confused with `--upstream_transport`.
- *   - `--host HOST --port PORT` downstream TCP bind address
- *                                (downstream_transport=tcp)
- *   - `--name PATH`              downstream named-pipe / Unix-socket path
+ *   - `--downstream_host HOST --downstream_port PORT` downstream TCP bind
+ *                                address (downstream_transport=tcp)
+ *   - `--downstream_name PATH`   downstream named-pipe / Unix-socket path
  *                                (downstream_transport=pipe)
  *   - `--cmd`                    command to spawn for the downstream terminal
  *                                (downstream_transport=term)

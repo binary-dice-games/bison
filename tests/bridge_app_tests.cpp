@@ -19,9 +19,9 @@
 // still links the object code that references them, so they must be defined
 // here. Mirrors src/app/abi_flags.cpp's rationale for bison_abi.dll.
 DEFINE_string(downstream_transport, "tcp", "test default");
-DEFINE_string(host, "127.0.0.1", "test default");
-DEFINE_int32(port, 7070, "test default");
-DEFINE_string(name, "", "test default");
+DEFINE_string(downstream_host, "127.0.0.1", "test default");
+DEFINE_int32(downstream_port, 7070, "test default");
+DEFINE_string(downstream_name, "", "test default");
 DEFINE_string(cmd, "", "test default");
 DEFINE_int32(timeout, 30000, "test default");
 DEFINE_bool(debugger, false, "test default");

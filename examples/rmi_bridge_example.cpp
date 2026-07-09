@@ -14,9 +14,9 @@
 #include <gflags/gflags.h>
 
 DEFINE_string(downstream_transport, "tcp", "Downstream transport to use: tcp, pipe, or term");
-DEFINE_string(host, "0.0.0.0", "Downstream bind host address (downstream_transport=tcp)");
-DEFINE_int32(port, 7071, "Downstream listen port (downstream_transport=tcp)");
-DEFINE_string(name, "", "Downstream named-pipe / Unix-socket path (downstream_transport=pipe)");
+DEFINE_string(downstream_host, "0.0.0.0", "Downstream bind host address (downstream_transport=tcp)");
+DEFINE_int32(downstream_port, 7071, "Downstream listen port (downstream_transport=tcp)");
+DEFINE_string(downstream_name, "", "Downstream named-pipe / Unix-socket path (downstream_transport=pipe)");
 DEFINE_string(cmd, "", "Command to spawn (downstream_transport=term)");
 
 DEFINE_string(upstream_transport, "term", "Upstream transport to use: tcp, pipe, or term");

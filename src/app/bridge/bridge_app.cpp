@@ -19,9 +19,9 @@
 #include <stdexcept>
 #include <string>
 
-DECLARE_string(host);
-DECLARE_int32(port);
-DECLARE_string(name);
+DECLARE_string(downstream_host);
+DECLARE_int32(downstream_port);
+DECLARE_string(downstream_name);
 DECLARE_string(cmd);
 DECLARE_int32(timeout);
 DECLARE_bool(debugger);
@@ -85,10 +85,10 @@ void bridge_app::on_listening() const {
   std::string downstream_desc;
   switch (selected_downstream_transport()) {
     case transport_kind::pipe:
-      downstream_desc = "pipe " + FLAGS_name;
+      downstream_desc = "pipe " + FLAGS_downstream_name;
       break;
     case transport_kind::tcp:
-      downstream_desc = FLAGS_host + ":" + std::to_string(FLAGS_port);
+      downstream_desc = FLAGS_downstream_host + ":" + std::to_string(FLAGS_downstream_port);
       break;
     case transport_kind::term:
       downstream_desc = "--downstream_transport=term";
@@ -149,12 +149,12 @@ int bridge_app::run(int argc, char** argv) {
 
     switch (downstream_kind) {
       case transport_kind::pipe: {
-        rmi::transport::named_pipe_server_transport pipe_transport{FLAGS_name};
+        rmi::transport::named_pipe_server_transport pipe_transport{FLAGS_downstream_name};
         return run_with_transport(pipe_transport, std::move(upstream_transport));
       }
       case transport_kind::tcp: {
-        auto port = static_cast<uint16_t>(FLAGS_port);
-        rmi::transport::socket_server_transport socket_transport{FLAGS_host, port};
+        auto port = static_cast<uint16_t>(FLAGS_downstream_port);
+        rmi::transport::socket_server_transport socket_transport{FLAGS_downstream_host, port};
         return run_with_transport(socket_transport, std::move(upstream_transport));
       }
       case transport_kind::term: {
