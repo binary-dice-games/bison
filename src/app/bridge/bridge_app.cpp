@@ -11,6 +11,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/term_transport.hpp"
+#include "src/term/scoped_terminal_config.hpp"
 #include "src/term/terminal.hpp"
 
 #include <gflags/gflags.h>
@@ -133,6 +134,7 @@ int bridge_app::run(int argc, char** argv) {
     const transport_kind downstream_kind = selected_downstream_transport();
     const transport_kind upstream_kind = selected_upstream_transport();
 
+    std::unique_ptr<term::scoped_terminal_config> upstream_stc;
     std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport;
     switch (upstream_kind) {
       case transport_kind::pipe:
@@ -142,9 +144,19 @@ int bridge_app::run(int argc, char** argv) {
         upstream_transport = std::make_unique<rmi::transport::socket_client_transport>(
             FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
         break;
-      case transport_kind::term:
-        upstream_transport = std::make_unique<rmi::transport::term_client_transport>(0, 1);
+      case transport_kind::term: {
+        upstream_stc = std::make_unique<term::scoped_terminal_config>(term::scoped_terminal_config::params{0, 1});
+        term::scoped_terminal_config* stc = upstream_stc.get();
+        auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
+            stc->upstream_read_fd(),
+            stc->upstream_write_fd(),
+            [stc](std::string_view s) { stc->on_passthrough(s); },
+            rmi::transport::kDefaultHandshakeTimeout,
+            [stc] { stc->stop_output_pump(); });
+        stc->set_output_channel([raw = term_transport.get()](std::string_view s) { raw->send(s); });
+        upstream_transport = std::move(term_transport);
         break;
+      }
     }
 
     switch (downstream_kind) {
