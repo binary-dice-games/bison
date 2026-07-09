@@ -92,6 +92,7 @@ target_sources(bison PRIVATE
   src/app/server/server_app.cpp
   src/app/standalone/standalone_app.cpp
   src/app/transport_flags.cpp
+  src/app/downstream_transport_flags.cpp
   src/app/upstream_transport_flags.cpp
   src/term/scoped_terminal_config.cpp
 )

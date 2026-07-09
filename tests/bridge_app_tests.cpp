@@ -13,12 +13,12 @@
 #include <mutex>
 #include <thread>
 
-// bridge_app.cpp / transport_flags.cpp / upstream_transport_flags.cpp DECLARE
-// these flags for CLI-driven binaries to DEFINE; this test executable calls
-// run_with_transport() directly (bypassing run()'s CLI parsing) but still
-// links the object code that references them, so they must be defined here.
-// Mirrors src/app/abi_flags.cpp's rationale for bison_abi.dll.
-DEFINE_string(transport, "tcp", "test default");
+// bridge_app.cpp / downstream_transport_flags.cpp / upstream_transport_flags.cpp
+// DECLARE these flags for CLI-driven binaries to DEFINE; this test executable
+// calls run_with_transport() directly (bypassing run()'s CLI parsing) but
+// still links the object code that references them, so they must be defined
+// here. Mirrors src/app/abi_flags.cpp's rationale for bison_abi.dll.
+DEFINE_string(downstream_transport, "tcp", "test default");
 DEFINE_string(host, "127.0.0.1", "test default");
 DEFINE_int32(port, 7070, "test default");
 DEFINE_string(name, "", "test default");

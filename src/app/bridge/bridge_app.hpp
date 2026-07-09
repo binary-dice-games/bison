@@ -30,15 +30,18 @@ namespace bdg::bison::app {
  * `run()` from `main()`.
  *
  * Supported gflags CLI flags:
- *   - `--transport T`            downstream transport: `tcp` (default),
- *                                `pipe`, or `term`. Same flag/semantics as
- *                                `server_app`; a bridge's downstream side
- *                                behaves exactly like a server's.
- *   - `--host HOST --port PORT` downstream TCP bind address (transport=tcp)
+ *   - `--downstream_transport T` downstream transport: `tcp` (default),
+ *                                `pipe`, or `term`. Same semantics as
+ *                                `server_app`'s `--transport`; a bridge's
+ *                                downstream side behaves exactly like a
+ *                                server's, but uses its own flag name so it
+ *                                is never confused with `--upstream_transport`.
+ *   - `--host HOST --port PORT` downstream TCP bind address
+ *                                (downstream_transport=tcp)
  *   - `--name PATH`              downstream named-pipe / Unix-socket path
- *                                (transport=pipe)
+ *                                (downstream_transport=pipe)
  *   - `--cmd`                    command to spawn for the downstream terminal
- *                                (transport=term)
+ *                                (downstream_transport=term)
  *   - `--upstream_transport T`   upstream transport: `tcp` (default), `pipe`,
  *                                or `term`.
  *   - `--upstream_host HOST --upstream_port PORT` upstream TCP address
@@ -55,7 +58,7 @@ namespace bdg::bison::app {
  *    starts accepting downstream connections.
  * 3. Call `on_listening()`.
  * 4. Serve until Enter is pressed (socket / named-pipe downstream) or the
- *    spawned shell exits (`--transport=term`).
+ *    spawned shell exits (`--downstream_transport=term`).
  * 5. Stop the bridge and disconnect from upstream.
  */
 class bridge_app {
@@ -167,8 +170,9 @@ class bridge_app {
    * @param downstream          Downstream server transport (borrowed).
    * @param upstream_transport  Upstream client transport (owned).
    * @param wait_for_shutdown   Blocks until the bridge should stop. Default
-   *        (empty function): `std::getline(std::cin, line)`. `--transport=term`
-   *        passes a wait on the spawned terminal instead.
+   *        (empty function): `std::getline(std::cin, line)`.
+   *        `--downstream_transport=term` passes a wait on the spawned
+   *        terminal instead.
    * @param is_shutdown_requested  Non-blocking alternative to
    *        `wait_for_shutdown`, mirroring `server_app::run_with_transport`.
    * @return 0 on clean shutdown, non-zero on error.

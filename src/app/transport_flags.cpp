@@ -1,7 +1,9 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file transport_flags.cpp
- * @brief Shared `--transport` flag handling for `server_app` / `client_app`.
+ * @brief `--transport` flag handling for `server_app` / `client_app`.
+ *        (`bridge_app`'s downstream side uses `--downstream_transport`,
+ *        handled in `downstream_transport_flags.cpp`.)
  */
 #include "src/app/transport_flags.hpp"
 

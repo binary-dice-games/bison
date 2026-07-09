@@ -83,7 +83,7 @@ std::unique_ptr<rmi::bridge> bridge_app::make_bridge(
 
 void bridge_app::on_listening() const {
   std::string downstream_desc;
-  switch (selected_transport()) {
+  switch (selected_downstream_transport()) {
     case transport_kind::pipe:
       downstream_desc = "pipe " + FLAGS_name;
       break;
@@ -91,7 +91,7 @@ void bridge_app::on_listening() const {
       downstream_desc = FLAGS_host + ":" + std::to_string(FLAGS_port);
       break;
     case transport_kind::term:
-      downstream_desc = "--transport=term";
+      downstream_desc = "--downstream_transport=term";
       break;
   }
   std::cout << "[bridge_app] listening on " << downstream_desc << " -- press Enter to stop\n" << std::flush;
@@ -130,7 +130,7 @@ int bridge_app::run(int argc, char** argv) {
   }
 
   try {
-    const transport_kind downstream_kind = selected_transport();
+    const transport_kind downstream_kind = selected_downstream_transport();
     const transport_kind upstream_kind = selected_upstream_transport();
 
     std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport;
