@@ -200,32 +200,19 @@ bool bridge::try_handle_request(context& ctx, const shared::envelope& env, trans
 // ── Event routing ─────────────────────────────────────────────────────────────
 
 void bridge::route_event(const shared::envelope& env) {
-  // Extract and deep-clone the event name/params from the *shared* payload
-  // before anything else touches it. dispatch_local_event() below forwards
-  // to client::process_frame(), whose KIND_EVENT handling does
-  // `params = std::move(*ptr)` on the FIELD_PARAMS dynamic_ptr -- a
-  // destructive move on the pointee object, not a copy. Since `ptr` there is
-  // just another handle to the same shared_ptr<dynamic> stored in
-  // env.payload, that move empties it out from under any other reader of
-  // this same env. Cloning first (own copy, unaffected by the move) is what
-  // lets both dispatch_local_event() and the downstream broadcast below see
-  // the real data instead of a race to consume it.
   bison::key_t event_name{0u};
   const auto* name_field = env.payload.findField(FIELD_NAME);
   if (name_field && name_field->is<bison::key_t>())
     event_name = name_field->as<bison::key_t>();
 
-  bison::dynamic params;
+  // Read (not consume) the shared params pointee: `ptr` is just another
+  // handle to the same shared_ptr<dynamic> stored in env.payload, so cloning
+  // it per downstream session below is non-destructive and leaves env.payload
+  // untouched for dispatch_local_event() to read afterward.
+  bison::dynamic_ptr ptr;
   const auto* params_field = env.payload.findField(FIELD_PARAMS);
-  if (params_field && params_field->is<bison::dynamic_ptr>()) {
-    if (auto ptr = params_field->as<bison::dynamic_ptr>())
-      params = ptr->clone();
-  }
-
-  // Deliver to the bridge's own upstream-client handler table, for
-  // bridge-owned UI (e.g. a desktop compositor widget registered via
-  // upstream() in on_client_connected()).
-  upstream_client_.dispatch_local_event(env);
+  if (params_field && params_field->is<bison::dynamic_ptr>())
+    ptr = params_field->as<bison::dynamic_ptr>();
 
   // No per-object ownership tracking: broadcast to every connected
   // downstream session. Each session's own event-handler lookup (already
@@ -246,8 +233,17 @@ void bridge::route_event(const shared::envelope& env) {
     auto lp = ss->emit_st.wlock();
     if (!lp->active || !lp->emit)
       continue;
-    lp->emit(env.object_id, event_name, params.clone());
+    lp->emit(env.object_id, event_name, ptr ? ptr->clone() : bison::dynamic{});
   }
+
+  // Deliver to the bridge's own upstream-client handler table, for
+  // bridge-owned UI (e.g. a desktop compositor widget registered via
+  // upstream() in on_client_connected()). Done last: this forwards to
+  // client::process_frame(), whose KIND_EVENT handling does
+  // `params = std::move(*ptr)` on the FIELD_PARAMS dynamic_ptr -- a
+  // destructive move on the pointee, not a copy -- so nothing above may read
+  // env.payload's params after this call.
+  upstream_client_.dispatch_local_event(env);
 }
 
 } // namespace bdg::bison::rmi
