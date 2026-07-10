@@ -116,6 +116,21 @@ class server_app {
   }
 
   /**
+   * @brief Short label used to distinguish a `--transport=term` spawned
+   *        terminal's shell prompt (e.g. "wish-server") from the operator's
+   *        own terminal.
+   *
+   * Default: returns an empty string (no prompt override; the spawned
+   * shell's own default prompt is left untouched). See
+   * `term::terminal`'s `prompt_label` parameter.
+   *
+   * @return Short prompt label, or empty for no override.
+   */
+  virtual std::string terminal_label() const {
+    return {};
+  }
+
+  /**
    * @brief Called once per formatted verbose trace line when `--verbose` is
    *        active.
    *

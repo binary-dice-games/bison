@@ -58,9 +58,16 @@ class terminal {
    * @param cmd  Command to exec in the child. Empty string spawns the
    *             operator's `$SHELL` (Linux/MSYS2, falling back to
    *             `/bin/sh`) or `cmd.exe` (Windows).
+   * @param prompt_label  Optional short label (e.g. "wish-server") used to
+   *             override the child shell's prompt, so a spawned terminal is
+   *             visually distinguishable from the operator's own. Empty
+   *             string (default) leaves the shell's own prompt untouched.
+   *             Best-effort: reliable on bash (via `PROMPT_COMMAND`) and
+   *             `cmd.exe` (via `PROMPT`); shells without either mechanism
+   *             (e.g. zsh, fish) are unaffected.
    * @throws std::runtime_error on spawn/pty allocation failure.
    */
-  explicit terminal(const std::string& cmd = {});
+  explicit terminal(const std::string& cmd = {}, const std::string& prompt_label = {});
 
   /** @brief Stops the pump, restores the real terminal, closes handles, reaps the child. */
   ~terminal();

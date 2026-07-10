@@ -20,6 +20,7 @@
 #include <io.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -78,7 +79,15 @@ COORD query_console_size() {
 
 } // namespace
 
-terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_state>()) {
+terminal::terminal(const std::string& cmd, const std::string& prompt_label)
+    : state_(std::make_unique<terminal_state>()) {
+  if (!prompt_label.empty()) {
+    // cmd.exe has no rc file and reads PROMPT directly, so a plain env var
+    // set in the parent -- inherited by CreateProcessA below via its
+    // lpEnvironment == nullptr -- takes effect unconditionally.
+    _putenv_s("PROMPT", (prompt_label + "$G").c_str());
+  }
+
   HANDLE pty_in_read = nullptr; // ConPTY's end: reads the child's stdin
   HANDLE pty_out_write = nullptr; // ConPTY's end: writes the child's stdout
 

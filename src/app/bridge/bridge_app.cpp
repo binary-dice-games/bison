@@ -151,7 +151,7 @@ int bridge_app::run(int argc, char** argv) {
     std::unique_ptr<term::terminal> anchor_term;
     std::unique_ptr<rmi::transport::term_server_transport> anchor_transport;
     if (downstream_kind != transport_kind::term) {
-      anchor_term = std::make_unique<term::terminal>();
+      anchor_term = std::make_unique<term::terminal>(std::string{}, terminal_label());
       anchor_transport = std::make_unique<rmi::transport::term_server_transport>(
           anchor_term->read_handle(), anchor_term->write_handle());
       anchor_transport->start(bison::dynamic{});
@@ -217,7 +217,7 @@ int bridge_app::run(int argc, char** argv) {
         return rc;
       }
       case transport_kind::term: {
-        term::terminal term_proc{FLAGS_cmd};
+        term::terminal term_proc{FLAGS_cmd, terminal_label()};
         term_proc.start_pump();
         rmi::transport::term_server_transport term_transport{term_proc.read_handle(), term_proc.write_handle()};
         active_term_ = &term_proc;

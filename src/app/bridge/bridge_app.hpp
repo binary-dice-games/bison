@@ -113,6 +113,17 @@ class bridge_app {
   }
 
   /**
+   * @brief Short label used to distinguish a spawned terminal's shell prompt
+   *        (e.g. "wish-desktop") from the operator's own terminal.
+   *
+   * Mirrors `server_app::terminal_label()`. Default: returns an empty string
+   * (no prompt override).
+   */
+  virtual std::string terminal_label() const {
+    return {};
+  }
+
+  /**
    * @brief Called after a downstream client session is registered.
    *
    * Forwards `rmi::bridge::on_client_connected()`. Default: no-op.

@@ -59,7 +59,19 @@ struct terminal_state {
   std::thread stdio_pump_thread;
 };
 
-terminal::terminal(const std::string& cmd) : state_(std::make_unique<terminal_state>()) {
+terminal::terminal(const std::string& cmd, const std::string& prompt_label)
+    : state_(std::make_unique<terminal_state>()) {
+  if (!prompt_label.empty()) {
+    // Set in the parent so forkpty()'s child inherits them via environ
+    // (execl() below execs with the current environment, no explicit envp
+    // needed). PS1 covers shells with no rc file (e.g. plain /bin/sh);
+    // PROMPT_COMMAND re-asserts the prompt on every draw, after bash's own
+    // .bashrc has already (unconditionally) set PS1 itself.
+    const std::string ps1 = prompt_label + ":\\w\\$ ";
+    setenv("PS1", ps1.c_str(), 1);
+    setenv("PROMPT_COMMAND", ("PS1='" + ps1 + "'").c_str(), 1);
+  }
+
   struct winsize ws{};
   if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) != 0) {
     ws.ws_col = 80;

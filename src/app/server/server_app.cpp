@@ -162,7 +162,7 @@ int server_app::run(int argc, char** argv) {
         return run_with_transport(socket_transport);
       }
       case transport_kind::term: {
-        term::terminal term_proc{FLAGS_cmd};
+        term::terminal term_proc{FLAGS_cmd, terminal_label()};
         term_proc.start_pump();
         rmi::transport::term_server_transport term_transport{term_proc.read_handle(), term_proc.write_handle()};
         active_term_ = &term_proc;
