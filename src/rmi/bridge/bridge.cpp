@@ -157,31 +157,17 @@ void bridge::teardown_session(bison::key_t session_id) {
     wp->emit = nullptr;
   }
 
-  // Destroy every upstream object this session's requests touched, so they
-  // don't leak on the upstream server for the lifetime of the bridge
-  // process (the bridge's single upstream connection stays open across
-  // many downstream sessions coming and going).
-  std::vector<bison::hash_t> ids;
-  {
-    auto lp = ss->touched_objects.rlock();
-    ids.assign(lp->begin(), lp->end());
+  // Destroy every upstream object this session's requests ever created
+  // (including ones created indirectly, e.g. wish's UI template system --
+  // see context::put_object()), in one shot: every request relayed on this
+  // session's behalf was tagged with session_id as its group (see
+  // try_handle_request()), so the upstream server can already tell us
+  // exactly what to destroy without the bridge tracking anything itself.
+  try {
+    upstream_client_.send_request_with_group(OP_DESTROY_GROUP, bison::key_t{0u}, session_id, bison::dynamic{}, true)
+        .get();
+  } catch (...) {
   }
-  for (bison::hash_t id : ids) {
-    try {
-      upstream_client_.send_request(OP_DESTROY, bison::key_t{id}, bison::dynamic{}, true).get();
-    } catch (...) {
-    }
-  }
-}
-
-// ── Helper ────────────────────────────────────────────────────────────────────
-
-std::shared_ptr<bridge::session_state> bridge::find_session(bison::key_t id) const {
-  auto lp = sessions_.rlock();
-  auto it = lp->find(id.id);
-  if (it == lp->end())
-    return nullptr;
-  return it->second;
 }
 
 // ── Request relay ────────────────────────────────────────────────────────────
@@ -194,33 +180,16 @@ bool bridge::try_handle_request(context& ctx, const shared::envelope& env, trans
     return false;
   }
 
-  auto ss = find_session(ctx.session_id);
-  if (!ss) {
-    // Session torn down mid-flight; nothing sensible to relay to.
-    send_error(ctx, conn, env, op, ERR_INTERNAL_ERROR, "bridge: session not found");
-    return true;
-  }
-
+  // Tag every relayed request with this downstream session's own ID as its
+  // group, so the upstream server files any object created while handling
+  // it (directly or indirectly -- see context::put_object()) under that
+  // group. This is what lets teardown_session() clean up everything a
+  // session ever created in one OP_DESTROY_GROUP request, without the
+  // bridge needing to track object IDs itself.
   try {
-    bison::dynamic result = upstream_client_.send_request(op, env.object_id, env.payload.clone(), env.oneway).get();
-
-    // Track every object this session's requests touch, purely so
-    // teardown_session() knows what to OP_DESTROY on disconnect.
-    // OP_INSTANTIATE's *new* object ID is in the result payload; every
-    // other op already carries its target in env.object_id.
-    bison::key_t touched = env.object_id;
-    if (op == OP_INSTANTIATE) {
-      const auto* oid_field = result.findField(FIELD_OBJECT_ID);
-      if (oid_field && oid_field->is<bison::key_t>())
-        touched = oid_field->as<bison::key_t>();
-    }
-    if (touched.id != 0u) {
-      if (op == OP_DESTROY)
-        ss->touched_objects.wlock()->erase(touched.id);
-      else
-        ss->touched_objects.wlock()->insert(touched.id);
-    }
-
+    bison::dynamic result =
+        upstream_client_.send_request_with_group(op, env.object_id, ctx.session_id, env.payload.clone(), env.oneway)
+            .get();
     send_response(ctx, conn, env, op, std::move(result));
   } catch (const std::exception& e) {
     send_error(ctx, conn, env, op, ERR_INTERNAL_ERROR, e.what());

@@ -437,6 +437,91 @@ TEST_F(BridgeTest, DisconnectDestroysUpstreamObjects) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// 8b. Session teardown destroys objects created *indirectly* by a method
+//     call too -- mirrors wish's UI template system, which creates a whole
+//     subtree of objects as a side effect of one "instantiate" method call
+//     via context::put_object(), not through individual OP_INSTANTIATE
+//     round trips the bridge's old design could intercept.
+// ═════════════════════════════════════════════════════════════════════════════
+
+namespace {
+// Exposes the context newly-created objects were created in, via userdata,
+// so a registered method can create additional objects directly through
+// context::put_object() -- mirrors how wish's ui_template::do_instantiate
+// creates a whole subtree of elements as a side effect of one method call.
+struct ctx_userdata : userdata {
+  rmi::context* ctx{nullptr};
+};
+
+class context_exposing_server : public server {
+ public:
+  using server::server;
+
+ protected:
+  dynamic_ptr on_create_object(rmi::context& ctx, bison_key_t ns, bison_key_t klass) override {
+    auto obj = server::on_create_object(ctx, ns, klass);
+    if (obj) {
+      auto ud = std::make_shared<ctx_userdata>();
+      ud->ctx = &ctx;
+      obj->setUserdata(ud);
+    }
+    return obj;
+  }
+};
+} // namespace
+
+TEST_F(BridgeTest, DisconnectDestroysObjectsCreatedIndirectlyByAMethodCall) {
+  std::atomic<int> child_destruct_count{0};
+
+  auto child_proto = dynamic_ptr{"Child"_key, {}};
+  child_proto->addMethod(HOOK_DESTRUCT, method{[&child_destruct_count](dynamic&, const dynamic&) {
+                           ++child_destruct_count;
+                           return dynamic{};
+                         }});
+  dynamic::addClass(0U, child_proto, 0U);
+
+  auto spawner_proto = dynamic_ptr{"Spawner"_key, {}};
+  spawner_proto->addMethod("spawnChildren"_key, method{[](dynamic& self, const dynamic&) {
+                             auto ud = std::dynamic_pointer_cast<ctx_userdata>(self.getUserdata());
+                             if (ud && ud->ctx) {
+                               for (int i = 0; i < 3; ++i) {
+                                 bison_key_t id = rmi::shared::generate_id();
+                                 ud->ctx->put_object(id, dynamic_ptr{dynamic::instantiate(0U, "Child"_key)});
+                               }
+                             }
+                             return dynamic{};
+                           }});
+  dynamic::addClass(0U, spawner_proto, 0U);
+
+  // Swap the fixture's plain upstream server for one that exposes ctx via
+  // userdata (context_exposing_server above), rebuilding the bridge to
+  // point at it -- mirrors how test 5b swaps br_ for a subclassed bridge.
+  br_->stop();
+  upstream_srv_->stop();
+  upstream_srv_ = std::make_unique<context_exposing_server>(upstream_transport_);
+  upstream_srv_->listen();
+  br_ = std::make_unique<bridge>(
+      downstream_transport_, std::make_unique<memory_client_transport>(upstream_transport_.connect()));
+  br_->start();
+
+  auto c = make_client();
+  c.connect();
+
+  auto spawner = c.instantiate(0U, "Spawner"_key).get();
+  spawner.call("spawnChildren"_key, dynamic{}).get();
+
+  // Disconnect without explicitly destroying anything -- teardown_session's
+  // single OP_DESTROY_GROUP request should destroy the spawner *and* all 3
+  // children it created indirectly, not just the one object the client
+  // itself instantiated.
+  c.disconnect();
+  std::this_thread::sleep_for(std::chrono::milliseconds{120});
+
+  EXPECT_EQ(child_destruct_count.load(), 3)
+      << "expected all indirectly-created children destroyed on disconnect, not just the explicitly instantiated object";
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // 9. CALL_FALLBACK constant is backward-compatible
 // ═════════════════════════════════════════════════════════════════════════════
 

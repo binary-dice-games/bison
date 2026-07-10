@@ -88,29 +88,47 @@ One `session_state` is created per downstream client connection. It owns:
 |-------|---------|
 | `session_id` | Mirrors `context::session_id` for the downstream session |
 | `emit` | Copy of `ctx.emit_event` — safe to call from the upstream event thread |
-| `touched_objects` | `synchronized<unordered_set<upstream_oid_hash>>` — see below |
 
 `session_state` is reference-counted (`shared_ptr`), reachable only through the
-`sessions_` map (protected by `synchronized`).
+`sessions_` map (protected by `synchronized`). Notably, it holds **no object
+tracking at all** — see below.
 
-### Disconnect cleanup: `touched_objects`
+### Disconnect cleanup: object groups, not bridge-side tracking
 
-The bridge keeps exactly one piece of state beyond pure relay: as
-`try_handle_request()` forwards a request, it records the touched object ID
-(the *new* object's ID from the response, for `instantiate`; `env.object_id`
-for everything else) into that session's `touched_objects` set — inserted on
-every op, erased on `destroy`. This has nothing to do with routing; it exists
-solely so `teardown_session()` can send `OP_DESTROY` for whatever's left when a
-downstream session disconnects. Without it, objects created by a departed
-session would leak on the upstream server for as long as the bridge process
-runs, since the bridge's one shared upstream connection stays open across many
-downstream sessions coming and going.
+The bridge tracks nothing about individual objects, even for cleanup purposes.
+Instead, `try_handle_request()` tags every relayed request with the downstream
+session's own `ctx.session_id` as its **object group**
+(`shared::envelope::group`, sent via `client::send_request_with_group()`).
+On the upstream server, `context::current_group` is set from that field for
+the duration of dispatching the request (`server::handle_request()`, generic —
+not bridge-specific), and any object created while handling it — whether
+directly via the built-in `OP_INSTANTIATE` handler, or indirectly as a side
+effect of another op, e.g. wish's UI template system creating a whole subtree
+of elements inside one `OP_CALL` — is filed under that group, *as long as the
+creating code goes through `context::put_object()` instead of writing to
+`context::objects` directly* (see `FORMAT.md` §4.1 and `context.hpp`'s doc
+comments for the full mechanism; wish's own call sites — `ui_template.cpp`,
+`forms/file_dialog.cpp`, and the calculator/notepad/process_explorer modules —
+were all updated to use `put_object()` for exactly this reason).
 
-This tracking is necessarily best-effort: an object a session only ever
-touched via a registered event handler (never a request — see wish's
-`wish_proxy_get()`/`on_event()`, which are purely local, no wire traffic) won't
-be in the set. That's an acceptable, bounded leak of that one object until the
-bridge process itself exits, not a functional bug.
+`teardown_session()` then destroys everything in one request:
+`send_request_with_group(OP_DESTROY_GROUP, {}, session_id, {}, oneway=true)`.
+The upstream server's `handle_destroy_group()` looks up `context::groups[group]`,
+runs `__destruct` on each member, erases them from `context::objects`, and
+erases the group entry — a no-op if the group is empty or unknown, not an
+error. This requires zero bridge-side bookkeeping and has no blind spot: it
+doesn't matter how many objects a session's traffic produced, or through what
+mechanism, because grouping happens at the point of *creation*, not by the
+bridge guessing at ownership after the fact from request traffic it can see.
+
+(An earlier iteration of this design had the bridge track a per-session
+`touched_objects` set instead, populated from `try_handle_request()`'s own
+view of `OP_INSTANTIATE` results and `env.object_id`. That missed objects
+created indirectly — exactly wish's UI template case — since the bridge never
+saw their IDs in anything it could recognize as "creation". Groups fix this at
+the root: the *server* (which actually knows when an object comes into
+existence, regardless of how) does the filing, not the bridge guessing from
+outside.)
 
 ### Event routing: broadcast, not lookup
 
@@ -199,18 +217,62 @@ call them) and `handle_request()` returns immediately. This is what lets
 `bridge` implement request handling that doesn't fit the per-connection
 `ctx.objects` model at all.
 
+### Object groups (in `context.hpp`, `server.hpp`/`server.cpp`, `envelope.hpp`/`.cpp`, `client.hpp`/`.cpp`, `constants.hpp`, `schemas.hpp`)
+
+A general-purpose, protocol-level lifecycle-grouping mechanism, not specific
+to `bridge`:
+
+- **`shared::envelope::group`** (`bison::key_t`, new field, wire tag `__group`
+  — see `FORMAT.md` §4.1): carried on every request; `0` means "no group".
+- **`context::current_group`**: set from `env.group` by `server::handle_request()`
+  for the duration of dispatching one request (generic, any `server`).
+- **`context::groups`**: `unordered_map<group_hash, unordered_set<object_id_hash>>`,
+  populated by...
+- **`context::put_object(id, obj)`**: the canonical way to add an object to a
+  context — inserts into `context::objects` *and* (if `current_group != 0`)
+  `context::groups[current_group]`. Prefer this over writing to `objects`
+  directly anywhere an object might be created under a group.
+- **`client::send_request_with_group(op, object_id, group, payload, oneway)`**:
+  identical to the existing `send_request()`, plus a `group` parameter.
+  `send_request()` itself is now a thin wrapper calling this with `group = 0`
+  — fully backward compatible, no existing call site changed behavior.
+- **`OP_DESTROY_GROUP`** / **`server::handle_destroy_group()`**: destroys
+  every object in `context::groups[env.group]` (running `__destruct` on each),
+  then erases the group. No-op (not an error) if the group is empty/unknown.
+
+None of this is bridge-specific — any `server` subclass, or even ordinary
+application code creating objects in bulk, can use groups. `bridge` is simply
+the first (and so far only) consumer, using each downstream session's own
+`session_id` as its group key on the shared upstream connection.
+
+**Wire compatibility:** this is a real (additive) wire-format change — see
+`FORMAT.md` §4.1. Since bison is vendored/single-versioned in this monorepo
+(not independently deployed against older peers), no backward-compatibility
+shim was added; rebuild both sides together.
+
 ---
 
 ## Files
 
 | File | Role |
 |------|------|
-| `src/rmi/server/server.hpp` / `.cpp` | `try_handle_request()` hook; `send_response()`/`send_error()` made `protected` |
+| `src/rmi/server/context.hpp` | `current_group`, `groups`, `put_object()` |
+| `src/rmi/server/server.hpp` / `.cpp` | `try_handle_request()` hook; `send_response()`/`send_error()` made `protected`; sets `ctx.current_group`; `handle_destroy_group()` |
+| `src/rmi/shared/envelope.hpp` / `.cpp` | `group` field, encode/decode |
+| `src/rmi/shared/constants.hpp` | `FIELD_GROUP`, `OP_DESTROY_GROUP` |
+| `src/rmi/shared/schemas.hpp` | `__envelope` schema gains `__group` |
+| `src/rmi/client/client.hpp` / `.cpp` | `send_request_with_group()` |
 | `src/rmi/bridge/bridge.hpp` | `rmi::bridge` class declaration |
 | `src/rmi/bridge/bridge.cpp` | `rmi::bridge` implementation |
 | `src/rmi/rmi.hpp` | `#include "src/rmi/bridge/bridge.hpp"` |
 | `tests/bridge_tests.cpp` | GoogleTest suite |
 | `tests/CMakeLists.txt` | `package_add_test(bridge_test bridge_tests.cpp)` |
+
+wish-side call sites updated to use `put_object()` instead of writing to
+`ctx.objects` directly (so bulk-created elements are correctly grouped when
+relayed through a bridge): `src/ui/ui_template.cpp`, `src/ui/forms/file_dialog.cpp`,
+`modules/calculator/server/calculator.cpp`, `modules/notepad/server/notepad.cpp`,
+`modules/process_explorer/server/process_explorer.cpp`.
 
 ---
 
@@ -268,11 +330,16 @@ Server worker (one per downstream client)
   on_before_dispatch          ← no envelope
   handle_request
     try_handle_request(ctx, env, conn)
-      upstream_client_.send_request(op, env.object_id, env.payload, oneway).get()
+      upstream_client_.send_request_with_group(op, env.object_id, ctx.session_id, env.payload, oneway).get()
         ← blocks this worker; the upstream client's own worker thread
           responds independently, no shared lock held during the block
       send_response(...) / send_error(...)
   on_after_dispatch
+
+Upstream server's own worker thread (a separate process/connection entirely)
+  handle_request: ctx.current_group = env.group, then normal dispatch
+    handle_instantiate / a method like ui_template's "instantiate"
+      ctx.put_object(new_id, obj) ← files under ctx.current_group
 
 Upstream client worker thread
   Receives frames from upstream; resolves pending futures.
@@ -305,8 +372,12 @@ Upstream event dispatch thread (bridge_upstream_transport::receive())
    `connect()` fails, `start()` throws and no downstream connections are
    accepted.
 4. `teardown_session()` always runs before `cleanup_context()` (from
-   `on_session_destroyed`), so `OP_DESTROY` is sent for a session's
-   `touched_objects` while the bridge's upstream connection is still alive.
+   `on_session_destroyed`), so `OP_DESTROY_GROUP` is sent for a session's
+   group while the bridge's upstream connection is still alive.
+5. `context::put_object()` is the only correct way to add an object under the
+   current request's group; code that writes to `context::objects` directly
+   silently opts out of group membership (and therefore bridge-relayed
+   cleanup) for that object.
 
 ---
 
@@ -324,4 +395,5 @@ Tests use `memory_server_transport` / `memory_client_transport` (in-process, syn
 | Event for bridge-owned object | Reaches the bridge's own upstream-client handler, not dropped |
 | Object IDs are routing tags, not capabilities | A GET using another client's known object ID is relayed and succeeds — documents the intentional isolation tradeoff |
 | CLEAR forwarded | Subsequent SET/GET still work after OP_CLEAR |
-| Session teardown | Upstream `__destruct` hooks called for all of a session's `touched_objects` on disconnect |
+| Session teardown (direct) | Upstream `__destruct` hooks called for both explicitly-instantiated objects on disconnect |
+| Session teardown (indirect) | A method call that creates objects via `context::put_object()` (mirroring wish's UI template pattern) has *all* of them destroyed on disconnect via `OP_DESTROY_GROUP`, not just the one object the client explicitly instantiated |

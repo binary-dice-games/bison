@@ -41,6 +41,7 @@ bison::buffer envelope::encode() const {
   env[FIELD_OP] = op;
   env[FIELD_REQUEST_ID] = request_id;
   env[FIELD_OBJECT_ID] = object_id;
+  env[FIELD_GROUP] = group;
   env[FIELD_WITH_SCHEMA] = with_schema;
   env[FIELD_PAYLOAD] = buffer.release();
   env[FIELD_ERROR] = error_buffer.release();
@@ -62,6 +63,7 @@ envelope envelope::decode(const bison::buffer& bytes) {
   decoded.op = out[FIELD_OP];
   decoded.request_id = out[FIELD_REQUEST_ID];
   decoded.object_id = out[FIELD_OBJECT_ID];
+  decoded.group = out[FIELD_GROUP];
   decoded.with_schema = out[FIELD_WITH_SCHEMA];
   decoded.oneway = out[FIELD_ONEWAY];
 

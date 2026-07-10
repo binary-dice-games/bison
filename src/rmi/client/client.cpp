@@ -127,6 +127,12 @@ void client::disconnect() {
 /** @copydoc bdg::bison::rmi::client::send_request */
 std::future<bison::dynamic>
 client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway) {
+  return send_request_with_group(op, object_id, bison::key_t{0u}, std::move(payload), oneway);
+}
+
+/** @copydoc bdg::bison::rmi::client::send_request_with_group */
+std::future<bison::dynamic> client::send_request_with_group(
+    bison::key_t op, bison::key_t object_id, bison::key_t group, bison::dynamic payload, bool oneway) {
   const bison::key_t request_id = shared::generate_id();
   auto frame = [&]() {
     shared::envelope env;
@@ -134,6 +140,7 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
     env.op = op;
     env.request_id = request_id;
     env.object_id = object_id;
+    env.group = group;
     env.oneway = oneway;
     env.payload = std::move(payload);
     return env.encode();

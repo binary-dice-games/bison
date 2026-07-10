@@ -177,8 +177,6 @@ pre-registered class `"__envelope"`.
 
 ### 4.1 Envelope schema (`"__envelope"`)
 
-Fields in prototype declaration order (which is also wire order):
-
 | Field name         | String literal    | Wire tag | Type        | Meaning |
 |--------------------|-------------------|----------|-------------|---------|
 | `__version`        | `"__version"`     | 4 (`int32_t`) | Protocol version; current value = **1** |
@@ -186,27 +184,38 @@ Fields in prototype declaration order (which is also wire order):
 | `__op`             | `"__op"`          | 2 (`key_t`)   | Operation token (see §4.3) |
 | `__requestId`      | `"__requestId"`   | 2 (`key_t`)   | Correlation ID; echoed back in the response |
 | `__objectId`       | `"__objectId"`    | 2 (`key_t`)   | Target server-side object identifier |
+| `__group`          | `"__group"`       | 2 (`key_t`)   | Group newly-created objects are filed under (`0` = none); also the target group for `"destroyGroup"` (see §4.3, `context::current_group`) |
 | `__payload`        | `"__payload"`     | 11 (`vector<uint8_t>`) | Serialised payload `dynamic` (see §4.4) |
 | `__error`          | `"__error"`       | 11 (`vector<uint8_t>`) | Serialised error `dynamic` (see §4.5) |
 | `__withSchema`     | `"__withSchema"`  | 3 (`bool`)    | Whether the payload was encoded in schema-driven mode |
 | `__oneway`         | `"__oneway"`      | 3 (`bool`)    | If true the sender does not expect a response |
 
-The envelope is encoded in Schema-Driven Compact Format; the outer byte stream
-therefore begins with:
+The envelope is encoded in Schema-Driven Compact Format (§3.2), so on the wire
+its fields are **not** in the declaration order shown above — §3.2's decoder
+visits prototype fields in ascending hash order. As of this field set, that
+order is:
 
 ```
 [4 bytes BE: namespace_id = 0x00000000  (global)]
 [4 bytes BE: class_id     = hash("__envelope")]
-[field 1: __version  — int32_t, value 1]
-[field 2: __kind     — key_t]
-[field 3: __op       — key_t]
-[field 4: __requestId— key_t]
-[field 5: __objectId — key_t]
-[field 6: __payload  — vector<uint8_t>]
-[field 7: __error    — vector<uint8_t>]
-[field 8: __withSchema — bool]
-[field 9: __oneway   — bool]
+[field: __withSchema — bool]
+[field: __objectId   — key_t]
+[field: __op         — key_t]
+[field: __kind       — key_t]
+[field: __group      — key_t]
+[field: __requestId  — key_t]
+[field: __payload    — vector<uint8_t>]
+[field: __oneway     — bool]
+[field: __version    — int32_t]
+[field: __error      — vector<uint8_t>]
 ```
+
+This order is an implementation detail of each field name's hash, not a
+stable contract — it changes if a field is renamed, and a newly added field
+lands wherever its hash happens to sort. Do not hand-construct envelope bytes
+assuming a fixed order; always go through `envelope::encode()`/`decode()` (or
+an equivalent implementation that performs the same prototype-chain
+traversal), which computes the order at runtime from the registered schema.
 
 ### 4.2 Message kind tokens
 
@@ -228,6 +237,7 @@ therefore begins with:
 | `"get"`        | Retrieve fields from a server-side object |
 | `"call"`       | Invoke a method on a server-side object |
 | `"destroy"`    | Destroy a server-side object |
+| `"destroyGroup"` | Destroy every object filed under `__group` (see §4.1, `context::current_group`/`put_object()`); a no-op if the group is empty or unknown |
 | `"disconnect"` | Graceful connection teardown |
 | `"event"`      | Event payload dispatch (used with kind `"event"`) |
 

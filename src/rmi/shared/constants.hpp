@@ -34,6 +34,8 @@ inline const bison::key_t OP_GET = "get"_key;
 inline const bison::key_t OP_CALL = "call"_key;
 /** @brief Operation token for destroying server-side objects. */
 inline const bison::key_t OP_DESTROY = "destroy"_key;
+/** @brief Operation token for destroying every object in a group (see envelope's `group` field / `context::groups`). */
+inline const bison::key_t OP_DESTROY_GROUP = "destroyGroup"_key;
 /** @brief Operation token for disconnect requests. */
 inline const bison::key_t OP_DISCONNECT = "disconnect"_key;
 /** @brief Operation token for event payload dispatch. */
@@ -96,6 +98,12 @@ inline const bison::key_t FIELD_OP = "__op"_key;
 inline const bison::key_t FIELD_REQUEST_ID = "__requestId"_key;
 /** @brief Envelope field key for target object identifier. */
 inline const bison::key_t FIELD_OBJECT_ID = "__objectId"_key;
+/**
+ * @brief Envelope field key for the group newly-created objects should be
+ * filed under (see `context::current_group` / `context::put_object()`); `0`
+ * means no group. Also carries the target group for `OP_DESTROY_GROUP`.
+ */
+inline const bison::key_t FIELD_GROUP = "__group"_key;
 /** @brief Envelope field key indicating whether payload uses schema mode. */
 inline const bison::key_t FIELD_WITH_SCHEMA = "__withSchema"_key;
 /** @brief Envelope field key containing serialized payload bytes. */

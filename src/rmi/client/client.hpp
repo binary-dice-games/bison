@@ -207,6 +207,28 @@ class client : public proxy_backend {
       override;
 
   /**
+   * @brief Send a low-level RMI request tagged with an object group.
+   *
+   * Identical to `send_request()`, except the request envelope's `group`
+   * field is set to @p group -- the server files any object created while
+   * handling this request (see `context::current_group` /
+   * `context::put_object()`) under that group. Used by `rmi::bridge` to
+   * give each downstream session its own group on the shared upstream
+   * connection, so the whole group can be destroyed in one
+   * `OP_DESTROY_GROUP` request when that session disconnects.
+   *
+   * @param op        Operation key.
+   * @param object_id Target object ID (empty for non-object operations).
+   * @param group     Group to file newly-created objects under; `0` for none.
+   * @param payload   Operation payload object.
+   * @param oneway    When true, no response is expected from the server.
+   * @return Future resolved with response payload (or empty dynamic for
+   * oneway).
+   */
+  std::future<bison::dynamic> send_request_with_group(
+      bison::key_t op, bison::key_t object_id, bison::key_t group, bison::dynamic payload, bool oneway);
+
+  /**
    * @brief Register a handler for server-sent events on an object.
    * @param object_id Remote object identifier.
    * @param name Event name token.

@@ -21,6 +21,12 @@ struct envelope {
   bison::key_t op{0u};
   bison::key_t request_id{0u};
   bison::key_t object_id{0u};
+  /**
+   * @brief Group newly-created objects should be filed under while this
+   * request is handled (see `context::current_group`); `0` means no group.
+   * Also carries the target group for `OP_DESTROY_GROUP` requests.
+   */
+  bison::key_t group{0u};
   bison::dynamic payload{};
   bison::dynamic error{};
   bool with_schema{false};

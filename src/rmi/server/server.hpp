@@ -408,6 +408,13 @@ class server {
 
   void handle_destroy(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
+  /**
+   * @brief Destroy every object filed under `env.group` (see
+   *        `context::groups`), running each one's `__destruct` hook first.
+   *        A no-op success if the group is empty or unknown -- not an error.
+   */
+  void handle_destroy_group(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
+
   void handle_disconnect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 
   void handle_dictionary(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);

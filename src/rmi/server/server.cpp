@@ -32,6 +32,7 @@ static const char* op_to_label(bison::key_t op) {
       {OP_GET, "get        "},
       {OP_SET, "set        "},
       {OP_DESTROY, "destroy    "},
+      {OP_DESTROY_GROUP, "destroyGrp "},
       {OP_CLEAR, "clear      "},
       {OP_DESCRIBE, "describe   "},
       {OP_DICTIONARY, "dictionary "},
@@ -441,6 +442,16 @@ void server::handle_request(context& ctx, const shared::envelope& env, transport
   if (try_handle_request(ctx, env, conn))
     return;
 
+  // Set for the duration of this request's dispatch so any object created
+  // while handling it -- directly via handle_instantiate, or indirectly by
+  // application code that creates objects as a side effect of another op
+  // (e.g. wish's UI template system, inside handle_call) -- is filed under
+  // the same group, as long as it goes through context::put_object(). 0
+  // (no group set on the envelope) is the default for ordinary clients, so
+  // this is a no-op unless something (e.g. rmi::bridge) explicitly tags the
+  // request.
+  ctx.current_group = env.group;
+
   on_request_trace(ctx, env);
 
   using handler_fn = void (server::*)(context&, const shared::envelope&, transport::server_connection_iface&);
@@ -453,6 +464,7 @@ void server::handle_request(context& ctx, const shared::envelope& env, transport
       {OP_GET, &server::handle_get},
       {OP_CALL, &server::handle_call},
       {OP_DESTROY, &server::handle_destroy},
+      {OP_DESTROY_GROUP, &server::handle_destroy_group},
       {OP_DISCONNECT, &server::handle_disconnect},
       {OP_DICTIONARY, &server::handle_dictionary},
       {OP_HELP, &server::handle_help},
@@ -608,7 +620,7 @@ void server::handle_instantiate(context& ctx, const shared::envelope& env, trans
   }
 
   const bison::key_t oid = shared::generate_id();
-  ctx.objects[oid.id] = obj;
+  ctx.put_object(oid, obj);
 
   bison::dynamic resp;
   resp[FIELD_OBJECT_ID] = oid;
@@ -782,6 +794,41 @@ void server::handle_destroy(context& ctx, const shared::envelope& env, transport
   send_response(ctx, conn, env, OP_DESTROY, bison::dynamic{});
 }
 
+/** @brief Handle group destruction requests (see context::groups). */
+void server::handle_destroy_group(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
+  const bison::hash_t group = static_cast<bison::hash_t>(env.group);
+
+  auto git = ctx.groups.find(group);
+  if (git == ctx.groups.end() || group == 0u) {
+    // Unknown/empty/unset group: nothing to destroy, not an error --
+    // matches destroying an already-empty collection being a no-op.
+    send_response(ctx, conn, env, OP_DESTROY_GROUP, bison::dynamic{});
+    return;
+  }
+
+  // Move the id set out and erase the group entry before running any
+  // __destruct hooks, so a hook that (unusually) tries to create another
+  // object in the same group doesn't get folded into the set we're
+  // currently iterating.
+  auto ids = std::move(git->second);
+  ctx.groups.erase(git);
+
+  for (bison::hash_t id : ids) {
+    auto it = ctx.objects.find(id);
+    if (it == ctx.objects.end())
+      continue;
+    if (it->second && it->second->findMethod(HOOK_DESTRUCT) != nullptr) {
+      try {
+        it->second->call(HOOK_DESTRUCT, bison::dynamic{});
+      } catch (...) {
+      }
+    }
+    ctx.objects.erase(it);
+  }
+
+  send_response(ctx, conn, env, OP_DESTROY_GROUP, bison::dynamic{});
+}
+
 /** @brief Handle disconnect requests and close the connection context. */
 void server::handle_disconnect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   cleanup_context(ctx);
@@ -913,6 +960,7 @@ void server::cleanup_context(context& ctx) {
     }
   }
   ctx.objects.clear();
+  ctx.groups.clear();
   ctx.emit_event = nullptr;
 }
 

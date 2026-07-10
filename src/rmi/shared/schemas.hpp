@@ -39,6 +39,7 @@ inline const schema_map& get_schemas() {
                   {FIELD_OP, field{key_t{0u}}},
                   {FIELD_REQUEST_ID, field{key_t{0u}}},
                   {FIELD_OBJECT_ID, field{key_t{0u}}},
+                  {FIELD_GROUP, field{key_t{0u}}},
                   {FIELD_PAYLOAD, field{buffer{}}},
                   {FIELD_ERROR, field{buffer{}}},
                   {FIELD_WITH_SCHEMA, field{false}},

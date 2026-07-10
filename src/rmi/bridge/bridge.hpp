@@ -15,7 +15,6 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 
 namespace bdg::bison::rmi {
 
@@ -50,12 +49,18 @@ namespace bdg::bison::rmi {
  * drops anything it has no handler registered for -- an object ID is a
  * routing tag here, not a capability.
  *
- * The one thing the bridge still tracks is a per-session set of upstream
- * object IDs its requests have touched, used solely to send `OP_DESTROY` for
- * them when that downstream session disconnects (see `teardown_session()`)
- * -- otherwise those objects would leak on the upstream server for the
- * lifetime of the bridge process, since the bridge's one shared upstream
- * connection stays open across many downstream sessions coming and going.
+ * The bridge itself still tracks nothing for cleanup purposes: every request
+ * it relays is tagged with the downstream session's own ID as its object
+ * *group* (`shared::envelope::group`, `context::current_group`,
+ * `context::put_object()`) -- a bison-level mechanism for filing an object
+ * under a caller-chosen group at creation time, regardless of whether it was
+ * created directly (`OP_INSTANTIATE`) or indirectly as a side effect of
+ * another op (exactly wish's UI template case above). `teardown_session()`
+ * then destroys everything a session ever created with a single
+ * `OP_DESTROY_GROUP` request -- otherwise those objects would leak on the
+ * upstream server for the lifetime of the bridge process, since the bridge's
+ * one shared upstream connection stays open across many downstream sessions
+ * coming and going.
  *
  * ## Transport independence
  *
@@ -201,24 +206,17 @@ class bridge : public server {
      * thread finishes before the downstream connection (`conn`) is destroyed.
      */
     bison::synchronized<emit_state> emit_st;
-
-    /**
-     * Upstream object IDs this session's requests have touched (inserted on
-     * every successful `instantiate`/`set`/`get`/`call`/`clear`, erased on
-     * `destroy`). Used solely by `teardown_session` to send `OP_DESTROY` for
-     * whatever's left when this session disconnects -- not used for routing.
-     */
-    bison::synchronized<std::unordered_set<bison::hash_t>> touched_objects;
   };
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
-  std::shared_ptr<session_state> find_session(bison::key_t id) const;
-
   /**
    * Remove the session from the sessions_ map (so route_event's broadcast
-   * and further emit calls become no-ops for it), then send OP_DESTROY for
-   * every object in its touched_objects set.
+   * and further emit calls become no-ops for it), then send a single
+   * OP_DESTROY_GROUP request for the session's own ID (see the class-level
+   * doc comment) -- destroying every upstream object the session ever
+   * created, direct or indirect, without the bridge needing to have tracked
+   * any of them itself.
    */
   void teardown_session(bison::key_t session_id);
 
