@@ -84,8 +84,10 @@ terminal::terminal(const std::string& cmd, const std::string& prompt_label)
   if (!prompt_label.empty()) {
     // cmd.exe has no rc file and reads PROMPT directly, so a plain env var
     // set in the parent -- inherited by CreateProcessA below via its
-    // lpEnvironment == nullptr -- takes effect unconditionally.
-    _putenv_s("PROMPT", (prompt_label + "$G").c_str());
+    // lpEnvironment == nullptr -- takes effect unconditionally. $P expands
+    // to the current directory, $G to ">", matching the label:cwd$ layout
+    // used by the POSIX PS1 in terminal_posix.cpp.
+    _putenv_s("PROMPT", (prompt_label + " $P$G").c_str());
   }
 
   HANDLE pty_in_read = nullptr; // ConPTY's end: reads the child's stdin
