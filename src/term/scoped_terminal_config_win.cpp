@@ -15,7 +15,6 @@
 #include <fcntl.h>
 #include <io.h>
 
-#include <cstdio>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -99,8 +98,17 @@ scoped_terminal_config::impl_ptr scoped_terminal_config::create_state(const para
   if (handle != INVALID_HANDLE_VALUE && GetConsoleMode(handle, &state->saved_console_mode)) {
     state->console_handle = handle;
     state->raw_mode_set = true;
-    const DWORD raw_mode =
-        state->saved_console_mode & ~static_cast<DWORD>(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT);
+    // ENABLE_VIRTUAL_TERMINAL_INPUT matches terminal_win.cpp's raw mode:
+    // without it, special keys (arrows, etc.) aren't encoded as VT escape
+    // sequences at all. It does NOT reliably turn Backspace into DEL (0x7F)
+    // here, though: this handle is itself reading from a ConPTY that is
+    // re-encoding an already-decoded key event (one more hop than a
+    // top-level physical console), and empirically that hop still emits
+    // bare BS (0x08) for Backspace. See on_terminal_passthrough()'s doc
+    // comment for how that's handled instead.
+    const DWORD raw_mode = (state->saved_console_mode &
+                             ~static_cast<DWORD>(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT)) |
+                            ENABLE_VIRTUAL_TERMINAL_INPUT;
     SetConsoleMode(handle, raw_mode);
   }
 
@@ -199,8 +207,26 @@ void scoped_terminal_config::on_passthrough(std::string_view chunk) {
 }
 
 void scoped_terminal_config::on_terminal_passthrough(int fd, std::string_view chunk) {
-  if (!chunk.empty())
+  if (chunk.empty())
+    return;
+
+  // A Backspace keypress relayed through this handle's ConPTY hop arrives
+  // as bare BS (0x08), not DEL (0x7F) -- see create_state()'s doc comment.
+  // 0x08 is also the ASCII C0 control code for Ctrl+H, and the downstream
+  // ConPTY's own VT-input decoder (e.g. bridge_app's anchor terminal)
+  // synthesizes it as a Ctrl-modified keypress, which cmd.exe's line editor
+  // treats as "delete whole word" instead of "erase one character". DEL is
+  // unambiguous -- it isn't a C0 control code -- so remap before relaying.
+  if (chunk.find('\x08') == std::string_view::npos) {
     write_all(fd, chunk);
+    return;
+  }
+  std::string translated(chunk);
+  for (char& c : translated) {
+    if (c == '\x08')
+      c = '\x7f';
+  }
+  write_all(fd, translated);
 }
 
 void scoped_terminal_config::set_output_channel(std::function<void(std::string_view)> sink) {
