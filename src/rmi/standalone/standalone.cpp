@@ -203,9 +203,13 @@ void standalone::destroy(proxy::dynamic&& proxy) {
   bison::key_t oid = proxy.object_id();
   proxy.valid_ = false;
   proxy.backend_ = nullptr;
+  destroy_object(oid);
+}
 
-  enqueue([this, oid]() -> bison::dynamic {
-    return dispatch([this, oid]() -> bison::dynamic { return handle_destroy(oid); });
+/** @copydoc bdg::bison::rmi::standalone::destroy_object */
+void standalone::destroy_object(bison::key_t object_id) {
+  enqueue([this, object_id]() -> bison::dynamic {
+    return dispatch([this, object_id]() -> bison::dynamic { return handle_destroy(object_id); });
   }).get();
 }
 

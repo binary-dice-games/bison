@@ -199,6 +199,16 @@ class standalone : public proxy_backend {
   void unregister_object_events(bison::key_t object_id);
 
   /**
+   * @brief @copydoc proxy_backend::destroy_object
+   *
+   * Dispatches `handle_destroy(object_id)` on the worker thread (which
+   * already calls `unregister_object_events()` -- see its doc comment) and
+   * waits for it. `destroy(proxy::dynamic&&)` delegates here after
+   * invalidating the proxy.
+   */
+  void destroy_object(bison::key_t object_id) override;
+
+  /**
    * @brief Return a reference to the synchronized session context.
    *
    * The returned `bison::synchronized<context>` may be read or written safely

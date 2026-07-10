@@ -52,4 +52,15 @@ void dynamic::onEvent(bison::key_t name, std::function<void(bison::dynamic)> han
   backend_->register_event_handler(object_id_, name, std::move(handler));
 }
 
+/** @copydoc bdg::bison::rmi::proxy::dynamic::destroy */
+void dynamic::destroy() {
+  if (!valid_)
+    return;
+  bison::key_t oid = object_id_;
+  proxy_backend* backend = backend_;
+  valid_ = false;
+  backend_ = nullptr;
+  backend->destroy_object(oid);
+}
+
 } // namespace bdg::bison::rmi::proxy

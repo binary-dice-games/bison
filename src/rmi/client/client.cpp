@@ -84,13 +84,21 @@ std::future<proxy::dynamic> client::instantiate(bison::key_t ns, bison::key_t kl
 
 /** @copydoc bdg::bison::rmi::client::destroy */
 void client::destroy(proxy::dynamic&& proxy) {
+  if (!proxy.valid())
+    return;
   bison::key_t oid = proxy.object_id();
-  on_destroy(oid);
   proxy.valid_ = false;
   proxy.backend_ = nullptr;
+  destroy_object(oid);
+}
+
+/** @copydoc bdg::bison::rmi::client::destroy_object */
+void client::destroy_object(bison::key_t object_id) {
+  on_destroy(object_id);
+  unregister_object_events(object_id);
 
   bison::dynamic payload;
-  send_request(OP_DESTROY, oid, std::move(payload), false).get();
+  send_request(OP_DESTROY, object_id, std::move(payload), false).get();
 }
 
 /** @copydoc bdg::bison::rmi::client::disconnect */

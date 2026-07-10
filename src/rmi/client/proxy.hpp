@@ -54,6 +54,25 @@ struct proxy_backend {
   virtual void
   register_event_handler(bison::key_t object_id, bison::key_t name, std::function<void(bison::dynamic)> handler) = 0;
 
+  /**
+   * @brief Tear down bookkeeping for a remote/in-process object: unregister
+   * its event handlers and destroy it (sending `OP_DESTROY` for a networked
+   * `client`; direct in-process teardown for `standalone`).
+   *
+   * This is the single, backend-agnostic entry point `proxy::dynamic::destroy()`
+   * calls -- `client::destroy(proxy::dynamic&&)` / `standalone::destroy(proxy::dynamic&&)`
+   * delegate to it too, so every teardown path (a C++ caller moving its proxy
+   * into one of those, or a caller like the C ABI's `rmi_proxy_release()`
+   * that only has a `proxy::dynamic*` and no access to the concrete backend
+   * type) ends up unregistering event handlers the same way. Without this,
+   * a released/destroyed proxy's event registration outlives it, and a
+   * later server-sent event for the same object ID finds a "live-looking"
+   * but possibly-dangling handler instead of simply finding none.
+   *
+   * @param object_id  Object to destroy.
+   */
+  virtual void destroy_object(bison::key_t object_id) = 0;
+
   virtual ~proxy_backend() = default;
 };
 
@@ -158,6 +177,18 @@ class dynamic {
    * @param handler  Callable invoked with the event params dynamic.
    */
   void onEvent(bison::key_t name, std::function<void(bison::dynamic)> handler);
+
+  /**
+   * @brief Destroy the remote/in-process object through the backend
+   * (unregistering its event handlers as part of the same call -- see
+   * `proxy_backend::destroy_object()`), then invalidate this proxy.
+   *
+   * Equivalent to `client::destroy(std::move(*this))` /
+   * `standalone::destroy(std::move(*this))` for callers that only have a
+   * `proxy::dynamic&`/`*` and not the originating `client`/`standalone`
+   * (e.g. the C ABI's `rmi_proxy_release()`). A no-op if already invalid.
+   */
+  void destroy();
 
   // ── Accessors
   // ───────────────────────────────────────────────────────────────

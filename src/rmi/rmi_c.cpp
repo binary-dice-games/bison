@@ -570,6 +570,17 @@ RMI_API void rmi_client_release(rmi_client_handle h) {
 RMI_API void rmi_proxy_release(rmi_proxy_handle proxy) {
   if (!proxy)
     return;
+  proxy::dynamic* px = proxy_deref(proxy);
+  try {
+    // Unregisters this object's event handlers and destroys it server-/
+    // backend-side (see proxy_backend::destroy_object()) -- matches this
+    // function's documented contract ("sends a destroy request to the
+    // server"). Best-effort: still free the local proxy object below even
+    // if this throws (e.g. the connection already dropped).
+    if (px)
+      px->destroy();
+  } catch (...) {
+  }
   delete as_proxy_ptr(proxy);
 }
 

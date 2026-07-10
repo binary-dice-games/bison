@@ -222,6 +222,15 @@ class client : public proxy_backend {
   void unregister_object_events(bison::key_t object_id);
 
   /**
+   * @brief @copydoc proxy_backend::destroy_object
+   *
+   * Calls `on_destroy(object_id)`, unregisters its event handlers, then
+   * sends `OP_DESTROY` and waits for the response. `destroy(proxy::dynamic&&)`
+   * delegates here after invalidating the proxy.
+   */
+  void destroy_object(bison::key_t object_id) override;
+
+  /**
    * @brief Dispatch an already-decoded event envelope through this client's
    *        own registered handlers, bypassing the transport receive loop.
    *
