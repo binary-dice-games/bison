@@ -200,18 +200,16 @@ bool bridge::try_handle_request(context& ctx, const shared::envelope& env, trans
 // ── Event routing ─────────────────────────────────────────────────────────────
 
 void bridge::route_event(const shared::envelope& env) {
-  // Deliver to the bridge's own upstream-client handler table, for
-  // bridge-owned UI (e.g. a desktop compositor widget registered via
-  // upstream() in on_client_connected()).
-  upstream_client_.dispatch_local_event(env);
-
-  // No per-object ownership tracking: broadcast to every connected
-  // downstream session. Each session's own event-handler lookup (already
-  // unconditional -- see client::process_frame's KIND_EVENT handling) will
-  // silently discard this if it has no handler registered for
-  // env.object_id. An object ID is a routing tag here, not a capability, so
-  // this is safe even though the bridge doesn't know (and doesn't need to
-  // know) which session actually owns the object.
+  // Extract and deep-clone the event name/params from the *shared* payload
+  // before anything else touches it. dispatch_local_event() below forwards
+  // to client::process_frame(), whose KIND_EVENT handling does
+  // `params = std::move(*ptr)` on the FIELD_PARAMS dynamic_ptr -- a
+  // destructive move on the pointee object, not a copy. Since `ptr` there is
+  // just another handle to the same shared_ptr<dynamic> stored in
+  // env.payload, that move empties it out from under any other reader of
+  // this same env. Cloning first (own copy, unaffected by the move) is what
+  // lets both dispatch_local_event() and the downstream broadcast below see
+  // the real data instead of a race to consume it.
   bison::key_t event_name{0u};
   const auto* name_field = env.payload.findField(FIELD_NAME);
   if (name_field && name_field->is<bison::key_t>())
@@ -224,6 +222,18 @@ void bridge::route_event(const shared::envelope& env) {
       params = ptr->clone();
   }
 
+  // Deliver to the bridge's own upstream-client handler table, for
+  // bridge-owned UI (e.g. a desktop compositor widget registered via
+  // upstream() in on_client_connected()).
+  upstream_client_.dispatch_local_event(env);
+
+  // No per-object ownership tracking: broadcast to every connected
+  // downstream session. Each session's own event-handler lookup (already
+  // unconditional -- see client::process_frame's KIND_EVENT handling) will
+  // silently discard this if it has no handler registered for
+  // env.object_id. An object ID is a routing tag here, not a capability, so
+  // this is safe even though the bridge doesn't know (and doesn't need to
+  // know) which session actually owns the object.
   std::vector<std::shared_ptr<session_state>> targets;
   {
     auto lp = sessions_.rlock();
