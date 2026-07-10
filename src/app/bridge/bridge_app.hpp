@@ -9,13 +9,16 @@
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
-#include <functional>
 #include <memory>
 #include <string>
 
 namespace bdg::bison::rmi {
 class bridge;
 } // namespace bdg::bison::rmi
+
+namespace bdg::bison::term {
+class terminal;
+} // namespace bdg::bison::term
 
 namespace bdg::bison::app {
 
@@ -159,7 +162,7 @@ class bridge_app {
    * @return Newly constructed bridge, not yet started.
    */
   virtual std::unique_ptr<rmi::bridge> make_bridge(
-      rmi::transport::server_transport_iface& downstream,
+      rmi::transport::server_transport_iface& downstream_transport,
       std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
       bison::dynamic upstream_params);
 
@@ -172,21 +175,33 @@ class bridge_app {
    * Does NOT catch exceptions -- the caller (`run()` or the subclass override)
    * is responsible for catching and routing them to `on_error()`.
    *
-   * @param downstream          Downstream server transport (borrowed).
-   * @param upstream_transport  Upstream client transport (owned).
-   * @param wait_for_shutdown   Blocks until the bridge should stop. Default
-   *        (empty function): `std::getline(std::cin, line)`.
-   *        `--downstream_transport=term` passes a wait on the spawned
-   *        terminal instead.
-   * @param is_shutdown_requested  Non-blocking alternative to
-   *        `wait_for_shutdown`, mirroring `server_app::run_with_transport`.
+   * @param downstream_transport  Downstream server transport (borrowed).
+   * @param upstream_transport    Upstream client transport (owned).
    * @return 0 on clean shutdown, non-zero on error.
    */
   virtual int run_with_transport(
-      rmi::transport::server_transport_iface& downstream,
-      std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
-      std::function<void()> wait_for_shutdown = nullptr,
-      std::function<bool()> is_shutdown_requested = nullptr);
+      rmi::transport::server_transport_iface& downstream_transport,
+      std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport);
+
+  /**
+   * @brief Block until the bridge should stop.
+   *
+   * Default: waits on `active_term_` (the spawned terminal exiting) when
+   * `--downstream_transport=term` selected it, otherwise blocks on
+   * `std::getline(std::cin, line)`. Override to add another shutdown
+   * trigger (e.g. a UI "Quit" action); an override that must preserve the
+   * term-transport wait should check `active_term_` and delegate to this
+   * base implementation when it is set.
+   */
+  virtual void wait_for_shutdown();
+
+  /**
+   * @brief Non-owning pointer to the spawned terminal when
+   *        `--downstream_transport=term` selected it, set by `run()` for
+   *        the duration of the term-transport `run_with_transport()` call;
+   *        null otherwise. Read by the default `wait_for_shutdown()`.
+   */
+  term::terminal* active_term_ = nullptr;
 };
 
 } // namespace bdg::bison::app

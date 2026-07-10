@@ -76,10 +76,11 @@ void bridge_app::on_error(const std::string& msg) const {
 }
 
 std::unique_ptr<rmi::bridge> bridge_app::make_bridge(
-    rmi::transport::server_transport_iface& downstream,
+    rmi::transport::server_transport_iface& downstream_transport,
     std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
     bison::dynamic upstream_params) {
-  return std::make_unique<bridged_bridge>(downstream, std::move(upstream_transport), std::move(upstream_params), *this);
+  return std::make_unique<bridged_bridge>(
+      downstream_transport, std::move(upstream_transport), std::move(upstream_params), *this);
 }
 
 void bridge_app::on_listening() const {
@@ -101,24 +102,27 @@ void bridge_app::on_listening() const {
 // ── run_with_transport ────────────────────────────────────────────────────────
 
 int bridge_app::run_with_transport(
-    rmi::transport::server_transport_iface& downstream,
-    std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport,
-    std::function<void()> wait_for_shutdown,
-    std::function<bool()> /*is_shutdown_requested*/) {
+    rmi::transport::server_transport_iface& downstream_transport,
+    std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport) {
   bison::dynamic upstream_params;
   on_upstream_connect_params(upstream_params);
 
-  std::unique_ptr<rmi::bridge> br = make_bridge(downstream, std::move(upstream_transport), std::move(upstream_params));
+  std::unique_ptr<rmi::bridge> br =
+      make_bridge(downstream_transport, std::move(upstream_transport), std::move(upstream_params));
   br->start();
   on_listening();
-  if (wait_for_shutdown) {
-    wait_for_shutdown();
-  } else {
-    std::string line;
-    std::getline(std::cin, line);
-  }
+  wait_for_shutdown();
   br->stop();
   return 0;
+}
+
+void bridge_app::wait_for_shutdown() {
+  if (active_term_) {
+    active_term_->wait();
+    return;
+  }
+  std::string line;
+  std::getline(std::cin, line);
 }
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
@@ -173,11 +177,10 @@ int bridge_app::run(int argc, char** argv) {
         term::terminal term_proc{FLAGS_cmd};
         term_proc.start_pump();
         rmi::transport::term_server_transport term_transport{term_proc.read_handle(), term_proc.write_handle()};
-        return run_with_transport(
-            term_transport,
-            std::move(upstream_transport),
-            [&] { term_proc.wait(); },
-            [&] { return term_proc.has_exited(); });
+        active_term_ = &term_proc;
+        int rc = run_with_transport(term_transport, std::move(upstream_transport));
+        active_term_ = nullptr;
+        return rc;
       }
     }
     return 1;

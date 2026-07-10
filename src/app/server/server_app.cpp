@@ -115,21 +115,26 @@ std::unique_ptr<rmi::server> server_app::make_server(rmi::transport::server_tran
 
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
-int server_app::run_with_transport(
-    rmi::transport::server_transport_iface& transport,
-    std::function<void()> wait_for_shutdown,
-    std::function<bool()> /*is_shutdown_requested*/) {
+int server_app::run_with_transport(rmi::transport::server_transport_iface& transport) {
   std::unique_ptr<rmi::server> srv = make_server(transport);
   srv->listen();
   on_listening();
-  if (wait_for_shutdown) {
-    wait_for_shutdown();
-  } else {
-    std::string line;
-    std::getline(std::cin, line);
-  }
+  wait_for_shutdown();
   srv->stop();
   return 0;
+}
+
+void server_app::wait_for_shutdown() {
+  if (active_term_) {
+    active_term_->wait();
+    return;
+  }
+  std::string line;
+  std::getline(std::cin, line);
+}
+
+bool server_app::is_shutdown_requested() const {
+  return active_term_ && active_term_->has_exited();
 }
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
@@ -160,8 +165,10 @@ int server_app::run(int argc, char** argv) {
         term::terminal term_proc{FLAGS_cmd};
         term_proc.start_pump();
         rmi::transport::term_server_transport term_transport{term_proc.read_handle(), term_proc.write_handle()};
-        return run_with_transport(
-            term_transport, [&] { term_proc.wait(); }, [&] { return term_proc.has_exited(); });
+        active_term_ = &term_proc;
+        int rc = run_with_transport(term_transport);
+        active_term_ = nullptr;
+        return rc;
       }
     }
     return 1;

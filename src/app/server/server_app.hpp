@@ -9,13 +9,16 @@
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
-#include <functional>
 #include <memory>
 #include <string>
 
 namespace bdg::bison::rmi {
 class server;
 } // namespace bdg::bison::rmi
+
+namespace bdg::bison::term {
+class terminal;
+} // namespace bdg::bison::term
 
 namespace bdg::bison::app {
 
@@ -153,34 +156,49 @@ class server_app {
    * @brief Create a server using `transport` and block until shutdown.
    *
    * Override to substitute a different server type (e.g. one with a GUI
-   * render loop).  The default creates a `bridged_server` and blocks on
-   * `wait_for_shutdown` (or, if unset, on stdin until Enter is pressed).
+   * render loop). The default creates a `bridged_server` and blocks on
+   * `wait_for_shutdown()`.
    *
    * Host and port are not passed as parameters — they are available through
    * `FLAGS_host` and `FLAGS_port`, which are defined in the binary's
    * `main.cpp` and carry meaning only for `--transport=tcp`.
    *
    * @param transport  Bound transport to serve.
-   * @param wait_for_shutdown  Blocks until the server should stop. Default
-   *        (empty function): `std::getline(std::cin, line)`. `--transport=pty`
-   *        passes `[&]{ pty.wait(); }` instead, since stdin is being pumped
-   *        into the pty and is not available for a shutdown keypress.
-   *        `--transport=console` similarly passes `[&]{ console_proc.wait(); }`,
-   *        so the server stops as soon as the spawned subprocess exits.
-   * @param is_shutdown_requested  Non-blocking alternative to
-   *        `wait_for_shutdown`, for overrides (e.g. a GUI-driven
-   *        `run_with_transport`) that poll their own shutdown condition
-   *        (a window close, etc.) in a loop and need to check for the
-   *        spawned terminal's exit alongside it rather than blocking on it.
-   *        `--transport=term` passes `[&]{ return term_proc.has_exited(); }`;
-   *        other transports leave this unset. The default implementation
-   *        ignores it and blocks on `wait_for_shutdown` as described above.
    * @return 0 on clean shutdown, non-zero on error.
    */
-  virtual int run_with_transport(
-      rmi::transport::server_transport_iface& transport,
-      std::function<void()> wait_for_shutdown = nullptr,
-      std::function<bool()> is_shutdown_requested = nullptr);
+  virtual int run_with_transport(rmi::transport::server_transport_iface& transport);
+
+  /**
+   * @brief Block until the server should stop.
+   *
+   * Default: waits on `active_term_` (the spawned terminal exiting) when
+   * `--transport=term` selected it, otherwise blocks on
+   * `std::getline(std::cin, line)`. Stdin is unavailable as a shutdown
+   * trigger under `--transport=term` since it is being pumped into the
+   * spawned terminal instead.
+   */
+  virtual void wait_for_shutdown();
+
+  /**
+   * @brief Non-blocking check for whether the server should stop.
+   *
+   * Default: true once `active_term_` has exited (`--transport=term`),
+   * false otherwise (including when no term transport is active). Intended
+   * for overrides (e.g. a GUI-driven `run_with_transport`) that poll their
+   * own shutdown condition (a window close, etc.) in a loop and need to
+   * check for the spawned terminal's exit alongside it rather than
+   * blocking on `wait_for_shutdown()`.
+   */
+  virtual bool is_shutdown_requested() const;
+
+  /**
+   * @brief Non-owning pointer to the spawned terminal when
+   *        `--transport=term` selected it, set by `run()` for the
+   *        duration of the term-transport `run_with_transport()` call;
+   *        null otherwise. Read by the default `wait_for_shutdown()` and
+   *        `is_shutdown_requested()`.
+   */
+  term::terminal* active_term_ = nullptr;
 };
 
 } // namespace bdg::bison::app

@@ -41,25 +41,6 @@ static void clearClassRegistry() {
   dynamic::getRegistry().wlock()->clear();
 }
 
-class test_bridge_app : public app::bridge_app {
- public:
-  using app::bridge_app::run_with_transport;
-
-  std::atomic<int> client_connected_count{0};
-  std::atomic<int> client_disconnected_count{0};
-
- protected:
-  void on_client_connected(rmi::context& ctx) const override {
-    (void)ctx;
-    const_cast<test_bridge_app*>(this)->client_connected_count++;
-  }
-
-  void on_client_disconnected(rmi::context& ctx) const override {
-    (void)ctx;
-    const_cast<test_bridge_app*>(this)->client_disconnected_count++;
-  }
-};
-
 // Blocks run_with_transport() until stop() is called from another thread.
 class manual_shutdown_gate {
  public:
@@ -80,6 +61,30 @@ class manual_shutdown_gate {
   std::mutex mtx_;
   std::condition_variable cv_;
   bool stopped_ = false;
+};
+
+class test_bridge_app : public app::bridge_app {
+ public:
+  using app::bridge_app::run_with_transport;
+
+  std::atomic<int> client_connected_count{0};
+  std::atomic<int> client_disconnected_count{0};
+  manual_shutdown_gate gate;
+
+ protected:
+  void on_client_connected(rmi::context& ctx) const override {
+    (void)ctx;
+    const_cast<test_bridge_app*>(this)->client_connected_count++;
+  }
+
+  void on_client_disconnected(rmi::context& ctx) const override {
+    (void)ctx;
+    const_cast<test_bridge_app*>(this)->client_disconnected_count++;
+  }
+
+  void wait_for_shutdown() override {
+    gate.wait();
+  }
 };
 
 class BridgeAppTest : public ::testing::Test {
@@ -115,13 +120,10 @@ class BridgeAppTest : public ::testing::Test {
 
 TEST_F(BridgeAppTest, RelaysClientCallsAndFiresConnectHooks) {
   test_bridge_app app;
-  manual_shutdown_gate gate;
 
   std::thread bridge_thread([&] {
     app.run_with_transport(
-        downstream_transport_,
-        std::make_unique<memory_client_transport>(upstream_transport_.connect()),
-        [&] { gate.wait(); });
+        downstream_transport_, std::make_unique<memory_client_transport>(upstream_transport_.connect()));
   });
 
   // Give the bridge thread a moment to start().
@@ -149,6 +151,6 @@ TEST_F(BridgeAppTest, RelaysClientCallsAndFiresConnectHooks) {
   EXPECT_EQ(app.client_connected_count.load(), 1);
   EXPECT_EQ(app.client_disconnected_count.load(), 1);
 
-  gate.stop();
+  app.gate.stop();
   bridge_thread.join();
 }
