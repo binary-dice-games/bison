@@ -228,7 +228,7 @@ doxygen Doxyfile
 |---|---|
 | [docs/building.md](docs/building.md) | Linux/WSL/MSYS2 setup, CMake integration |
 | [docs/examples.md](docs/examples.md) | Running C++, RMI socket, stdio PTY, and benchmark examples |
-| [docs/bindings.md](docs/bindings.md) | Python, Java, C# binding setup and usage |
+| [docs/bindings.md](docs/bindings.md) | Python binding setup and usage |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |
 
