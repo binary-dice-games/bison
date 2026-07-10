@@ -23,8 +23,6 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
-#include <fstream>
-#include <iomanip>
 #include <iostream>
 #include <optional>
 #include <queue>
@@ -313,6 +311,23 @@ struct term_reader {
   size_t match_pos{0};
   std::string speculative;
   std::string capture;
+  // Bytes confirmed not to be part of a marker, held so a whole burst (e.g.
+  // an entire VT escape sequence like arrow keys) reaches passthrough() as
+  // one call instead of one call per byte -- see flush_pending()'s doc
+  // comment for why per-byte delivery breaks downstream VT decoding.
+  std::string pending_passthrough;
+  // CSI-escape-sequence tracking (ESC '[' ... final-byte), independent of
+  // the marker scan above. A real "BISON<...>" marker never legitimately
+  // starts mid-CSI-sequence (markers and keystroke/VT passthrough are
+  // independent producers sharing only the wire), so while esc_pending or
+  // in_csi is set, feed_byte() bypasses marker-prefix matching entirely and
+  // routes straight to pending_passthrough -- otherwise a CSI sequence whose
+  // final byte happens to equal prefix[0] (e.g. Down arrow's "\x1b[B", where
+  // 'B' == kMarkerPrefix[0]) gets its last byte held speculatively and
+  // delayed by kIdleFlushMs, splitting the sequence exactly like the bug
+  // pending_passthrough above already fixes for the non-colliding case.
+  bool esc_pending{false};
+  bool in_csi{false};
 
   // Chunk reassembly state — loop thread only.
   struct reassembly {
@@ -398,6 +413,31 @@ struct term_reader {
       return;
     }
 
+    // While relaying an in-progress CSI escape sequence (ESC '[' ... final
+    // byte), every byte -- even one that coincidentally equals prefix[0]
+    // ('B') -- must reach passthrough as part of that same sequence. See
+    // in_csi's doc comment for why: holding such a byte speculatively delays
+    // it past kIdleFlushMs and tears the sequence apart downstream, exactly
+    // like the bug pending_passthrough already fixes for the non-colliding
+    // case (e.g. Down arrow's "\x1b[B").
+    if (in_csi) {
+      pending_passthrough.push_back(static_cast<char>(b));
+      if (b >= 0x40 && b <= 0x7e)
+        in_csi = false; // final byte -- sequence complete
+      return;
+    }
+
+    if (esc_pending) {
+      esc_pending = false;
+      if (b == '[') {
+        in_csi = true;
+        pending_passthrough.push_back(static_cast<char>(b));
+        return;
+      }
+      // Not a CSI introducer after all -- the previous ESC stood alone.
+      // Fall through: b still needs full (marker/ESC/plain) handling below.
+    }
+
     if (b == static_cast<uint8_t>(prefix[match_pos])) {
       speculative.push_back(static_cast<char>(b));
       ++match_pos;
@@ -413,23 +453,30 @@ struct term_reader {
       return;
     }
 
-    // Mismatch: flush whatever was speculatively held, then reprocess this
-    // byte fresh (it may itself restart a match, or belong to some other,
-    // unrelated escape sequence that must still reach the real terminal).
+    // Mismatch: fold whatever was speculatively held into the pending
+    // passthrough buffer (it turned out not to be a marker after all), then
+    // reprocess this byte fresh (it may itself restart a match, or belong to
+    // some other, unrelated escape sequence that must still reach the real
+    // terminal).
     if (!speculative.empty()) {
-      passthrough(speculative);
+      pending_passthrough += speculative;
       speculative.clear();
     }
     match_pos = 0;
 
-    if (b == static_cast<uint8_t>(prefix[0])) {
+    if (b == 0x1b) {
+      // ESC can't itself start "BISON<" (prefix[0] is 'B'), but may be the
+      // start of a CSI sequence -- see esc_pending's doc comment.
+      esc_pending = true;
+      uv_timer_stop(&idle_timer);
+      pending_passthrough.push_back(static_cast<char>(b));
+    } else if (b == static_cast<uint8_t>(prefix[0])) {
       match_pos = 1;
       speculative.push_back(static_cast<char>(b));
       arm_idle_flush();
     } else {
       uv_timer_stop(&idle_timer);
-      const char c = static_cast<char>(b);
-      passthrough(std::string_view{&c, 1});
+      pending_passthrough.push_back(static_cast<char>(b));
     }
   }
 
@@ -440,10 +487,29 @@ struct term_reader {
   static void on_idle_timeout(uv_timer_t* h) {
     auto* self = static_cast<term_reader*>(h->data);
     if (!self->speculative.empty()) {
-      self->passthrough(self->speculative);
+      self->pending_passthrough += self->speculative;
       self->speculative.clear();
     }
     self->match_pos = 0;
+    self->flush_pending();
+  }
+
+  // Delivers everything accumulated in pending_passthrough as a single
+  // passthrough() call. Bytes that are merely not part of a marker (the
+  // common case for real keystrokes/VT sequences) are held here rather than
+  // forwarded one at a time: passthrough's downstream consumer for the
+  // anchor-terminal case (on_terminal_passthrough) writes straight into
+  // another ConPTY's *input* pipe, which runs a VT input decoder with its
+  // own escape-sequence timeout -- splitting e.g. an arrow key's 3-byte
+  // "\x1b[A" across three separate writes lets that decoder time out mid
+  // sequence and misread it as a lone Escape followed by literal '[' and
+  // 'A'. Flushing once per on_read() call (see its call site) instead
+  // reproduces however many bytes the OS actually delivered atomically.
+  void flush_pending() {
+    if (!pending_passthrough.empty()) {
+      passthrough(pending_passthrough);
+      pending_passthrough.clear();
+    }
   }
 
   void complete_sequence() {
@@ -547,6 +613,7 @@ struct term_reader {
       return;
     for (ssize_t i = 0; i < nread; ++i)
       self->feed_byte(self->read_buf[static_cast<size_t>(i)]);
+    self->flush_pending();
   }
 
   static void on_stop(uv_async_t* h) {
