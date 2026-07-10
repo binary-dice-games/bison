@@ -248,3 +248,23 @@ TEST(ScopedTerminalConfig, OnPassthroughEmptyChunkClosesReadFd) {
   EXPECT_EQ(read(read_fd, buf, sizeof(buf)), 0) << "empty chunk should surface as EOF on read_fd";
   close(read_fds[1]);
 }
+
+TEST(ScopedTerminalConfig, OnTerminalPassthroughWritesRawBytesImmediately) {
+  int fds[2]{};
+  ASSERT_EQ(pipe(fds), 0);
+
+  // Unlike on_passthrough(), this is static -- no scoped_terminal_config
+  // instance needed -- and delivers bytes as-is: no buffering until a
+  // newline, no CR translation, no separate echo. Read after each call so a
+  // single read() can't coalesce both writes and mask whether either one
+  // was individually held back.
+  scoped_terminal_config::on_terminal_passthrough(fds[1], "hel");
+  EXPECT_EQ(read_available(fds[0]), "hel") << "must be delivered immediately, not buffered until a newline";
+
+  scoped_terminal_config::on_terminal_passthrough(fds[1], "lo\r\x1b[A");
+  EXPECT_EQ(read_available(fds[0]), "lo\r\x1b[A")
+      << "bytes (including a bare \\r and an escape sequence) must pass through untouched, not CR->LF translated";
+
+  close(fds[0]);
+  close(fds[1]);
+}

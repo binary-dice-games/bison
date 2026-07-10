@@ -198,6 +198,11 @@ void scoped_terminal_config::on_passthrough(std::string_view chunk) {
     write_all(impl_->input_pipe_write_fd, to_deliver);
 }
 
+void scoped_terminal_config::on_terminal_passthrough(int fd, std::string_view chunk) {
+  if (!chunk.empty())
+    write_all(fd, chunk);
+}
+
 void scoped_terminal_config::set_output_channel(std::function<void(std::string_view)> sink) {
   *impl_->output_channel.wlock() = std::move(sink);
 }

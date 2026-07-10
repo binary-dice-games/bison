@@ -88,6 +88,30 @@ class scoped_terminal_config {
   void on_passthrough(std::string_view chunk);
 
   /**
+   * @brief Write @p chunk verbatim to @p fd, retrying on partial writes.
+   *
+   * An alternative to `on_passthrough()` for feeding a target that already
+   * provides its own real terminal line discipline -- e.g. a spawned
+   * `term::terminal`'s pty running an interactive shell with readline.
+   * Unlike `on_passthrough()`, this delivers bytes immediately and
+   * unbuffered, with no software line reconstruction and no separate echo:
+   * a real pty naturally echoes what it receives itself, and readline needs
+   * every keystroke live (not batched until a newline) to handle history,
+   * arrow keys, and line editing correctly. Feeding such a target through
+   * `on_passthrough()` instead breaks exactly that -- input arrives batched
+   * and delayed, and gets echoed twice (once by `on_passthrough()`, once by
+   * the target's own pty).
+   *
+   * Static: does not touch any state owned by a `scoped_terminal_config`
+   * instance -- @p fd is any target fd, not necessarily one this class
+   * manages (e.g. another spawned terminal's own write handle).
+   *
+   * @param fd    Fd to write to.
+   * @param chunk Bytes to write.
+   */
+  static void on_terminal_passthrough(int fd, std::string_view chunk);
+
+  /**
    * @brief Install the channel that CRLF-translated writes to
    *        `params::write_fd`/stderr are forwarded to, instead of
    *        `upstream_write_fd()` directly. Call once, right after

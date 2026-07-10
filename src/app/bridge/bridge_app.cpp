@@ -96,7 +96,8 @@ void bridge_app::on_listening() const {
       downstream_desc = "--downstream_transport=term";
       break;
   }
-  std::cout << "[bridge_app] listening on " << downstream_desc << " -- press Enter to stop\n" << std::flush;
+  std::cout << "[bridge_app] listening on " << downstream_desc << " -- exit the spawned terminal to stop\n"
+            << std::flush;
 }
 
 // ── run_with_transport ────────────────────────────────────────────────────────
@@ -117,12 +118,7 @@ int bridge_app::run_with_transport(
 }
 
 void bridge_app::wait_for_shutdown() {
-  if (active_term_) {
-    active_term_->wait();
-    return;
-  }
-  std::string line;
-  std::getline(std::cin, line);
+  active_term_->wait();
 }
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
@@ -138,6 +134,30 @@ int bridge_app::run(int argc, char** argv) {
     const transport_kind downstream_kind = selected_downstream_transport();
     const transport_kind upstream_kind = selected_upstream_transport();
 
+    // Unless the downstream side is already `term` (which spawns its own
+    // terminal below), spawn a separate anchor terminal up front: a
+    // genuinely usable interactive shell, decoupled from whatever the
+    // upstream side is doing, so the console stays available for the
+    // operator to keep working (e.g. launching more clients) without
+    // disturbing the upstream link. `term_server_transport` (the same
+    // wrapper the downstream `term` case below uses) pumps the anchor's own
+    // output back out through `std::cout` by default -- which, in the
+    // upstream=term case below, is itself redirected by
+    // `scoped_terminal_config` and relayed over the same upstream link, so
+    // the anchor's shell is visible to the operator exactly like the
+    // downstream-spawned terminal is. Built before the upstream switch so
+    // its write handle is available to feed directly from the upstream
+    // `term` case, if selected.
+    std::unique_ptr<term::terminal> anchor_term;
+    std::unique_ptr<rmi::transport::term_server_transport> anchor_transport;
+    if (downstream_kind != transport_kind::term) {
+      anchor_term = std::make_unique<term::terminal>();
+      anchor_transport = std::make_unique<rmi::transport::term_server_transport>(
+          anchor_term->read_handle(), anchor_term->write_handle());
+      anchor_transport->start(bison::dynamic{});
+      active_term_ = anchor_term.get();
+    }
+
     std::unique_ptr<term::scoped_terminal_config> upstream_stc;
     std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport;
     switch (upstream_kind) {
@@ -151,10 +171,23 @@ int bridge_app::run(int argc, char** argv) {
       case transport_kind::term: {
         upstream_stc = std::make_unique<term::scoped_terminal_config>(term::scoped_terminal_config::params{0, 1});
         term::scoped_terminal_config* stc = upstream_stc.get();
+        rmi::transport::term_passthrough_cb passthrough;
+        if (anchor_term) {
+          // The anchor is a real pty running an interactive shell, so feed
+          // it via on_terminal_passthrough() (raw, unbuffered) rather than
+          // on_passthrough() (line-buffered, for a std::getline()-style
+          // reader) -- see on_terminal_passthrough()'s doc comment.
+          const int anchor_write_fd = anchor_term->write_handle();
+          passthrough = [anchor_write_fd](std::string_view s) {
+            term::scoped_terminal_config::on_terminal_passthrough(anchor_write_fd, s);
+          };
+        } else {
+          passthrough = [stc](std::string_view s) { stc->on_passthrough(s); };
+        }
         auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
             stc->upstream_read_fd(),
             stc->upstream_write_fd(),
-            [stc](std::string_view s) { stc->on_passthrough(s); },
+            std::move(passthrough),
             rmi::transport::kDefaultHandshakeTimeout,
             [stc] { stc->stop_output_pump(); });
         stc->set_output_channel([raw = term_transport.get()](std::string_view s) { raw->send(s); });
@@ -163,15 +196,25 @@ int bridge_app::run(int argc, char** argv) {
       }
     }
 
+    if (anchor_term && upstream_kind != transport_kind::term) {
+      // No upstream link is already feeding the anchor -- pump this
+      // process's own (unclaimed) real stdin into it directly.
+      anchor_term->start_pump();
+    }
+
     switch (downstream_kind) {
       case transport_kind::pipe: {
         rmi::transport::named_pipe_server_transport pipe_transport{FLAGS_downstream_name};
-        return run_with_transport(pipe_transport, std::move(upstream_transport));
+        int rc = run_with_transport(pipe_transport, std::move(upstream_transport));
+        active_term_ = nullptr;
+        return rc;
       }
       case transport_kind::tcp: {
         auto port = static_cast<uint16_t>(FLAGS_downstream_port);
         rmi::transport::socket_server_transport socket_transport{FLAGS_downstream_host, port};
-        return run_with_transport(socket_transport, std::move(upstream_transport));
+        int rc = run_with_transport(socket_transport, std::move(upstream_transport));
+        active_term_ = nullptr;
+        return rc;
       }
       case transport_kind::term: {
         term::terminal term_proc{FLAGS_cmd};

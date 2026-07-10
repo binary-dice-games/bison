@@ -65,8 +65,13 @@ namespace bdg::bison::app {
  * 2. `run_with_transport(downstream, upstream)` — connects upstream, then
  *    starts accepting downstream connections.
  * 3. Call `on_listening()`.
- * 4. Serve until Enter is pressed (socket / named-pipe downstream) or the
- *    spawned shell exits (`--downstream_transport=term`).
+ * 4. Serve until a terminal exits: the downstream-spawned one
+ *    (`--downstream_transport=term`), or otherwise an anchor terminal `run()`
+ *    always spawns for any other downstream kind, purely so the console
+ *    stays available and there is something real to wait on -- decoupled
+ *    from whatever the upstream side is doing (in particular, from
+ *    `--upstream_transport=term`, which separately wraps this process's own
+ *    inherited stdio as the link to the peer; see `wait_for_shutdown()`).
  * 5. Stop the bridge and disconnect from upstream.
  */
 class bridge_app {
@@ -186,20 +191,26 @@ class bridge_app {
   /**
    * @brief Block until the bridge should stop.
    *
-   * Default: waits on `active_term_` (the spawned terminal exiting) when
-   * `--downstream_transport=term` selected it, otherwise blocks on
-   * `std::getline(std::cin, line)`. Override to add another shutdown
-   * trigger (e.g. a UI "Quit" action); an override that must preserve the
-   * term-transport wait should check `active_term_` and delegate to this
-   * base implementation when it is set.
+   * Default: waits on `active_term_`. `run()` guarantees it is non-null for
+   * the whole duration of `run_with_transport()`: either the
+   * downstream-spawned terminal (`--downstream_transport=term`), or
+   * otherwise an anchor terminal `run()` spawns as a genuinely usable,
+   * separate interactive shell, decoupled from whatever the upstream side
+   * is doing. Override to add another shutdown trigger (e.g. a UI "Quit"
+   * action); an override that must preserve the terminal wait should check
+   * `active_term_` and delegate to this base implementation.
    */
   virtual void wait_for_shutdown();
 
   /**
-   * @brief Non-owning pointer to the spawned terminal when
-   *        `--downstream_transport=term` selected it, set by `run()` for
-   *        the duration of the term-transport `run_with_transport()` call;
-   *        null otherwise. Read by the default `wait_for_shutdown()`.
+   * @brief Non-owning pointer to the terminal `wait_for_shutdown()` waits
+   *        on, set by `run()` for the duration of `run_with_transport()`.
+   *        Points at the downstream-spawned terminal when
+   *        `--downstream_transport=term` selected it, otherwise at an
+   *        anchor terminal `run()` always spawns purely to keep the console
+   *        available and give `wait_for_shutdown()` something real to wait
+   *        on -- regardless of what the upstream side is doing (see
+   *        `wait_for_shutdown()`).
    */
   term::terminal* active_term_ = nullptr;
 };
