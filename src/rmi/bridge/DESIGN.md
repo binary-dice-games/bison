@@ -27,6 +27,13 @@ independently at construction time. Any combination that satisfies
 (upstream) is valid — for example `pty_client_transport` upstream with
 `socket_server_transport` downstream.
 
+`term`-transport upstream is the reason the bridge multiplexes *one* upstream
+connection across *many* downstream sessions rather than opening a dedicated
+upstream connection per downstream client: a `term` connection wraps a single
+fixed fd pair (a spawned pty or a process's own inherited stdio), so there is
+no way to open a second, independent `term` connection to the same upstream
+target. Any design has to work within that constraint.
+
 ---
 
 ## Key abstractions
@@ -34,12 +41,44 @@ independently at construction time. Any combination that satisfies
 ### `bridge` class
 
 ```
-rmi::server  (base — manages downstream accept loop, worker threads, object table)
+rmi::server  (base — manages downstream accept loop, worker threads, dispatch)
      ▲
-rmi::bridge  (adds upstream rmi::client + relay state per downstream session)
+rmi::bridge  (adds upstream rmi::client + a pure-relay try_handle_request() override)
      |
      └── rmi::client upstream_client_   (one connection to the upstream server)
 ```
+
+### Pure relay: no local object registry
+
+Every object-touching request a downstream client sends — `instantiate`, `set`,
+`get`, `call`, `clear`, `destroy` — is forwarded to the upstream server
+**verbatim**: same object ID, same payload, uninspected. The upstream response is
+relayed straight back. Object IDs are identical on both sides of the bridge; the
+bridge never renumbers them and never stores a local mirror object for anything a
+downstream client instantiates.
+
+This is implemented via `server::try_handle_request()`, a hook that fires at the
+very start of `handle_request()`, before the built-in `ctx.objects`-based
+dispatch. `bridge::try_handle_request()` claims the six object-touching ops
+above (forwarding them and calling `send_response()`/`send_error()` itself) and
+returns `false` for everything else (`connect`, `describe`, `disconnect`,
+`dictionary`, `help`), letting the base `server` handle those locally as usual.
+
+**Why pure relay instead of mirroring proxy objects per instantiated object
+(the previous design):** not every upstream object is created via a single
+`OP_INSTANTIATE` round trip the bridge could intercept — e.g. wish's UI
+template system creates a whole subtree of objects as a side effect of one
+`OP_CALL` (`ui_template::do_instantiate`), inserting each one directly into the
+*upstream* session's own object table. A scheme built around recognizing
+`OP_INSTANTIATE` specifically (the earlier design: intercept instantiate,
+mirror a local proxy object with `HOOK_SETTER`/`HOOK_GETTER`/`CALL_FALLBACK`/
+`HOOK_DESTRUCT` forwarding hooks, track a local↔upstream ID translation table)
+has no way to learn about objects created that way — any subsequent
+`get`/`set`/`call` a downstream client issues against one fails with "Object
+not found", because the bridge never mirrored it. Pure pass-through has no such
+blind spot: it doesn't need to recognize object creation at all, so it doesn't
+matter how many objects a single call produces upstream, or through what
+mechanism.
 
 ### `session_state`
 
@@ -48,114 +87,117 @@ One `session_state` is created per downstream client connection. It owns:
 | Field | Purpose |
 |-------|---------|
 | `session_id` | Mirrors `context::session_id` for the downstream session |
-| `ns_prefix` | Unique `key_t` identifying this client's logical namespace |
 | `emit` | Copy of `ctx.emit_event` — safe to call from the upstream event thread |
-| `local_to_upstream` | `synchronized<map<local_oid_hash → upstream_oid>>` |
-| `upstream_to_local` | `synchronized<map<upstream_oid_hash → local_oid>>` |
+| `touched_objects` | `synchronized<unordered_set<upstream_oid_hash>>` — see below |
 
-`session_state` is reference-counted (`shared_ptr`). Upstream event lambdas capture a
-`weak_ptr<session_state>` so they become no-ops once the session is torn down.
+`session_state` is reference-counted (`shared_ptr`), reachable only through the
+`sessions_` map (protected by `synchronized`).
 
-### Proxy objects
+### Disconnect cleanup: `touched_objects`
 
-`on_create_object(ctx, ns, klass)` is the only server hook that intercepts object
-creation. When called, the bridge:
+The bridge keeps exactly one piece of state beyond pure relay: as
+`try_handle_request()` forwards a request, it records the touched object ID
+(the *new* object's ID from the response, for `instantiate`; `env.object_id`
+for everything else) into that session's `touched_objects` set — inserted on
+every op, erased on `destroy`. This has nothing to do with routing; it exists
+solely so `teardown_session()` can send `OP_DESTROY` for whatever's left when a
+downstream session disconnects. Without it, objects created by a departed
+session would leak on the upstream server for as long as the bridge process
+runs, since the bridge's one shared upstream connection stays open across many
+downstream sessions coming and going.
 
-1. Calls `upstream_client_.instantiate(ns, klass, {}).get()` — synchronous, but
-   the upstream client's worker thread is separate and can respond while the server
-   worker blocks.
-2. Returns a `bison::dynamic` **proxy object** with forwarding hooks registered.
+This tracking is necessarily best-effort: an object a session only ever
+touched via a registered event handler (never a request — see wish's
+`wish_proxy_get()`/`on_event()`, which are purely local, no wire traffic) won't
+be in the set. That's an acceptable, bounded leak of that one object until the
+bridge process itself exits, not a functional bug.
 
-The proxy object has no real fields; all operations are forwarded upstream:
+### Event routing: broadcast, not lookup
 
-| Hook / method | Forwards as |
-|---------------|-------------|
-| `CALL_FALLBACK` | `OP_CALL` with original method name + params |
-| `HOOK_SETTER` | `OP_SET` with original payload |
-| `HOOK_GETTER` | `OP_GET`, returns upstream result |
-| `HOOK_DESTRUCT` | Cleans up translation tables; upstream destroy is done by `handle_destroy` |
+Server-initiated events are asynchronous — there's no in-flight request to
+correlate an event against, so `try_handle_request()`'s per-request relay
+doesn't help here. `route_event()` instead:
 
-`OP_CLEAR` is special: `handle_clear` resets the local object to a prototype clone,
-destroying the proxy's hooks. The bridge intercepts OP_CLEAR in `on_request_trace`
-(forwarding it upstream before local dispatch), then re-installs the forwarding proxy
-in `on_response_trace` after `handle_clear` has run.
+1. Delivers to the bridge's own upstream-client handler table
+   (`upstream_client_.dispatch_local_event()`), for bridge-owned UI (e.g. a
+   desktop compositor widget registered via `upstream()` in
+   `on_client_connected()`).
+2. Broadcasts to *every* connected downstream session's `emit`.
 
-### Object ID translation
+Broadcasting is safe and requires no per-object ownership tracking: each
+session's own event-handler lookup (already unconditional on every ordinary
+connection — see `client::process_frame`'s `KIND_EVENT` handling) silently
+discards the frame if it has no handler registered for that object ID. An
+object ID is a routing tag here, not a capability, so a session with no
+interest in an object simply never reacts to its events, exactly as if the
+bridge had never sent it at all.
 
-Downstream clients see only their own local object IDs (random `key_t` values assigned
-by the server). The bridge maps each local ID to the corresponding upstream object ID
-and back. The translation table is the trust boundary:
+`bridge_upstream_transport` (wraps the real upstream transport) is what makes
+this possible: its `receive()` loop intercepts every `KIND_EVENT` frame before
+handing frames to `rmi::client`, so `route_event()` sees every upstream event
+regardless of whether the bridge's own `upstream_client_` has any handler
+registered for it.
 
-- A downstream client cannot construct a valid ID for another client's objects.
-- The upstream server never sees downstream IDs.
+### Object IDs are not a security boundary
 
-### Namespace isolation
+The earlier design's local↔upstream ID translation tables had an incidental
+side effect: a downstream client referencing another client's object ID would
+fail with "Object not found", since the bridge's own per-session object
+registry had no entry for it. Pure relay removes that translation layer, so
+that side effect is gone — a downstream client that knows (or guesses) another
+session's object ID can now successfully operate on it, forwarded like any
+other request.
 
-Each downstream session is assigned a unique `ns_prefix` key stored in `session_state`.
-This logically scopes all objects created by that session. The isolation is currently
-enforced at the bridge layer (object ID translation tables). Full bison-level namespace
-separation — registering class aliases under per-session namespaces on the upstream —
-is a future enhancement; `ns_prefix` is already in place to support it without API changes.
-
-### Event routing
-
-When upstream emits an event for an upstream object:
-
-1. Upstream client's event dispatch thread fires the registered handler for that `upstream_oid`.
-2. The handler looks up `weak_ptr<session_state>`; if the session is still alive,
-   maps `upstream_oid → local_oid` and calls `emit(local_oid, event_name, payload)`.
-3. `emit` is a copy of `ctx.emit_event`, which calls `conn->send()` (thread-safe
-   connection-level mutex). No session or bridge lock is held in this path.
+This was never a deliberate access-control boundary: `on_check_class()`
+already accepts any class from any downstream client with no validation at
+all, so the bridge doesn't otherwise attempt to isolate downstream sessions
+from each other. `tests/bridge_tests.cpp`'s
+`ObjectIdsAreRoutingTagsNotCapabilities` test documents this explicitly.
 
 ---
 
-## Bison changes required
+## Bison changes required (historical — kept for context)
 
-### 1. `CALL_FALLBACK` (in `bison_object.hpp`)
+These were introduced for the earlier proxy-based design and are no longer
+exercised by `bridge` itself, but remain in bison as general-purpose,
+backward-compatible additions other code may still rely on:
 
-The bridge proxy must forward **any** method call without knowing the method names
-ahead of time. This requires a catch-all fallback in `bison::dynamic`:
+### `CALL_FALLBACK` (in `bison_object.hpp`)
 
-```cpp
-/// Reserved method key: invoked when a named method is not found.
-/// Receives { "__name": requested_name, "__params": dynamic_ptr{args} }.
-static inline constexpr hash_t CALL_FALLBACK = "__callFallback"_key;
-```
+Reserved method key: invoked when a named method is not found. Receives
+`{ "__name": requested_name, "__params": dynamic_ptr{args} }`. Purely additive;
+no core dispatch path requires it.
 
-`dynamic::call(key_t name, const dynamic& params)` is modified: after failing
-to find `name`, check for `CALL_FALLBACK` and invoke it with a wrapper carrying
-the original name and params.  If absent, throw as before.
-
-Purely additive and backward-compatible — no existing class registers `CALL_FALLBACK`.
-
-### 2. `on_check_class` hook (in `server.hpp/server.cpp`)
-
-`handle_instantiate` verifies that the requested class is present in the local
-bison registry before calling `on_create_object`.  The bridge cannot pre-register
-all upstream classes locally, so a new virtual guard is added:
+### `on_check_class` hook (in `server.hpp`/`server.cpp`)
 
 ```cpp
 virtual bool on_check_class(context& ctx, key_t ns, key_t klass);
 ```
 
-Default: checks the registry (existing behavior, fully backward-compatible).
-`bridge::on_check_class` returns `true` unconditionally, letting every
-instantiation request pass through to `on_create_object` where the bridge
-forwards it to the upstream server.
+Default: checks the registry (existing behavior). No longer overridden by
+`bridge` (pure relay bypasses `handle_instantiate` entirely via
+`try_handle_request()`), but still available to other `server` subclasses.
 
-### 3. Event routing without `register_event_handler`
+---
 
-The bison `client` dispatches events by exact `(object_id, event_name)` key
-lookup — `name=0` is not a catch-all.  The bridge routes all upstream events
-by intercepting them before the `rmi::client` ever sees them:
+## Current bison changes required
 
-`bridge_upstream_transport` wraps the real upstream transport.  Its `receive()`
-loop decodes each frame; event frames (`KIND_EVENT`) are forwarded to
-`bridge::route_event()` and filtered out; all other frames are returned to the
-`rmi::client` normally.  `route_event` uses the `upstream_to_session_` global
-reverse-lookup table to find the downstream session and calls its `emit` function.
+### `server::try_handle_request` hook (in `server.hpp`/`server.cpp`)
 
-This requires no changes to `rmi::client`.
+```cpp
+virtual bool try_handle_request(context& ctx, const shared::envelope& env,
+                                 transport::server_connection_iface& conn) {
+  return false; // default: fall through to the built-in ctx.objects dispatch
+}
+```
+
+Called at the very start of `handle_request()`, before `on_request_trace()`
+and before the `ctx.objects`-based `OP_*` dispatch table. If it returns `true`,
+the override must itself have sent a response or error (via `send_response()`/
+`send_error()`, both now `protected` rather than `private` so a subclass can
+call them) and `handle_request()` returns immediately. This is what lets
+`bridge` implement request handling that doesn't fit the per-connection
+`ctx.objects` model at all.
 
 ---
 
@@ -163,7 +205,7 @@ This requires no changes to `rmi::client`.
 
 | File | Role |
 |------|------|
-| `src/bison/bison_object.hpp` | Add `CALL_FALLBACK` + fallback dispatch in `dynamic::call()` |
+| `src/rmi/server/server.hpp` / `.cpp` | `try_handle_request()` hook; `send_response()`/`send_error()` made `protected` |
 | `src/rmi/bridge/bridge.hpp` | `rmi::bridge` class declaration |
 | `src/rmi/bridge/bridge.cpp` | `rmi::bridge` implementation |
 | `src/rmi/rmi.hpp` | `#include "src/rmi/bridge/bridge.hpp"` |
@@ -189,7 +231,7 @@ class bridge : public server {
          std::unique_ptr<transport::client_transport_iface> upstream_transport,
          bison::dynamic upstream_params = {});
 
-  ~bridge() override;
+  ~bridge();
 
   /// Connect to upstream, then start accepting downstream clients.
   void start(bison::dynamic downstream_params = {});
@@ -205,16 +247,13 @@ class bridge : public server {
   /// Called just before a downstream client session is torn down.
   virtual void on_client_disconnected(context& ctx) { (void)ctx; }
 
+  rmi::client& upstream(); // access the shared upstream connection
+
   // server hook overrides (see bridge.cpp for details)
   void on_session_created(context& ctx) override;
   void on_session_destroyed(context& ctx) override;
-  bison::dynamic_ptr on_create_object(context&, bison::key_t ns,
-                                       bison::key_t klass) override;
-  void on_request_trace(context&, const shared::envelope&) override;
-  void on_response_trace(context&, const shared::envelope& request_env,
-                         bison::key_t op, bool is_error,
-                         bison::key_t error_code,
-                         const bison::dynamic& response_payload) override;
+  bool try_handle_request(context& ctx, const shared::envelope& env,
+                           transport::server_connection_iface& conn) override;
 };
 
 } // namespace bdg::bison::rmi
@@ -226,60 +265,48 @@ class bridge : public server {
 
 ```
 Server worker (one per downstream client)
-  on_before_dispatch  ← no envelope
-  on_request_trace    ← sets current_request_id_ (thread_local)
-  handle_instantiate
-    on_create_object  ← reads thread_local; calls upstream_client_.instantiate().get()
-    send_response
-      on_response_trace ← finalizes relay entry; registers upstream event handler
+  on_before_dispatch          ← no envelope
+  handle_request
+    try_handle_request(ctx, env, conn)
+      upstream_client_.send_request(op, env.object_id, env.payload, oneway).get()
+        ← blocks this worker; the upstream client's own worker thread
+          responds independently, no shared lock held during the block
+      send_response(...) / send_error(...)
+  on_after_dispatch
 
 Upstream client worker thread
   Receives frames from upstream; resolves pending futures.
 
-Upstream event dispatch thread
-  Calls event handler lambdas (weak_ptr<session_state> guarded).
-  Calls emit(local_oid, ...) → conn->send() [conn-level mutex, no bridge lock].
+Upstream event dispatch thread (bridge_upstream_transport::receive())
+  Intercepts KIND_EVENT frames before rmi::client sees them.
+  route_event(env):
+    upstream_client_.dispatch_local_event(env)   ← bridge-owned UI
+    for each session in sessions_: emit(...) under that session's emit_st lock
 ```
 
 **Deadlock analysis:**
 
 | Scenario | Analysis |
 |----------|----------|
-| Server worker blocks on `upstream_client_.send_request().get()` | Upstream worker thread responds independently; no shared lock held during block |
-| Upstream event fires during OP_CALL | Event thread calls `emit` → `conn->send()` only; no session or bridge lock taken |
-| `teardown_session` + concurrent event | `session_state` removed from map first; `weak_ptr` in event lambda expires; event becomes no-op |
-| `pending_relays_` in `on_create_object` and `on_response_trace` | Sequential on same server worker thread; `synchronized<>` wlock is not nested |
-
----
-
-## Dispatch hook sequence (OP_INSTANTIATE example)
-
-```
-client_worker reads frame
-  on_before_dispatch(ctx)
-  handle_request(ctx, env, conn)
-    on_request_trace(ctx, env)          ← saves env.request_id → current_request_id_
-    handle_instantiate(ctx, env, conn)
-      on_create_object(ctx, ns, klass)  ← creates upstream object; stores pending_relay
-      send_response(...)
-        on_response_trace(...)          ← reads response_payload[FIELD_OBJECT_ID];
-                                           finalizes tables; registers event handler
-  on_after_dispatch(ctx)
-```
+| Server worker blocks on `upstream_client_.send_request().get()` in `try_handle_request` | Upstream worker thread responds independently; no shared lock held during block |
+| Upstream event fires during a request | Event thread calls `emit` under each session's own `emit_st` lock only; no bridge-wide lock taken |
+| `teardown_session` + concurrent event | `session_state` removed from `sessions_` first, so a subsequent broadcast simply won't reach it; `emit_st.active` guards an event already in flight for this session |
 
 ---
 
 ## Invariants
 
-1. Every upstream object created by the bridge is owned by exactly one downstream
-   session's translation table. `teardown_session` destroys all of them on disconnect.
-2. `session_state` is only accessible through `sessions_` (protected by `synchronized`)
-   or via `weak_ptr` (which returns null after removal). No raw pointers to session state
-   are stored outside these two paths.
-3. `on_response_trace` for OP_CLEAR always runs on the same server worker thread as
-   `on_request_trace`, so `pending_clear_` (thread_local) is coherent between the two.
-4. The upstream client is connected before `server::listen()` is called. If `connect()`
-   fails, `start()` throws and no downstream connections are accepted.
+1. `try_handle_request()` never touches `ctx.objects` — every object-touching
+   op is either fully relayed (its six ops) or falls through untouched to the
+   base `server` dispatch (everything else).
+2. `session_state` is only accessible through `sessions_` (protected by
+   `synchronized`). No raw pointers to session state are stored elsewhere.
+3. The upstream client is connected before `server::listen()` is called. If
+   `connect()` fails, `start()` throws and no downstream connections are
+   accepted.
+4. `teardown_session()` always runs before `cleanup_context()` (from
+   `on_session_destroyed`), so `OP_DESTROY` is sent for a session's
+   `touched_objects` while the bridge's upstream connection is still alive.
 
 ---
 
@@ -292,8 +319,9 @@ Tests use `memory_server_transport` / `memory_client_transport` (in-process, syn
 | Connect/disconnect | No crash, upstream session created and cleaned up |
 | Object proxied upstream | `upstream.session_contexts()` shows object after instantiate; zero after destroy |
 | SET + GET forwarded | Value stored on upstream object, returned to downstream client |
-| Method call forwarded | `CALL_FALLBACK` routes call; upstream method executes; result returned |
-| Events routed correctly | Upstream event for client A's object reaches A's handler only |
-| Cross-client isolation | Client B cannot call method on client A's object ID (ERR_OBJECT_NOT_FOUND) |
-| CLEAR re-installs proxy | Proxy still functional after OP_CLEAR; subsequent SET/GET work |
-| Session teardown | Upstream `__destruct` hooks called for all objects on disconnect |
+| Method call forwarded | `CALL_FALLBACK`-independent relay; upstream method executes; result returned |
+| Events routed correctly | Upstream event for client A's object reaches A's handler only (broadcast + local filtering) |
+| Event for bridge-owned object | Reaches the bridge's own upstream-client handler, not dropped |
+| Object IDs are routing tags, not capabilities | A GET using another client's known object ID is relayed and succeeds — documents the intentional isolation tradeoff |
+| CLEAR forwarded | Subsequent SET/GET still work after OP_CLEAR |
+| Session teardown | Upstream `__destruct` hooks called for all of a session's `touched_objects` on disconnect |

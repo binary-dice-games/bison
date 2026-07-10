@@ -326,13 +326,42 @@ class server {
     (void)ctx;
   }
 
- private:
-  // ── Private methods (defined in server.cpp) ───────────────────────────────
+  /**
+   * @brief Called at the very start of `handle_request()`, before the
+   *        built-in `ctx.objects`-based dispatch (and before
+   *        `on_request_trace()`).
+   *
+   * If this returns `true`, the request is considered fully handled --
+   * the override must itself have sent a response or error (via
+   * `send_response()`/`send_error()`) -- and `handle_request()` returns
+   * immediately without running any of the built-in `OP_*` handlers or the
+   * trace hooks.
+   *
+   * Lets a subclass implement request handling that doesn't fit the
+   * per-connection `ctx.objects` model -- e.g. `bridge` relays every object
+   * operation straight to a single shared upstream connection instead of
+   * storing objects locally, so it has nothing for the generic dispatch to
+   * look up. The base implementation returns `false` (no-op), so ordinary
+   * `server` subclasses are unaffected.
+   *
+   * @param ctx  Session context for the connection @p env arrived on.
+   * @param env  Decoded, already-validated request envelope.
+   * @param conn Connection to reply on if this returns `true`.
+   * @return `true` if @p env was fully handled (skip the generic dispatch).
+   */
+  virtual bool try_handle_request(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
+    (void)ctx;
+    (void)env;
+    (void)conn;
+    return false;
+  }
 
-  void accept_loop();
-  void client_worker(std::unique_ptr<transport::server_connection_iface> conn);
-  void join_workers();
-
+  /**
+   * @brief Send a protocol response envelope.
+   *
+   * Exposed to subclasses so a `try_handle_request()` override can reply
+   * using the same framing as the built-in `OP_*` handlers.
+   */
   void send_response(
       context& ctx,
       transport::server_connection_iface& conn,
@@ -340,6 +369,12 @@ class server {
       bison::key_t op,
       bison::dynamic payload);
 
+  /**
+   * @brief Send a protocol error envelope.
+   *
+   * Exposed to subclasses so a `try_handle_request()` override can report a
+   * failure using the same framing as the built-in `OP_*` handlers.
+   */
   void send_error(
       context& ctx,
       transport::server_connection_iface& conn,
@@ -347,6 +382,13 @@ class server {
       bison::key_t op,
       bison::key_t code,
       const std::string& message);
+
+ private:
+  // ── Private methods (defined in server.cpp) ───────────────────────────────
+
+  void accept_loop();
+  void client_worker(std::unique_ptr<transport::server_connection_iface> conn);
+  void join_workers();
 
   void handle_request(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
 

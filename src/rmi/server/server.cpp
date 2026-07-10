@@ -438,6 +438,9 @@ void server::handle_request(context& ctx, const shared::envelope& env, transport
     return;
   }
 
+  if (try_handle_request(ctx, env, conn))
+    return;
+
   on_request_trace(ctx, env);
 
   using handler_fn = void (server::*)(context&, const shared::envelope&, transport::server_connection_iface&);

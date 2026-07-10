@@ -15,7 +15,7 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
-#include <utility>
+#include <unordered_set>
 
 namespace bdg::bison::rmi {
 
@@ -24,23 +24,44 @@ namespace bdg::bison::rmi {
  *        `rmi::server`.
  *
  * The bridge inherits `rmi::server` to accept multiple downstream connections
- * and holds an `rmi::client` for the single upstream connection.  Every object
- * instantiated by a downstream client is transparently forwarded to the
- * upstream server; all method calls, field sets/gets, clears, and destructions
- * are relayed through an in-memory proxy object.
+ * and holds an `rmi::client` for the single upstream connection.
+ *
+ * ## Pure relay, no local object registry
+ *
+ * Every object-touching request (`instantiate`, `set`, `get`, `call`,
+ * `clear`, `destroy`) is forwarded to the upstream server verbatim -- same
+ * object ID, same payload -- via `try_handle_request()`, and the upstream
+ * response is relayed straight back. The bridge never stores a local mirror
+ * object for anything a downstream client instantiates: object IDs are
+ * identical on both sides, and the bridge never inspects payload contents to
+ * decide how to route them. This matters because not every upstream object
+ * is created via a single `OP_INSTANTIATE` round trip the bridge can
+ * intercept -- e.g. wish's UI template system creates a whole subtree of
+ * objects as a side effect of one `OP_CALL` -- so any scheme that requires
+ * recognizing "object creation" specifically would miss those. Pure
+ * pass-through has no such blind spot: it doesn't need to recognize object
+ * creation at all.
+ *
+ * Server-initiated events, being asynchronous, have no in-flight request to
+ * correlate against, so they're delivered differently: every event with no
+ * known owner is broadcast to every connected downstream session (see
+ * `route_event()`). This is safe because each session's own event-handler
+ * lookup (already unconditional on every ordinary connection) silently
+ * drops anything it has no handler registered for -- an object ID is a
+ * routing tag here, not a capability.
+ *
+ * The one thing the bridge still tracks is a per-session set of upstream
+ * object IDs its requests have touched, used solely to send `OP_DESTROY` for
+ * them when that downstream session disconnects (see `teardown_session()`)
+ * -- otherwise those objects would leak on the upstream server for the
+ * lifetime of the bridge process, since the bridge's one shared upstream
+ * connection stays open across many downstream sessions coming and going.
  *
  * ## Transport independence
  *
  * The downstream server transport and the upstream client transport are chosen
  * independently.  Any valid combination is supported — for example a
  * `pty_client_transport` upstream and a `socket_server_transport` downstream.
- *
- * ## Namespace isolation
- *
- * Each downstream session is assigned a unique `ns_prefix` key.  The bridge
- * enforces that downstream clients cannot access each other's upstream objects:
- * each session owns a private object-ID translation table, and the upstream
- * server never receives downstream-side IDs directly.
  *
  * ## Adding bridge-owned UI
  *
@@ -144,41 +165,19 @@ class bridge : public server {
   void on_session_destroyed(context& ctx) override;
 
   /**
-   * Always returns true: the bridge accepts any class instantiation and
-   * forwards it to the upstream server, bypassing the local class registry.
+   * Forwards every object-touching request (`instantiate`, `set`, `get`,
+   * `call`, `clear`, `destroy`) to the upstream server verbatim and relays
+   * the response back -- see the class-level doc comment. Returns `false`
+   * for every other op (`connect`, `describe`, `disconnect`, `dictionary`,
+   * `help`), letting the base `server` handle those locally as usual.
    */
-  bool on_check_class(context& ctx, bison::key_t ns, bison::key_t klass) override;
-
-  /** Intercepts object instantiation to create upstream proxy objects. */
-  bison::dynamic_ptr on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) override;
-
-  /**
-   * Saves the current request ID for use in `on_create_object` and handles
-   * OP_CLEAR forwarding to upstream before `handle_clear` resets the local
-   * proxy.
-   */
-  void on_request_trace(context& ctx, const shared::envelope& env) override;
-
-  /**
-   * Finalizes the upstream ↔ local object ID mapping after OP_INSTANTIATE,
-   * and re-installs the forwarding proxy after OP_CLEAR.
-   */
-  void on_response_trace(
-      context& ctx,
-      const shared::envelope& request_env,
-      bison::key_t op,
-      bool is_error,
-      bison::key_t error_code,
-      const bison::dynamic& response_payload) override;
+  bool try_handle_request(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) override;
 
  private:
   // ── Per-downstream-session relay state ───────────────────────────────────
 
   struct session_state {
     bison::key_t session_id;
-
-    /** Unique key identifying this client's logical namespace. */
-    bison::key_t ns_prefix;
 
     /** State guarded together so `emit` is never called after teardown. */
     struct emit_state {
@@ -203,30 +202,13 @@ class bridge : public server {
      */
     bison::synchronized<emit_state> emit_st;
 
-    /** downstream local_oid → upstream_oid */
-    bison::synchronized<std::unordered_map<bison::hash_t, bison::key_t>> local_to_upstream;
-
-    /** upstream_oid → downstream local_oid */
-    bison::synchronized<std::unordered_map<bison::hash_t, bison::key_t>> upstream_to_local;
-  };
-
-  // ── Temporary state during OP_INSTANTIATE dispatch ───────────────────────
-
-  struct pending_relay {
-    bison::key_t upstream_oid;
-    bison::key_t session_id;
-    /** Shared slot filled in on_response_trace; HOOK_DESTRUCT reads it. */
-    std::shared_ptr<bison::key_t> local_oid_slot;
-  };
-
-  // ── Thread-local state used across on_request_trace / on_create_object /
-  //    on_response_trace ──────────────────────────────────────────────────
-
-  struct pending_clear_state {
-    bool active{false};
-    bison::key_t local_oid;
-    bison::key_t upstream_oid;
-    bison::key_t session_id;
+    /**
+     * Upstream object IDs this session's requests have touched (inserted on
+     * every successful `instantiate`/`set`/`get`/`call`/`clear`, erased on
+     * `destroy`). Used solely by `teardown_session` to send `OP_DESTROY` for
+     * whatever's left when this session disconnects -- not used for routing.
+     */
+    bison::synchronized<std::unordered_set<bison::hash_t>> touched_objects;
   };
 
   // ── Private helpers ───────────────────────────────────────────────────────
@@ -234,29 +216,18 @@ class bridge : public server {
   std::shared_ptr<session_state> find_session(bison::key_t id) const;
 
   /**
-   * Remove the session from the sessions_ map (so event callbacks become
-   * no-ops) and unregister all upstream event handlers for that session's
-   * objects.  Actual upstream object destruction is handled by the proxy
-   * objects' HOOK_DESTRUCT hooks, called by cleanup_context after this.
+   * Remove the session from the sessions_ map (so route_event's broadcast
+   * and further emit calls become no-ops for it), then send OP_DESTROY for
+   * every object in its touched_objects set.
    */
   void teardown_session(bison::key_t session_id);
 
   /**
-   * Construct a `bison::dynamic` proxy that forwards all operations to the
-   * upstream object identified by @p upstream_oid.
-   *
-   * @param upstream_oid   Upstream server object identifier.
-   * @param ws             Weak reference to the owning session state.
-   * @param local_oid_slot Shared slot populated by on_response_trace when the
-   *                       local object ID is known; HOOK_DESTRUCT reads it to
-   *                       update translation tables.
+   * Route an upstream event envelope: broadcast to the bridge's own
+   * upstream-client handler table (for bridge-owned UI) and to every
+   * connected downstream session, relying on each recipient's own
+   * event-handler lookup to discard it if irrelevant.
    */
-  bison::dynamic_ptr make_proxy_obj(
-      bison::key_t upstream_oid,
-      std::weak_ptr<session_state> ws,
-      std::shared_ptr<bison::key_t> local_oid_slot);
-
-  /** Route an upstream event envelope to the correct downstream session. */
   void route_event(const shared::envelope& env);
 
   // ── Members ───────────────────────────────────────────────────────────────
@@ -264,48 +235,15 @@ class bridge : public server {
   /**
    * Sessions keyed by session-ID hash.  Entries are removed inside
    * teardown_session, which fires from on_session_destroyed before
-   * cleanup_context.  HOOK_DESTRUCT lambdas hold a weak_ptr so they become
-   * no-ops once the entry is removed.
+   * cleanup_context.
    */
   bison::synchronized<std::unordered_map<bison::hash_t, std::shared_ptr<session_state>>> sessions_;
-
-  /**
-   * Global reverse lookup: upstream_oid_hash → (session_id, local_oid).
-   * Used by route_event to find which downstream session owns a given upstream
-   * object in O(1).  Updated in on_response_trace and HOOK_DESTRUCT.
-   */
-  bison::synchronized<std::unordered_map<bison::hash_t, std::pair<bison::key_t, bison::key_t>>> // session_id, local_oid
-      upstream_to_session_;
-
-  /**
-   * Temporary relays keyed by request_id hash.  Written by on_create_object
-   * and consumed (erased) by on_response_trace for OP_INSTANTIATE.  Both
-   * accesses happen on the same server worker thread, so the synchronized<>
-   * lock is never recursively nested.
-   */
-  bison::synchronized<std::unordered_map<bison::hash_t, pending_relay>> pending_relays_;
 
   /** Single upstream RMI connection (wraps a bridge_upstream_transport). */
   client upstream_client_;
 
   bison::dynamic upstream_params_;
-  std::atomic<uint32_t> ns_counter_{0};
   std::atomic<bool> started_{false};
-
-  /**
-   * Thread-local: the request_id of the envelope currently being dispatched.
-   * Set in on_request_trace; read in on_create_object to key pending_relays_.
-   * Safe because each server worker thread handles exactly one request at a
-   * time.
-   */
-  static thread_local bison::key_t current_request_id_;
-
-  /**
-   * Thread-local: state for the OP_CLEAR currently being dispatched.
-   * Set in on_request_trace before handle_clear runs; consumed in
-   * on_response_trace after handle_clear has reset the local proxy.
-   */
-  static thread_local pending_clear_state pending_clear_;
 };
 
 } // namespace bdg::bison::rmi
