@@ -67,7 +67,12 @@ terminal::terminal(const std::string& cmd, const std::string& prompt_label)
     // needed). PS1 covers shells with no rc file (e.g. plain /bin/sh);
     // PROMPT_COMMAND re-asserts the prompt on every draw, after bash's own
     // .bashrc has already (unconditionally) set PS1 itself.
-    const std::string ps1 = prompt_label + ":\\w\\$ ";
+    // Bold green label, bold blue cwd -- matches the color scheme typical
+    // distro .bashrc files use for \u@\h:\w. \[ \] mark the escape codes as
+    // zero-width for readline's line-length tracking (required so bash
+    // doesn't misjudge the cursor position and garble in-line editing).
+    const std::string ps1 =
+        "\\[\\033[01;32m\\]" + prompt_label + "\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ ";
     setenv("PS1", ps1.c_str(), 1);
     setenv("PROMPT_COMMAND", ("PS1='" + ps1 + "'").c_str(), 1);
   }
