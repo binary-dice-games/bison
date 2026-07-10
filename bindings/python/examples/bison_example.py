@@ -1,8 +1,8 @@
 """Detailed, runnable examples for the Bison dynamic-object Python binding.
 
 Mirrors examples/bison_abi_example.cpp feature-for-feature, but using the
-Pythonic ``Dynamic`` API (``obj["field"] = value`` instead of
-``bison_set_int(h, bison_key("field"), value)``).
+Pythonic ``Dynamic`` API (``obj.field = value`` / ``obj["field"] = value``
+instead of ``bison_set_int(h, bison_key("field"), value)``).
 
 Run with:  python bindings/python/examples/bison_example.py
 """
@@ -43,20 +43,21 @@ def example_hashing():
 def example_scalar_fields():
     section("Scalar field get / set")
     with Dynamic("Person") as h:
-        h["name"] = "Alice"
-        h["age"] = 30
-        h["score"] = 9.5
-        h["active"] = True
+        h.name = "Alice"
+        h.age = 30
+        h.score = 9.5
+        h.active = True
 
-        print("name   :", h["name"])
-        print("age    :", h["age"])
-        print("score  :", h["score"])
-        print("active :", h["active"])
+        print("name   :", h.name)
+        print("age    :", h.age)
+        print("score  :", h.score)
+        print("active :", h.active)
 
-        # __getitem__ probes each scalar type in turn (int, float, bool,
-        # string, object); type-lock enforcement is visible on __setitem__
-        # instead — see the numeric-indexing example below, where assigning
-        # a float to an already-int-typed slot raises BisonError.
+        # __getattr__/__getitem__ probe each scalar type in turn (int,
+        # float, bool, string, object); type-lock enforcement is visible on
+        # __setitem__ instead — see the numeric-indexing example below,
+        # where assigning a float to an already-int-typed slot raises
+        # BisonError.
 
 
 # ── Example 3: Nested objects ───────────────────────────────────────────────
@@ -65,17 +66,17 @@ def example_scalar_fields():
 def example_nested_objects():
     section("Nested objects")
     person = Dynamic("Person")
-    person["name"] = "Alice"
+    person.name = "Alice"
 
     address = Dynamic()
-    address["street"] = "123 Main St"
-    address["city"] = "Springfield"
+    address.street = "123 Main St"
+    address.city = "Springfield"
 
-    person["address"] = address  # bison_set_object increments address's ref-count
+    person.address = address  # bison_set_object increments address's ref-count
     address.release()  # we can release our own copy
 
-    addr_out = person["address"]
-    print("city:", addr_out["city"])
+    addr_out = person.address
+    print("city:", addr_out.city)
     addr_out.release()
     person.release()
 
@@ -114,38 +115,37 @@ def example_numeric_indexing():
 
 
 def method_add(self_obj, params, result):
-    result["value"] = params["a"] + params["b"]
+    result.value = params.a + params.b
 
 
 def method_accumulate(self_obj, params, result):
-    total = self_obj["total"] + params["n"]
-    self_obj["total"] = total
-    result["total"] = total
+    total = self_obj.total + params.n
+    self_obj.total = total
+    result.total = total
 
 
 def example_methods():
     section("Methods - attaching behaviour to objects")
     calc = Dynamic("Calculator")
-    calc["total"] = 0
+    calc.total = 0
     calc.add_method("add", method_add)
     calc.add_method("accumulate", method_accumulate)
 
-    args = Dynamic()
-    args["a"] = 10
-    args["b"] = 32
-    total = calc.call("add", args)
-    print("10 + 32 =", total["value"])
+    total = calc.add(a=10, b=32)
+    print("10 + 32 =", total.value)
     total.release()
-    args.release()
 
     for i in range(1, 6):
-        p = Dynamic()
-        p["n"] = i
-        res = calc.call("accumulate", p)
+        res = calc.accumulate(n=i)
         res.release()
-        p.release()
 
-    print("accumulated total (1+2+3+4+5):", calc["total"])
+    print("accumulated total (1+2+3+4+5):", calc.total)
+
+    try:
+        calc.sqrt()
+        print("attribute access to unknown method: unexpected (no error raised)")
+    except AttributeError as e:
+        print("attribute access to unknown method: AttributeError (expected) ->", e)
 
     try:
         calc.call("sqrt")
@@ -160,12 +160,12 @@ def example_methods():
 
 
 def method_describe(self_obj, params, result):
-    result["text"] = f"{self_obj['color']} shape"
+    result.text = f"{self_obj.color} shape"
 
 
 def method_area(self_obj, params, result):
-    r = self_obj["radius"]
-    result["area"] = 3.14159265 * r * r
+    r = self_obj.radius
+    result.area = 3.14159265 * r * r
 
 
 def example_inheritance():
@@ -173,31 +173,31 @@ def example_inheritance():
     clear_registry()
 
     shape = Dynamic("Shape")
-    shape["color"] = "black"
+    shape.color = "black"
     shape.add_method("describe", method_describe)
     add_class(shape)
     shape.release()
 
     circle = Dynamic("Circle")
-    circle["radius"] = 1.0
+    circle.radius = 1.0
     circle.add_method("area", method_area)
     add_class(circle, parent_name="Shape")
     circle.release()
 
     c = instantiate("Circle")
-    c["radius"] = 5.0
-    c["color"] = "red"  # overrides the inherited default
+    c.radius = 5.0
+    c.color = "red"  # overrides the inherited default
 
-    area_result = c.call("area")
-    print(f"Circle area (r=5): {area_result['area']:.4f}")
+    area_result = c.area()
+    print(f"Circle area (r=5): {area_result.area:.4f}")
     area_result.release()
 
-    desc_result = c.call("describe")
-    print("Description:", desc_result["text"])
+    desc_result = c.describe()
+    print("Description:", desc_result.text)
     desc_result.release()
 
     c2 = instantiate("Circle")
-    print("Inherited color:", c2["color"])
+    print("Inherited color:", c2.color)
     c2.release()
 
     dup = Dynamic("Shape")
@@ -223,42 +223,42 @@ def example_namespaces():
     clear_registry()
 
     math_table = Dynamic("table")
-    math_table["rows"] = 0
-    math_table["cols"] = 0
+    math_table.rows = 0
+    math_table.cols = 0
     add_class(math_table, ns_name="math")
     math_table.release()
 
     ikea_table = Dynamic("table")
-    ikea_table["legs"] = 4
-    ikea_table["material"] = "wood"
+    ikea_table.legs = 4
+    ikea_table.material = "wood"
     add_class(ikea_table, ns_name="ikea")
     ikea_table.release()
 
     print("Registered 'table' in both 'math' and 'ikea' namespaces")
 
     mt = instantiate("table", ns_name="math")
-    mt["rows"] = 10
-    mt["cols"] = 5
+    mt.rows = 10
+    mt.cols = 5
 
     it = instantiate("table", ns_name="ikea")
-    it["legs"] = 4
-    it["material"] = "oak"
+    it.legs = 4
+    it.material = "oak"
 
-    print(f"math::table rows={mt['rows']} cols={mt['cols']}")
-    print(f"ikea::table legs={it['legs']} material={it['material']}")
+    print(f"math::table rows={mt.rows} cols={mt.cols}")
+    print(f"ikea::table legs={it.legs} material={it.material}")
 
     furniture = Dynamic("Furniture")
-    furniture["warranty"] = 5
+    furniture.warranty = 5
     add_class(furniture, ns_name="ikea")
     furniture.release()
 
     sofa = Dynamic("Sofa")
-    sofa["seats"] = 3
+    sofa.seats = 3
     add_class(sofa, parent_name="Furniture", ns_name="ikea")
     sofa.release()
 
     s = instantiate("Sofa", ns_name="ikea")
-    print(f"ikea::Sofa seats={s['seats']} warranty={s['warranty']}")
+    print(f"ikea::Sofa seats={s.seats} warranty={s.warranty}")
 
     s.release()
     mt.release()
@@ -283,23 +283,23 @@ def example_json():
         }
         """
     )
-    print("name   :", obj["name"])
-    print("age    :", obj["age"])
-    print("active :", obj["active"])
-    print("score  :", obj["score"])
+    print("name   :", obj.name)
+    print("age    :", obj.age)
+    print("active :", obj.active)
+    print("score  :", obj.score)
 
-    addr = obj["address"]
-    print("city   :", addr["city"])
+    addr = obj.address
+    print("city   :", addr.city)
     addr.release()
 
-    tags = obj["tags"]
+    tags = obj.tags
     print("tags[0]:", tags[0])
     print("tags[2]:", tags[2])
     print("tag count:", len(tags))
     tags.release()
 
-    obj["name"] = "Bob"
-    print("updated name:", obj["name"])
+    obj.name = "Bob"
+    print("updated name:", obj.name)
 
     obj.release()
 
@@ -321,15 +321,15 @@ def example_yaml():
         "  - example\n"
     )
 
-    server = obj["server"]
-    print("host      :", server["host"])
-    print("port      :", server["port"])
+    server = obj.server
+    print("host      :", server.host)
+    print("port      :", server.port)
     server.release()
 
-    print("debug     :", obj["debug"])
-    print(f"threshold : {obj['threshold']:.2f}")
+    print("debug     :", obj.debug)
+    print(f"threshold : {obj.threshold:.2f}")
 
-    tags = obj["tags"]
+    tags = obj.tags
     print("tags[0]   :", tags[0])
     print("tags[2]   :", tags[2])
     print("tag count :", len(tags))
@@ -344,16 +344,16 @@ def example_yaml():
 def example_ref_counting():
     section("Reference counting and add_ref")
     h = Dynamic()
-    h["x"] = 42
+    h.x = 42
 
     alias = h.add_ref()
-    print("alias sees x =", alias["x"])
+    print("alias sees x =", alias.x)
 
-    alias["x"] = 99
-    print("original after alias mutate: x =", h["x"])
+    alias.x = 99
+    print("original after alias mutate: x =", h.x)
 
     alias.release()
-    print("original after alias release: x =", h["x"])
+    print("original after alias release: x =", h.x)
 
     h.release()
     print("Both handles released")

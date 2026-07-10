@@ -17,24 +17,24 @@ from bison.rmi import Server
 
 
 def method_add(self_obj, params, result):
-    result["result"] = params["a"] + params["b"]
+    result.result = params.a + params.b
 
 
 def method_subtract(self_obj, params, result):
-    result["result"] = params["a"] - params["b"]
+    result.result = params.a - params.b
 
 
 def method_multiply(self_obj, params, result):
-    result["result"] = params["a"] * params["b"]
+    result.result = params.a * params.b
 
 
 def method_divide(self_obj, params, result):
-    a, b = params["a"], params["b"]
+    a, b = params.a, params.b
     if b == 0.0:
-        result["error"] = "division by zero"
-        result["result"] = 0.0
+        result.error = "division by zero"
+        result.result = 0.0
     else:
-        result["result"] = a / b
+        result.result = a / b
 
 
 def register_calculator():

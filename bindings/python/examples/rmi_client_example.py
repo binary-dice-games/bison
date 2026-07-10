@@ -34,19 +34,19 @@ def main():
             print("[Client] connected")
 
             r = calc.add(a=10.0, b=3.0)
-            print(f"[Client] add(10, 3) = {r['result']:.0f}")
+            print(f"[Client] add(10, 3) = {r.result:.0f}")
             r.release()
 
             r = calc.subtract(a=100.0, b=21.0)
-            print(f"[Client] subtract(100, 21) = {r['result']:.0f}")
+            print(f"[Client] subtract(100, 21) = {r.result:.0f}")
             r.release()
 
             r = calc.multiply(a=7.0, b=6.0)
-            print(f"[Client] multiply(7, 6) = {r['result']:.0f}")
+            print(f"[Client] multiply(7, 6) = {r.result:.0f}")
             r.release()
 
             r = calc.divide(a=42.0, b=2.0)
-            print(f"[Client] divide(42, 2) = {r['result']:.0f}")
+            print(f"[Client] divide(42, 2) = {r.result:.0f}")
             r.release()
 
     print("[Client] done.")

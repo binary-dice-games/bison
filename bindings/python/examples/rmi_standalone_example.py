@@ -21,24 +21,24 @@ _print_lock = threading.Lock()
 
 
 def method_add(self_obj, params, result):
-    result["result"] = params["a"] + params["b"]
+    result.result = params.a + params.b
 
 
 def method_subtract(self_obj, params, result):
-    result["result"] = params["a"] - params["b"]
+    result.result = params.a - params.b
 
 
 def method_multiply(self_obj, params, result):
-    result["result"] = params["a"] * params["b"]
+    result.result = params.a * params.b
 
 
 def method_divide(self_obj, params, result):
-    a, b = params["a"], params["b"]
+    a, b = params.a, params.b
     if b == 0.0:
-        result["error"] = "division by zero"
-        result["result"] = 0.0
+        result.error = "division by zero"
+        result.result = 0.0
     else:
-        result["result"] = a / b
+        result.result = a / b
 
 
 def register_calculator():
@@ -60,25 +60,25 @@ def run_client(client_id: int):
             a = 10.0 * client_id
             r = calc.add(a=a, b=3.0)
             with _print_lock:
-                print(f"[Client {client_id}] add({a:.0f}, 3) = {r['result']:.0f}")
+                print(f"[Client {client_id}] add({a:.0f}, 3) = {r.result:.0f}")
             r.release()
 
             b = 7.0 * client_id
             r = calc.subtract(a=100.0, b=b)
             with _print_lock:
-                print(f"[Client {client_id}] subtract(100, {b:.0f}) = {r['result']:.0f}")
+                print(f"[Client {client_id}] subtract(100, {b:.0f}) = {r.result:.0f}")
             r.release()
 
             v = float(client_id)
             r = calc.multiply(a=v, b=v)
             with _print_lock:
-                print(f"[Client {client_id}] multiply({v:.0f}, {v:.0f}) = {r['result']:.0f}")
+                print(f"[Client {client_id}] multiply({v:.0f}, {v:.0f}) = {r.result:.0f}")
             r.release()
 
             b = float(client_id)  # non-zero since client_id >= 1
             r = calc.divide(a=42.0, b=b)
             with _print_lock:
-                print(f"[Client {client_id}] divide(42, {b:.0f}) = {r['result']:.0f}")
+                print(f"[Client {client_id}] divide(42, {b:.0f}) = {r.result:.0f}")
             r.release()
 
     with _print_lock:

@@ -3,7 +3,10 @@
 ``Dynamic`` wraps an opaque ``bison_handle`` and exposes it through standard
 Python syntax: ``obj["field"] = value``, ``len(obj)``, ``for v in obj``,
 ``with Dynamic() as obj:`` etc.  Reference counting is handled automatically;
-callers never need to call ``bison_release`` themselves.
+callers never need to call ``bison_release`` themselves.  Dict- and
+attribute-style access are both supported: ``obj["field"]``/``obj.field``
+project a field, and ``obj.some_method(a=1, b=2)`` invokes a registered
+method by name (equivalent to ``obj.call("some_method", {"a": 1, "b": 2})``).
 """
 
 import ctypes
@@ -296,6 +299,44 @@ class Dynamic:
             if owns_params:
                 params.release()
         return Dynamic(_handle=result_h.value)
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached when normal attribute lookup fails, so this never
+        # shadows a real method/slot (get/set/call/release/...). Probes
+        # bison_get_field_attributes / bison_get_method_attributes directly
+        # (rather than through field_attributes()/method_attributes(), which
+        # raise BisonError on a miss) since both are non-mutating existence
+        # checks — unlike bison_get_int() et al., which lazily create a
+        # field on a missing key (see the __contains__ note above).
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        k = key(name)
+        c = _n.CAttributes()
+        if self._lib.bison_get_field_attributes(self._handle, k, ctypes.byref(c)) == _n.BISON_OK:
+            return self[name]
+        if self._lib.bison_get_method_attributes(self._handle, k, ctypes.byref(c)) == _n.BISON_OK:
+
+            def bound_method(**kwargs: Any) -> "Dynamic":
+                params = Dynamic()
+                try:
+                    for pk, pv in kwargs.items():
+                        params[pk] = pv
+                    return self.call(name, params)
+                finally:
+                    params.release()
+
+            return bound_method
+
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Slots (_handle, _lib, ...) are set directly; anything else is a
+        # field write, e.g. ``obj.name = "Alice"`` == ``obj["name"] = ...``.
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            self[name] = value
 
     # ── Field / method attributes ────────────────────────────────────────────
 
