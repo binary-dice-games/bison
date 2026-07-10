@@ -57,13 +57,13 @@ class bridge : public server {
    * The downstream transport is not owned by the bridge — the caller must
    * ensure it outlives the bridge.
    *
-   * @param downstream        Downstream server transport (borrowed).
-   * @param upstream_transport Upstream client transport (owned).
-   * @param upstream_params   Optional parameters forwarded to
-   *                          `upstream_client_.connect()`.
+   * @param downstream_transport    Downstream server transport (borrowed).
+   * @param upstream_transport      Upstream client transport (owned).
+   * @param upstream_params         Optional parameters forwarded to
+   *                                `upstream_client_.connect()`.
    */
   bridge(
-      transport::server_transport_iface& downstream,
+      transport::server_transport_iface& downstream_transport,
       std::unique_ptr<transport::client_transport_iface> upstream_transport,
       bison::dynamic upstream_params = {});
 
@@ -71,13 +71,13 @@ class bridge : public server {
    * @brief Construct with an owned downstream transport and an owned upstream
    *        transport.
    *
-   * @param downstream        Downstream server transport (owned).
-   * @param upstream_transport Upstream client transport (owned).
-   * @param upstream_params   Optional parameters forwarded to
-   *                          `upstream_client_.connect()`.
+   * @param downstream_transport  Downstream server transport (owned).
+   * @param upstream_transport    Upstream client transport (owned).
+   * @param upstream_params       Optional parameters forwarded to
+   *                              `upstream_client_.connect()`.
    */
   bridge(
-      std::unique_ptr<transport::server_transport_iface> downstream,
+      std::unique_ptr<transport::server_transport_iface> downstream_transport,
       std::unique_ptr<transport::client_transport_iface> upstream_transport,
       bison::dynamic upstream_params = {});
 

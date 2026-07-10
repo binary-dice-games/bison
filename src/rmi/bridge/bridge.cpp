@@ -81,10 +81,10 @@ class bridge_upstream_transport : public transport::client_transport_iface {
 // ── Constructors / destructor ─────────────────────────────────────────────────
 
 bridge::bridge(
-    transport::server_transport_iface& downstream,
+    transport::server_transport_iface& downstream_transport,
     std::unique_ptr<transport::client_transport_iface> upstream_transport,
     bison::dynamic upstream_params)
-    : server(downstream),
+    : server(downstream_transport),
       upstream_client_(
           std::make_unique<bridge_upstream_transport>(
               std::move(upstream_transport),
@@ -92,10 +92,10 @@ bridge::bridge(
       upstream_params_(std::move(upstream_params)) {}
 
 bridge::bridge(
-    std::unique_ptr<transport::server_transport_iface> downstream,
+    std::unique_ptr<transport::server_transport_iface> downstream_transport,
     std::unique_ptr<transport::client_transport_iface> upstream_transport,
     bison::dynamic upstream_params)
-    : server(std::move(downstream)),
+    : server(std::move(downstream_transport)),
       upstream_client_(
           std::make_unique<bridge_upstream_transport>(
               std::move(upstream_transport),
