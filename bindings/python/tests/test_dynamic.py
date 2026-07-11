@@ -308,6 +308,33 @@ class TestKeyHashing(unittest.TestCase):
     def test_different_names_differ(self):
         self.assertNotEqual(key("velocity"), key("score"))
 
+    def test_key_is_memoized(self):
+        """Repeated calls for the same name must hit the lru_cache instead
+        of re-encoding the string and re-crossing the ctypes FFI boundary."""
+        import bison.dynamic as dynamic_mod
+        from bison import _native as _n
+
+        lib = _n.get_lib()
+        calls = []
+        real_bison_key = lib.bison_key
+        lib.bison_key = lambda name: (calls.append(name), real_bison_key(name))[1]
+        try:
+            dynamic_mod.key.cache_clear()
+            first = key("memoization_probe_field")
+            second = key("memoization_probe_field")
+            third = key("memoization_probe_field")
+        finally:
+            lib.bison_key = real_bison_key
+
+        self.assertEqual(first, second)
+        self.assertEqual(second, third)
+        self.assertEqual(len(calls), 1)
+
+    def test_key_cache_bounded(self):
+        import bison.dynamic as dynamic_mod
+
+        self.assertEqual(dynamic_mod.key.cache_info().maxsize, 4096)
+
 
 if __name__ == "__main__":
     unittest.main()
