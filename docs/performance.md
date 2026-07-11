@@ -47,3 +47,9 @@ All `serialize` / `deserialize` overloads and `serializeWithSchema` / `deseriali
 - **Template serialization** — `serializeWithSchema` / `deserializeWithSchema` must write and read fields in identical prototype-chain order. `std::unordered_map` has non-deterministic iteration order across process restarts.
 
 `size()` and `clear()` use `lower_bound(0x80000000u)` to separate numeric from named keys in O(log n).
+
+### Python binding: memoized field/method key hashing
+
+In C++, `"name"_key` is a `constexpr` FNV-1a hash computed at compile time. Python has no equivalent, so `bison.dynamic.key(name)` must hash at run time by crossing the ctypes FFI boundary into `bison_key()` (`src/bison/bison_c.cpp`) on every call — encoding the string and paying ctypes' per-call GIL release/reacquire each time.
+
+`key()` is memoized with `functools.lru_cache(maxsize=4096)`. Field and method names are drawn from a small, static, schema-defined set reused across many calls (every `Dynamic` field/method access funnels through this one function), so the cache turns almost all lookups after the first into a dict hit. The cache is bounded rather than unbounded (`functools.cache`) so that callers hashing high-cardinality or externally-derived strings can't grow it without bound. See `bindings/python/bison/dynamic.py`.

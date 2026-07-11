@@ -11,6 +11,7 @@ method by name (equivalent to ``obj.call("some_method", {"a": 1, "b": 2})``).
 
 import ctypes
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any, Callable, Iterator, Optional
 
 from . import _native as _n
@@ -44,8 +45,21 @@ def _check(rc: int, context: str = "") -> None:
         raise BisonError(rc, context)
 
 
+@lru_cache(maxsize=4096)
 def key(name: str) -> int:
-    """Return the 32-bit FNV-1a hash of *name* (same as ``"name"_key`` in C++)."""
+    """Return the 32-bit FNV-1a hash of *name* (same as ``"name"_key`` in C++).
+
+    Unlike the C++ side (where ``"name"_key`` is a compile-time constant),
+    Python has no way to hash a field/method name at "compile" time, so
+    every ``Dynamic`` field/method access funnels through this function at
+    run time. Results are memoized: field and method names are drawn from
+    a small, static schema-defined set reused across many calls, and the
+    hash is a pure function of the string, so caching avoids repeating the
+    string encode + native call (which also pays ctypes' per-call GIL
+    release/reacquire) for names already seen. Bounded (rather than
+    unbounded) so pathological callers hashing high-cardinality or
+    externally-derived strings can't grow the cache without bound.
+    """
     return _n.get_lib().bison_key(name.encode())
 
 
