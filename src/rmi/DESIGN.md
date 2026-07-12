@@ -570,10 +570,10 @@ Flow:
 
 ### 10.1 connect
 
-- Client sends optional params for auth/session metadata.
+- Client sends optional params for auth/session metadata: `client::connect(dynamic params)` forwards the same `params` to both the transport's `open()` and this operation's payload.
 - Server validates protocol version and returns server capabilities.
 - `payload` in this operation is regular self-describing dynamic data.
-- Authentication remains transport-specific in v1; the RMI protocol does not define built-in auth semantics beyond allowing transport-provided connection context and params.
+- Authentication is an optional server-side hook, not a protocol-level concept: `server::listen()` accepts an `auth_module_ptr` (see `src/rmi/server/auth.hpp`); when set, `handle_connect()` calls its `authenticate(ctx, payload, out_identity)` before acking, and rejects with `ERR_ACCESS_DENIED` on failure. The RMI envelope/wire format itself defines no auth-specific fields -- `auth_module_iface` reads whatever it needs out of the ordinary connect payload. Transport-level security (TLS, local pipe ACLs, transport credentials) remains a separate, transport-specific concern.
 
 ### 10.2 describe
 
@@ -722,6 +722,7 @@ Versioning strategy:
 - Shared envelope schema, operation constants, and hashed protocol ids
 - Client runtime: connect, describe, instantiate, set, get, call, destroy, disconnect
 - Server runtime: listen, accept loop, per-session context isolation, request dispatch, all hook methods
+- Auth hook: `auth_module_iface` + `server::listen()`'s `auth_module` parameter + `on_authenticated()` hook (see § 10.1) -- policy-free accept/reject and optional identity extraction, evaluated once per connection from `handle_connect()`
 - Event dispatch (`onEvent`, server-initiated event frames)
 - All transport implementations (in-memory, TCP, named pipe, anonymous pipe) — all cross-platform via libuv
 - C ABI (`rmi_c.h`) exposing client, server lifecycle to C and language bindings
@@ -729,7 +730,7 @@ Versioning strategy:
 **Future:**
 
 - HTTP transport
-- Auth hooks and capability negotiation in the RMI protocol layer
+- Capability negotiation in the RMI protocol layer (auth hooks are implemented -- see § 10.1 and "Completed" above)
 - Performance optimization and batching
 
 ## 16. Testing Strategy

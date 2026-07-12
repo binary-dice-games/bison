@@ -445,10 +445,7 @@ RMI_API rmi_error rmi_client_connect(rmi_client_handle h, bison_handle params) {
   if (!c)
     return RMI_ERR_NULL;
   try {
-    // For now, ignore the params argument and use default config.
-    // Params could be extended in the future if needed.
-    (void)params;
-    c->connect(dynamic{});
+    c->connect(bison_handle_to_dynamic(params));
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;
