@@ -24,13 +24,13 @@ See [examples.md](examples.md) for build and run instructions.
 
 ### Buffer serializer / deserializer
 
-`buffer_serializer` and `buffer_deserializer` read/write directly from `std::vector<char>` (or `const char*` + length), eliminating virtual dispatch overhead of `std::ostream` / `std::istream`.
+`buffer_serializer` and `buffer_deserializer` read/write directly from `bdg::bison::buffer` (`std::vector<uint8_t>`, or `const uint8_t*` + length), eliminating virtual dispatch overhead of `std::ostream` / `std::istream`.
 
 ```cpp
 // Serialize to buffer:
 buffer_serializer out;
 obj.serialize(out);
-std::vector<char> bytes = out.release();
+bdg::bison::buffer bytes = out.release();
 
 // Deserialize from buffer:
 buffer_deserializer in(bytes);
@@ -48,8 +48,11 @@ All `serialize` / `deserialize` overloads and `serializeWithSchema` / `deseriali
 
 `size()` and `clear()` use `lower_bound(0x80000000u)` to separate numeric from named keys in O(log n).
 
-### Python binding: memoized field/method key hashing
+### Python and C# bindings: memoized field/method key hashing
 
-In C++, `"name"_key` is a `constexpr` FNV-1a hash computed at compile time. Python has no equivalent, so `bison.dynamic.key(name)` must hash at run time by crossing the ctypes FFI boundary into `bison_key()` (`src/bison/bison_c.cpp`) on every call — encoding the string and paying ctypes' per-call GIL release/reacquire each time.
+In C++, `"name"_key` is a `constexpr` FNV-1a hash computed at compile time. Neither Python nor C# has an equivalent, so every field/method access must hash its name at run time by crossing the FFI boundary into `bison_key()` (`src/bison/bison_c.cpp`) — encoding the string and paying the marshaling cost (ctypes' per-call GIL release/reacquire in Python; a P/Invoke call in C#) each time.
 
-`key()` is memoized with `functools.lru_cache(maxsize=4096)`. Field and method names are drawn from a small, static, schema-defined set reused across many calls (every `Dynamic` field/method access funnels through this one function), so the cache turns almost all lookups after the first into a dict hit. The cache is bounded rather than unbounded (`functools.cache`) so that callers hashing high-cardinality or externally-derived strings can't grow it without bound. See `bindings/python/bison/dynamic.py`.
+Both bindings memoize that call in a bounded (4096-entry) cache, since real callers draw field/method names from a small, static, schema-defined set reused across many calls (every `Dynamic` field/method access funnels through it), so the cache turns almost all lookups after the first into a dictionary hit:
+
+- **Python** — `bison.dynamic.key(name)`, memoized with `functools.lru_cache(maxsize=4096)`. Bounded rather than unbounded (`functools.cache`) so that callers hashing high-cardinality or externally-derived strings can't grow it without bound. See `bindings/python/bison/dynamic.py`.
+- **C#** — `Bdg.Bison.Key.Of(name)`, memoized in a `ConcurrentDictionary` capped at 4096 entries (bounded rather than evicting-LRU: once full, new names just fall back to the native call instead of paying eviction bookkeeping on every insert). See `bindings/csharp/Bison/Key.cs`.

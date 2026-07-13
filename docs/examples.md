@@ -1,6 +1,6 @@
 # Running Examples
 
-All examples are under `examples/`. Build the project first (see [building.md](building.md)). New to the library? [tutorial.md](tutorial.md) walks through the same material concept-by-concept.
+All examples below are the native C++ ones, under `examples/`. Build the project first (see [building.md](building.md)). New to the library? [tutorial.md](tutorial.md) walks through the same material concept-by-concept. Looking for the Python or C# examples instead? See [bindings.md](bindings.md).
 
 ## C++ Core Example (`bison_examples`)
 
