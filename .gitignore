@@ -4,6 +4,8 @@ build/
 build-linux/
 build-msys2/
 build_asan/
+bin/
+obj/
 __pycache__/
 *.pyc
 *.pyo
