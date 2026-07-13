@@ -439,6 +439,93 @@ TEST_F(RmiE2E, ConnectAndDisconnect) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// 6b. End-to-end: auth_module_iface
+// ═════════════════════════════════════════════════════════════════════════════
+
+namespace {
+
+/** @brief Accepts or rejects based on a "username" field; echoes it as identity. */
+class test_auth_module : public auth_module_iface {
+ public:
+  explicit test_auth_module(bool accept) : accept_(accept) {}
+
+  bool authenticate(context&, const dynamic& payload, std::string& out_identity) override {
+    called_ = true;
+    const auto* f = payload.findField("username"_key);
+    if (f && f->is<std::string>())
+      out_identity = f->as<std::string>();
+    return accept_;
+  }
+
+  bool called_ = false;
+
+ private:
+  bool accept_;
+};
+
+/** @brief Records every `on_authenticated()` call for assertions. */
+class auth_tracking_server : public server {
+ public:
+  using server::server;
+
+  std::atomic<int> authenticated_calls{0};
+  std::string last_identity;
+
+ protected:
+  void on_authenticated(context& ctx, const std::string& identity) override {
+    (void)ctx;
+    authenticated_calls.fetch_add(1);
+    last_identity = identity;
+  }
+};
+
+} // namespace
+
+TEST(RmiAuth, NoModuleSetBehavesUnchanged) {
+  clearClassRegistry();
+  memory_server_transport server_transport;
+  auth_tracking_server srv{server_transport};
+  srv.listen(dynamic{}); // no auth_module argument
+
+  client c{server_transport.connect()};
+  EXPECT_NO_THROW(c.connect());
+  EXPECT_EQ(srv.authenticated_calls.load(), 0);
+  c.disconnect();
+  srv.stop();
+}
+
+TEST(RmiAuth, RejectingModuleFailsConnectAndSkipsOnAuthenticated) {
+  clearClassRegistry();
+  memory_server_transport server_transport;
+  auth_tracking_server srv{server_transport};
+  auto auth_module = std::make_shared<test_auth_module>(/*accept=*/false);
+  srv.listen(dynamic{}, auth_module);
+
+  client c{server_transport.connect()};
+  EXPECT_THROW(c.connect(), std::exception);
+  EXPECT_TRUE(auth_module->called_);
+  EXPECT_EQ(srv.authenticated_calls.load(), 0);
+  srv.stop();
+}
+
+TEST(RmiAuth, AcceptingModuleFiresOnAuthenticatedWithIdentity) {
+  clearClassRegistry();
+  memory_server_transport server_transport;
+  auth_tracking_server srv{server_transport};
+  auto auth_module = std::make_shared<test_auth_module>(/*accept=*/true);
+  srv.listen(dynamic{}, auth_module);
+
+  client c{server_transport.connect()};
+  dynamic params;
+  params["username"_key] = std::string{"alice"};
+  EXPECT_NO_THROW(c.connect(std::move(params)));
+  EXPECT_EQ(srv.authenticated_calls.load(), 1);
+  EXPECT_EQ(srv.last_identity, "alice");
+  c.disconnect();
+  srv.stop();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // 7. End-to-end: describe
 // ═════════════════════════════════════════════════════════════════════════════
 

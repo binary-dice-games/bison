@@ -35,12 +35,12 @@ client::~client() {
 /** @copydoc bdg::bison::rmi::client::connect */
 void client::connect(bison::dynamic params) {
   shared::register_all_schemas();
+  bison::dynamic payload = params; // copy before transport consumes it
   transport_.withRLock([&](auto& t) { t->open(std::move(params)); });
   running_.store(true);
   worker_ = std::thread(&client::worker_loop, this);
   event_thread_ = std::thread(&client::event_loop, this);
 
-  bison::dynamic payload;
   payload[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
   auto f = send_request(OP_CONNECT, {}, std::move(payload), false);
   f.get();

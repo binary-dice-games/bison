@@ -236,8 +236,9 @@ server::~server() {
 }
 
 /** @copydoc bdg::bison::rmi::server::listen */
-void server::listen(bison::dynamic params) {
+void server::listen(bison::dynamic params, auth_module_ptr auth_module) {
   shared::register_all_schemas();
+  auth_module_ = std::move(auth_module);
   running_.store(true);
   transport_.get()->start(std::move(params));
   accept_thread_ = std::thread(&server::accept_loop, this);
@@ -483,6 +484,15 @@ void server::handle_request(context& ctx, const shared::envelope& env, transport
 
 /** @brief Handle `connect` handshake requests. */
 void server::handle_connect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
+  if (auth_module_) {
+    std::string identity;
+    if (!auth_module_->authenticate(ctx, env.payload, identity)) {
+      send_error(ctx, conn, env, OP_CONNECT, ERR_ACCESS_DENIED, "Authentication failed");
+      return;
+    }
+    on_authenticated(ctx, identity);
+  }
+
   bison::dynamic resp;
   resp[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
   send_response(ctx, conn, env, OP_CONNECT, std::move(resp));

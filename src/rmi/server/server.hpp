@@ -6,6 +6,7 @@
 #pragma once
 
 #include "src/bison/bison.hpp"
+#include "src/rmi/server/auth.hpp"
 #include "src/rmi/server/context.hpp"
 #include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
@@ -100,9 +101,19 @@ class server {
 
   /**
    * @brief Start listening for client connections.
-   * @param params Optional transport-specific listen parameters.
+   *
+   * @param params      Optional transport-specific listen parameters.
+   * @param auth_module Optional authentication hook, evaluated once per
+   *                     connection from `handle_connect()`. `nullptr`
+   *                     (default) disables the feature entirely --
+   *                     `handle_connect()` then behaves exactly as if
+   *                     `auth_module_iface` did not exist. Deliberately not a
+   *                     setter: the module is fixed for the lifetime of the
+   *                     accept loop it gates, so there is no sensible way to
+   *                     change it after `listen()` starts accepting
+   *                     connections.
    */
-  void listen(bison::dynamic params = bison::dynamic{});
+  void listen(bison::dynamic params = bison::dynamic{}, auth_module_ptr auth_module = nullptr);
 
   /** @brief Stop accept loop, close active workers, and release resources. */
   void stop();
@@ -171,6 +182,27 @@ class server {
    */
   virtual void on_session_destroyed(context& ctx) {
     (void)ctx;
+  }
+
+  /**
+   * @brief Called from `handle_connect()` once `auth_module_`'s
+   *        `authenticate()` call returns `true` for this connection.
+   *
+   * No-op default. Only ever fires when `listen()` was given a non-null
+   * `auth_module`; never fires for a rejected `authenticate()` call or when
+   * no module is set. Fires before the `OP_CONNECT` ack is sent, on the
+   * worker thread, with the session's context wlock already held (see
+   * `client_worker`'s dispatch loop) -- override to act on the identity
+   * bison itself attaches no meaning to (e.g. wish derives a persistent
+   * sandbox directory from it).
+   *
+   * @param ctx      Session context for the newly authenticated connection.
+   * @param identity Identity string produced by `auth_module_`; may be empty
+   *                  if the module accepted the connection without one.
+   */
+  virtual void on_authenticated(context& ctx, const std::string& identity) {
+    (void)ctx;
+    (void)identity;
   }
 
   /**
@@ -436,6 +468,10 @@ class server {
 
   std::thread accept_thread_;
   std::atomic<bool> running_{false};
+
+  /** @brief Set once by `listen()`; read-only for the rest of the server's
+   *         lifetime (see `listen()`'s `auth_module` parameter doc). */
+  auth_module_ptr auth_module_;
 
   bison::synchronized<std::vector<std::thread>> workers_;
 

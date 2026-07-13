@@ -139,7 +139,13 @@ class client : public proxy_backend {
 
   /**
    * @brief Open the transport and start the client worker loop.
-   * @param params Optional transport-specific startup parameters.
+   *
+   * @param params Optional startup parameters, forwarded to *both* the
+   *                transport's `open()` (transport-specific config, e.g.
+   *                host/port) and the `OP_CONNECT` handshake payload (e.g.
+   *                fields a server-side `auth_module_iface` inspects). A
+   *                copy is taken before the transport consumes its copy, so
+   *                the same fields reach both destinations.
    */
   void connect(bison::dynamic params = bison::dynamic{});
 
