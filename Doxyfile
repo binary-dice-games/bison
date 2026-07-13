@@ -1,0 +1,16 @@
+# Minimal Doxygen configuration for Bison.
+# Run `doxygen Doxyfile` from the repo root; output goes to docs/doxygen/html.
+
+PROJECT_NAME           = "Bison"
+PROJECT_BRIEF           = "A C++20 library for serializing and deserializing objects in a compact binary format."
+OUTPUT_DIRECTORY        = docs/doxygen
+INPUT                   = src include README.md
+RECURSIVE               = YES
+USE_MDFILE_AS_MAINPAGE  = README.md
+FILE_PATTERNS           = *.hpp *.h *.cpp *.md
+EXTRACT_ALL             = YES
+EXTRACT_STATIC          = YES
+GENERATE_HTML           = YES
+GENERATE_LATEX          = NO
+QUIET                   = YES
+WARN_IF_UNDOCUMENTED    = NO

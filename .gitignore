@@ -16,3 +16,5 @@ bindings/csharp/tests/obj/
 bindings/csharp/tests/bin/
 # Java build artifacts
 bindings/java/target/
+# Generated Doxygen output
+docs/doxygen/

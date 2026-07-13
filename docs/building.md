@@ -1,7 +1,11 @@
 # Building Bison
 
-Bison targets **Linux and MSYS2 only**; native Windows/MSVC builds are not
-supported. See below for setup on Linux, WSL, or MSYS2.
+Bison supports three platform configurations: **Linux**, **MSYS2**, and
+**native Windows** (MSVC or mingw64 — not MSYS2/Cygwin). Linux and MSYS2
+share one POSIX implementation (`forkpty()`, `termios`, etc.); native
+Windows uses a separate implementation (ConPTY, `IsDebuggerPresent()`, etc.)
+selected automatically by CMake. See below for setup on Linux, WSL, MSYS2,
+or native Windows.
 
 ## Quick Build
 
@@ -19,14 +23,25 @@ ctest --test-dir build -C Debug
 
 ## CMake Integration
 
+`target_link_libraries` pulls in the `bison` static library, but its headers
+are consumed by path from the repo root (there is no installed/flattened
+public include tree yet), so add the cloned directory to your include path
+too:
+
 ```cmake
 add_subdirectory(bison)
 target_link_libraries(my_target PRIVATE bison)
+target_include_directories(my_target PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bison)
 ```
 
 ```cpp
-#include <bison.hpp>
+#include "src/bison/bison.hpp"   // core dynamic-object API
+#include "src/rmi/rmi.hpp"       // RMI framework (optional)
 ```
+
+Prefer a stable ABI boundary instead? Link `bison_abi` (a shared library)
+and include `bison_c.h`/`rmi_c.h` from `include/` instead — see
+[docs/bindings.md](bindings.md), which wraps that same C ABI.
 
 ### Building on WSL
 
@@ -86,3 +101,33 @@ ctest --test-dir build-linux --output-on-failure
 ./build-linux/tests/bison_test
 ./build-linux/tests/rmi_test --gtest_filter="*RMI*"
 ```
+
+### Building on Native Windows (MSVC or mingw64)
+
+Native Windows is a genuinely separate build target from MSYS2/Cygwin — it
+uses ConPTY instead of `forkpty()`, `IsDebuggerPresent()` instead of
+`/proc/self/status`, etc. CMake detects it automatically via
+`WIN32 AND NOT MSYS AND NOT CYGWIN` and selects the right sources; no extra
+flags are needed.
+
+```powershell
+git clone --recurse-submodules https://github.com/carloslopezmdez/bison.git
+cd bison
+
+# MSVC (Visual Studio generator, multi-config):
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug
+ctest --test-dir build -C Debug
+
+# mingw64 (e.g. from MSYS2's mingw64 shell, single-config):
+cmake -B build-mingw64 -G Ninja -DPACKAGE_TESTS=ON
+cmake --build build-mingw64
+ctest --test-dir build-mingw64
+```
+
+The native vs. MSYS2 code path is selected by whether CMake itself reports
+`MSYS`/`CYGWIN` (true only when invoked via the MSYS2/Cygwin-packaged
+`cmake`), not by which compiler is used — a native (non-MSYS2) `cmake.exe`
+targeting mingw64 still takes the native Windows path described above. For
+the MSYS2 path instead (sharing the POSIX implementation with Linux), see
+"Building on WSL" above, run from an MSYS2 shell.
