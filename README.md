@@ -8,11 +8,13 @@
 - **Dynamic, heterogeneous objects** — a single `dynamic` object holds fields of any supported type, including nested objects.
 - **Method registration** — attach callable functions to objects at runtime; call them by name.
 - **Class hierarchy & inheritance** — register named classes with parent/child relationships; fields and methods resolve through the inheritance chain.
+- **Namespaces** — isolate class registries by name so identically-named classes in different namespaces don't collide.
 - **Endian-safe serialization** — automatic byte-order conversion for portability.
 - **Attribute metadata** — attach custom typed metadata to fields without changing the variant type.
-- **JSON interoperability** — convert JSON strings directly into `dynamic` objects.
+- **JSON & YAML interoperability** — convert JSON or YAML text directly into `dynamic` objects.
 - **Compile-time string hashing** — field names resolve to 32-bit FNV-1a hashes at compile time via `"name"_key`.
 - **Buffer serializer** — `buffer_serializer` / `buffer_deserializer` for zero-virtual-dispatch I/O.
+- **RMI (Remote Method Invocation)** — call methods and read/write fields on server-hosted objects over TCP, in-memory, or stdio transports.
 
 ## Requirements
 
@@ -38,14 +40,14 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug
 ```
 
-For Linux / WSL / MSYS2 setup and CMake integration details, see [docs/building.md](docs/building.md).
+Runs on Linux, MSYS2, and native Windows (MSVC/mingw64). For WSL/MSYS2/native-Windows setup and CMake integration details, see [docs/building.md](docs/building.md).
 
 ## Quick Start
 
 All public symbols live in the `bdg::bison` namespace.
 
 ```cpp
-#include <bison.hpp>
+#include "src/bison/bison.hpp"
 #include <sstream>
 using namespace bdg::bison;
 
@@ -63,9 +65,11 @@ int main() {
     obj.serialize(stream_serializer(ss));
 
     auto restored = dynamic::deserialize(stream_deserializer(ss));
-    int32_t score = (*restored)["score"_key].as<int32_t>();  // 100
+    int32_t score = restored["score"_key].as<int32_t>();  // 100
 }
 ```
+
+New to Bison? [docs/tutorial.md](docs/tutorial.md) walks through every concept below with runnable examples.
 
 ## Core Concepts
 
@@ -88,7 +92,7 @@ Holds a map of named fields (accessed by hashed key) and a map of callable metho
 ### Keys — compile-time hashing
 
 ```cpp
-auto k = "position"_key;  // constexpr hash_t
+auto k = "position"_key;  // constexpr key_t, implicitly convertible to hash_t
 obj[k] = 3.14f;
 ```
 
@@ -102,7 +106,7 @@ auto copy = dynamic::deserialize(stream_deserializer(in));
 // Buffer variant (faster, no virtual dispatch):
 buffer_serializer buf;
 obj.serialize(buf);
-std::vector<char> bytes = buf.release();
+bdg::bison::buffer bytes = buf.release();  // std::vector<uint8_t>
 
 // Schema-driven — compact, omits field keys (requires matching class registry):
 obj.serializeWithSchema(stream_serializer(out));
@@ -124,56 +128,40 @@ args["b"_key] = int32_t{4};
 dynamic result = obj.call("add"_key, args);
 ```
 
-### Class inheritance
+### Class inheritance & namespaces
 
 ```cpp
 auto base = dynamic_ptr{"Shape"_key, {{"color"_key, std::string{"red"}}}};
-dynamic::addClass(0U, base);
+dynamic::addClass(0U, base);                  // 0U = global namespace, no parent
 
 auto circle = dynamic_ptr{"Circle"_key, {{"radius"_key, 1.0f}}};
-dynamic::addClass("Shape"_key, circle);
+dynamic::addClass(0U, circle, "Shape"_key);   // parent = "Shape"_key
 
 dynamic c = dynamic::instantiate("Circle"_key);
 c["color"_key];               // inherited from Shape
 c.call("describe"_key, {});   // method inherited from Shape
 ```
 
-### Field attributes
+`addClass(ns, klass, parent)` and `instantiate(ns, klass)` take a namespace key (`0U` = global); a distinct `"name"_key` isolates identically-named classes registered in different namespaces from one another.
 
-```cpp
-class Range : public attribute {
-  public: Range(float lo, float hi) : lo(lo), hi(hi) {} float lo, hi;
-};
+### More: attributes, JSON/YAML, user data
 
-field f{3.14f, attr<Required>(), attr<Range>(0.0f, 10.0f)};
-if (auto* r = f.findAttribute<Range>()) { /* r->lo, r->hi */ }
-```
+- **Field attributes** — attach typed metadata to a `field` without touching its value: `field f{3.14f, attr<Range>(0.0f, 10.0f)}`, read back with `f.findAttribute<Range>()`.
+- **JSON/YAML import** — `extensions::from_json(text)` / `extensions::from_yaml(text)` return a `dynamic_ptr` built from the parsed document.
+- **User data** — `obj.setUserdata(ptr)` / `obj.getUserdata()` attach an arbitrary `userdata` subclass to an instance; never serialized.
 
-### JSON interoperability
-
-```cpp
-auto obj = bdg::bison::extensions::from_json(R"({"x": 1, "y": 2.5})");
-int32_t x = (*obj)["x"].as<int32_t>();
-```
-
-### User data
-
-```cpp
-class MyContext : public userdata { public: int session_id = 42; };
-obj.setUserdata(std::make_shared<MyContext>());
-auto ctx = std::dynamic_pointer_cast<MyContext>(obj.getUserdata());
-```
+See [docs/tutorial.md](docs/tutorial.md) for runnable examples of each.
 
 ## RMI — Remote Method Invocation
 
-The RMI subsystem lets a client invoke methods and read/write fields on objects hosted by a server, over a transport of choice. The protocol is request/response with async futures; the server can also push events to connected clients.
+The RMI subsystem lets a client invoke methods and read/write fields on objects hosted by a server, over a transport of choice, using request/response async futures; the server can also push events to connected clients.
 
-**Transports:** TCP socket (`socket_*_transport`), in-memory queues (`memory_*_transport`), and stdin/stdout (`stdio_*_transport`), including an interactive terminal hop framed as OSC-99 escape sequences for ConPTY-safe relaying (`--transport=term`, `term_*_transport`). The `standalone` class combines client and server in-process with no serialization overhead.
+**Transports:** `socket_*_transport` (TCP), `named_pipe_*_transport` (named pipe / Unix domain socket), `memory_*_transport` (in-process queues), `stream_*_transport` (any `std::iostream`, e.g. stdin/stdout), and `term_*_transport` (`--transport=term`, an interactive terminal hop framed as OSC-99 for ConPTY-safe relaying). `rmi::standalone` combines client and server in-process with no serialization overhead.
 
 **Server** — register classes, then listen:
 
 ```cpp
-#include <rmi/server.hpp>
+#include "src/rmi/rmi.hpp"
 using namespace bdg::bison;
 
 auto proto = dynamic_ptr{"Calculator"_key, {{"result"_key, int32_t{0}}}};
@@ -190,7 +178,7 @@ srv.listen(dynamic{});   // blocks until stopped
 **Client** — connect, instantiate a remote object, call methods:
 
 ```cpp
-#include <rmi/client.hpp>
+#include "src/rmi/rmi.hpp"
 using namespace bdg::bison;
 
 rmi::client c{rmi::socket_client_transport{"localhost", 7777}};
@@ -201,7 +189,7 @@ auto proxy = c.instantiate(0U, "Calculator"_key, dynamic{}).get();
 dynamic args;
 args["a"_key] = int32_t{10};
 args["b"_key] = int32_t{3};
-proxy.call("add"_key, args).get();
+proxy.call("add"_key, std::move(args)).get();
 
 auto snapshot = proxy.get().get();   // retrieve all fields
 int32_t result = snapshot["result"_key].as<int32_t>();  // 13
@@ -226,7 +214,8 @@ doxygen Doxyfile
 
 | Document | Contents |
 |---|---|
-| [docs/building.md](docs/building.md) | Linux/WSL/MSYS2 setup, CMake integration |
+| [docs/tutorial.md](docs/tutorial.md) | Beginner-friendly walkthrough of the library with runnable examples |
+| [docs/building.md](docs/building.md) | Linux/WSL/MSYS2/native-Windows setup, CMake integration |
 | [docs/examples.md](docs/examples.md) | Running C++, RMI socket, stdio PTY, and benchmark examples |
 | [docs/bindings.md](docs/bindings.md) | Python and C# binding setup and usage |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |

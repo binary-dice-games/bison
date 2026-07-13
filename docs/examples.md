@@ -1,6 +1,6 @@
 # Running Examples
 
-All examples are under `examples/`. Build the project first (see [building.md](building.md)).
+All examples are under `examples/`. Build the project first (see [building.md](building.md)). New to the library? [tutorial.md](tutorial.md) walks through the same material concept-by-concept.
 
 ## C++ Core Example (`bison_examples`)
 
