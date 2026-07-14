@@ -177,9 +177,9 @@ void server_app::wait_for_shutdown() {
   std::thread reader([got_line] {
     char buf[256];
 #if defined(_WIN32)
-    _read(0, buf, sizeof(buf));
+    (void)_read(0, buf, sizeof(buf));
 #else
-    read(STDIN_FILENO, buf, sizeof(buf));
+    (void)read(STDIN_FILENO, buf, sizeof(buf));
 #endif
     got_line->store(true, std::memory_order_relaxed);
   });
