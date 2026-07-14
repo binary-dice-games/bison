@@ -852,6 +852,15 @@ void server::handle_destroy_group(context& ctx, const shared::envelope& env, tra
 /** @brief Handle disconnect requests and close the connection context. */
 void server::handle_disconnect(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn) {
   cleanup_context(ctx);
+  // Acknowledge before closing: client::disconnect() blocks on this response
+  // (see its doc comment) so it never tears down its own read side -- which,
+  // on term_transport, is what strips incoming BISON<...> markers from the
+  // wire -- until the server has genuinely finished cleanup_context() and is
+  // no longer going to push anything further for this session.
+  try {
+    send_response(ctx, conn, env, OP_DISCONNECT, bison::dynamic{});
+  } catch (...) {
+  }
   conn.close();
 }
 

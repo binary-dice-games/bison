@@ -830,6 +830,16 @@ term_server_connection::~term_server_connection() {
 }
 
 void term_server_connection::send(bison::buffer frame) {
+  // Mirrors socket_server_connection::send()'s closed check: once close()
+  // has been called for this connection, refuse to write any more marker
+  // bytes into the (possibly reused, per the class doc comment) underlying
+  // pty -- otherwise a frame pushed by something that doesn't yet know this
+  // connection is gone (e.g. a stray render update racing session teardown)
+  // would still reach the wire, and on a real terminal a stray
+  // `BISON<...>` marker is visible garbage rather than a silently dropped
+  // byte.
+  if (closed_.load())
+    throw std::runtime_error("term_server_connection::send: closed");
   state_->send_frame(frame);
 }
 

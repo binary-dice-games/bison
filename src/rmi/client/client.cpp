@@ -12,6 +12,14 @@ namespace bdg::bison::rmi {
 
 using namespace shared::constants;
 
+namespace {
+// How long client::disconnect() waits for the server's OP_DISCONNECT
+// acknowledgment before giving up and tearing down the transport locally
+// anyway. Bounds the wait against a peer that is slow, already gone, or
+// (e.g. the in-process test transport) doesn't implement is_connected().
+constexpr std::chrono::milliseconds kDisconnectAckTimeout{2000};
+} // namespace
+
 /** @brief Ensures active transport resources are shut down before destruction.
  */
 client::~client() {
@@ -108,7 +116,20 @@ void client::disconnect() {
 
   bison::dynamic payload;
   try {
-    send_request(OP_DISCONNECT, {}, std::move(payload), true).get();
+    // Not oneway: wait (bounded -- see kDisconnectAckTimeout) for the server
+    // to acknowledge (see server::handle_disconnect) that cleanup_context()
+    // has actually run and it is done pushing anything further for this
+    // session, before shutting down transport_ below. Otherwise the
+    // transport's read side can stop (e.g. term_transport no longer
+    // stripping incoming BISON<...> markers from the wire) while the server
+    // is still mid-teardown and sends one more frame, which then leaks onto
+    // the underlying terminal instead of being parsed as a protocol frame.
+    // Bounded rather than an unconditional .get(): a peer that never
+    // responds (already gone, or a transport -- like the in-process test
+    // transport -- that doesn't track is_connected()) must not be able to
+    // hang disconnect() forever.
+    auto f = send_request(OP_DISCONNECT, {}, std::move(payload), false);
+    f.wait_for(kDisconnectAckTimeout);
   } catch (...) {
   }
 
