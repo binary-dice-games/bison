@@ -15,6 +15,12 @@
 
 #include <gflags/gflags.h>
 
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -155,18 +161,26 @@ void server_app::wait_for_shutdown() {
     return;
   }
 
-  // std::getline() has no portable way to be interrupted from another
-  // thread, so run it on a detached helper thread and poll the shutdown
-  // flag here instead of blocking on it directly -- that's what lets
-  // Ctrl+C/SIGTERM stop the server even while nothing has been typed yet.
-  // The helper thread may still be blocked in getline() when this function
-  // returns (e.g. on the signal path); it owns its own heap-allocated flag
-  // (not a reference to this stack frame) so it stays safe to finish later
-  // on its own once stdin actually produces a line or is closed.
+  // Blocking on stdin has no portable way to be interrupted from another
+  // thread, so read it on a helper thread and poll the shutdown flag here
+  // instead of blocking on it directly -- that's what lets Ctrl+C/SIGTERM
+  // stop the server even while nothing has been typed yet. This
+  // deliberately uses a raw read(2)/_read() on the fd rather than
+  // std::getline(std::cin, ...): on the signal path, nothing is ever typed,
+  // so this thread is left detached and permanently blocked here -- a raw
+  // fd read has no C++ runtime global object for that to be unsafe with,
+  // whereas a thread still inside std::cin's machinery when process exit
+  // destroys std::cin's static state is a data race (observed as a hang:
+  // the reader was scheduled back in mid-teardown and never returned).
+  // Process exit simply discards a thread blocked in a raw syscall.
   auto got_line = std::make_shared<std::atomic<bool>>(false);
   std::thread reader([got_line] {
-    std::string line;
-    std::getline(std::cin, line);
+    char buf[256];
+#if defined(_WIN32)
+    _read(0, buf, sizeof(buf));
+#else
+    read(STDIN_FILENO, buf, sizeof(buf));
+#endif
     got_line->store(true, std::memory_order_relaxed);
   });
   reader.detach();
