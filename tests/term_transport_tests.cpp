@@ -48,6 +48,14 @@ long read_raw(int fd, char* buf, size_t len) {
 #endif
 }
 
+void close_raw(int fd) {
+#if defined(_WIN32)
+  _close(fd);
+#else
+  close(fd);
+#endif
+}
+
 /** @brief A client/server fd pair: two unidirectional pipes forming one full-duplex channel. */
 struct duplex_pipes {
   int client_read;
@@ -380,6 +388,39 @@ TEST(TermTransport, ServerToClientWireFormatIsMarker) {
   const std::string s2c_wire(s2c_buf, static_cast<size_t>(s2c_n));
   EXPECT_EQ(s2c_wire.rfind("BISON<", 0), 0U);
   EXPECT_EQ(s2c_wire.find('\x1b'), std::string::npos);
+}
+
+TEST(TermTransport, ShutdownFromReaderThreadOnEofDoesNotDeadlock) {
+  // Regression test: on EOF, term_reader::on_read() calls passthrough()
+  // synchronously from its own reader loop thread (see term_transport.cpp).
+  // If a passthrough callback reacts to the empty "closed" chunk by tearing
+  // the transport down (e.g. client::disconnect() -> transport->shutdown()
+  // in a real client wired to detect server disconnects), that teardown
+  // runs on the very thread it's trying to stop. Before the
+  // term_pipe_thread::stop() self-join guard, this made loop_thread.join()
+  // a thread joining itself, which throws std::system_error("Resource
+  // deadlock avoided") out of the thread function -> std::terminate() ->
+  // process abort. Simply reaching the end of this test (instead of the
+  // process aborting) is the assertion.
+  duplex_pipes p{};
+  ASSERT_TRUE(make_duplex_pipes(p));
+
+  std::unique_ptr<term_client_transport> client_t;
+  term_passthrough_cb self_shutdown = [&](std::string_view chunk) {
+    if (chunk.empty() && client_t)
+      client_t->shutdown();
+  };
+
+  client_t = std::make_unique<term_client_transport>(p.client_read, p.client_write, self_shutdown);
+  client_t->open(dynamic{});
+
+  // Closing the peer's write end delivers EOF to client_t's reader thread.
+  close_raw(p.server_write);
+
+  for (int i = 0; i < 200 && client_t->is_connected(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+
+  EXPECT_FALSE(client_t->is_connected());
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

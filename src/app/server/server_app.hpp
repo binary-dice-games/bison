@@ -187,22 +187,26 @@ class server_app {
    * @brief Block until the server should stop.
    *
    * Default: waits on `active_term_` (the spawned terminal exiting) when
-   * `--transport=term` selected it, otherwise blocks on
-   * `std::getline(std::cin, line)`. Stdin is unavailable as a shutdown
-   * trigger under `--transport=term` since it is being pumped into the
-   * spawned terminal instead.
+   * `--transport=term` selected it, otherwise waits for a line on stdin
+   * (read on a helper thread so this can still be interrupted). Stdin is
+   * unavailable as a shutdown trigger under `--transport=term` since it is
+   * being pumped into the spawned terminal instead. Either way, also
+   * returns as soon as `SIGINT`/`SIGTERM` is received, so `run()`'s caller
+   * reaches `srv->stop()` (which closes every connected client's session)
+   * instead of the process dying outright via the OS's default signal
+   * action.
    */
   virtual void wait_for_shutdown();
 
   /**
    * @brief Non-blocking check for whether the server should stop.
    *
-   * Default: true once `active_term_` has exited (`--transport=term`),
-   * false otherwise (including when no term transport is active). Intended
-   * for overrides (e.g. a GUI-driven `run_with_transport`) that poll their
-   * own shutdown condition (a window close, etc.) in a loop and need to
-   * check for the spawned terminal's exit alongside it rather than
-   * blocking on `wait_for_shutdown()`.
+   * Default: true once `active_term_` has exited (`--transport=term`) or
+   * `SIGINT`/`SIGTERM` has been received, false otherwise. Intended for
+   * overrides (e.g. a GUI-driven `run_with_transport`) that poll their own
+   * shutdown condition (a window close, etc.) in a loop and need to check
+   * for the spawned terminal's exit and pending shutdown signals alongside
+   * it rather than blocking on `wait_for_shutdown()`.
    */
   virtual bool is_shutdown_requested() const;
 

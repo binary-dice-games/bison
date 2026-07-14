@@ -168,6 +168,16 @@ struct uv_stream_state {
    * case `start_loop()` was also never called, so no background thread is
    * running the loop; it is safe to close the handle and drain the loop
    * synchronously on the calling thread instead.
+   *
+   * If `stop()` is instead invoked synchronously from a callback running on
+   * `loop_thread` itself (e.g. a disconnect/error handler reached through
+   * `on_read()`), `loop_thread.join()` would be a thread joining itself --
+   * `std::thread::join()` throws `std::system_error("Resource deadlock
+   * avoided")` in that case. `uv_async_send()` still safely schedules
+   * `on_stop` to run and close every handle on the next loop iteration
+   * (from any thread, including the loop thread), so `uv_run()` returns and
+   * the thread finishes on its own; detach instead of joining when that
+   * self-call is detected.
    */
   void stop() {
     if (stopped.exchange(true))
@@ -178,9 +188,14 @@ struct uv_stream_state {
       uv_loop_close(&loop);
       return;
     }
+    if (!loop_thread.joinable())
+      return;
     uv_async_send(&stop_async);
-    if (loop_thread.joinable())
-      loop_thread.join();
+    if (std::this_thread::get_id() == loop_thread.get_id()) {
+      loop_thread.detach();
+      return;
+    }
+    loop_thread.join();
   }
 
   // ── Frame I/O ──────────────────────────────────────────────────────────────

@@ -281,10 +281,22 @@ struct term_pipe_thread {
   void stop() {
     if (stopped.exchange(true))
       return;
-    if (loop_thread.joinable()) {
-      uv_async_send(&stop_async);
-      loop_thread.join();
+    if (!loop_thread.joinable())
+      return;
+    uv_async_send(&stop_async);
+    if (std::this_thread::get_id() == loop_thread.get_id()) {
+      // stop() was invoked synchronously from a callback running on this
+      // very loop thread (e.g. a disconnect/EOF handler reached through
+      // on_read() -> passthrough()) -- std::thread::join() on the thread
+      // calling join() throws std::system_error("Resource deadlock
+      // avoided"). uv_async_send() above already scheduled on_stop to run
+      // and close every handle on the next loop iteration, so uv_run()
+      // will return and the thread will finish on its own; detach instead
+      // of joining so this call can return without waiting on itself.
+      loop_thread.detach();
+      return;
     }
+    loop_thread.join();
   }
 };
 

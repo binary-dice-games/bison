@@ -15,11 +15,15 @@
 
 #include <gflags/gflags.h>
 
+#include <atomic>
+#include <chrono>
+#include <csignal>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 DECLARE_string(host);
 DECLARE_int32(port);
@@ -33,6 +37,26 @@ namespace bdg::bison::app {
 // ── Internal server subclass that bridges rmi hooks to server_app hooks ───────
 
 namespace {
+
+// Set from a signal handler, so it must only ever be touched with an atomic
+// store/load (no locks, no allocation, no I/O -- the handler itself must
+// stay async-signal-safe). Checked by wait_for_shutdown()/
+// is_shutdown_requested() so Ctrl+C / SIGTERM reaches server::stop() (which
+// closes every connected client's session/connection) instead of falling
+// through to the OS's default action of killing the process outright.
+std::atomic<bool> g_shutdown_requested{false};
+
+extern "C" void handle_shutdown_signal(int /*sig*/) {
+  g_shutdown_requested.store(true, std::memory_order_relaxed);
+}
+
+// Installing twice (e.g. run() called more than once in a process) is
+// harmless -- std::signal() just overwrites the handler with itself -- so
+// no once-guard is needed.
+void install_shutdown_signal_handlers() {
+  std::signal(SIGINT, handle_shutdown_signal);
+  std::signal(SIGTERM, handle_shutdown_signal);
+}
 
 class bridged_server : public rmi::server {
  public:
@@ -126,21 +150,40 @@ int server_app::run_with_transport(rmi::transport::server_transport_iface& trans
 
 void server_app::wait_for_shutdown() {
   if (active_term_) {
-    active_term_->wait();
+    while (!active_term_->has_exited() && !g_shutdown_requested.load(std::memory_order_relaxed))
+      std::this_thread::sleep_for(std::chrono::milliseconds{50});
     return;
   }
-  std::string line;
-  std::getline(std::cin, line);
+
+  // std::getline() has no portable way to be interrupted from another
+  // thread, so run it on a detached helper thread and poll the shutdown
+  // flag here instead of blocking on it directly -- that's what lets
+  // Ctrl+C/SIGTERM stop the server even while nothing has been typed yet.
+  // The helper thread may still be blocked in getline() when this function
+  // returns (e.g. on the signal path); it owns its own heap-allocated flag
+  // (not a reference to this stack frame) so it stays safe to finish later
+  // on its own once stdin actually produces a line or is closed.
+  auto got_line = std::make_shared<std::atomic<bool>>(false);
+  std::thread reader([got_line] {
+    std::string line;
+    std::getline(std::cin, line);
+    got_line->store(true, std::memory_order_relaxed);
+  });
+  reader.detach();
+
+  while (!got_line->load(std::memory_order_relaxed) && !g_shutdown_requested.load(std::memory_order_relaxed))
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
 }
 
 bool server_app::is_shutdown_requested() const {
-  return active_term_ && active_term_->has_exited();
+  return (active_term_ && active_term_->has_exited()) || g_shutdown_requested.load(std::memory_order_relaxed);
 }
 
 // ── run() — argument parsing and lifecycle ────────────────────────────────────
 
 int server_app::run(int argc, char** argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  install_shutdown_signal_handlers();
 
   if (FLAGS_debugger) {
     wait_for_debugger();
