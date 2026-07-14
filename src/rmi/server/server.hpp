@@ -333,12 +333,17 @@ class server {
 
   /**
    * @brief Called on the worker thread immediately before dispatching each
-   *        validated request.
+   *        validated request, and once more around session teardown
+   *        (`on_session_destroyed()` + `cleanup_context()`, which runs
+   *        object destructors -- see `client_worker()`).
    *
    * Override to acquire per-session resources (e.g. a render mutex) before
-   * any request handler runs.  Paired with `on_after_dispatch`.
+   * any request handler runs, or more generally to mark (e.g. via a
+   * thread-local) that the calling thread already holds `ctx`'s wlock for
+   * the duration of the call -- both request dispatch and teardown run with
+   * it held. Paired with `on_after_dispatch`.
    *
-   * @param ctx Session context for the request.
+   * @param ctx Session context for the request, or being torn down.
    */
   virtual void on_before_dispatch(context& ctx) {
     (void)ctx;
@@ -346,13 +351,14 @@ class server {
 
   /**
    * @brief Called on the worker thread immediately after each request
-   *        dispatch completes, whether it succeeded or threw.
+   *        dispatch completes (whether it succeeded or threw), and once
+   *        more after session teardown finishes -- see `on_before_dispatch`.
    *
    * Guaranteed to be called exactly once per `on_before_dispatch` call.
    * Must not throw -- override to release resources acquired in
    * `on_before_dispatch`.
    *
-   * @param ctx Session context for the request.
+   * @param ctx Session context for the request, or being torn down.
    */
   virtual void on_after_dispatch(context& ctx) noexcept {
     (void)ctx;

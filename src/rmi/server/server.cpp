@@ -361,8 +361,18 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
   {
     auto lp = ctx_holder->wlock();
     context& ctx = **lp;
+    // Bracket teardown in the same on_before_dispatch/on_after_dispatch
+    // hooks used around handle_request() above -- overrides rely on these to
+    // know a thread already holds ctx's wlock (e.g. so a destructor invoked
+    // from cleanup_context()'s HOOK_DESTRUCT calls / ctx.objects.clear()
+    // doesn't try to re-acquire it and self-deadlock). Without this,
+    // on_session_destroyed() was covered (called directly under the wlock)
+    // but cleanup_context() -- where objects, and therefore their
+    // destructors, actually run -- was not.
+    on_before_dispatch(ctx);
     on_session_destroyed(ctx);
     cleanup_context(ctx);
+    on_after_dispatch(ctx);
   }
 
   // Unregister and clear emit_event to prevent dangling references to conn.
