@@ -28,6 +28,11 @@ static bison_hash H(const char* name) {
   return bison_key(name);
 }
 
+static void free_and_null(char** s) {
+  bison_free_string(*s);
+  *s = nullptr;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. Lifecycle: create / add_ref / release
 // ═════════════════════════════════════════════════════════════════════════════
@@ -212,6 +217,81 @@ TEST(SetGetTests, NullHandleReturnsNullError) {
   int32_t v = 0;
   EXPECT_EQ(bison_get_int(nullptr, H("x"), &v), BISON_ERR_NULL);
   EXPECT_EQ(bison_set_int(nullptr, H("x"), 1), BISON_ERR_NULL);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2b. Vector field registration
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(VectorFieldTests, BoolVectorRoundTripsThroughJson) {
+  ScopedHandle h{bison_create(0)};
+  const int values[] = {1, 0, 1};
+  ASSERT_EQ(bison_add_field_vector_bool(h, H("flags"), values, 3, nullptr), BISON_OK);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_to_json(h, -1, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+  EXPECT_NE(std::string{out}.find("[true,false,true]"), std::string::npos);
+  free_and_null(&out);
+}
+
+TEST(VectorFieldTests, IntVectorRoundTripsThroughJson) {
+  ScopedHandle h{bison_create(0)};
+  const int32_t values[] = {1, 2, 3};
+  ASSERT_EQ(bison_add_field_vector_int(h, H("scores"), values, 3, nullptr), BISON_OK);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_to_json(h, -1, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+  EXPECT_NE(std::string{out}.find("[1,2,3]"), std::string::npos);
+  free_and_null(&out);
+}
+
+TEST(VectorFieldTests, FloatVectorRoundTripsThroughJson) {
+  ScopedHandle h{bison_create(0)};
+  const float values[] = {1.5f, 2.5f};
+  ASSERT_EQ(bison_add_field_vector_float(h, H("ratios"), values, 2, nullptr), BISON_OK);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_to_json(h, -1, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+  EXPECT_NE(std::string{out}.find("1.5"), std::string::npos);
+  EXPECT_NE(std::string{out}.find("2.5"), std::string::npos);
+  free_and_null(&out);
+}
+
+TEST(VectorFieldTests, BytesVectorRoundTripsThroughJson) {
+  ScopedHandle h{bison_create(0)};
+  const uint8_t values[] = {0, 1, 255};
+  ASSERT_EQ(bison_add_field_vector_bytes(h, H("blob"), values, 3, nullptr), BISON_OK);
+
+  char* out = nullptr;
+  ASSERT_EQ(bison_to_json(h, -1, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+  free_and_null(&out);
+}
+
+TEST(VectorFieldTests, EmptyVectorWithNullValuesSucceeds) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_add_field_vector_int(h, H("empty"), nullptr, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_field_vector_bool(h, H("empty_b"), nullptr, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_field_vector_float(h, H("empty_f"), nullptr, 0, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_field_vector_bytes(h, H("empty_y"), nullptr, 0, nullptr), BISON_OK);
+}
+
+TEST(VectorFieldTests, DuplicateKeyReturnsDuplicateError) {
+  ScopedHandle h{bison_create(0)};
+  const int32_t values[] = {1};
+  ASSERT_EQ(bison_add_field_vector_int(h, H("dup"), values, 1, nullptr), BISON_OK);
+  EXPECT_EQ(bison_add_field_vector_int(h, H("dup"), values, 1, nullptr), BISON_ERR_DUPLICATE);
+}
+
+TEST(VectorFieldTests, NullObjectHandleReturnsNullError) {
+  const int32_t values[] = {1};
+  EXPECT_EQ(bison_add_field_vector_int(nullptr, H("x"), values, 1, nullptr), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_field_vector_bool(nullptr, H("x"), nullptr, 0, nullptr), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_field_vector_float(nullptr, H("x"), nullptr, 0, nullptr), BISON_ERR_NULL);
+  EXPECT_EQ(bison_add_field_vector_bytes(nullptr, H("x"), nullptr, 0, nullptr), BISON_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -492,11 +572,6 @@ TEST_F(CApiNamespaceTest, FindClassSearchesCorrectNamespace) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PrintTests — bison_print / bison_free_string
 // ─────────────────────────────────────────────────────────────────────────────
-
-static void free_and_null(char** s) {
-  bison_free_string(*s);
-  *s = nullptr;
-}
 
 TEST(PrintTests, DefaultOptionsProducesMultilineOutput) {
   ScopedHandle h{bison_create(0)};
