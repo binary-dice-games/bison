@@ -131,3 +131,61 @@ The native vs. MSYS2 code path is selected by whether CMake itself reports
 targeting mingw64 still takes the native Windows path described above. For
 the MSYS2 path instead (sharing the POSIX implementation with Linux), see
 "Building on WSL" above, run from an MSYS2 shell.
+
+---
+
+## Packaging a release
+
+`cmake/Packaging.cmake` adds `install()` rules (tagged `COMPONENT bison`, to
+keep add_subdirectory-vendored dependencies like nlohmann_json/libuv out of
+the package) plus a CPack `ZIP` generator config, so any configured build
+can produce a release zip directly:
+
+```sh
+cmake --build build --target package   # or: cd build && cpack -G ZIP
+```
+
+That zip has `bison-cli`, `bison_abi` + its public C headers (`bison_c.h`,
+`rmi_c.h`), `docs/` + `README.md`, and the Python/C# binding sources and
+examples — deliberately excluding `examples/`'s and `src/srv/calc`'s own
+binaries (`bison_examples`, `calc-server`, etc.), which are demo/tutorial
+code, not something an end user of the ABI/CLI needs.
+`scripts/package_release.py` wraps this end to end — configuring a Release
+build, building, running `cpack`, then bolting on the pieces CPack can't
+produce on its own: a compiled C# binding DLL (via `dotnet publish`, if
+`dotnet` is on `PATH`) and, on MSYS2/native Windows, the runtime DLLs the
+binaries dynamically link against (via `ldd`):
+
+```sh
+python3 scripts/package_release.py --version 1.2.3
+```
+
+Produces `dist/bison-<version>-<System>-<arch>.zip`. Run it once per
+platform (Linux, MSYS2, native Windows) to produce that platform's release
+asset.
+
+### Putting the release on PATH
+
+The zip also ships a pair of small scripts (`packaging/unix/` on Linux,
+`packaging/windows/` on Windows — installed to the zip's root) so
+`bison-cli` and `bison_abi.dll`/`libbison_abi.so` are usable from any
+working directory after extracting, not just from inside the zip's own
+`bin/`:
+
+- **`bison-env.sh` / `bison-env.ps1` / `bison-env.cmd`** — session-only, no
+  files modified. `source ./bison-env.sh` (Linux), `. .\bison-env.ps1`
+  (PowerShell), or `bison-env.cmd` (cmd.exe).
+- **`install.sh` / `install.ps1`** — persists the change so new terminals
+  pick it up automatically: appends a marked, idempotent block to
+  `~/.bashrc`/`~/.zshrc` on Linux, or (on Windows, via `install.ps1`) adds
+  the zip's `bin\` to the per-user `HKCU` `PATH` — no administrator rights
+  needed, and never touches the machine-wide PATH. Both accept
+  `--uninstall` / `-Uninstall` to remove what they added.
+
+Windows searches every directory on `PATH` when resolving a DLL, so `PATH`
+alone covers both running `bison-cli.exe` from anywhere and a separate
+program (a C# app P/Invoking `bison_abi.dll`, Python
+`ctypes.CDLL("bison_abi.dll")` without `BISON_LIB` set) finding it. Linux's
+dynamic linker does not consult `PATH` for shared libraries, so both
+scripts additionally set `LD_LIBRARY_PATH` and `BISON_LIB` (the latter read
+directly by `bindings/python/bison/_native.py`) there.

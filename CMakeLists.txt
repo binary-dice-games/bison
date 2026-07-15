@@ -155,6 +155,18 @@ if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN))
   target_link_libraries(bison_abi PRIVATE util)
 endif()
 
+# Release packaging (see cmake/Packaging.cmake for the rest -- docs,
+# bindings, CPack ZIP config). Tagged COMPONENT bison so a project
+# consuming bison via add_subdirectory() doesn't get these mixed into its
+# own default install component.
+install(TARGETS bison_abi
+    RUNTIME DESTINATION bin COMPONENT bison   # bison_abi.dll (Windows/MSYS2)
+    LIBRARY DESTINATION bin COMPONENT bison   # libbison_abi.so (Linux)
+    ARCHIVE DESTINATION lib COMPONENT bison)  # bison_abi.lib (MSVC import lib)
+install(FILES include/bison_c.h include/rmi_c.h
+    DESTINATION include
+    COMPONENT bison)
+
 if(PACKAGE_TESTS)
     enable_testing()
     include(GoogleTest)
@@ -168,3 +180,14 @@ add_subdirectory(src/srv)
 add_executable(bison-cli src/app/cli/main.cpp)
 target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json gflags)
 target_include_directories(bison-cli PRIVATE src/rmi)
+install(TARGETS bison-cli RUNTIME DESTINATION bin COMPONENT bison)
+
+# Non-target install() rules (docs, license, binding sources/examples) plus
+# the CPack ZIP config live in cmake/Packaging.cmake. Only include it when
+# bison is the top-level project -- wish (and any other consumer) pulls
+# bison in via add_subdirectory("extern/bison"), and CPack's include(CPack)
+# is a global singleton (a second include() from wish's own packaging file
+# would silently no-op), so this must not run in that context.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  include(cmake/Packaging.cmake)
+endif()
