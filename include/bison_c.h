@@ -682,6 +682,69 @@ BISON_API bison_error bison_add_field_bool(bison_handle obj, bison_hash key, int
 BISON_API bison_error
 bison_add_field_string(bison_handle obj, bison_hash key, const char* value, const bison_attributes* meta);
 
+/**
+ * @brief Add a `vector<bool>` field to @p obj with optional attribute metadata.
+ *
+ * @param obj    Target object handle.
+ * @param key    Field name hash (use `bison_key()`).
+ * @param values Array of initial values (non-zero is `true`); may be `NULL`
+ *               when @p count is 0, producing an empty vector.
+ * @param count  Number of elements in @p values.
+ * @param meta   Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_vector_bool(
+    bison_handle obj, bison_hash key, const int* values, size_t count, const bison_attributes* meta);
+
+/**
+ * @brief Add a `vector<int32_t>` field to @p obj with optional attribute
+ * metadata.
+ *
+ * @param obj    Target object handle.
+ * @param key    Field name hash (use `bison_key()`).
+ * @param values Array of initial values; may be `NULL` when @p count is 0,
+ *               producing an empty vector.
+ * @param count  Number of elements in @p values.
+ * @param meta   Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_vector_int(
+    bison_handle obj, bison_hash key, const int32_t* values, size_t count, const bison_attributes* meta);
+
+/**
+ * @brief Add a `vector<float>` field to @p obj with optional attribute
+ * metadata.
+ *
+ * @param obj    Target object handle.
+ * @param key    Field name hash (use `bison_key()`).
+ * @param values Array of initial values; may be `NULL` when @p count is 0,
+ *               producing an empty vector.
+ * @param count  Number of elements in @p values.
+ * @param meta   Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_vector_float(
+    bison_handle obj, bison_hash key, const float* values, size_t count, const bison_attributes* meta);
+
+/**
+ * @brief Add a `vector<uint8_t>` (raw byte buffer) field to @p obj with
+ * optional attribute metadata.
+ *
+ * @param obj    Target object handle.
+ * @param key    Field name hash (use `bison_key()`).
+ * @param values Array of initial bytes; may be `NULL` when @p count is 0,
+ *               producing an empty vector.
+ * @param count  Number of bytes in @p values.
+ * @param meta   Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error bison_add_field_vector_bytes(
+    bison_handle obj, bison_hash key, const uint8_t* values, size_t count, const bison_attributes* meta);
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility
  * ═════════════════════════════════════════════════════════════════════════ */

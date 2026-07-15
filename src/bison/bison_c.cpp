@@ -32,6 +32,7 @@
 #include <cstring>
 #include <memory>
 #include <stdexcept>
+#include <vector>
 
 // ─── Internal helpers ──────────────────────────────────────────────────────
 
@@ -361,6 +362,50 @@ bison_add_field_string(bison_handle obj, bison_hash key, const char* value, cons
   if (!value)
     return BISON_ERR_NULL;
   bdg::bison::field f{std::string{value}};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_vector_bool(
+    bison_handle obj, bison_hash key, const int* values, size_t count, const bison_attributes* meta) {
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  std::vector<bool> v;
+  v.reserve(count);
+  for (size_t i = 0; i < count; ++i)
+    v.push_back(values[i] != 0);
+  bdg::bison::field f{std::move(v)};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_vector_int(
+    bison_handle obj, bison_hash key, const int32_t* values, size_t count, const bison_attributes* meta) {
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  bdg::bison::field f{std::vector<int32_t>{values, values + count}};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_vector_float(
+    bison_handle obj, bison_hash key, const float* values, size_t count, const bison_attributes* meta) {
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  bdg::bison::field f{std::vector<float>{values, values + count}};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
+BISON_API bison_error bison_add_field_vector_bytes(
+    bison_handle obj, bison_hash key, const uint8_t* values, size_t count, const bison_attributes* meta) {
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  bdg::bison::field f{std::vector<uint8_t>{values, values + count}};
   for (auto& a : attrs_from_meta(meta))
     f.addAttribute(std::move(a));
   return add_field_impl(obj, key, std::move(f));
