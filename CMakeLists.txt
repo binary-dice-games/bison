@@ -106,7 +106,11 @@ target_include_directories(bison PRIVATE src/rmi)
 # terminal_posix.cpp/terminal_win.cpp (src/term) established this pattern,
 # reused here for every other file with a real per-OS implementation.
 if(WIN32 AND NOT MSYS AND NOT CYGWIN)
-  target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS)
+  # _WIN32_WINNT=0x0A00 (Windows 10): terminal_win.cpp uses the ConPTY APIs
+  # (CreatePseudoConsole et al.), which mingw-w64's headers only declare when
+  # targeting Windows 10 1809+ (NTDDI_WIN10_RS5). The toolchain's default
+  # _WIN32_WINNT (0x0601, Windows 7) hides those declarations.
+  target_compile_definitions(bison PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS _WIN32_WINNT=0x0A00)
   target_sources(bison PRIVATE
     src/term/terminal_win.cpp
     src/term/scoped_terminal_config_win.cpp
@@ -133,7 +137,7 @@ add_library(bison_abi SHARED
 )
 
 if(WIN32 AND NOT MSYS AND NOT CYGWIN)
-  target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS)
+  target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS _WIN32_WINNT=0x0A00)
   target_sources(bison_abi PRIVATE src/app/debugger_win.cpp)
 else()
   if(WIN32)
