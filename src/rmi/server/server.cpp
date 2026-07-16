@@ -713,7 +713,13 @@ void server::handle_set(context& ctx, const shared::envelope& env, transport::se
   }
 
   patch.forEach([&obj](bison::key_t k, const bison::field& v) {
-    if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT)
+    // NAMESPACE must never be copied from a patch -- see the identical
+    // exclusion in standalone::handle_set() for the full explanation: a
+    // __setter hook probing patch.findField<T>() for an optional field can
+    // miss and cause resolveNamespace() to cache a spurious __namespace=0
+    // onto `patch`, which would otherwise overwrite the target object's
+    // real namespace here and break its method resolution.
+    if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT && k != bison::dynamic::NAMESPACE)
       obj[k] = v;
   });
 

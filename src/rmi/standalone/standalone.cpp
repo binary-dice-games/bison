@@ -539,7 +539,17 @@ bison::dynamic standalone::handle_set(bison::key_t object_id, bison::dynamic pay
   }
 
   patch.forEach([&obj](bison::key_t k, const bison::field& v) {
-    if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT)
+    // NAMESPACE must never be copied from a patch: a __setter hook that
+    // probes for an optional field via patch.findField<T>() (e.g. checking
+    // whether "status" was included in this particular update) can miss and
+    // fall through to dynamic::resolveNamespace()'s slow path, which caches
+    // an absent namespace as key_t{0} directly onto `patch` -- a plain
+    // client payload that never had one. Without this exclusion, that
+    // incidental field rides along here and overwrites the *target*
+    // object's real namespace, breaking every method not yet resolved on
+    // it (findMethod's class-chain lookup then searches the wrong -- empty
+    // -- namespace collection and throws "Method not found").
+    if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT && k != bison::dynamic::NAMESPACE)
       obj[k] = v;
   });
 

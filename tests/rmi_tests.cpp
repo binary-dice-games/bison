@@ -817,6 +817,52 @@ TEST_F(RmiE2E, SetterHookTransformsPatch) {
   c.disconnect();
 }
 
+TEST_F(RmiE2E, SetterHookProbingMissingFieldDoesNotBreakSubsequentCalls) {
+  // Regression test: a __setter hook commonly probes patch.findField<T>()
+  // for an optional field that a given update may or may not include (e.g.
+  // updating "progress" without "status"). That probe, when it misses,
+  // falls through to dynamic::resolveNamespace()'s slow path -- which used
+  // to cache the *patch's* absent namespace as key_t{0} directly onto the
+  // patch object. handle_set() then blindly copied every field of the
+  // setter's returned patch back onto the target object, silently
+  // clobbering its real namespace with that spurious __namespace=0. Any
+  // method not yet resolved on the object (i.e. not already cached from an
+  // earlier call) then failed to find its class in the now-wrong namespace
+  // collection and threw "Method not found", even though the class was
+  // registered and the method existed all along.
+  auto proto = dynamic_ptr{"Probing"_key, {{"progress"_key, float{0.0f}}, {"status"_key, std::string{""}}}};
+  proto->addMethod(HOOK_SETTER, method{[](dynamic& /*self*/, const dynamic& patch) {
+                     // Probe for a field this particular patch omits -- the
+                     // exact pattern that triggers the corruption.
+                     patch.findField<std::string>("status"_key);
+                     return patch.clone();
+                   }});
+  proto->addMethod("ping"_key, method{[](dynamic& /*self*/, const dynamic&) {
+                     dynamic out;
+                     out["pong"_key] = true;
+                     return out;
+                   }});
+  dynamic::addClass("math"_key, proto, 0U);
+
+  auto c = make_client();
+  c.connect();
+
+  auto proxy = c.instantiate("math"_key, "Probing"_key).get();
+
+  dynamic patch;
+  patch["progress"_key] = 0.5f; // deliberately omits "status"
+  proxy.set(std::move(patch)).get();
+
+  // "ping" has never been resolved on this instance before -- it must still
+  // find its class via the (still-correct) namespace.
+  dynamic result = proxy.call("ping"_key, dynamic{}).get();
+  bool pong = result["pong"_key];
+  EXPECT_TRUE(pong);
+
+  c.destroy(std::move(proxy));
+  c.disconnect();
+}
+
 TEST_F(RmiE2E, GetterHookTransformsResult) {
   auto proto = dynamic_ptr{"Doubled"_key, {{"n"_key, int32_t{0}}}};
   // __getter doubles the value of n in the response.
