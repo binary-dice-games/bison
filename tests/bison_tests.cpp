@@ -1917,3 +1917,92 @@ TEST(ForEachChildTests, VisitorReceivesCorrectKeyAndRef) {
   EXPECT_EQ(visited_key.id, hash_t("child"_key));
   EXPECT_EQ(visited_val, 99);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 18. deserialize_instance(): factory-aware deserialization preserves the
+//     registered concrete subclass, including for nested dynamic_ptr children.
+// ═════════════════════════════════════════════════════════════════════════════
+
+struct SerializableRoot : public cloneable_dynamic<SerializableRoot> {
+  explicit SerializableRoot(dynamic&& base) : cloneable_dynamic(std::move(base)) {}
+};
+
+struct SerializableChild : public cloneable_dynamic<SerializableChild> {
+  explicit SerializableChild(dynamic&& base) : cloneable_dynamic(std::move(base)) {}
+};
+
+class DeserializeInstanceTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    clearClassRegistry();
+  }
+  void TearDown() override {
+    clearClassRegistry();
+  }
+};
+
+static dynamic_ptr instance_roundtrip(const dynamic& d) {
+  std::stringstream ss;
+  {
+    stream_serializer out{ss};
+    d.serialize(out);
+  }
+  stream_deserializer in{ss};
+  return dynamic::deserialize_instance(in);
+}
+
+TEST_F(DeserializeInstanceTest, UnregisteredClassStillRoundTripsAsPlainDynamic) {
+  // Back-compat: a class with no registered factory (or no registration at
+  // all) falls back to a plain `dynamic`, same as before this feature existed.
+  dynamic d;
+  d["v"_key] = int32_t{7};
+
+  dynamic_ptr result = instance_roundtrip(d);
+  ASSERT_NE(result, nullptr);
+  EXPECT_EQ((*result)["v"_key].as<int32_t>(), 7);
+}
+
+TEST_F(DeserializeInstanceTest, RegisteredSubclassPreservesConcreteType) {
+  auto proto = std::make_shared<SerializableRoot>(
+      dynamic::instantiate(bison_key_t{0U}, "SerializableRoot"_key));
+  ASSERT_TRUE(dynamic::addClass(
+      bison_key_t{0U}, proto, bison_key_t{0U},
+      dynamic::make_factory<SerializableRoot>(bison_key_t{0U}, "SerializableRoot"_key)));
+
+  auto original = dynamic::instantiate<SerializableRoot>(bison_key_t{0U}, "SerializableRoot"_key);
+  (*original)["v"_key] = int32_t{42};
+
+  dynamic_ptr result = instance_roundtrip(*original);
+  auto* typed = dynamic_cast<SerializableRoot*>(result.get());
+  ASSERT_NE(typed, nullptr);
+  EXPECT_EQ((*typed)["v"_key].as<int32_t>(), 42);
+}
+
+TEST_F(DeserializeInstanceTest, NestedChildOfDifferentRegisteredSubclassSurvives) {
+  auto root_proto = std::make_shared<SerializableRoot>(
+      dynamic::instantiate(bison_key_t{0U}, "SerializableRoot"_key));
+  ASSERT_TRUE(dynamic::addClass(
+      bison_key_t{0U}, root_proto, bison_key_t{0U},
+      dynamic::make_factory<SerializableRoot>(bison_key_t{0U}, "SerializableRoot"_key)));
+
+  auto child_proto = std::make_shared<SerializableChild>(
+      dynamic::instantiate(bison_key_t{0U}, "SerializableChild"_key));
+  ASSERT_TRUE(dynamic::addClass(
+      bison_key_t{0U}, child_proto, bison_key_t{0U},
+      dynamic::make_factory<SerializableChild>(bison_key_t{0U}, "SerializableChild"_key)));
+
+  auto child = dynamic::instantiate<SerializableChild>(bison_key_t{0U}, "SerializableChild"_key);
+  (*child)["v"_key] = int32_t{30};
+
+  auto root = dynamic::instantiate<SerializableRoot>(bison_key_t{0U}, "SerializableRoot"_key);
+  (*root)["child"_key] = dynamic_ptr{child};
+
+  dynamic_ptr result = instance_roundtrip(*root);
+  auto* typed_root = dynamic_cast<SerializableRoot*>(result.get());
+  ASSERT_NE(typed_root, nullptr);
+
+  auto child_field = (*typed_root)["child"_key].as<dynamic_ptr>();
+  auto* typed_child = dynamic_cast<SerializableChild*>(child_field.get());
+  ASSERT_NE(typed_child, nullptr);
+  EXPECT_EQ((*typed_child)["v"_key].as<int32_t>(), 30);
+}

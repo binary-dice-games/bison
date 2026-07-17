@@ -1041,6 +1041,28 @@ class dynamic {
   inline static dynamic deserializeWithSchema(stream_deserializer& in);
   inline static dynamic deserializeWithSchema(buffer_deserializer& in);
 
+  /**
+   * @brief Deserialize into a factory-produced instance of the object's
+   *        registered concrete class, instead of a plain `dynamic`.
+   *
+   * Reads the same wire format as `deserialize()`, then inspects the
+   * deserialized `CLASS`/`NAMESPACE` fields and calls `create_instance()` to
+   * obtain a properly-typed instance (falling back to a plain `dynamic` if
+   * the class was never registered, or was registered without a factory).
+   * The deserialized field values are then moved onto that instance,
+   * replacing whatever defaults the factory/prototype produced. This is
+   * what allows `dynamic_cast` to a concrete `cloneable_dynamic` subclass to
+   * succeed after loading a serialized tree -- plain `deserialize()` always
+   * yields a base `dynamic`, silently discarding the concrete C++ type.
+   *
+   * @return Factory-produced (or plain `dynamic`-backed) instance with the
+   *         deserialized field values applied.
+   */
+  inline static dynamic_ptr deserialize_instance(stream_deserializer& in);
+
+  /** @brief `buffer_deserializer` counterpart of `deserialize_instance()`. */
+  inline static dynamic_ptr deserialize_instance(buffer_deserializer& in);
+
   /// @brief Callable type stored in registered class prototypes.
   using factory_fn = std::function<dynamic_ptr()>;
 
@@ -1650,7 +1672,7 @@ inline field field::deserialize(stream_deserializer& in) {
     case field::tag_of<dynamic_ptr>(): {
       if (!in.read<bool>())
         return field{std::shared_ptr<dynamic>{}};
-      return field{dynamic_ptr{dynamic::deserialize(in)}};
+      return field{dynamic::deserialize_instance(in)};
     }
     case field::tag_of<std::string>(): {
       std::string s;
@@ -1705,6 +1727,20 @@ inline dynamic dynamic::deserialize(stream_deserializer& in) {
   }
 
   return dyn;
+}
+
+inline dynamic_ptr dynamic::deserialize_instance(stream_deserializer& in) {
+  dynamic dyn = dynamic::deserialize(in);
+  auto ns = dyn.get_as<key_t>(NAMESPACE);
+  auto klass = dyn.get_as<key_t>(CLASS);
+  dynamic_ptr instance = create_instance(ns, klass);
+  if (!instance)
+    return dynamic_ptr{std::move(dyn)};
+  for (auto& kv : dyn.fields_) {
+    instance->fields_[kv.first] = std::move(kv.second);
+  }
+  instance->field_lookup_.clear(); // stale pointers; rebuilt lazily
+  return instance;
 }
 
 inline dynamic dynamic::deserializeWithSchema(stream_deserializer& in) {
@@ -1766,7 +1802,7 @@ inline field field::deserialize(buffer_deserializer& in) {
     case field::tag_of<dynamic_ptr>(): {
       if (!in.read<bool>())
         return field{std::shared_ptr<dynamic>{}};
-      return field{dynamic_ptr{dynamic::deserialize(in)}};
+      return field{dynamic::deserialize_instance(in)};
     }
     case field::tag_of<std::string>(): {
       std::string s;
@@ -1840,6 +1876,20 @@ inline dynamic dynamic::deserialize(buffer_deserializer& in) {
     dyn.fields_[key] = field::deserialize(in);
   }
   return dyn;
+}
+
+inline dynamic_ptr dynamic::deserialize_instance(buffer_deserializer& in) {
+  dynamic dyn = dynamic::deserialize(in);
+  auto ns = dyn.get_as<key_t>(NAMESPACE);
+  auto klass = dyn.get_as<key_t>(CLASS);
+  dynamic_ptr instance = create_instance(ns, klass);
+  if (!instance)
+    return dynamic_ptr{std::move(dyn)};
+  for (auto& kv : dyn.fields_) {
+    instance->fields_[kv.first] = std::move(kv.second);
+  }
+  instance->field_lookup_.clear(); // stale pointers; rebuilt lazily
+  return instance;
 }
 
 inline dynamic dynamic::deserializeWithSchema(buffer_deserializer& in) {
