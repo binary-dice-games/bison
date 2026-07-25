@@ -355,11 +355,17 @@ void socket_server_transport::start(bison::dynamic params) {
 
   impl_->stopped.store(false);
   impl_->started.store(true);
-  impl_->accept_thread = std::thread([this] {
-    uv_run(&impl_->accept_loop, UV_RUN_DEFAULT);
-    uv_loop_close(&impl_->accept_loop);
+  // Capture the impl pointer itself, not `this`: socket_server_transport is
+  // movable, and a move after start() (e.g. returning one by value without
+  // guaranteed NRVO) would leave this thread racing the moved-from object's
+  // `impl_` member going null. `impl` is heap-owned and its address is
+  // stable across moves of the owning socket_server_transport.
+  auto* impl = impl_.get();
+  impl_->accept_thread = std::thread([impl] {
+    uv_run(&impl->accept_loop, UV_RUN_DEFAULT);
+    uv_loop_close(&impl->accept_loop);
     // Wake any blocked accept() calls.
-    impl_->accept_queue.notify_all();
+    impl->accept_queue.notify_all();
   });
 }
 
