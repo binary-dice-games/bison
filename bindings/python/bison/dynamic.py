@@ -12,7 +12,7 @@ method by name (equivalent to ``obj.call("some_method", {"a": 1, "b": 2})``).
 import ctypes
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional, Union
 
 from . import _native as _n
 
@@ -231,6 +231,14 @@ class Dynamic:
         if lib.bison_get_object(h, k, ctypes.byref(child)) == _n.BISON_OK:
             return Dynamic(_handle=child.value) if child.value else None
 
+        # bison_get_key() is checked last, matching every other cascade step:
+        # it only ever succeeds here for a field already holding a key_t
+        # value (bison_get_int() above would already have auto-vivified a
+        # genuinely absent field as int32 zero -- see set_key()'s docstring).
+        v_key = _n.Hash(0)
+        if lib.bison_get_key(h, k, ctypes.byref(v_key)) == _n.BISON_OK:
+            return int(v_key.value)
+
         raise KeyError(f"Field '{name}' not found or has an unsupported type")
 
     def _get_at(self, index: int) -> Any:
@@ -261,6 +269,26 @@ class Dynamic:
 
     def __delitem__(self, name: Any) -> None:
         raise TypeError("Dynamic fields cannot be deleted, only reassigned")
+
+    # ── bison::key_t-typed field access ─────────────────────────────────────
+    #
+    # A field the C++ side declares as `bison::key_t` (e.g. an object's "id",
+    # or an enum-like selector) is a distinct bison field-variant type from
+    # `int32_t` -- reading one is handled by __getitem__'s cascade above (its
+    # final fallback, after int/float/bool/string/object all fail by type
+    # mismatch), but writing one needs an explicit call: a plain Python `int`
+    # handed to __setitem__ is always written as int32 (there is no way to
+    # tell "this int should become a key_t field" from "this int should
+    # become an int32 field" without one).
+
+    def set_key(self, name: str, value: Union[int, str]) -> None:
+        """Set a ``bison::key_t``-valued field (e.g. an object's ``"id"``).
+
+        *value* is either an already-hashed int (e.g. from :func:`key`) or a
+        name string, hashed the same way ``"name"_key`` would in C++.
+        """
+        v = value if isinstance(value, int) else key(value)
+        _check(self._lib.bison_set_key(self._handle, key(name), v), f"set_key[{name}]")
 
     # ── Array-like helpers ───────────────────────────────────────────────────
 
@@ -389,6 +417,20 @@ class Dynamic:
             _check(lib.bison_add_field_string(h, k, value.encode(), m), f"add_field_string[{name}]")
         else:
             raise TypeError(f"Unsupported value type for add_field: {type(value)}")
+
+    def add_field_key(self, name: str, value: Union[int, str], meta: Optional[Attributes] = None) -> None:
+        """Declare a new ``bison::key_t``-valued field -- the ``add_field()``
+        counterpart to :meth:`set_key`, for the same reason ``add_field()``
+        itself can't dispatch to this from a plain Python ``int``.
+
+        Fails with :class:`BisonError` (``BISON_ERR_DUPLICATE``) if the
+        field already exists. *value* is either an already-hashed int or a
+        name string, hashed the same way :meth:`set_key` does.
+        """
+        v = value if isinstance(value, int) else key(value)
+        _check(
+            self._lib.bison_add_field_key(self._handle, key(name), v, _meta_ptr(meta)), f"add_field_key[{name}]"
+        )
 
     # ── Serialization ────────────────────────────────────────────────────────
 

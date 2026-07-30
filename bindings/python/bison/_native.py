@@ -213,6 +213,8 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_set_string.argtypes = [Handle, Hash, ctypes.c_char_p]
     lib.bison_set_object.restype = Error
     lib.bison_set_object.argtypes = [Handle, Hash, Handle]
+    lib.bison_set_key.restype = Error
+    lib.bison_set_key.argtypes = [Handle, Hash, Hash]
 
     # ── Scalar setters (indexed) ────────────────────────────────────────────
     lib.bison_set_int_at.restype = Error
@@ -233,6 +235,8 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_get_string.argtypes = [Handle, Hash, ctypes.c_char_p, ctypes.c_size_t, P(ctypes.c_size_t)]
     lib.bison_get_object.restype = Error
     lib.bison_get_object.argtypes = [Handle, Hash, P(Handle)]
+    lib.bison_get_key.restype = Error
+    lib.bison_get_key.argtypes = [Handle, Hash, P(Hash)]
 
     # ── Scalar getters (indexed) ────────────────────────────────────────────
     lib.bison_get_int_at.restype = Error
@@ -261,6 +265,8 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_add_field_bool.argtypes = [Handle, Hash, ctypes.c_int, P(CAttributes)]
     lib.bison_add_field_string.restype = Error
     lib.bison_add_field_string.argtypes = [Handle, Hash, ctypes.c_char_p, P(CAttributes)]
+    lib.bison_add_field_key.restype = Error
+    lib.bison_add_field_key.argtypes = [Handle, Hash, Hash, P(CAttributes)]
 
     # ── Utility ──────────────────────────────────────────────────────────────
     lib.bison_key.restype = Hash
