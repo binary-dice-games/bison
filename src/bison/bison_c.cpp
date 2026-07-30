@@ -70,9 +70,20 @@ BISON_API bison_handle bison_create(bison_hash klass_name) {
 
 BISON_API bison_handle bison_instantiate(bison_hash ns_name, bison_hash klass_name) {
   try {
-    bdg::bison::dynamic obj =
-        bdg::bison::dynamic::instantiate(bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
-    auto* sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
+    bdg::bison::key_t ns{ns_name};
+    bdg::bison::key_t klass{klass_name};
+    // create_instance() respects a factory registered via addClass(...,
+    // factory) -- required for any class backed by a C++ subclass (the
+    // usual case for a real application's content classes) so the result
+    // is the actual registered subtype, not a sliced plain `dynamic` that
+    // silently fails every dynamic_cast<T*> a caller performs on it. Falls
+    // back to the old plain instantiate() only when ns/klass isn't found in
+    // the registry at all, preserving instantiate()'s original behavior for
+    // an anonymous/unregistered class (e.g. bison_instantiate(0, 0)).
+    bdg::bison::dynamic_ptr obj = bdg::bison::dynamic::create_instance(ns, klass);
+    if (!obj)
+      obj = bdg::bison::dynamic_ptr{new bdg::bison::dynamic(bdg::bison::dynamic::instantiate(ns, klass))};
+    auto* sp = new sp_dyn(obj);
     return as_handle(sp);
   } catch (...) {
     return nullptr;
@@ -367,6 +378,14 @@ bison_add_field_string(bison_handle obj, bison_hash key, const char* value, cons
   return add_field_impl(obj, key, std::move(f));
 }
 
+BISON_API bison_error
+bison_add_field_key(bison_handle obj, bison_hash key, bison_hash value, const bison_attributes* meta) {
+  bdg::bison::field f{bdg::bison::key_t{value}};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
 BISON_API bison_error bison_add_field_vector_bool(
     bison_handle obj, bison_hash key, const int* values, size_t count, const bison_attributes* meta) {
   if (count > 0 && !values)
@@ -465,6 +484,19 @@ BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const ch
   }
 }
 
+BISON_API bison_error bison_set_key(bison_handle h, bison_hash name, bison_hash value) {
+  if (!h)
+    return BISON_ERR_NULL;
+  try {
+    (*dyn(h))[bdg::bison::key_t{name}] = bdg::bison::key_t{value};
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
 BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
   if (!h)
     return BISON_ERR_NULL;
@@ -545,6 +577,19 @@ BISON_API bison_error bison_get_string(bison_handle h, bison_hash name, char* bu
       std::memcpy(buf, s.data(), copy_len);
       buf[copy_len] = '\0';
     }
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_get_key(bison_handle h, bison_hash name, bison_hash* out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    *out = static_cast<bison_hash>((*dyn(h))[bdg::bison::key_t{name}].as<bdg::bison::key_t>().id);
     return BISON_OK;
   } catch (const std::runtime_error&) {
     return BISON_ERR_TYPE;

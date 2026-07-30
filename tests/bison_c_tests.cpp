@@ -3,10 +3,18 @@
 
 #include "bison_c.h"
 
+#include "src/bison/bison.hpp"
+
 #include <gtest/gtest.h>
 #include <cstdint>
 #include <cstring>
 #include <string>
+
+// glibc's <sys/types.h> (pulled in transitively by <gtest/gtest.h>) also
+// defines a `key_t` typedef -- alias bdg::bison::key_t under a different
+// name here rather than risk an ambiguous bare `key_t` (see wish/CLAUDE.md's
+// note on this exact pitfall).
+using bison_key_t = bdg::bison::key_t;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -45,6 +53,37 @@ TEST(LifecycleTests, CreateReturnsNonNull) {
 TEST(LifecycleTests, InstantiateReturnsNonNull) {
   ScopedHandle h{bison_instantiate(0, 0)};
   EXPECT_NE(h.h, nullptr);
+}
+
+namespace {
+// A dynamic subclass registered with a factory (mirrors rmi_tests.cpp's
+// marked_widget/InstantiateHonorsRegisteredFactory) -- proves
+// bison_instantiate() goes through the registered factory instead of
+// building a plain, sliced `dynamic` that a caller's dynamic_cast<T*> would
+// never recognize as this subclass.
+class bison_c_marked_widget : public bdg::bison::dynamic {
+ public:
+  explicit bison_c_marked_widget(bdg::bison::dynamic&& d) : dynamic(std::move(d)) {
+    (*this)[bison_key_t{"marker"}] = std::string{"factory"};
+  }
+};
+} // namespace
+
+TEST(LifecycleTests, InstantiateHonorsRegisteredFactory) {
+  auto proto = bdg::bison::dynamic_ptr{bison_key_t{"BisonCMarkedWidget"}, {}};
+  bdg::bison::dynamic::addClass(
+      bison_key_t{0U},
+      proto,
+      bison_key_t{0U},
+      bdg::bison::dynamic::make_factory<bison_c_marked_widget>(bison_key_t{0U}, bison_key_t{"BisonCMarkedWidget"}));
+
+  ScopedHandle h{bison_instantiate(0, H("BisonCMarkedWidget"))};
+  ASSERT_NE(h.h, nullptr);
+
+  char buf[32] = {};
+  size_t len = 0;
+  EXPECT_EQ(bison_get_string(h, H("marker"), buf, sizeof buf, &len), BISON_OK);
+  EXPECT_STREQ(buf, "factory");
 }
 
 TEST(LifecycleTests, AddRefReturnsDistinctHandle) {
@@ -155,6 +194,21 @@ TEST(SetGetTests, FloatRoundTrip) {
   EXPECT_NEAR(v, 3.14f, 1e-4f);
 }
 
+TEST(SetGetTests, KeyRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_key(h, H("id"), H("Topdown")), BISON_OK);
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key(h, H("id"), &v), BISON_OK);
+  EXPECT_EQ(v, H("Topdown"));
+}
+
+TEST(SetGetTests, KeyDoesNotAliasInt) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, H("n"), 1);
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key(h, H("n"), &v), BISON_ERR_TYPE);
+}
+
 TEST(SetGetTests, BoolRoundTrip) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(bison_set_bool(h, H("flag"), 1), BISON_OK);
@@ -211,6 +265,12 @@ TEST(SetGetTests, WrongTypeReturnsTypeError) {
   bison_set_int(h, H("n"), 1);
   float v = 0;
   EXPECT_EQ(bison_get_float(h, H("n"), &v), BISON_ERR_TYPE);
+}
+
+TEST(SetGetTests, KeyNullHandleReturnsNullError) {
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key(nullptr, H("x"), &v), BISON_ERR_NULL);
+  EXPECT_EQ(bison_set_key(nullptr, H("x"), H("y")), BISON_ERR_NULL);
 }
 
 TEST(SetGetTests, NullHandleReturnsNullError) {
