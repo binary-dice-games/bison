@@ -456,6 +456,21 @@ BISON_API bison_error bison_set_bool(bison_handle h, bison_hash name, int value)
 BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const char* value);
 
 /**
+ * @brief Set a `bdg::bison::key_t` (hashed-name) field by hash key.
+ *
+ * `key_t` is its own `field` alternative, distinct from a plain `int32_t`
+ * field -- use this (not `bison_set_int`) for any field the C++ side reads
+ * with `dynamic::as<bdg::bison::key_t>()`, e.g. an object's `"id"` field or
+ * an enum-like field such as a `"nav_mode"` selector.
+ *
+ * @param h     Target object handle.
+ * @param name  Field name hash (use `bison_key()`).
+ * @param value New value -- a pre-hashed key (use `bison_key()`).
+ * @return `BISON_OK` or an error code.
+ */
+BISON_API bison_error bison_set_key(bison_handle h, bison_hash name, bison_hash value);
+
+/**
  * @brief Set a nested `dynamic` object field by hash key.
  *
  * The library **increments** the ref-count of @p value so both the caller and
@@ -543,6 +558,16 @@ BISON_API bison_error bison_get_bool(bison_handle h, bison_hash name, int* out);
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
 BISON_API bison_error bison_get_string(bison_handle h, bison_hash name, char* buf, size_t buf_len, size_t* len_out);
+
+/**
+ * @brief Read a `bdg::bison::key_t` (hashed-name) field by hash key.
+ *
+ * @param h     Source object handle.
+ * @param name  Field name hash (use `bison_key()`).
+ * @param[out] out  Receives the value on success, as its raw hash.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_key(bison_handle h, bison_hash name, bison_hash* out);
 
 /**
  * @brief Read a nested object field by hash key.
@@ -681,6 +706,20 @@ BISON_API bison_error bison_add_field_bool(bison_handle obj, bison_hash key, int
  */
 BISON_API bison_error
 bison_add_field_string(bison_handle obj, bison_hash key, const char* value, const bison_attributes* meta);
+
+/**
+ * @brief Add a `bdg::bison::key_t` field to @p obj with optional attribute
+ * metadata.
+ *
+ * @param obj   Target object handle.
+ * @param key   Field name hash (use `bison_key()`).
+ * @param value Initial value -- a pre-hashed key (use `bison_key()`).
+ * @param meta  Optional attribute metadata; pass `NULL` for none.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, `BISON_ERR_DUPLICATE`, or
+ *         `BISON_ERR_EXCEPTION`.
+ */
+BISON_API bison_error
+bison_add_field_key(bison_handle obj, bison_hash key, bison_hash value, const bison_attributes* meta);
 
 /**
  * @brief Add a `vector<bool>` field to @p obj with optional attribute metadata.

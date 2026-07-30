@@ -155,6 +155,21 @@ TEST(SetGetTests, FloatRoundTrip) {
   EXPECT_NEAR(v, 3.14f, 1e-4f);
 }
 
+TEST(SetGetTests, KeyRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_key(h, H("id"), H("Topdown")), BISON_OK);
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key(h, H("id"), &v), BISON_OK);
+  EXPECT_EQ(v, H("Topdown"));
+}
+
+TEST(SetGetTests, KeyDoesNotAliasInt) {
+  ScopedHandle h{bison_create(0)};
+  bison_set_int(h, H("n"), 1);
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key(h, H("n"), &v), BISON_ERR_TYPE);
+}
+
 TEST(SetGetTests, BoolRoundTrip) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(bison_set_bool(h, H("flag"), 1), BISON_OK);
@@ -211,6 +226,12 @@ TEST(SetGetTests, WrongTypeReturnsTypeError) {
   bison_set_int(h, H("n"), 1);
   float v = 0;
   EXPECT_EQ(bison_get_float(h, H("n"), &v), BISON_ERR_TYPE);
+}
+
+TEST(SetGetTests, KeyNullHandleReturnsNullError) {
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key(nullptr, H("x"), &v), BISON_ERR_NULL);
+  EXPECT_EQ(bison_set_key(nullptr, H("x"), H("y")), BISON_ERR_NULL);
 }
 
 TEST(SetGetTests, NullHandleReturnsNullError) {

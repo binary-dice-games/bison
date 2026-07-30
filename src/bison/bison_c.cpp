@@ -367,6 +367,14 @@ bison_add_field_string(bison_handle obj, bison_hash key, const char* value, cons
   return add_field_impl(obj, key, std::move(f));
 }
 
+BISON_API bison_error
+bison_add_field_key(bison_handle obj, bison_hash key, bison_hash value, const bison_attributes* meta) {
+  bdg::bison::field f{bdg::bison::key_t{value}};
+  for (auto& a : attrs_from_meta(meta))
+    f.addAttribute(std::move(a));
+  return add_field_impl(obj, key, std::move(f));
+}
+
 BISON_API bison_error bison_add_field_vector_bool(
     bison_handle obj, bison_hash key, const int* values, size_t count, const bison_attributes* meta) {
   if (count > 0 && !values)
@@ -465,6 +473,19 @@ BISON_API bison_error bison_set_string(bison_handle h, bison_hash name, const ch
   }
 }
 
+BISON_API bison_error bison_set_key(bison_handle h, bison_hash name, bison_hash value) {
+  if (!h)
+    return BISON_ERR_NULL;
+  try {
+    (*dyn(h))[bdg::bison::key_t{name}] = bdg::bison::key_t{value};
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
 BISON_API bison_error bison_set_object(bison_handle h, bison_hash name, bison_handle value) {
   if (!h)
     return BISON_ERR_NULL;
@@ -545,6 +566,19 @@ BISON_API bison_error bison_get_string(bison_handle h, bison_hash name, char* bu
       std::memcpy(buf, s.data(), copy_len);
       buf[copy_len] = '\0';
     }
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_get_key(bison_handle h, bison_hash name, bison_hash* out) {
+  if (!h || !out)
+    return BISON_ERR_NULL;
+  try {
+    *out = static_cast<bison_hash>((*dyn(h))[bdg::bison::key_t{name}].as<bdg::bison::key_t>().id);
     return BISON_OK;
   } catch (const std::runtime_error&) {
     return BISON_ERR_TYPE;
