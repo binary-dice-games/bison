@@ -150,10 +150,20 @@ BISON_API bison_handle bison_create(bison_hash klass_name);
 
 /**
  * @brief Create a new dynamic object by class key using C++
- * `dynamic::instantiate`.
+ * `dynamic::create_instance`.
  *
  * This creates a new instance of the requested class in the specified
- * namespace.  Pass `0` for `ns_name` to use the global (default) namespace.
+ * namespace.  If a factory was registered for the class (`addClass(...,
+ * factory)` -- the usual case for a class backed by a C++ subclass, e.g. an
+ * application's own content types), the factory is used, so the result is
+ * the real registered subtype rather than a plain `dynamic` slice; a
+ * `dynamic_cast<T*>` a caller performs on the underlying instance (via
+ * whatever mechanism inspects it) sees the actual type. Falls back to a
+ * plain `dynamic` -- unconditionally, even if `ns_name`/`klass_name` names
+ * no registered class at all -- when no factory applies, matching
+ * `dynamic::instantiate()`'s original always-succeeds behavior for an
+ * anonymous or unregistered class (e.g. `bison_instantiate(0, 0)`). Pass
+ * `0` for `ns_name` to use the global (default) namespace.
  *
  * @param ns_name     Hash of the namespace name (use `bison_key()`); pass
  *                    `0` for the global (default) namespace.

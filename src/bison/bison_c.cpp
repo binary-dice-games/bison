@@ -70,9 +70,20 @@ BISON_API bison_handle bison_create(bison_hash klass_name) {
 
 BISON_API bison_handle bison_instantiate(bison_hash ns_name, bison_hash klass_name) {
   try {
-    bdg::bison::dynamic obj =
-        bdg::bison::dynamic::instantiate(bdg::bison::key_t{ns_name}, bdg::bison::key_t{klass_name});
-    auto* sp = new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(obj)));
+    bdg::bison::key_t ns{ns_name};
+    bdg::bison::key_t klass{klass_name};
+    // create_instance() respects a factory registered via addClass(...,
+    // factory) -- required for any class backed by a C++ subclass (the
+    // usual case for a real application's content classes) so the result
+    // is the actual registered subtype, not a sliced plain `dynamic` that
+    // silently fails every dynamic_cast<T*> a caller performs on it. Falls
+    // back to the old plain instantiate() only when ns/klass isn't found in
+    // the registry at all, preserving instantiate()'s original behavior for
+    // an anonymous/unregistered class (e.g. bison_instantiate(0, 0)).
+    bdg::bison::dynamic_ptr obj = bdg::bison::dynamic::create_instance(ns, klass);
+    if (!obj)
+      obj = bdg::bison::dynamic_ptr{new bdg::bison::dynamic(bdg::bison::dynamic::instantiate(ns, klass))};
+    auto* sp = new sp_dyn(obj);
     return as_handle(sp);
   } catch (...) {
     return nullptr;
