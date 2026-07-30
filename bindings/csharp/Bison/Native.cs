@@ -219,6 +219,9 @@ internal static partial class Native
     [LibraryImport(LibName)]
     public static partial int bison_set_object(nint h, uint name, nint value);
 
+    [LibraryImport(LibName)]
+    public static partial int bison_set_key(nint h, uint name, uint value);
+
     // ── Scalar setters (indexed) ─────────────────────────────────────────────
 
     [LibraryImport(LibName)]
@@ -246,6 +249,9 @@ internal static partial class Native
 
     [LibraryImport(LibName)]
     public static partial int bison_get_object(nint h, uint name, out nint out_);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_key(nint h, uint name, out uint out_);
 
     // ── Scalar getters (indexed) ─────────────────────────────────────────────
 
@@ -282,6 +288,9 @@ internal static partial class Native
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static unsafe partial int bison_add_field_string(nint obj, uint key, string value, NativeAttributes* meta);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int bison_add_field_key(nint obj, uint key, uint value, NativeAttributes* meta);
 
     // ── Utility ───────────────────────────────────────────────────────────────
 

@@ -35,6 +35,16 @@ Fields support both attribute (`obj.field`) and dict (`obj["field"]`)
 notation — pick whichever reads best; array-style numeric indices
 (`obj[0]`) only work with the dict form, since `obj.0` isn't valid Python.
 
+A field the C++ side declares as `bison::key_t` (e.g. an object's `"id"`, or
+an enum-like selector) is a distinct field-variant type from `int32_t` — a
+bare Python `int` handed to `obj["id"] = ...` is ambiguous between the two,
+so it's always written as int32. Use `obj.set_key("id", value)` (*value* is
+either an already-hashed int, e.g. from `key()`, or a name string hashed the
+same way `"value"_key` would be in C++) to write one instead. Reading is
+transparent: `obj["id"]` falls back to `bison_get_key()` automatically once
+int/float/bool/string/object all fail by type mismatch. `obj.add_field_key(name,
+value, meta=None)` is the `add_field()` counterpart for schema declarations.
+
 **Requirements:** Python 3.x, `pytest` (optional, for tests)
 
 ```bash
@@ -83,6 +93,14 @@ the call site:
   — backed by `DynamicObject`, C#'s equivalent of Python's
   `__getattr__`/`__setattr__`.
 - **Typed:** `obj.Call("method", args)`, `obj.AddField(...)`, `obj.AddMethod(...)`, etc.
+
+A field the C++ side declares as `bison::key_t` is a distinct field-variant
+type from `int32_t` — the indexer's `Set()` always writes a plain `int` as
+int32, so use `obj.SetKey("id", value)` (overloads take an already-hashed
+`uint` or a name string to hash) to write one instead. Reading is
+transparent: the indexer's `Get()` falls back to `GetKey()` automatically
+once every other type check fails. `obj.AddFieldKey(name, value, meta)` is
+the `AddField()` counterpart for schema declarations.
 
 Every handle is an `IDisposable` RAII wrapper (`Dynamic`, `Client`, `Server`,
 `Proxy`, `Future`) with a finalizer safety net, so `using`/`Dispose()` is

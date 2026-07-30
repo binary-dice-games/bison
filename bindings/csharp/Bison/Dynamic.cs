@@ -156,6 +156,14 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
         {
             return child != nint.Zero ? new Dynamic(child) : null;
         }
+        // bison_get_key() is checked last, matching every other cascade step
+        // above: it only ever succeeds here for a field already holding a
+        // key_t value -- bison_get_int() would already have auto-vivified a
+        // genuinely absent field as int32 zero (see SetKey's doc comment).
+        if (Native.bison_get_key(Handle, k, out var vKey) == (int)BisonErrorCode.Ok)
+        {
+            return vKey;
+        }
 
         throw new KeyNotFoundException($"Field '{name}' not found or has an unsupported type");
     }
@@ -226,6 +234,27 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
     // semantics in C++), so a containment check would itself mutate the
     // object. Use FieldAttributes()/MethodAttributes() (which do fail with
     // BISON_ERR_NOT_FOUND) where an existence check is needed.
+
+    // ── bison::key_t-typed field access ──────────────────────────────────────
+    //
+    // A field the C++ side declares as `bison::key_t` (e.g. an object's
+    // "id", or an enum-like selector) is a distinct bison field-variant type
+    // from `int32_t` -- reading one is handled by Get()'s cascade above (its
+    // final fallback, after int/float/bool/string/object all fail by type
+    // mismatch), but writing one needs an explicit call: the indexer's
+    // `Set(string, object?)` always writes a plain `int` as int32 (there is
+    // no way to tell "this int should become a key_t field" from "this int
+    // should become an int32 field" without one).
+
+    /// <summary>Sets a <c>bison::key_t</c>-valued field (e.g. an object's
+    /// <c>"id"</c>) to an already-hashed value.</summary>
+    public void SetKey(string name, uint value) =>
+        BisonException.Check(Native.bison_set_key(Handle, Key.Of(name), value), $"set_key[{name}]");
+
+    /// <summary>Sets a <c>bison::key_t</c>-valued field to the hash of
+    /// <paramref name="value"/>, the same way <c>"value"_key</c> would in
+    /// C++.</summary>
+    public void SetKey(string name, string value) => SetKey(name, Key.Of(value));
 
     // ── Array-like helpers ────────────────────────────────────────────────────
 
@@ -431,6 +460,33 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
             }
         }
     }
+
+    /// <summary>Declares a new <c>bison::key_t</c>-valued field -- the
+    /// <see cref="AddField"/> counterpart to <see cref="SetKey(string, uint)"/>,
+    /// for the same reason <see cref="AddField"/> itself can't dispatch to
+    /// this from a plain <c>int</c>. Fails with <see cref="BisonException"/>
+    /// (<see cref="BisonErrorCode.Duplicate"/>) if the field already
+    /// exists.</summary>
+    public void AddFieldKey(string name, uint value, Attributes? meta = null)
+    {
+        var k = Key.Of(name);
+        using var scope = meta?.ToNative();
+        unsafe
+        {
+            NativeAttributes* metaPtr = null;
+            var pinned = default(NativeAttributes);
+            if (scope is not null)
+            {
+                pinned = scope.Native;
+                metaPtr = &pinned;
+            }
+            BisonException.Check(Native.bison_add_field_key(Handle, k, value, metaPtr), $"add_field_key[{name}]");
+        }
+    }
+
+    /// <summary>Overload of <see cref="AddFieldKey(string, uint, Attributes?)"/>
+    /// taking a name to hash instead of an already-hashed value.</summary>
+    public void AddFieldKey(string name, string value, Attributes? meta = null) => AddFieldKey(name, Key.Of(value), meta);
 
     // ── Serialization ─────────────────────────────────────────────────────────
 

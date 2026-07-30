@@ -109,6 +109,61 @@ class TestFieldAccess(unittest.TestCase):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# key_t-typed field access
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestKeyTypedFieldAccess(unittest.TestCase):
+    """set_key()/get_key() -- distinct from the plain int32 a bare Python int
+    would otherwise become via __setitem__/__getitem__ (see set_key()'s own
+    docstring)."""
+
+    def setUp(self):
+        self.obj = Dynamic()
+
+    def tearDown(self):
+        self.obj.release()
+
+    def test_round_trips_with_already_hashed_value(self):
+        self.obj.set_key("id", key("hero"))
+        self.assertEqual(self.obj["id"], key("hero"))
+
+    def test_round_trips_with_name_string(self):
+        self.obj.set_key("id", "hero")
+        self.assertEqual(self.obj["id"], key("hero"))
+
+    def test_distinct_from_int32_field(self):
+        # An int32-typed field and a key_t-typed field are different bison
+        # variant types even when they happen to hold numerically equal
+        # values -- set_key() on a field already claimed as int32 must fail
+        # the same way any other type-locked field access would.
+        self.obj["plain_int"] = 42
+        with self.assertRaises(BisonError) as ctx:
+            self.obj.set_key("plain_int", key("anything"))
+        self.assertEqual(ctx.exception.code, -2)  # BISON_ERR_TYPE
+
+    def test_getitem_falls_back_to_key_after_other_types_fail(self):
+        # __getitem__'s cascade (int/float/bool/string/object) must all fail
+        # by type mismatch before reaching the key_t fallback -- proven here
+        # by setting the field as key_t first (an untouched field would
+        # instead auto-vivify as int32 zero on the very first check; see
+        # get_key()'s cascade-ordering comment in dynamic.py).
+        self.obj.set_key("selector", "nav_mode_topdown")
+        self.assertEqual(self.obj["selector"], key("nav_mode_topdown"))
+
+    def test_add_field_key_declares_and_rejects_duplicate(self):
+        self.obj.add_field_key("id", key("hero"))
+        self.assertEqual(self.obj["id"], key("hero"))
+        with self.assertRaises(BisonError) as ctx:
+            self.obj.add_field_key("id", key("other"))
+        self.assertEqual(ctx.exception.code, -4)  # BISON_ERR_DUPLICATE
+
+    def test_add_field_key_with_name_string(self):
+        self.obj.add_field_key("id", "sidekick")
+        self.assertEqual(self.obj["id"], key("sidekick"))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Methods
 # ═════════════════════════════════════════════════════════════════════════════
 

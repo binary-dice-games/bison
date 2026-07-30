@@ -135,6 +135,74 @@ public class FieldAccessTests : IDisposable
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// key_t-typed field access
+// ═════════════════════════════════════════════════════════════════════════════
+
+/// <summary>SetKey()/GetKey() (via the indexer's Get() fallback) -- distinct
+/// from the plain int32 a bare `int` would otherwise become via the
+/// indexer's Set() (see SetKey's own doc comment).</summary>
+public class KeyTypedFieldAccessTests : IDisposable
+{
+    private readonly Dynamic _obj = new();
+
+    public void Dispose() => _obj.Release();
+
+    [Fact]
+    public void RoundTripsWithAlreadyHashedValue()
+    {
+        _obj.SetKey("id", Key.Of("hero"));
+        Assert.Equal(Key.Of("hero"), _obj["id"]);
+    }
+
+    [Fact]
+    public void RoundTripsWithNameString()
+    {
+        _obj.SetKey("id", "hero");
+        Assert.Equal(Key.Of("hero"), _obj["id"]);
+    }
+
+    [Fact]
+    public void DistinctFromInt32Field()
+    {
+        // An int32-typed field and a key_t-typed field are different bison
+        // variant types even when they happen to hold numerically equal
+        // values -- SetKey() on a field already claimed as int32 must fail
+        // the same way any other type-locked field access would.
+        _obj["plain_int"] = 42;
+        var ex = Assert.Throws<BisonException>(() => _obj.SetKey("plain_int", Key.Of("anything")));
+        Assert.Equal(BisonErrorCode.Type, ex.Code);
+    }
+
+    [Fact]
+    public void GetFallsBackToKeyAfterOtherTypesFail()
+    {
+        // The indexer's Get() cascade (int/float/bool/string/object) must
+        // all fail by type mismatch before reaching the key_t fallback --
+        // proven here by setting the field as key_t first (an untouched
+        // field would instead auto-vivify as int32 zero on the very first
+        // check; see Get()'s cascade-ordering comment in Dynamic.cs).
+        _obj.SetKey("selector", "nav_mode_topdown");
+        Assert.Equal(Key.Of("nav_mode_topdown"), _obj["selector"]);
+    }
+
+    [Fact]
+    public void AddFieldKeyDeclaresAndRejectsDuplicate()
+    {
+        _obj.AddFieldKey("id", Key.Of("hero"));
+        Assert.Equal(Key.Of("hero"), _obj["id"]);
+        var ex = Assert.Throws<BisonException>(() => _obj.AddFieldKey("id", Key.Of("other")));
+        Assert.Equal(BisonErrorCode.Duplicate, ex.Code);
+    }
+
+    [Fact]
+    public void AddFieldKeyWithNameString()
+    {
+        _obj.AddFieldKey("id", "sidekick");
+        Assert.Equal(Key.Of("sidekick"), _obj["id"]);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // Methods
 // ═════════════════════════════════════════════════════════════════════════════
 
