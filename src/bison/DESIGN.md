@@ -105,6 +105,17 @@ Object supports both:
 - Named field access via key hashes
 - Numeric index access for sequence-like usage
 
+### 4.4 Copy Semantics and dynamic_ptr Aliasing
+
+`dynamic_ptr` (a `shared_ptr<dynamic>`) is the only field alternative with
+reference semantics — copying a `field`/`fields_` entry that holds one only
+copies the `shared_ptr`, not the pointee. Every place that copies fields out
+of one `dynamic` into another (the copy constructor, `clone()`/
+`clone_into()`, and the inheritance caches described in §5.5) therefore
+explicitly clones any `dynamic_ptr`-valued field via `clone_ptr()` instead of
+letting the plain copy alias it. Move construction/assignment are unaffected
+(they transfer ownership, not copy it) and are not a source of aliasing.
+
 ## 5. Class Registry and Inheritance
 
 ### 5.1 Namespace Registry (Multipleton)
@@ -158,8 +169,8 @@ When `findField`, `findMethod`, or `findClass` is called, the private helper `re
 
 - Field lookup first checks instance `fields_`.
 - If not found, the correct namespace collection is selected and the class chain is traversed (via `PARENT` links, all within the same namespace collection).
-- On hit, the field value is copied into the instance's `fields_` cache.
-- Method lookup uses the same strategy with `methods_` cache.
+- On hit, the field value is copied into the instance's `fields_` cache. A `dynamic_ptr`-valued field is cloned (`clone_ptr()`), not aliased — see §4.4.
+- Method lookup uses the same strategy with `methods_` cache; a cached method's `dynamic_ptr` input/output specs are cloned for the same reason.
 
 Implication:
 

@@ -783,6 +783,28 @@ TEST(DynamicTests, CloneOriginalDoesNotAffectClone) {
   EXPECT_EQ(copy["child"_key].as<dynamic_ptr>()->at("x"_key).as<int32_t>(), 10);
 }
 
+TEST(DynamicTests, CopyConstructorClonesDynamicPtrField) {
+  // The copy constructor must not let a dynamic_ptr-valued field alias the
+  // original's nested object -- see bison_handle_to_dynamic() (rmi_c.cpp),
+  // which copy-constructs a dynamic straight from a caller-owned handle
+  // that the caller can go on mutating. A naive member-wise field copy only
+  // copies the shared_ptr, not the pointee.
+  auto inner = std::make_shared<dynamic>(0U);
+  (*inner)["x"_key] = int32_t{10};
+
+  dynamic orig;
+  orig["v"_key] = int32_t{1};
+  orig["child"_key] = dynamic_ptr{inner};
+
+  dynamic copy(orig);
+  copy["child"_key].as<dynamic_ptr>()->at("x"_key) = int32_t{99};
+  copy["v"_key] = int32_t{2};
+
+  EXPECT_EQ((*inner)["x"_key].as<int32_t>(), 10) << "copy mutated the original's nested dynamic";
+  EXPECT_EQ(orig["v"_key].as<int32_t>(), 1);
+  EXPECT_EQ(copy["child"_key].as<dynamic_ptr>()->at("x"_key).as<int32_t>(), 99);
+}
+
 TEST(DynamicTests, AddFieldReturnsFalseOnDuplicate) {
   dynamic obj;
   EXPECT_TRUE(obj.addField("x"_key, field{int32_t{1}}));
@@ -1004,7 +1026,7 @@ TEST_F(InheritanceTest, InheritedDynamicPtrFieldIsClonedPerInstance) {
   // the normal way to grow a dynamic_ptr field -- not reassigning the
   // field wholesale) must not be visible through another, unrelated
   // instance of the same class.
-  auto base = dynamic_ptr{"Container"_key, {{"items"_key, dynamic_ptr{key_t{0U}, {}}}}};
+  auto base = dynamic_ptr{"Container"_key, {{"items"_key, dynamic_ptr{bdg::bison::key_t{0U}, {}}}}};
   ASSERT_TRUE(dynamic::addClass(0U, base, 0U));
 
   dynamic a = dynamic::instantiate("Container"_key);
@@ -1037,6 +1059,32 @@ TEST_F(InheritanceTest, MethodInheritedFromParent) {
   dynamic dog = dynamic::instantiate("Dog"_key);
   dynamic res = dog.call("speak"_key, dynamic{});
   EXPECT_EQ(res["sound"_key].as<std::string>(), "...");
+}
+
+TEST_F(InheritanceTest, InheritedMethodSpecIsClonedPerInstance) {
+  // findMethod()'s "slow path" caches an inherited method into the
+  // instance's own methods_ map, same as findField() does for fields. A
+  // method's input/output specs are dynamic_ptr, so a naive method copy
+  // would alias the same spec object across every instance that inherits
+  // it -- verify each instance gets its own independent clone instead.
+  auto input_spec = dynamic_ptr{bdg::bison::key_t{0U}, {{"x"_key, int32_t{0}}}};
+  auto base = dynamic_ptr{"Talker"_key};
+  base->addMethod(
+      "speak"_key,
+      method{[](dynamic& self, const dynamic& params) -> dynamic { return dynamic{}; }, input_spec, dynamic_ptr{}});
+  ASSERT_TRUE(dynamic::addClass(0U, base, 0U));
+
+  dynamic a = dynamic::instantiate("Talker"_key);
+  dynamic b = dynamic::instantiate("Talker"_key);
+
+  auto* ma = a.findMethod("speak"_key);
+  auto* mb = b.findMethod("speak"_key);
+  ASSERT_NE(ma, nullptr);
+  ASSERT_NE(mb, nullptr);
+  ASSERT_NE(ma->inputSpec(), nullptr);
+  ASSERT_NE(mb->inputSpec(), nullptr);
+  EXPECT_NE(ma->inputSpec(), mb->inputSpec())
+      << "two instances' cached method specs must not alias the same dynamic";
 }
 
 TEST_F(InheritanceTest, DerivedClassOverridesParentField) {
