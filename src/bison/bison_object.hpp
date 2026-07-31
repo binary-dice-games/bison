@@ -769,9 +769,29 @@ class dynamic {
     fields_[CLASS] = klass;
   }
 
+  /**
+   * @brief Copy-construct a deep-enough copy of @p that.
+   *
+   * Plain fields copy by value as usual, but a `dynamic_ptr`-valued field is
+   * cloned (`clone_ptr()`) rather than aliased -- otherwise the copy would
+   * share live, mutable nested objects with @p that, exactly the aliasing
+   * bug `findField()`'s inherited-default caching had (see its own doc
+   * comment). This keeps the copy constructor consistent with `clone()` /
+   * `clone_into()`, which document and enforce the same no-aliasing
+   * guarantee. `bison_handle_to_dynamic()` (`src/rmi/rmi_c.cpp`) is the
+   * reason this matters in practice: it copy-constructs a `dynamic` from a
+   * caller-owned handle that the caller is free to keep mutating afterward.
+   */
   dynamic(const dynamic& that)
       : fields_(that.fields_), methods_(that.methods_), userdata_(that.userdata_), factory_(that.factory_) {
     // field_lookup_ is intentionally left empty and rebuilt lazily.
+    for (auto& kv : fields_) {
+      if (kv.second.is<dynamic_ptr>()) {
+        auto& ptr = kv.second.as<dynamic_ptr>();
+        if (ptr != nullptr)
+          ptr = ptr->clone_ptr();
+      }
+    }
   }
 
   dynamic(dynamic&& that) noexcept
@@ -1453,7 +1473,10 @@ class dynamic {
    * @brief Find a method on this instance or its class prototype chain.
    *
    * Returns a pointer to the method (caching into `methods_` on first
-   * inherited hit), or `nullptr` if not found anywhere in the chain.
+   * inherited hit), or `nullptr` if not found anywhere in the chain. The
+   * cached copy's `dynamic_ptr` input/output specs are cloned rather than
+   * aliased, for the same reason `findField()` clones an inherited
+   * `dynamic_ptr` field's default.
    * The correct namespace collection is resolved via `resolveNamespace`.
    *
    * @param name  Hash key to look up.
@@ -1478,7 +1501,17 @@ class dynamic {
           auto& klass = itClass->second;
           auto itMethod = klass->methods_.find(name);
           if (itMethod != klass->methods_.end()) {
-            methods_.insert(std::make_pair(name, itMethod->second));
+            // Same aliasing hazard findField() has for inherited dynamic_ptr
+            // fields: method::input_/output_ are dynamic_ptr specs, and
+            // copying a `method` by value only copies those shared_ptrs, not
+            // the pointee. Clone them so this instance's cached copy doesn't
+            // share mutable state with the class prototype's method.
+            method inherited = itMethod->second;
+            if (inherited.input_ != nullptr)
+              inherited.input_ = inherited.input_->clone_ptr();
+            if (inherited.output_ != nullptr)
+              inherited.output_ = inherited.output_->clone_ptr();
+            methods_.insert(std::make_pair(name, std::move(inherited)));
             break;
           }
           itClass = col.find(klass->as<key_t>(PARENT));
