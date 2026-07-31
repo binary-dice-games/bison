@@ -993,6 +993,35 @@ TEST_F(InheritanceTest, FieldInheritedFromParent) {
   EXPECT_EQ(car["wheels"_key].as<int32_t>(), 4);
 }
 
+TEST_F(InheritanceTest, InheritedDynamicPtrFieldIsClonedPerInstance) {
+  // A class field whose default value is a dynamic_ptr (e.g. wish's
+  // Element::"children", a fresh empty dynamic set once when the class
+  // registers) must not let every instance that never sets its own value
+  // for that field alias the *same* underlying dynamic -- findField()'s
+  // "Slow path" caches the inherited field into the instance's own
+  // fields_, and a naive field copy only copies the shared_ptr. Mutating
+  // one instance's inherited field in place (clear()+indexed assignment,
+  // the normal way to grow a dynamic_ptr field -- not reassigning the
+  // field wholesale) must not be visible through another, unrelated
+  // instance of the same class.
+  auto base = dynamic_ptr{"Container"_key, {{"items"_key, dynamic_ptr{key_t{0U}, {}}}}};
+  ASSERT_TRUE(dynamic::addClass(0U, base, 0U));
+
+  dynamic a = dynamic::instantiate("Container"_key);
+  dynamic b = dynamic::instantiate("Container"_key);
+
+  auto* items_a = a.findField<dynamic_ptr>("items"_key);
+  ASSERT_NE(items_a, nullptr);
+  ASSERT_TRUE(*items_a);
+  (*items_a)->clear();
+  (**items_a)[size_t{0}] = int32_t{42};
+
+  auto* items_b = b.findField<dynamic_ptr>("items"_key);
+  ASSERT_NE(items_b, nullptr);
+  ASSERT_TRUE(*items_b);
+  EXPECT_EQ((*items_b)->size(), 0U) << "instance b's inherited \"items\" default was mutated by instance a";
+}
+
 TEST_F(InheritanceTest, MethodInheritedFromParent) {
   auto base = dynamic_ptr{"Animal2"_key};
   base->addMethod("speak"_key, method{[](dynamic& self, const dynamic& params) -> dynamic {

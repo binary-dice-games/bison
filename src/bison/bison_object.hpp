@@ -1396,7 +1396,26 @@ class dynamic {
           auto& klass = itClass->second;
           auto itField = klass->fields_.find(name);
           if (itField != klass->fields_.end()) {
-            fields_.insert(std::make_pair(name, itField->second));
+            field inherited = itField->second;
+            // A dynamic_ptr-valued field's default (e.g. Element's
+            // "children", a fresh empty dynamic set once when the class
+            // registers) lives on the shared class prototype. Copying the
+            // field verbatim would only copy the shared_ptr, so every
+            // instance that never sets its own value for `name` would
+            // alias the *same* underlying dynamic -- e.g. every
+            // "Element"-derived object that never sets "children"
+            // explicitly would share one children container, and code
+            // that mutates it in place (clear()/indexed assignment, the
+            // normal way to populate a dynamic_ptr field) on one instance
+            // would silently corrupt every other instance's "children"
+            // too. Clone it so each instance that inherits the default
+            // gets its own independent copy, same as if the instance had
+            // been given a fresh dynamic_ptr of its own.
+            if (inherited.is<dynamic_ptr>()) {
+              if (const dynamic_ptr& proto_val = inherited.as<dynamic_ptr>())
+                inherited = dynamic_ptr{proto_val->clone_ptr()};
+            }
+            fields_.insert(std::make_pair(name, std::move(inherited)));
             break;
           }
           itClass = col.find(klass->as<key_t>(PARENT));
