@@ -30,6 +30,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <shared_mutex>
 #include <span>
@@ -177,6 +178,25 @@ constexpr key_t operator""_key(const char* name, std::size_t size) noexcept {
 
 // Forward-declared here so `_rkey` can call it; see full doc below.
 void register_key_name(hash_t h, std::string_view name);
+
+/**
+ * @brief Look up a name registered via `_rkey` / `register_key_name`,
+ *        without the `DisplayName`-attribute overlay `build_display_dict()`
+ *        applies.
+ *
+ * `build_display_dict()` deliberately prefers a class/field's `DisplayName`
+ * attribute over its `_rkey`-registered name (see that function's doc
+ * comment) -- correct for producing human-friendly trace/print output, but
+ * unsuitable when a caller needs the *exact literal string* a key was
+ * registered under (e.g. recovering "TextEditor" from its hash, when its
+ * `DisplayName` is the different, prettier "Text Editor"). This function
+ * reads the raw registry directly, with no such override.
+ *
+ * @param h  Hash produced by `hash()`, `_key`, or `_rkey`.
+ * @return The exact string last registered for @p h via `register_key_name`/
+ *         `_rkey`, or `std::nullopt` if @p h was never registered that way.
+ */
+std::optional<std::string> lookup_registered_key_name(hash_t h);
 
 /**
  * @brief Registering key literal — hashes @p name like `_key` and also records

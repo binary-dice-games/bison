@@ -591,6 +591,70 @@ TEST(FieldTests, AttributesSurviveCloneViaField) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Enum / EnumFlags entries()
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(EnumTests, EntriesReturnsRegisteredTable) {
+  Enum e{Enum::table{{"North", 0}, {"East", 1}, {"South", 2}, {"West", 3}}};
+  const auto& entries = e.entries();
+  ASSERT_EQ(entries.size(), 4u);
+  EXPECT_EQ(entries[0].first, "North");
+  EXPECT_EQ(entries[0].second, 0);
+  EXPECT_EQ(entries[3].first, "West");
+  EXPECT_EQ(entries[3].second, 3);
+}
+
+TEST(EnumFlagsTests, EntriesReturnsRegisteredTable) {
+  EnumFlags f{EnumFlags::table{{"FlagA", 1 << 0}, {"FlagB", 1 << 1}}};
+  const auto& entries = f.entries();
+  ASSERT_EQ(entries.size(), 2u);
+  EXPECT_EQ(entries[0].first, "FlagA");
+  EXPECT_EQ(entries[0].second, 1 << 0);
+  EXPECT_EQ(entries[1].first, "FlagB");
+  EXPECT_EQ(entries[1].second, 1 << 1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Key-name registry: register_key_name / _rkey / lookup_registered_key_name
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(KeyNameRegistryTests, RegisterThenLookupRoundTrips) {
+  register_key_name(hash("SomeUniqueRegisteredName"), "SomeUniqueRegisteredName");
+  auto found = lookup_registered_key_name(hash("SomeUniqueRegisteredName"));
+  ASSERT_TRUE(found.has_value());
+  EXPECT_EQ(*found, "SomeUniqueRegisteredName");
+}
+
+TEST(KeyNameRegistryTests, RkeyLiteralRegistersName) {
+  bison_key_t k = "AnotherUniqueRkeyName"_rkey;
+  auto found = lookup_registered_key_name(static_cast<hash_t>(k));
+  ASSERT_TRUE(found.has_value());
+  EXPECT_EQ(*found, "AnotherUniqueRkeyName");
+}
+
+TEST(KeyNameRegistryTests, UnregisteredHashReturnsNullopt) {
+  EXPECT_FALSE(lookup_registered_key_name(hash("NeverRegisteredAnywhereName")).has_value());
+}
+
+TEST(KeyNameRegistryTests, LookupIsNotAffectedByDisplayNameOverlay) {
+  // build_display_dict() prefers DisplayName over the _rkey-registered name;
+  // lookup_registered_key_name() must not -- it should always return the
+  // literal registered string, regardless of any DisplayName attached
+  // elsewhere to a class/field sharing the same hash.
+  clearClassRegistry();
+  auto proto = dynamic_ptr{"LiteralClassName"_rkey, {}};
+  (*proto)[dynamic::CLASS].addAttribute(attr<DisplayName>("A Much Prettier Name"));
+  dynamic::addClass(bison_key_t{0U}, proto);
+
+  auto dict = build_display_dict();
+  EXPECT_EQ(dict.at(static_cast<hash_t>("LiteralClassName"_key)), "A Much Prettier Name");
+
+  auto literal = lookup_registered_key_name(hash("LiteralClassName"));
+  ASSERT_TRUE(literal.has_value());
+  EXPECT_EQ(*literal, "LiteralClassName");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // field serialization round-trips
 // ─────────────────────────────────────────────────────────────────────────────
 static field field_roundtrip(const field& f) {

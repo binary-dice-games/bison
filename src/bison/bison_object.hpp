@@ -173,6 +173,11 @@ class EnumFlags : public attribute {
 
   explicit EnumFlags(table values) : values_(std::move(values)) {}
 
+  /** @brief The registered name/value table, in declaration order. */
+  const table& entries() const {
+    return values_;
+  }
+
   /** @brief Parse `"FlagA | FlagB"` → `int32_t` (OR-combines matched values). */
   int32_t parse(const std::string& s) const {
     int32_t result = 0;
@@ -246,6 +251,11 @@ class Enum : public attribute {
   using table = std::vector<entry>;
 
   explicit Enum(table values) : values_(std::move(values)) {}
+
+  /** @brief The registered name/value table, in declaration order. */
+  const table& entries() const {
+    return values_;
+  }
 
   /** @brief Parse a single enum name → `int32_t`, or `std::stoi` fallback. */
   int32_t parse(const std::string& s) const {

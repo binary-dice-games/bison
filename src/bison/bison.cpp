@@ -1153,6 +1153,14 @@ void register_key_name(hash_t h, std::string_view name) {
   key_name_registry().wlock()->emplace(h, std::string(name));
 }
 
+std::optional<std::string> lookup_registered_key_name(hash_t h) {
+  auto lp = key_name_registry().rlock();
+  auto it = lp->find(h);
+  if (it == lp->end())
+    return std::nullopt;
+  return it->second;
+}
+
 /**
  * @brief Build a combined hash → display-name dictionary for use with
  *        `print_options::dict`, `to_json`, and `to_yaml`.
