@@ -172,6 +172,35 @@ TEST(FieldAccess, IndexedTypeLock) {
   EXPECT_THROW(obj[0] = 1.5f, bison_exception);
 }
 
+TEST(FieldAccess, IndexedBoolRoundTrip) {
+  dynamic obj;
+  obj[0] = true;
+  obj[1] = false;
+  EXPECT_TRUE(obj[0].as<bool>());
+  EXPECT_FALSE(obj[1].as<bool>());
+}
+
+TEST(FieldAccess, IndexedKeyRoundTrip) {
+  dynamic obj;
+  obj[0] = bison_key_t{"hero"};
+  EXPECT_EQ(obj[0].as<bison_key_t>().id, hash("hero"));
+}
+
+TEST(FieldAccess, IndexedObjectRoundTrip) {
+  dynamic obj;
+  dynamic child;
+  child["v"_key] = int32_t{9};
+  obj[0] = child;
+  dynamic out = obj[0];
+  EXPECT_EQ(out["v"_key].as<int32_t>(), 9);
+}
+
+TEST(FieldAccess, IndexedNullObjectRoundTrip) {
+  dynamic obj;
+  obj[0] = nullptr;
+  EXPECT_FALSE(obj[0].as_object().has_value());
+}
+
 TEST(FieldAccess, DynamicAsHelper) {
   dynamic obj;
   obj["score"_key] = int32_t{5};
@@ -351,8 +380,8 @@ TEST_F(ClassRegistryTest, RegisteredMethodSurvivesPrototypeDestruction) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Vector field registration (registration only -- see dynamic.hpp's
-// top-level doc comment for why read-back is not supported through this ABI)
+// Vector fields — registration (addField) and direct read/write
+// (operator[](key_t)'s operator=/as<T>())
 // ═════════════════════════════════════════════════════════════════════════════
 
 TEST(VectorFields, RegistrationSucceedsAndRejectsDuplicate) {
@@ -362,6 +391,63 @@ TEST(VectorFields, RegistrationSucceedsAndRejectsDuplicate) {
   EXPECT_TRUE(obj.addField("ints"_key, std::vector<int32_t>{1, 2, 3}));
   EXPECT_TRUE(obj.addField("floats"_key, std::vector<float>{1.5f, 2.5f}));
   EXPECT_TRUE(obj.addField("bytes"_key, std::vector<uint8_t>{0x01, 0x02}));
+}
+
+TEST(VectorFields, RegisteredFieldIsReadable) {
+  dynamic obj;
+  ASSERT_TRUE(obj.addField("ints"_key, std::vector<int32_t>{1, 2, 3}));
+  EXPECT_EQ(obj["ints"_key].as<std::vector<int32_t>>(), (std::vector<int32_t>{1, 2, 3}));
+}
+
+TEST(VectorFields, IntRoundTrip) {
+  dynamic obj;
+  obj["ints"_key] = std::vector<int32_t>{1, 2, 3};
+  EXPECT_EQ(obj["ints"_key].as<std::vector<int32_t>>(), (std::vector<int32_t>{1, 2, 3}));
+}
+
+TEST(VectorFields, BoolRoundTrip) {
+  dynamic obj;
+  obj["flags"_key] = std::vector<bool>{true, false, true};
+  EXPECT_EQ(obj["flags"_key].as<std::vector<bool>>(), (std::vector<bool>{true, false, true}));
+}
+
+TEST(VectorFields, FloatRoundTrip) {
+  dynamic obj;
+  obj["ratios"_key] = std::vector<float>{1.5f, 2.5f};
+  auto v = obj["ratios"_key].as<std::vector<float>>();
+  ASSERT_EQ(v.size(), 2u);
+  EXPECT_FLOAT_EQ(v[0], 1.5f);
+  EXPECT_FLOAT_EQ(v[1], 2.5f);
+}
+
+TEST(VectorFields, BytesRoundTrip) {
+  dynamic obj;
+  obj["blob"_key] = std::vector<uint8_t>{0, 1, 255};
+  EXPECT_EQ(obj["blob"_key].as<std::vector<uint8_t>>(), (std::vector<uint8_t>{0, 1, 255}));
+}
+
+TEST(VectorFields, AssignmentReplacesExistingContents) {
+  dynamic obj;
+  obj["ints"_key] = std::vector<int32_t>{1, 2, 3};
+  obj["ints"_key] = std::vector<int32_t>{9, 9};
+  EXPECT_EQ(obj["ints"_key].as<std::vector<int32_t>>(), (std::vector<int32_t>{9, 9}));
+}
+
+TEST(VectorFields, WrongTypeReadThrows) {
+  dynamic obj;
+  obj["x"_key] = int32_t{1};
+  EXPECT_THROW(obj["x"_key].as<std::vector<int32_t>>(), bison_exception);
+}
+
+TEST(VectorFields, IndexedAssignmentThrows) {
+  dynamic obj;
+  EXPECT_THROW(obj[0] = std::vector<int32_t>{1}, std::logic_error);
+}
+
+TEST(VectorFields, IndexedReadThrows) {
+  dynamic obj;
+  obj[0] = int32_t{1};
+  EXPECT_THROW(obj[0].as<std::vector<int32_t>>(), std::logic_error);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -395,4 +481,53 @@ TEST(Serialization, PrettyProducesNonEmptyString) {
   dynamic obj;
   obj["x"_key] = int32_t{1};
   EXPECT_FALSE(obj.pretty().empty());
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Binary serialization (serialize() / deserialize())
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(BinarySerialization, RoundTripsScalarFields) {
+  dynamic obj;
+  obj["x"_key] = int32_t{42};
+  obj["y"_key] = 2.5f;
+  obj["s"_key] = std::string{"hello"};
+
+  std::vector<uint8_t> buf = obj.serialize();
+  EXPECT_FALSE(buf.empty());
+
+  dynamic decoded = dynamic::deserialize(buf);
+  EXPECT_EQ(decoded["x"_key].as<int32_t>(), 42);
+  EXPECT_FLOAT_EQ(decoded["y"_key].as<float>(), 2.5f);
+  EXPECT_EQ(decoded["s"_key].as<std::string>(), "hello");
+}
+
+TEST(BinarySerialization, RoundTripsNestedObject) {
+  dynamic obj;
+  dynamic child;
+  child["city"_key] = std::string{"Springfield"};
+  obj["address"_key] = child;
+
+  dynamic decoded = dynamic::deserialize(obj.serialize());
+  dynamic addr = decoded["address"_key];
+  EXPECT_EQ(addr["city"_key].as<std::string>(), "Springfield");
+}
+
+TEST(BinarySerialization, RoundTripsThroughRawPointerOverload) {
+  dynamic obj;
+  obj["x"_key] = int32_t{7};
+  std::vector<uint8_t> buf = obj.serialize();
+
+  dynamic decoded = dynamic::deserialize(buf.data(), buf.size());
+  EXPECT_EQ(decoded["x"_key].as<int32_t>(), 7);
+}
+
+TEST(BinarySerialization, MalformedBufferThrowsParseError) {
+  std::vector<uint8_t> garbage{0xFF, 0x00, 0x01};
+  try {
+    dynamic::deserialize(garbage);
+    FAIL() << "expected bison_exception";
+  } catch (const bison_exception& e) {
+    EXPECT_EQ(e.code, BISON_ERR_PARSE);
+  }
 }

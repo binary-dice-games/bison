@@ -61,20 +61,33 @@ move-enabled wrapper around a `bison_handle`; failures raise
 A few gaps versus the internal C++ API are inherent to the ABI's surface,
 not this binding's choice — see `dynamic.hpp`'s and `rmi.hpp`'s top-level
 doc comments for the full list and reasoning:
-- No raw buffer/stream serialization or schema-driven wire format — only
-  `to_json()` / `to_yaml()` / `pretty()`, matching the Python/C# bindings.
-- Indexed (numeric) field access covers only `int32_t`/`float`/`std::string`
-  (`bison_c.h` has no `_at` variant for `bool`/`key_t`/nested objects).
-- Vector-typed fields can be registered (`addField(name, std::vector<...>)`)
-  but not read back — there is no `bison_get_vector_*` in the ABI.
+- `dynamic::serialize()` / `dynamic::deserialize()` wrap `bison_serialize()`
+  / `bison_deserialize()` (`bison_c.h`), the compact binary wire format
+  (`FORMAT.md`) — this is the ABI-reachable equivalent of the internal
+  `dynamic::serialize(buffer_serializer&)`. There is still no ABI entry
+  point for `stream_serializer` (arbitrary `std::iostream` targets) or the
+  schema-driven wire format (`serializeWithSchema()`); `to_json()` /
+  `to_yaml()` / `pretty()` remain the only text formats, matching the
+  Python/C# bindings.
 - `dynamic::addMethod()`'s callback populates a `result` out-parameter in
   place rather than returning a `dynamic` by value (there is no ABI call to
   copy an arbitrary field set out of a fresh object into the library-owned
-  result handle).
+  result handle) — this is the one remaining gap without a mechanical fix,
+  since it needs generic field enumeration, which `bison_c.h` doesn't
+  expose at all.
 - The RMI `client`/`proxy` are synchronous by default (matching
   `rmi_c.h`'s blocking calls) with `_async()` counterparts returning a
   `future` wrapping `rmi_future_handle`, rather than the internal API's
   uniform `std::future<T>` return type.
+
+Indexed (numeric) field access (`obj[0]`) and vector-typed fields
+(`obj["tags"_key] = std::vector<int32_t>{...}`) are both fully supported,
+including read-back — `bison_c.h` exports `bison_{get,set}_{bool,key,
+object}_at()` and `bison_{get,set}_vector_{bool,int,float,bytes}()`
+alongside the scalar functions. Vector-typed fields are still named-field
+only (`operator[](key_t)`), not reachable through `operator[](size_t)` —
+that indexing model builds an array *out of* many scalar fields, a
+different concept from a single field that itself holds a vector.
 
 A field the C++ side declares as `bison::key_t` is a distinct field-variant
 type from `int32_t` — this resolves naturally through ordinary C++ overload

@@ -62,7 +62,7 @@ class bison_exception : public std::runtime_error {
       case BISON_ERR_EXCEPTION:
         return "internal C++ exception";
       case BISON_ERR_PARSE:
-        return "parse error (JSON / YAML)";
+        return "parse error (JSON / YAML / binary buffer)";
       default:
         return "unknown bison_error";
     }
