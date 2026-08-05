@@ -69,6 +69,11 @@ MethodFn = ctypes.CFUNCTYPE(None, Handle, Handle, Handle, ctypes.c_void_p)
 # void (*rmi_proxy_event_fn)(bison_handle params, void* user)
 ProxyEventFn = ctypes.CFUNCTYPE(None, Handle, ctypes.c_void_p)
 
+# bool (*rmi_auth_fn)(bison_handle payload, char* identity_buf, size_t identity_buf_len, void* user)
+# identity_buf is declared c_void_p (not c_char_p) so the callback receives a
+# writable address rather than an immutable copied `bytes`.
+AuthFn = ctypes.CFUNCTYPE(ctypes.c_bool, Handle, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p)
+
 
 # ─── Struct types ───────────────────────────────────────────────────────────
 
@@ -410,6 +415,9 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
 
     lib.rmi_server_listen.restype = Error
     lib.rmi_server_listen.argtypes = [ServerHandle, Handle]
+
+    lib.rmi_server_set_auth.restype = Error
+    lib.rmi_server_set_auth.argtypes = [ServerHandle, AuthFn, ctypes.c_void_p]
 
     lib.rmi_server_stop.restype = None
     lib.rmi_server_stop.argtypes = [ServerHandle]

@@ -149,6 +149,39 @@ static inline bool client_handle_is_valid(rmi_client_handle h) {
 struct server_state {
   std::unique_ptr<term::terminal> term_owner;
   std::unique_ptr<server> server_owner;
+  rmi_auth_fn auth_fn = nullptr;
+  void* auth_user = nullptr;
+  bool listening = false;
+};
+
+/**
+ * @brief Adapts an `rmi_auth_fn` C callback to `auth_module_iface`.
+ *
+ * Mirrors `rmi_proxy_on_event()`'s scope-local `bison_handle` pattern: the
+ * payload is wrapped in a stack-local `bison_dynamic_ptr` rather than a
+ * heap allocation, since the handle only needs to live for the duration of
+ * the call.
+ */
+class c_auth_module final : public auth_module_iface {
+ public:
+  c_auth_module(rmi_auth_fn fn, void* user) : fn_(fn), user_(user) {}
+
+  bool authenticate(context& ctx, const dynamic& payload, std::string& out_identity) override {
+    (void)ctx;
+    auto sp = std::make_shared<dynamic>(payload);
+    bison_dynamic_ptr holder(sp);
+    bison_handle payload_h = as_bison_handle(&holder);
+
+    char identity_buf[256] = {0};
+    bool accepted = fn_(payload_h, identity_buf, sizeof(identity_buf), user_);
+    if (accepted)
+      out_identity.assign(identity_buf, strnlen(identity_buf, sizeof(identity_buf)));
+    return accepted;
+  }
+
+ private:
+  rmi_auth_fn fn_;
+  void* user_;
 };
 
 /** Cast to server_state* */
@@ -783,18 +816,34 @@ RMI_API rmi_server_handle rmi_server_term_create(const char* cmd) {
 }
 
 RMI_API rmi_error rmi_server_listen(rmi_server_handle h, bison_handle params) {
-  server* s = server_deref(h);
+  server_state* state = as_server_state(h);
+  server* s = state ? state->server_owner.get() : nullptr;
   if (!s)
     return RMI_ERR_NULL;
   (void)params; // params not yet supported via C API
   try {
-    s->listen(dynamic{});
+    auth_module_ptr auth;
+    if (state->auth_fn)
+      auth = std::make_shared<c_auth_module>(state->auth_fn, state->auth_user);
+    s->listen(dynamic{}, std::move(auth));
+    state->listening = true;
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;
   } catch (...) {
     return RMI_ERR_EXCEPTION;
   }
+}
+
+RMI_API rmi_error rmi_server_set_auth(rmi_server_handle h, rmi_auth_fn handler, void* user) {
+  server_state* state = as_server_state(h);
+  if (!state || !state->server_owner)
+    return RMI_ERR_NULL;
+  if (state->listening)
+    return RMI_ERR_INVALID_STATE;
+  state->auth_fn = handler;
+  state->auth_user = user;
+  return RMI_OK;
 }
 
 RMI_API void rmi_server_stop(rmi_server_handle h) {

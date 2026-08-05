@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <string>
 
 using namespace bdg::bison::abi;
@@ -158,12 +159,16 @@ namespace {
 
 // Mirrors tests/rmi_tests.cpp's make_socket_server_transport() retry-over-
 // ports pattern, to avoid flakiness from a fixed port already being in use.
-std::pair<rmi::server, uint16_t> make_tcp_server() {
+// `configure`, if given, runs after the server is created but before
+// `listen()` -- e.g. to call `set_auth()`, which must precede `listen()`.
+std::pair<rmi::server, uint16_t> make_tcp_server(std::function<void(rmi::server&)> configure = {}) {
   static std::atomic<uint16_t> next_port{29500};
   for (int attempt = 0; attempt < 64; ++attempt) {
     uint16_t port = next_port.fetch_add(1);
     try {
       rmi::server server = rmi::server::tcp("127.0.0.1", port);
+      if (configure)
+        configure(server);
       server.listen();
       return {std::move(server), port};
     } catch (const std::exception&) {
@@ -194,4 +199,49 @@ TEST(RmiTcp, ClientServerRoundTrip) {
   client.disconnect();
   server.stop();
   dynamic::clear_registry();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// server::set_auth()
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(RmiAuth, AcceptingCallbackReceivesPayloadAndSetsIdentity) {
+  std::string seen_username;
+  auto [server, port] = make_tcp_server([&](rmi::server& s) {
+    s.set_auth([&](const dynamic& payload, std::string& out_identity) {
+      seen_username = payload["username"_key].as<std::string>();
+      out_identity = "alice-id";
+      return true;
+    });
+  });
+
+  rmi::client client = rmi::client::tcp("127.0.0.1", port);
+  dynamic params;
+  params["username"_key] = std::string{"alice"};
+  client.connect(params);
+
+  EXPECT_EQ(seen_username, "alice");
+
+  client.disconnect();
+  server.stop();
+}
+
+TEST(RmiAuth, RejectingCallbackFailsConnect) {
+  auto [server, port] = make_tcp_server([](rmi::server& s) {
+    s.set_auth([](const dynamic&, std::string&) { return false; });
+  });
+
+  rmi::client client = rmi::client::tcp("127.0.0.1", port);
+  EXPECT_THROW(client.connect(), std::exception);
+
+  server.stop();
+}
+
+TEST(RmiAuth, SetAuthAfterListenThrows) {
+  auto [server, port] = make_tcp_server();
+  (void)port;
+
+  EXPECT_THROW(server.set_auth([](const dynamic&, std::string&) { return true; }), std::exception);
+
+  server.stop();
 }

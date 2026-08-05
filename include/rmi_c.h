@@ -512,6 +512,42 @@ RMI_API rmi_server_handle rmi_server_term_create(const char* cmd);
 RMI_API rmi_error rmi_server_listen(rmi_server_handle server, bison_handle params);
 
 /**
+ * @brief Server-side connection authentication callback.
+ *
+ * Invoked once per incoming connection with the client's OP_CONNECT
+ * payload. Write a NUL-terminated identity string into @p identity_buf
+ * (leave it untouched/empty if this callback has no notion of identity)
+ * and return whether to accept the connection. Identities longer than
+ * @p identity_buf_len - 1 bytes are truncated.
+ *
+ * @param payload           Read-only OP_CONNECT payload. Valid only during
+ *                           the callback; must not be released.
+ * @param identity_buf       Buffer to receive a NUL-terminated identity
+ *                           string. Never NULL.
+ * @param identity_buf_len   Capacity of @p identity_buf in bytes.
+ * @param user                User context pointer supplied to
+ *                           `rmi_server_set_auth()`.
+ * @return `true` to accept the connection, `false` to reject it.
+ */
+typedef bool (*rmi_auth_fn)(bison_handle payload, char* identity_buf, size_t identity_buf_len, void* user);
+
+/**
+ * @brief Register a connection-authentication callback.
+ *
+ * Must be called before `rmi_server_listen()` — the module is fixed for
+ * the lifetime of the accept loop, matching the internal
+ * `server::listen()`'s `auth_module` parameter. Returns
+ * `RMI_ERR_INVALID_STATE` if the server is already listening. Pass a
+ * `NULL` handler to leave authentication disabled (the default).
+ *
+ * @param server   Valid server handle, not yet listening.
+ * @param handler  Authentication callback, or `NULL`.
+ * @param user     User context pointer passed to @p handler.
+ * @return `RMI_OK` on success, or a negative error code.
+ */
+RMI_API rmi_error rmi_server_set_auth(rmi_server_handle server, rmi_auth_fn handler, void* user);
+
+/**
  * @brief Stop the server listener.
  *
  * Closes the listener socket, stops accepting new connections, and allows

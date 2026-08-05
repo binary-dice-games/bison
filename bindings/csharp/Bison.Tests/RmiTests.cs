@@ -3,9 +3,11 @@
  * @file RmiTests.cs
  * @brief Tests for Bdg.Bison.Rmi -- mirrors bindings/python/tests/test_rmi.py.
  *
- * Uses Client.Standalone() (in-process dispatch) exclusively so the suite
- * has no dependency on sockets/ports being available in the test
- * environment.
+ * RmiTests uses Client.Standalone() (in-process dispatch) exclusively so the
+ * suite has no dependency on sockets/ports being available in the test
+ * environment. RmiAuthTests is the exception -- Server.SetAuth() is
+ * evaluated during the OP_CONNECT handshake, which standalone sessions skip
+ * entirely, so it needs a real TCP client/server round trip.
  */
 
 using Bdg.Bison;
@@ -100,5 +102,63 @@ public class RmiTests : IDisposable
         Dynamic r = d.add(a: 1.0f, b: 2.0f);
         Assert.Equal(3.0f, r["result"]);
         r.Release();
+    }
+}
+
+public class RmiAuthTests
+{
+    private static int _nextPort = 30500;
+
+    private static ushort NextPort() => (ushort)(_nextPort++);
+
+    [Fact]
+    public void NoAuthSetConnectSucceeds()
+    {
+        var port = NextPort();
+        using var server = Server.Tcp("127.0.0.1", port);
+        server.Listen();
+        using var client = Client.Tcp("127.0.0.1", port);
+        client.Connect();
+    }
+
+    [Fact]
+    public void AcceptingCallbackReceivesPayloadAndSetsIdentity()
+    {
+        var port = NextPort();
+        using var server = Server.Tcp("127.0.0.1", port);
+        string? seenUsername = null;
+        server.SetAuth(payload =>
+        {
+            seenUsername = (string?)payload["username"];
+            return (true, "alice-id");
+        });
+        server.Listen();
+
+        using var client = Client.Tcp("127.0.0.1", port);
+        client.Connect(new Dictionary<string, object?> { ["username"] = "alice" });
+
+        Assert.Equal("alice", seenUsername);
+    }
+
+    [Fact]
+    public void RejectingCallbackFailsConnect()
+    {
+        var port = NextPort();
+        using var server = Server.Tcp("127.0.0.1", port);
+        server.SetAuth(payload => (false, string.Empty));
+        server.Listen();
+
+        using var client = Client.Tcp("127.0.0.1", port);
+        Assert.Throws<RmiException>(() => client.Connect());
+    }
+
+    [Fact]
+    public void SetAuthAfterListenThrows()
+    {
+        var port = NextPort();
+        using var server = Server.Tcp("127.0.0.1", port);
+        server.Listen();
+
+        Assert.Throws<RmiException>(() => server.SetAuth(payload => (true, string.Empty)));
     }
 }

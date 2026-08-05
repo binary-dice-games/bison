@@ -318,12 +318,13 @@ class Server:
     context manager to auto-listen/stop.
     """
 
-    __slots__ = ("_lib", "_handle", "_listening")
+    __slots__ = ("_lib", "_handle", "_listening", "_callbacks")
 
     def __init__(self, handle: int):
         self._lib = _n.get_lib()
         self._handle = _n.ServerHandle(handle)
         self._listening = False
+        self._callbacks: list = []
 
     @classmethod
     def tcp(cls, host: str, port: int) -> "Server":
@@ -345,6 +346,30 @@ class Server:
         if not h:
             raise MemoryError("rmi_server_term_create failed")
         return cls(h)
+
+    def set_auth(self, handler: Callable[[Dynamic], "tuple[bool, str]"]) -> None:
+        """Register a connection-authentication callback. Call before :meth:`listen`.
+
+        *handler* receives the client's ``OP_CONNECT`` payload as a
+        :class:`Dynamic` and returns ``(accepted, identity)``: whether to
+        accept the connection, and (if accepted) an identity string.
+        Identity strings longer than 255 UTF-8 bytes are truncated (the
+        C ABI uses a fixed 256-byte buffer).
+        """
+
+        def c_callback(payload_h, identity_buf, identity_buf_len, _user) -> bool:
+            try:
+                accepted, identity = handler(Dynamic(_handle=payload_h, _owned=False))
+            except Exception:
+                return False
+            if accepted and identity:
+                encoded = identity.encode("utf-8")[: identity_buf_len - 1]
+                ctypes.memmove(identity_buf, encoded + b"\0", len(encoded) + 1)
+            return accepted
+
+        c_fn = _n.AuthFn(c_callback)
+        self._callbacks.append(c_fn)
+        _check(self._lib.rmi_server_set_auth(self._handle, c_fn, None), "set_auth")
 
     def listen(self, params: Any = None) -> "Server":
         with _as_params(params) as ph:
