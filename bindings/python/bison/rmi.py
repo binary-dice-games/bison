@@ -318,12 +318,13 @@ class Server:
     context manager to auto-listen/stop.
     """
 
-    __slots__ = ("_lib", "_handle", "_listening")
+    __slots__ = ("_lib", "_handle", "_listening", "_callbacks")
 
     def __init__(self, handle: int):
         self._lib = _n.get_lib()
         self._handle = _n.ServerHandle(handle)
         self._listening = False
+        self._callbacks: list = []
 
     @classmethod
     def tcp(cls, host: str, port: int) -> "Server":
@@ -346,9 +347,35 @@ class Server:
             raise MemoryError("rmi_server_term_create failed")
         return cls(h)
 
-    def listen(self, params: Any = None) -> "Server":
+    def listen(self, params: Any = None, auth: Optional[Callable[[Dynamic], "tuple[bool, str]"]] = None) -> "Server":
+        """Start accepting client connections.
+
+        *auth*, if given, is evaluated once per incoming connection for as
+        long as the server keeps listening -- it can only be set here, not
+        changed afterward. It receives the client's ``OP_CONNECT`` payload
+        as a :class:`Dynamic` and returns ``(accepted, identity)``: whether
+        to accept the connection, and (if accepted) an identity string.
+        Identity strings longer than 255 UTF-8 bytes are truncated (the
+        C ABI uses a fixed 256-byte buffer).
+        """
+        c_fn = _n.AuthFn()  # NULL function pointer unless *auth* is given
+        if auth is not None:
+
+            def c_callback(payload_h, identity_buf, identity_buf_len, _user) -> bool:
+                try:
+                    accepted, identity = auth(Dynamic(_handle=payload_h, _owned=False))
+                except Exception:
+                    return False
+                if accepted and identity:
+                    encoded = identity.encode("utf-8")[: identity_buf_len - 1]
+                    ctypes.memmove(identity_buf, encoded + b"\0", len(encoded) + 1)
+                return accepted
+
+            c_fn = _n.AuthFn(c_callback)
+            self._callbacks.append(c_fn)
+
         with _as_params(params) as ph:
-            _check(self._lib.rmi_server_listen(self._handle, ph), "listen")
+            _check(self._lib.rmi_server_listen(self._handle, ph, c_fn, None), "listen")
         self._listening = True
         return self
 

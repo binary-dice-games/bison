@@ -1,7 +1,10 @@
 """Tests for bison.rmi — the Bison RMI Python binding.
 
-Uses Client.standalone() (in-process dispatch) exclusively so the suite has
-no dependency on sockets/ports being available in the test environment.
+Most tests use Client.standalone() (in-process dispatch) so the suite has no
+dependency on sockets/ports being available in the test environment.
+TestTcpAuthRmi is the exception -- Server.listen()'s auth parameter is
+evaluated during the OP_CONNECT handshake, which standalone sessions skip
+entirely, so it needs a real TCP client/server round trip.
 
 Build bison_abi first, then run from the repository root::
 
@@ -10,6 +13,7 @@ Build bison_abi first, then run from the repository root::
     python -m pytest bindings/python/tests/test_rmi.py -v
 """
 
+import itertools
 import os
 import sys
 import unittest
@@ -17,7 +21,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from bison import Dynamic, add_class, clear_registry
-from bison.rmi import Client, RmiError
+from bison.rmi import Client, RmiError, Server
 
 
 def method_add(self_obj, params, result):
@@ -85,6 +89,58 @@ class TestStandaloneRmi(unittest.TestCase):
                 b["label"] = "b"
                 self.assertEqual(a["label"], "a")
                 self.assertEqual(b["label"], "b")
+
+
+_next_tcp_port = itertools.count(30000)
+
+
+class TestTcpAuthRmi(unittest.TestCase):
+    def test_no_auth_set_connect_succeeds(self):
+        port = next(_next_tcp_port)
+        server = Server.tcp("127.0.0.1", port)
+        server.listen()
+        client = Client.tcp("127.0.0.1", port)
+        try:
+            client.connect()
+        finally:
+            client.release()
+            server.stop()
+            server.release()
+
+    def test_accepting_callback_receives_payload_and_sets_identity(self):
+        port = next(_next_tcp_port)
+        server = Server.tcp("127.0.0.1", port)
+        seen = {}
+
+        def handler(payload):
+            seen["username"] = payload["username"]
+            return True, "alice-id"
+
+        server.listen(auth=handler)
+
+        client = Client.tcp("127.0.0.1", port)
+        try:
+            client.connect({"username": "alice"})
+        finally:
+            client.release()
+            server.stop()
+            server.release()
+
+        self.assertEqual(seen.get("username"), "alice")
+
+    def test_rejecting_callback_fails_connect(self):
+        port = next(_next_tcp_port)
+        server = Server.tcp("127.0.0.1", port)
+        server.listen(auth=lambda payload: (False, ""))
+
+        client = Client.tcp("127.0.0.1", port)
+        try:
+            with self.assertRaises(RmiError):
+                client.connect()
+        finally:
+            client.release()
+            server.stop()
+            server.release()
 
 
 if __name__ == "__main__":

@@ -71,6 +71,13 @@ internal delegate void NativeMethodFn(nint self, nint parameters, nint result, n
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void NativeProxyEventFn(nint parameters, nint user);
 
+/// <summary>
+/// <c>rmi_auth_fn</c>: bool(*)(bison_handle payload, char* identity_buf,
+/// size_t identity_buf_len, void* user).
+/// </summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal unsafe delegate bool NativeAuthFn(nint payload, byte* identityBuf, nuint identityBufLen, nint user);
+
 /// <summary><c>wish_session_fn</c>: void(*)(wish_client_handle client, void* userdata).</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void NativeSessionFn(nint client, nint userdata);
@@ -457,7 +464,7 @@ internal static partial class Native
     public static partial nint rmi_server_term_create(string? cmd);
 
     [LibraryImport(LibName)]
-    public static partial int rmi_server_listen(nint server, nint parameters);
+    public static partial int rmi_server_listen(nint server, nint parameters, nint authHandler, nint authUser);
 
     [LibraryImport(LibName)]
     public static partial void rmi_server_stop(nint server);

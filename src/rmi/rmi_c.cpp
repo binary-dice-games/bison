@@ -151,6 +151,36 @@ struct server_state {
   std::unique_ptr<server> server_owner;
 };
 
+/**
+ * @brief Adapts an `rmi_auth_fn` C callback to `auth_module_iface`.
+ *
+ * Mirrors `rmi_proxy_on_event()`'s scope-local `bison_handle` pattern: the
+ * payload is wrapped in a stack-local `bison_dynamic_ptr` rather than a
+ * heap allocation, since the handle only needs to live for the duration of
+ * the call.
+ */
+class c_auth_module final : public auth_module_iface {
+ public:
+  c_auth_module(rmi_auth_fn fn, void* user) : fn_(fn), user_(user) {}
+
+  bool authenticate(context& ctx, const dynamic& payload, std::string& out_identity) override {
+    (void)ctx;
+    auto sp = std::make_shared<dynamic>(payload);
+    bison_dynamic_ptr holder(sp);
+    bison_handle payload_h = as_bison_handle(&holder);
+
+    char identity_buf[256] = {0};
+    bool accepted = fn_(payload_h, identity_buf, sizeof(identity_buf), user_);
+    if (accepted)
+      out_identity.assign(identity_buf, strnlen(identity_buf, sizeof(identity_buf)));
+    return accepted;
+  }
+
+ private:
+  rmi_auth_fn fn_;
+  void* user_;
+};
+
 /** Cast to server_state* */
 static inline server_state* as_server_state(rmi_server_handle h) {
   return reinterpret_cast<server_state*>(h);
@@ -782,13 +812,17 @@ RMI_API rmi_server_handle rmi_server_term_create(const char* cmd) {
   }
 }
 
-RMI_API rmi_error rmi_server_listen(rmi_server_handle h, bison_handle params) {
+RMI_API rmi_error
+rmi_server_listen(rmi_server_handle h, bison_handle params, rmi_auth_fn auth_handler, void* auth_user) {
   server* s = server_deref(h);
   if (!s)
     return RMI_ERR_NULL;
   (void)params; // params not yet supported via C API
   try {
-    s->listen(dynamic{});
+    auth_module_ptr auth;
+    if (auth_handler)
+      auth = std::make_shared<c_auth_module>(auth_handler, auth_user);
+    s->listen(dynamic{}, std::move(auth));
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;

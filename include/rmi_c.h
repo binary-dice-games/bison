@@ -500,16 +500,46 @@ RMI_API rmi_server_handle rmi_server_pipe_create(const char* path);
 RMI_API rmi_server_handle rmi_server_term_create(const char* cmd);
 
 /**
+ * @brief Server-side connection authentication callback.
+ *
+ * Invoked once per incoming connection with the client's OP_CONNECT
+ * payload. Write a NUL-terminated identity string into @p identity_buf
+ * (leave it untouched/empty if this callback has no notion of identity)
+ * and return whether to accept the connection. Identities longer than
+ * @p identity_buf_len - 1 bytes are truncated.
+ *
+ * @param payload           Read-only OP_CONNECT payload. Valid only during
+ *                           the callback; must not be released.
+ * @param identity_buf       Buffer to receive a NUL-terminated identity
+ *                           string. Never NULL.
+ * @param identity_buf_len   Capacity of @p identity_buf in bytes.
+ * @param user                User context pointer supplied to
+ *                           `rmi_server_listen()`.
+ * @return `true` to accept the connection, `false` to reject it.
+ */
+typedef bool (*rmi_auth_fn)(bison_handle payload, char* identity_buf, size_t identity_buf_len, void* user);
+
+/**
  * @brief Start the server listener.
  *
  * Begins accepting client connections on the configured address/port and
  * spawns background worker threads.
  *
- * @param server    Valid server handle.
- * @param params    Optional listen parameters (`bison_handle` or `NULL`).
+ * @param server        Valid server handle.
+ * @param params        Optional listen parameters (`bison_handle` or `NULL`).
+ * @param auth_handler  Optional connection-authentication callback, or
+ *                      `NULL` to accept every connection unconditionally
+ *                      (the default). Evaluated once per incoming
+ *                      connection for the lifetime of the accept loop --
+ *                      matching the internal `server::listen()`'s
+ *                      `auth_module` parameter, this is fixed for as long
+ *                      as the server keeps listening.
+ * @param auth_user     User context pointer passed to @p auth_handler.
+ *                      Ignored if @p auth_handler is `NULL`.
  * @return `RMI_OK` on success, or a negative error code.
  */
-RMI_API rmi_error rmi_server_listen(rmi_server_handle server, bison_handle params);
+RMI_API rmi_error
+rmi_server_listen(rmi_server_handle server, bison_handle params, rmi_auth_fn auth_handler, void* auth_user);
 
 /**
  * @brief Stop the server listener.

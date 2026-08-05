@@ -29,14 +29,18 @@
  *   in directly: `client::tcp()` / `pipe()` / `term()` / `standalone()`
  *   (and `server::tcp()` / `pipe()` / `term()`), matching the factory
  *   methods the Python and C# bindings expose.
- * - **No virtual extension hooks.** The internal `server` has a long list
- *   of `on_*` overridable hooks (`on_check_class`, `on_create_object`,
- *   session context hooks, tracing hooks, ...) for embedding RMI into a
- *   larger application. None of that is reachable through `rmi_c.h` — this
- *   `server` only wraps `rmi_server_{tcp,pipe,term}_create` / `listen` /
- *   `stop`. Class/method registration still goes through plain
+ * - **No virtual extension hooks, with one exception.** The internal
+ *   `server` has a long list of `on_*` overridable hooks (`on_check_class`,
+ *   `on_create_object`, session context hooks, tracing hooks, ...) for
+ *   embedding RMI into a larger application. None of that is reachable
+ *   through `rmi_c.h` except connection authentication
+ *   (`auth_module_iface`, `src/rmi/server/auth.hpp`), exposed here as
+ *   `listen()`'s optional `auth` parameter. This `server` otherwise only
+ *   wraps `rmi_server_{tcp,pipe,term}_create` / `listen` / `stop`.
+ *   Class/method registration still goes through plain
  *   `dynamic::addClass()` / `dynamic::addMethod()`, exactly as in the
- *   `rmi_*_abi_*_example.cpp` examples.
+ *   `rmi_*_abi_*_example.cpp`
+ *   examples.
  * - **Synchronous by default, not `std::future`-returning.** The internal
  *   `client`/`proxy` return `std::future<T>` from every operation. The ABI
  *   exposes both a blocking call (`rmi_proxy_call`, ...) and a separate
@@ -71,7 +75,9 @@
 #include "exception.hpp"
 #include "key.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -524,10 +530,22 @@ class server {
     return server(checked(rmi_server_term_create(cmd.empty() ? nullptr : cmd.c_str()), "rmi_server_term_create"));
   }
 
-  /** @brief Start accepting client connections and spawn worker threads. */
-  void listen(const dynamic& params = dynamic()) {
-    abi::detail::check(rmi_server_listen(handle_, params.native_handle()), "listen");
-  }
+  /**
+   * @brief Start accepting client connections and spawn worker threads.
+   *
+   * @p auth, if given, is evaluated once per incoming connection for as
+   * long as the server keeps listening -- matching the internal
+   * `server::listen()`'s `auth_module` parameter, it can only be set here,
+   * not changed afterward. It receives the client's `OP_CONNECT` payload
+   * and returns `true` to accept the connection (optionally writing an
+   * identity string into the `std::string&` out-parameter) or `false` to
+   * reject it. The handler closure is kept alive for the process's
+   * lifetime, same as `proxy::onEvent()` — see `detail::event_registry`'s
+   * doc comment.
+   */
+  void listen(
+      const dynamic& params = dynamic(),
+      std::function<bool(const dynamic& payload, std::string& out_identity)> auth = nullptr);
 
   /** @brief Stop the listener and let active workers finish. */
   void stop() {
@@ -557,5 +575,55 @@ class server {
 
   rmi_server_handle handle_;
 };
+
+namespace detail {
+
+using auth_fn = std::function<bool(const dynamic&, std::string&)>;
+
+inline std::mutex& auth_registry_mutex() {
+  static std::mutex m;
+  return m;
+}
+inline std::vector<std::shared_ptr<auth_fn>>& auth_registry() {
+  static std::vector<std::shared_ptr<auth_fn>> registry;
+  return registry;
+}
+inline auth_fn* register_auth_fn(auth_fn fn) {
+  auto stored = std::make_shared<auth_fn>(std::move(fn));
+  std::lock_guard<std::mutex> lock(auth_registry_mutex());
+  auth_registry().push_back(stored);
+  return stored.get();
+}
+inline bool auth_trampoline(bison_handle payload, char* identity_buf, size_t identity_buf_len, void* user) {
+  auto* fn = static_cast<auth_fn*>(user);
+  dynamic payload_view = dynamic::borrow(payload);
+  std::string identity;
+  bool accepted = false;
+  try {
+    accepted = (*fn)(payload_view, identity);
+  } catch (...) {
+    // C ABI boundary: exceptions must not propagate back into bison_abi.
+    return false;
+  }
+  if (accepted && identity_buf_len > 0) {
+    size_t n = std::min(identity.size(), identity_buf_len - 1);
+    std::memcpy(identity_buf, identity.data(), n);
+    identity_buf[n] = '\0';
+  }
+  return accepted;
+}
+
+} // namespace detail
+
+inline void
+server::listen(const dynamic& params, std::function<bool(const dynamic&, std::string&)> auth) {
+  if (auth) {
+    auto* stored = detail::register_auth_fn(std::move(auth));
+    abi::detail::check(
+        rmi_server_listen(handle_, params.native_handle(), &detail::auth_trampoline, stored), "listen");
+  } else {
+    abi::detail::check(rmi_server_listen(handle_, params.native_handle(), nullptr, nullptr), "listen");
+  }
+}
 
 } // namespace bdg::bison::abi::rmi
