@@ -179,6 +179,7 @@ endif()
 
 add_subdirectory(examples)
 add_subdirectory(src/srv)
+add_subdirectory(bindings/cpp)
 
 # ─── bison-cli executable ─────────────────────────────────────────────────────
 add_executable(bison-cli src/app/cli/main.cpp)

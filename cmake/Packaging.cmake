@@ -40,6 +40,16 @@ install(DIRECTORY bindings/csharp/Bison DESTINATION bindings/csharp/src
 install(DIRECTORY bindings/csharp/examples DESTINATION bindings/csharp
     COMPONENT bison)
 
+# bindings/cpp is header-only -- ship the headers a consumer #includes plus
+# the example sources for reference; there is no build output of its own to
+# bundle (the examples/tests built from this repo's own CMakeLists.txt are
+# dev-time-only, same reasoning as excluding examples/ and src/srv/calc
+# above).
+install(DIRECTORY bindings/cpp/include DESTINATION bindings/cpp
+    COMPONENT bison)
+install(DIRECTORY bindings/cpp/examples DESTINATION bindings/cpp
+    COMPONENT bison)
+
 # PATH/library-path registration helpers, so `bison-cli` and
 # bison_abi.dll/libbison_abi.so are discoverable from anywhere in the
 # filesystem after extracting the zip, not just from inside bin/. See
