@@ -387,7 +387,11 @@ bison_add_field_key(bison_handle obj, bison_hash key, bison_hash value, const bi
 }
 
 BISON_API bison_error bison_add_field_vector_bool(
-    bison_handle obj, bison_hash key, const int* values, size_t count, const bison_attributes* meta) {
+    bison_handle obj,
+    bison_hash key,
+    const int* values,
+    size_t count,
+    const bison_attributes* meta) {
   if (count > 0 && !values)
     return BISON_ERR_NULL;
   std::vector<bool> v;
@@ -401,7 +405,11 @@ BISON_API bison_error bison_add_field_vector_bool(
 }
 
 BISON_API bison_error bison_add_field_vector_int(
-    bison_handle obj, bison_hash key, const int32_t* values, size_t count, const bison_attributes* meta) {
+    bison_handle obj,
+    bison_hash key,
+    const int32_t* values,
+    size_t count,
+    const bison_attributes* meta) {
   if (count > 0 && !values)
     return BISON_ERR_NULL;
   bdg::bison::field f{std::vector<int32_t>{values, values + count}};
@@ -411,7 +419,11 @@ BISON_API bison_error bison_add_field_vector_int(
 }
 
 BISON_API bison_error bison_add_field_vector_float(
-    bison_handle obj, bison_hash key, const float* values, size_t count, const bison_attributes* meta) {
+    bison_handle obj,
+    bison_hash key,
+    const float* values,
+    size_t count,
+    const bison_attributes* meta) {
   if (count > 0 && !values)
     return BISON_ERR_NULL;
   bdg::bison::field f{std::vector<float>{values, values + count}};
@@ -421,13 +433,203 @@ BISON_API bison_error bison_add_field_vector_float(
 }
 
 BISON_API bison_error bison_add_field_vector_bytes(
-    bison_handle obj, bison_hash key, const uint8_t* values, size_t count, const bison_attributes* meta) {
+    bison_handle obj,
+    bison_hash key,
+    const uint8_t* values,
+    size_t count,
+    const bison_attributes* meta) {
   if (count > 0 && !values)
     return BISON_ERR_NULL;
   bdg::bison::field f{std::vector<uint8_t>{values, values + count}};
   for (auto& a : attrs_from_meta(meta))
     f.addAttribute(std::move(a));
   return add_field_impl(obj, key, std::move(f));
+}
+
+// ─── Vector field access ───────────────────────────────────────────────────
+
+BISON_API bison_error
+bison_get_vector_bool(bison_handle h, bison_hash name, int* buf, size_t buf_len, size_t* len_out) {
+  if (!h)
+    return BISON_ERR_NULL;
+  try {
+    const std::vector<bool>& v = (*dyn(h))[bdg::bison::key_t{name}].as<std::vector<bool>>();
+    if (len_out)
+      *len_out = v.size();
+    if (buf && buf_len > 0) {
+      size_t copy_len = v.size() < buf_len ? v.size() : buf_len;
+      for (size_t i = 0; i < copy_len; ++i)
+        buf[i] = v[i] ? 1 : 0;
+    }
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error
+bison_get_vector_int(bison_handle h, bison_hash name, int32_t* buf, size_t buf_len, size_t* len_out) {
+  if (!h)
+    return BISON_ERR_NULL;
+  try {
+    const std::vector<int32_t>& v = (*dyn(h))[bdg::bison::key_t{name}].as<std::vector<int32_t>>();
+    if (len_out)
+      *len_out = v.size();
+    if (buf && buf_len > 0) {
+      size_t copy_len = v.size() < buf_len ? v.size() : buf_len;
+      std::memcpy(buf, v.data(), copy_len * sizeof(int32_t));
+    }
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error
+bison_get_vector_float(bison_handle h, bison_hash name, float* buf, size_t buf_len, size_t* len_out) {
+  if (!h)
+    return BISON_ERR_NULL;
+  try {
+    const std::vector<float>& v = (*dyn(h))[bdg::bison::key_t{name}].as<std::vector<float>>();
+    if (len_out)
+      *len_out = v.size();
+    if (buf && buf_len > 0) {
+      size_t copy_len = v.size() < buf_len ? v.size() : buf_len;
+      std::memcpy(buf, v.data(), copy_len * sizeof(float));
+    }
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error
+bison_get_vector_bytes(bison_handle h, bison_hash name, uint8_t* buf, size_t buf_len, size_t* len_out) {
+  if (!h)
+    return BISON_ERR_NULL;
+  try {
+    const std::vector<uint8_t>& v = (*dyn(h))[bdg::bison::key_t{name}].as<std::vector<uint8_t>>();
+    if (len_out)
+      *len_out = v.size();
+    if (buf && buf_len > 0) {
+      size_t copy_len = v.size() < buf_len ? v.size() : buf_len;
+      std::memcpy(buf, v.data(), copy_len);
+    }
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_set_vector_bool(bison_handle h, bison_hash name, const int* values, size_t count) {
+  if (!h)
+    return BISON_ERR_NULL;
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  try {
+    std::vector<bool> v;
+    v.reserve(count);
+    for (size_t i = 0; i < count; ++i)
+      v.push_back(values[i] != 0);
+    (*dyn(h))[bdg::bison::key_t{name}] = std::move(v);
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_set_vector_int(bison_handle h, bison_hash name, const int32_t* values, size_t count) {
+  if (!h)
+    return BISON_ERR_NULL;
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  try {
+    (*dyn(h))[bdg::bison::key_t{name}] = std::vector<int32_t>{values, values + count};
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_set_vector_float(bison_handle h, bison_hash name, const float* values, size_t count) {
+  if (!h)
+    return BISON_ERR_NULL;
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  try {
+    (*dyn(h))[bdg::bison::key_t{name}] = std::vector<float>{values, values + count};
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_set_vector_bytes(bison_handle h, bison_hash name, const uint8_t* values, size_t count) {
+  if (!h)
+    return BISON_ERR_NULL;
+  if (count > 0 && !values)
+    return BISON_ERR_NULL;
+  try {
+    (*dyn(h))[bdg::bison::key_t{name}] = std::vector<uint8_t>{values, values + count};
+    return BISON_OK;
+  } catch (const std::runtime_error&) {
+    return BISON_ERR_TYPE;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+// ─── Binary serialization ───────────────────────────────────────────────────
+
+BISON_API bison_error bison_serialize(bison_handle h, uint8_t** out, size_t* out_len) {
+  if (!h || !out || !out_len)
+    return BISON_ERR_NULL;
+  try {
+    bdg::bison::buffer_serializer ser;
+    dyn(h)->serialize(ser);
+    bdg::bison::buffer buf = ser.release();
+    uint8_t* mem = new uint8_t[buf.size() > 0 ? buf.size() : 1];
+    if (!buf.empty())
+      std::memcpy(mem, buf.data(), buf.size());
+    *out = mem;
+    *out_len = buf.size();
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_EXCEPTION;
+  }
+}
+
+BISON_API bison_error bison_deserialize(const uint8_t* data, size_t len, bison_handle* out) {
+  if (!out)
+    return BISON_ERR_NULL;
+  if (len > 0 && !data)
+    return BISON_ERR_NULL;
+  try {
+    bdg::bison::buffer_deserializer de(data, len);
+    auto d = bdg::bison::dynamic::deserialize(de);
+    *out = as_handle(new sp_dyn(std::make_shared<bdg::bison::dynamic>(std::move(d))));
+    return BISON_OK;
+  } catch (...) {
+    return BISON_ERR_PARSE;
+  }
+}
+
+BISON_API void bison_free_buffer(uint8_t* buf) {
+  delete[] buf;
 }
 
 // ─── Setters ────────────────────────────────────────────────────────────────
@@ -522,6 +724,18 @@ BISON_API bison_error bison_set_float_at(bison_handle h, size_t index, float val
 
 BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const char* value) {
   return bison_set_string(h, static_cast<bison_hash>(index), value);
+}
+
+BISON_API bison_error bison_set_bool_at(bison_handle h, size_t index, int value) {
+  return bison_set_bool(h, static_cast<bison_hash>(index), value);
+}
+
+BISON_API bison_error bison_set_key_at(bison_handle h, size_t index, bison_hash value) {
+  return bison_set_key(h, static_cast<bison_hash>(index), value);
+}
+
+BISON_API bison_error bison_set_object_at(bison_handle h, size_t index, bison_handle value) {
+  return bison_set_object(h, static_cast<bison_hash>(index), value);
 }
 
 // ─── Getters ────────────────────────────────────────────────────────────────
@@ -626,6 +840,18 @@ BISON_API bison_error bison_get_float_at(bison_handle h, size_t index, float* ou
 
 BISON_API bison_error bison_get_string_at(bison_handle h, size_t index, char* buf, size_t buf_len, size_t* len_out) {
   return bison_get_string(h, static_cast<bison_hash>(index), buf, buf_len, len_out);
+}
+
+BISON_API bison_error bison_get_bool_at(bison_handle h, size_t index, int* out) {
+  return bison_get_bool(h, static_cast<bison_hash>(index), out);
+}
+
+BISON_API bison_error bison_get_key_at(bison_handle h, size_t index, bison_hash* out) {
+  return bison_get_key(h, static_cast<bison_hash>(index), out);
+}
+
+BISON_API bison_error bison_get_object_at(bison_handle h, size_t index, bison_handle* out) {
+  return bison_get_object(h, static_cast<bison_hash>(index), out);
 }
 
 BISON_API size_t bison_size(bison_handle h) {

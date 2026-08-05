@@ -111,7 +111,7 @@ typedef enum bison_error {
   BISON_ERR_NOT_FOUND = -3, /**< Method or field not found. */
   BISON_ERR_DUPLICATE = -4, /**< Attempted to add a duplicate class or method. */
   BISON_ERR_EXCEPTION = -5, /**< An unexpected C++ exception was caught. */
-  BISON_ERR_PARSE = -6, /**< Input string failed to parse (JSON / YAML). */
+  BISON_ERR_PARSE = -6, /**< Input failed to parse (JSON / YAML text, or a `bison_deserialize()` buffer). */
 } bison_error;
 
 /* ─── C method callback type ─────────────────────────────────────────────── */
@@ -520,6 +520,41 @@ BISON_API bison_error bison_set_float_at(bison_handle h, size_t index, float val
  */
 BISON_API bison_error bison_set_string_at(bison_handle h, size_t index, const char* value);
 
+/**
+ * @brief Set a `bool` field by numeric index.
+ * @param h     Target object handle.
+ * @param index Zero-based numeric index.
+ * @param value New value (non-zero = true).
+ * @return `BISON_OK` or an error code.
+ */
+BISON_API bison_error bison_set_bool_at(bison_handle h, size_t index, int value);
+
+/**
+ * @brief Set a `bdg::bison::key_t` (hashed-name) field by numeric index.
+ *
+ * See `bison_set_key()` for why this is a distinct alternative from
+ * `bison_set_int_at()`.
+ *
+ * @param h     Target object handle.
+ * @param index Zero-based numeric index.
+ * @param value New value -- a pre-hashed key (use `bison_key()`).
+ * @return `BISON_OK` or an error code.
+ */
+BISON_API bison_error bison_set_key_at(bison_handle h, size_t index, bison_hash value);
+
+/**
+ * @brief Set a nested `dynamic` object field by numeric index.
+ *
+ * The library **increments** the ref-count of @p value so both the caller and
+ * the owning object share the same underlying instance.
+ *
+ * @param h     Target object handle.
+ * @param index Zero-based numeric index.
+ * @param value Handle to set as the field value (may be `NULL` for a null ref).
+ * @return `BISON_OK` or an error code.
+ */
+BISON_API bison_error bison_set_object_at(bison_handle h, size_t index, bison_handle value);
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Field access — scalar getters
  * ═════════════════════════════════════════════════════════════════════════ */
@@ -623,6 +658,37 @@ BISON_API bison_error bison_get_float_at(bison_handle h, size_t index, float* ou
  * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
  */
 BISON_API bison_error bison_get_string_at(bison_handle h, size_t index, char* buf, size_t buf_len, size_t* len_out);
+
+/**
+ * @brief Read a `bool` field by numeric index.
+ * @param h     Source object handle.
+ * @param index Zero-based numeric index.
+ * @param[out] out  Receives 1 (true) or 0 (false) on success.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_bool_at(bison_handle h, size_t index, int* out);
+
+/**
+ * @brief Read a `bdg::bison::key_t` (hashed-name) field by numeric index.
+ * @param h     Source object handle.
+ * @param index Zero-based numeric index.
+ * @param[out] out  Receives the value on success, as its raw hash.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_key_at(bison_handle h, size_t index, bison_hash* out);
+
+/**
+ * @brief Read a nested object field by numeric index.
+ *
+ * Returns a **new** handle (ref-count 1) that must be released by the caller.
+ *
+ * @param h     Source object handle.
+ * @param index Zero-based numeric index.
+ * @param[out] out  Set to the child handle on success (may be `NULL` for null
+ *                  dynamic refs).
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_object_at(bison_handle h, size_t index, bison_handle* out);
 
 /**
  * @brief Return the number of array-like (numeric-key) elements.
@@ -744,7 +810,11 @@ bison_add_field_key(bison_handle obj, bison_hash key, bison_hash value, const bi
  *         `BISON_ERR_EXCEPTION`.
  */
 BISON_API bison_error bison_add_field_vector_bool(
-    bison_handle obj, bison_hash key, const int* values, size_t count, const bison_attributes* meta);
+    bison_handle obj,
+    bison_hash key,
+    const int* values,
+    size_t count,
+    const bison_attributes* meta);
 
 /**
  * @brief Add a `vector<int32_t>` field to @p obj with optional attribute
@@ -760,7 +830,11 @@ BISON_API bison_error bison_add_field_vector_bool(
  *         `BISON_ERR_EXCEPTION`.
  */
 BISON_API bison_error bison_add_field_vector_int(
-    bison_handle obj, bison_hash key, const int32_t* values, size_t count, const bison_attributes* meta);
+    bison_handle obj,
+    bison_hash key,
+    const int32_t* values,
+    size_t count,
+    const bison_attributes* meta);
 
 /**
  * @brief Add a `vector<float>` field to @p obj with optional attribute
@@ -776,7 +850,11 @@ BISON_API bison_error bison_add_field_vector_int(
  *         `BISON_ERR_EXCEPTION`.
  */
 BISON_API bison_error bison_add_field_vector_float(
-    bison_handle obj, bison_hash key, const float* values, size_t count, const bison_attributes* meta);
+    bison_handle obj,
+    bison_hash key,
+    const float* values,
+    size_t count,
+    const bison_attributes* meta);
 
 /**
  * @brief Add a `vector<uint8_t>` (raw byte buffer) field to @p obj with
@@ -792,7 +870,174 @@ BISON_API bison_error bison_add_field_vector_float(
  *         `BISON_ERR_EXCEPTION`.
  */
 BISON_API bison_error bison_add_field_vector_bytes(
-    bison_handle obj, bison_hash key, const uint8_t* values, size_t count, const bison_attributes* meta);
+    bison_handle obj,
+    bison_hash key,
+    const uint8_t* values,
+    size_t count,
+    const bison_attributes* meta);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Vector field access
+ *
+ * `bison_add_field_vector_*()` above declares a vector-typed field once, at
+ * registration time.  These functions read and replace its value
+ * afterward -- the vector-field counterpart of the scalar getters/setters
+ * above.  As with `bison_get_string()`, a vector getter follows a two-call
+ * convention: call once with @p buf `NULL` to learn the required element
+ * count via @p len_out, then again with a caller-sized buffer.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Read a `vector<bool>` field.
+ *
+ * Each element is written to @p buf as `0` or `1`.  If @p buf is `NULL` only
+ * the required element count is returned in @p len_out.
+ *
+ * @param h        Source object handle.
+ * @param name     Field name hash (use `bison_key()`).
+ * @param buf      Output buffer (may be `NULL` to query length); `int` rather
+ *                 than `bool` since C has no fixed-width boolean type.
+ * @param buf_len  Capacity of @p buf, in elements.
+ * @param[out] len_out  Set to the element count (may be `NULL`).
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_get_vector_bool(bison_handle h, bison_hash name, int* buf, size_t buf_len, size_t* len_out);
+
+/**
+ * @brief Read a `vector<int32_t>` field. Same two-call convention as
+ *        `bison_get_vector_bool()`.
+ * @param h        Source object handle.
+ * @param name     Field name hash (use `bison_key()`).
+ * @param buf      Output buffer (may be `NULL` to query length).
+ * @param buf_len  Capacity of @p buf, in elements.
+ * @param[out] len_out  Set to the element count (may be `NULL`).
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error
+bison_get_vector_int(bison_handle h, bison_hash name, int32_t* buf, size_t buf_len, size_t* len_out);
+
+/**
+ * @brief Read a `vector<float>` field. Same two-call convention as
+ *        `bison_get_vector_bool()`.
+ * @param h        Source object handle.
+ * @param name     Field name hash (use `bison_key()`).
+ * @param buf      Output buffer (may be `NULL` to query length).
+ * @param buf_len  Capacity of @p buf, in elements.
+ * @param[out] len_out  Set to the element count (may be `NULL`).
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error
+bison_get_vector_float(bison_handle h, bison_hash name, float* buf, size_t buf_len, size_t* len_out);
+
+/**
+ * @brief Read a `vector<uint8_t>` (raw byte buffer) field. Same two-call
+ *        convention as `bison_get_vector_bool()`.
+ * @param h        Source object handle.
+ * @param name     Field name hash (use `bison_key()`).
+ * @param buf      Output buffer (may be `NULL` to query length).
+ * @param buf_len  Capacity of @p buf, in bytes.
+ * @param[out] len_out  Set to the byte count (may be `NULL`).
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error
+bison_get_vector_bytes(bison_handle h, bison_hash name, uint8_t* buf, size_t buf_len, size_t* len_out);
+
+/**
+ * @brief Replace the contents of a `vector<bool>` field, auto-vivifying it
+ *        if absent.
+ *
+ * @param h      Target object handle.
+ * @param name   Field name hash (use `bison_key()`).
+ * @param values Array of new values (non-zero is `true`); may be `NULL`
+ *               when @p count is 0, producing an empty vector.
+ * @param count  Number of elements in @p values.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_set_vector_bool(bison_handle h, bison_hash name, const int* values, size_t count);
+
+/**
+ * @brief Replace the contents of a `vector<int32_t>` field, auto-vivifying
+ *        it if absent.
+ * @param h      Target object handle.
+ * @param name   Field name hash (use `bison_key()`).
+ * @param values Array of new values; may be `NULL` when @p count is 0.
+ * @param count  Number of elements in @p values.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_set_vector_int(bison_handle h, bison_hash name, const int32_t* values, size_t count);
+
+/**
+ * @brief Replace the contents of a `vector<float>` field, auto-vivifying it
+ *        if absent.
+ * @param h      Target object handle.
+ * @param name   Field name hash (use `bison_key()`).
+ * @param values Array of new values; may be `NULL` when @p count is 0.
+ * @param count  Number of elements in @p values.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_set_vector_float(bison_handle h, bison_hash name, const float* values, size_t count);
+
+/**
+ * @brief Replace the contents of a `vector<uint8_t>` (raw byte buffer)
+ *        field, auto-vivifying it if absent.
+ * @param h      Target object handle.
+ * @param name   Field name hash (use `bison_key()`).
+ * @param values Array of new bytes; may be `NULL` when @p count is 0.
+ * @param count  Number of bytes in @p values.
+ * @return `BISON_OK`, `BISON_ERR_TYPE`, or `BISON_ERR_NULL`.
+ */
+BISON_API bison_error bison_set_vector_bytes(bison_handle h, bison_hash name, const uint8_t* values, size_t count);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Binary serialization
+ *
+ * Raw, self-describing binary encoding of a `dynamic` object -- the ABI
+ * counterpart of the internal `dynamic::serialize(buffer_serializer&)` /
+ * `dynamic::deserialize(buffer_deserializer&)`.  Field keys are encoded as
+ * their `bison_hash` values (see `FORMAT.md`), not names, so this format is
+ * self-contained and requires no key-name map to round-trip -- unlike
+ * `bison_to_json()`/`bison_to_yaml()`, which are for human-readable/
+ * interop use, this is the compact wire format used by `dynamic::serialize`.
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Serialize @p h to a binary buffer (the `dynamic::serialize()` wire
+ *        format; see `FORMAT.md`).
+ *
+ * The returned buffer is heap-allocated; release it with
+ * `bison_free_buffer()`.
+ *
+ * @param h         Source object handle.
+ * @param out       Receives a pointer to the allocated buffer on success.
+ * @param out_len   Receives the buffer length in bytes on success.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_EXCEPTION`.
+ *
+ * @code{.c}
+ * uint8_t* buf = NULL;
+ * size_t len = 0;
+ * bison_serialize(h, &buf, &len);
+ * // ... send buf/len over a socket, write to a file, etc ...
+ * bison_free_buffer(buf);
+ * @endcode
+ */
+BISON_API bison_error bison_serialize(bison_handle h, uint8_t** out, size_t* out_len);
+
+/**
+ * @brief Deserialize a binary buffer produced by `bison_serialize()`.
+ *
+ * @param data  Buffer to decode.
+ * @param len   Length of @p data in bytes.
+ * @param[out] out  Receives the decoded handle (ref-count 1) on success.
+ * @return `BISON_OK`, `BISON_ERR_NULL`, or `BISON_ERR_PARSE` on malformed
+ *         input (including buffer underflow).
+ */
+BISON_API bison_error bison_deserialize(const uint8_t* data, size_t len, bison_handle* out);
+
+/**
+ * @brief Release a buffer returned by `bison_serialize()`.
+ * @param buf  Pointer returned by `bison_serialize()`.  `NULL` is a no-op.
+ */
+BISON_API void bison_free_buffer(uint8_t* buf);
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * Utility

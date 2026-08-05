@@ -60,28 +60,38 @@
  *
  * A few further differences are unavoidable because the C ABI's surface is
  * a strict subset of the internal API:
- * - **No raw buffer/stream serialization.** `bison_c.h` only exposes
- *   `to_json()` / `to_yaml()` / `pretty()` (matching the Python/C# bindings)
- *   — there is no ABI entry point for `serialize(buffer_serializer&)` or the
- *   schema-driven wire format.
+ * - **Raw binary serialization is the compact wire format, not the
+ *   general `buffer_serializer`/`stream_serializer` machinery.**
+ *   `serialize()`/`deserialize()` wrap `bison_serialize()`/
+ *   `bison_deserialize()` (`bison_c.h`), which round-trip the same wire
+ *   bytes `dynamic::serialize(buffer_serializer&)` produces (see
+ *   `FORMAT.md`). There is still no ABI entry point for
+ *   `stream_serializer` (arbitrary `std::iostream` targets) or the
+ *   schema-driven wire format (`serializeWithSchema()`), since those save
+ *   nothing over the plain format for a caller reading raw bytes.
  * - **No generic field enumeration.** There is no ABI call to iterate an
  *   object's named fields, so `addMethod()`'s callback receives `result` as
  *   an out-parameter to populate in place (mirroring `bison_method_fn`
  *   itself) rather than returning a `dynamic` by value the way the internal
  *   `method_fn` does — the ABI has no way to copy an arbitrary field set
  *   from a fresh returned object into the caller-owned `result` handle.
- * - **Indexed (numeric) field access is `int32_t`/`float`/`std::string`
- *   only** — `bison_c.h` only exports `bison_{get,set}_{int,float,string}_at`,
- *   not `_at` variants for `bool`/`key_t`/nested objects.
- * - **Vector-typed fields can be registered but not read back** —
- *   `bison_add_field_vector_*` exists for initial registration, but there is
- *   no `bison_get_vector_*` to read the value back through the ABI.
  * - **Copy semantics intentionally match the internal `dynamic`'s quirky
  *   asymmetric design**: the copy constructor performs a deep clone
  *   (`bison_clone`, mirroring `dynamic(const dynamic&)`'s `clone_ptr()`
  *   recursion), while copy-assignment is deleted (mirroring
  *   `dynamic::operator=(const dynamic&) = delete`). Move is cheap pointer
  *   transfer either way.
+ *
+ * Two gaps documented in earlier revisions of this binding — indexed
+ * (numeric) field access being limited to `int32_t`/`float`/`std::string`,
+ * and vector-typed fields being write-only — are resolved: `bison_c.h` now
+ * exports `bison_{get,set}_{bool,key,object}_at()` and
+ * `bison_{get,set}_vector_{bool,int,float,bytes}()`, and `field_ref` uses
+ * them (see `as<T>()`/`operator=` below). Vector-typed fields still cannot
+ * be accessed through numeric-index (`operator[](size_t)`) position — that
+ * indexing model is for building an array *out of* many scalar fields, not
+ * for a single field that itself holds a vector — so `field_ref`'s vector
+ * overloads apply only to `operator[](key_t)`.
  */
 
 #pragma once
@@ -252,8 +262,9 @@ class dynamic {
   field_ref operator[](key_t name) const;
 
   /** @brief Access or create the array-like field at numeric index @p pos.
-   *  Only `int32_t`/`float`/`std::string` are supported at an index (ABI
-   *  limitation — see this header's top-level doc comment). */
+   *  Every scalar/object type `operator[](key_t)` supports is also
+   *  supported here; vector types are not (see this header's top-level
+   *  doc comment). */
   field_ref operator[](size_t pos);
   /** @copydoc operator[](size_t) */
   field_ref operator[](size_t pos) const;
@@ -323,17 +334,18 @@ class dynamic {
    */
   bool addFieldKey(key_t name, key_t value, attributes meta = {});
 
-  /** @brief Declare a `std::vector<bool>` field. Read-back is not supported
-   *  through this ABI (see this header's top-level doc comment). */
+  /** @brief Declare a `std::vector<bool>` field with optional attribute
+   *  metadata. Once declared, read/replace its value with
+   *  `operator[](key_t)`'s `as<std::vector<bool>>()` / `operator=`. */
   bool addField(key_t name, const std::vector<bool>& values, attributes meta = {});
-  /** @brief Declare a `std::vector<int32_t>` field. Read-back is not
-   *  supported through this ABI. */
+  /** @brief Declare a `std::vector<int32_t>` field with optional attribute
+   *  metadata. */
   bool addField(key_t name, const std::vector<int32_t>& values, attributes meta = {});
-  /** @brief Declare a `std::vector<float>` field. Read-back is not
-   *  supported through this ABI. */
+  /** @brief Declare a `std::vector<float>` field with optional attribute
+   *  metadata. */
   bool addField(key_t name, const std::vector<float>& values, attributes meta = {});
-  /** @brief Declare a `std::vector<uint8_t>` (raw byte buffer) field.
-   *  Read-back is not supported through this ABI. */
+  /** @brief Declare a `std::vector<uint8_t>` (raw byte buffer) field with
+   *  optional attribute metadata. */
   bool addField(key_t name, const std::vector<uint8_t>& values, attributes meta = {});
 
   // ── Field / method attributes ───────────────────────────────────────────
@@ -353,6 +365,24 @@ class dynamic {
 
   /** @brief Human-readable representation, via `bison_print()`. */
   std::string pretty(bool multiline = true, const std::string& indent = "  ") const;
+
+  /**
+   * @brief Serialize to the compact binary wire format (`bison_serialize()`;
+   *        see `FORMAT.md`).
+   *
+   * Unlike `to_json()`/`to_yaml()`, field keys are encoded as their raw
+   * `bison_hash` values, so this format is self-contained (no key-name map
+   * needed to round-trip) and is the closest ABI-reachable equivalent of
+   * the internal `dynamic::serialize(buffer_serializer&)`.
+   */
+  std::vector<uint8_t> serialize() const;
+
+  /** @brief Deserialize a buffer produced by `serialize()`. */
+  static dynamic deserialize(const uint8_t* data, size_t len);
+  /** @copydoc deserialize(const uint8_t*, size_t) */
+  static dynamic deserialize(const std::vector<uint8_t>& buffer) {
+    return deserialize(buffer.data(), buffer.size());
+  }
 
   // ── Class registry (static) ─────────────────────────────────────────────
 
@@ -469,9 +499,9 @@ class field_ref {
   }
 
   field_ref& operator=(bool value) {
-    if (is_index_)
-      throw std::logic_error("indexed fields do not support bool (bison_c.h has no bison_set_bool_at)");
-    detail::check(bison_set_bool(owner_, key_, value ? 1 : 0), "set_bool");
+    detail::check(
+        is_index_ ? bison_set_bool_at(owner_, key_, value ? 1 : 0) : bison_set_bool(owner_, key_, value ? 1 : 0),
+        "set_bool");
     return *this;
   }
 
@@ -489,9 +519,7 @@ class field_ref {
    *  distinct overload (not the same as `operator=(int32_t)`) because
    *  `key_t` is its own field-variant alternative — see `key.hpp`. */
   field_ref& operator=(key_t value) {
-    if (is_index_)
-      throw std::logic_error("indexed fields do not support key_t (bison_c.h has no bison_set_key_at)");
-    detail::check(bison_set_key(owner_, key_, value), "set_key");
+    detail::check(is_index_ ? bison_set_key_at(owner_, key_, value) : bison_set_key(owner_, key_, value), "set_key");
     return *this;
   }
 
@@ -501,9 +529,53 @@ class field_ref {
 
   /** @brief Set a nested object field to null. */
   field_ref& operator=(std::nullptr_t) {
+    detail::check(
+        is_index_ ? bison_set_object_at(owner_, key_, nullptr) : bison_set_object(owner_, key_, nullptr),
+        "set_object(null)");
+    return *this;
+  }
+
+  /** @brief Replace a `std::vector<bool>` field's contents (auto-vivifying
+   *  it if absent). Named fields only — vectors have no numeric-index
+   *  form; see this header's top-level doc comment. */
+  field_ref& operator=(const std::vector<bool>& values) {
     if (is_index_)
-      throw std::logic_error("indexed fields do not support nested objects (bison_c.h has no bison_set_object_at)");
-    detail::check(bison_set_object(owner_, key_, nullptr), "set_object(null)");
+      throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_set_vector_*_at)");
+    std::vector<int> ints(values.begin(), values.end()); // std::vector<bool> is bit-packed; bison_c.h wants int*
+    detail::check(
+        bison_set_vector_bool(owner_, key_, ints.empty() ? nullptr : ints.data(), ints.size()), "set_vector_bool");
+    return *this;
+  }
+
+  /** @brief Replace a `std::vector<int32_t>` field's contents (auto-vivifying
+   *  it if absent). Named fields only. */
+  field_ref& operator=(const std::vector<int32_t>& values) {
+    if (is_index_)
+      throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_set_vector_*_at)");
+    detail::check(
+        bison_set_vector_int(owner_, key_, values.empty() ? nullptr : values.data(), values.size()), "set_vector_int");
+    return *this;
+  }
+
+  /** @brief Replace a `std::vector<float>` field's contents (auto-vivifying
+   *  it if absent). Named fields only. */
+  field_ref& operator=(const std::vector<float>& values) {
+    if (is_index_)
+      throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_set_vector_*_at)");
+    detail::check(
+        bison_set_vector_float(owner_, key_, values.empty() ? nullptr : values.data(), values.size()),
+        "set_vector_float");
+    return *this;
+  }
+
+  /** @brief Replace a `std::vector<uint8_t>` (raw byte buffer) field's
+   *  contents (auto-vivifying it if absent). Named fields only. */
+  field_ref& operator=(const std::vector<uint8_t>& values) {
+    if (is_index_)
+      throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_set_vector_*_at)");
+    detail::check(
+        bison_set_vector_bytes(owner_, key_, values.empty() ? nullptr : values.data(), values.size()),
+        "set_vector_bytes");
     return *this;
   }
 
@@ -513,7 +585,9 @@ class field_ref {
    * @brief Read the field's value as type @p T, throwing `bison_exception` on a
    *        type mismatch — matching the internal `field::as<T>()`.
    * @tparam T  One of `int32_t`, `float`, `bool`, `std::string`, `key_t`,
-   *            `dynamic`.
+   *            `dynamic`, `std::vector<bool|int32_t|float|uint8_t>` (vector
+   *            forms are named-field only, see this header's top-level doc
+   *            comment).
    */
   template <typename T>
   T as() const {
@@ -526,17 +600,49 @@ class field_ref {
       detail::check(is_index_ ? bison_get_float_at(owner_, key_, &v) : bison_get_float(owner_, key_, &v), "get_float");
       return v;
     } else if constexpr (std::is_same_v<T, bool>) {
-      if (is_index_)
-        throw std::logic_error("indexed fields do not support bool (bison_c.h has no bison_get_bool_at)");
       int v = 0;
-      detail::check(bison_get_bool(owner_, key_, &v), "get_bool");
+      detail::check(is_index_ ? bison_get_bool_at(owner_, key_, &v) : bison_get_bool(owner_, key_, &v), "get_bool");
       return v != 0;
     } else if constexpr (std::is_same_v<T, key_t>) {
-      if (is_index_)
-        throw std::logic_error("indexed fields do not support key_t (bison_c.h has no bison_get_key_at)");
       hash_t v = 0;
-      detail::check(bison_get_key(owner_, key_, &v), "get_key");
+      detail::check(is_index_ ? bison_get_key_at(owner_, key_, &v) : bison_get_key(owner_, key_, &v), "get_key");
       return key_t{v};
+    } else if constexpr (std::is_same_v<T, std::vector<bool>>) {
+      if (is_index_)
+        throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_get_vector_*_at)");
+      size_t len = 0;
+      detail::check(bison_get_vector_bool(owner_, key_, nullptr, 0, &len), "get_vector_bool");
+      std::vector<int> ints(len);
+      if (len > 0)
+        detail::check(bison_get_vector_bool(owner_, key_, ints.data(), len, nullptr), "get_vector_bool");
+      return std::vector<bool>(ints.begin(), ints.end());
+    } else if constexpr (std::is_same_v<T, std::vector<int32_t>>) {
+      if (is_index_)
+        throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_get_vector_*_at)");
+      size_t len = 0;
+      detail::check(bison_get_vector_int(owner_, key_, nullptr, 0, &len), "get_vector_int");
+      std::vector<int32_t> result(len);
+      if (len > 0)
+        detail::check(bison_get_vector_int(owner_, key_, result.data(), len, nullptr), "get_vector_int");
+      return result;
+    } else if constexpr (std::is_same_v<T, std::vector<float>>) {
+      if (is_index_)
+        throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_get_vector_*_at)");
+      size_t len = 0;
+      detail::check(bison_get_vector_float(owner_, key_, nullptr, 0, &len), "get_vector_float");
+      std::vector<float> result(len);
+      if (len > 0)
+        detail::check(bison_get_vector_float(owner_, key_, result.data(), len, nullptr), "get_vector_float");
+      return result;
+    } else if constexpr (std::is_same_v<T, std::vector<uint8_t>>) {
+      if (is_index_)
+        throw std::logic_error("indexed fields do not support vector values (bison_c.h has no bison_get_vector_*_at)");
+      size_t len = 0;
+      detail::check(bison_get_vector_bytes(owner_, key_, nullptr, 0, &len), "get_vector_bytes");
+      std::vector<uint8_t> result(len);
+      if (len > 0)
+        detail::check(bison_get_vector_bytes(owner_, key_, result.data(), len, nullptr), "get_vector_bytes");
+      return result;
     } else if constexpr (std::is_same_v<T, std::string>) {
       size_t len = 0;
       auto probe = is_index_ ? bison_get_string_at(owner_, key_, nullptr, 0, &len)
@@ -605,17 +711,17 @@ inline T dynamic::as(key_t name) const {
 }
 
 inline field_ref& field_ref::operator=(const dynamic& value) {
-  if (is_index_)
-    throw std::logic_error("indexed fields do not support nested objects (bison_c.h has no bison_set_object_at)");
-  detail::check(bison_set_object(owner_, key_, value.native_handle()), "set_object");
+  detail::check(
+      is_index_ ? bison_set_object_at(owner_, key_, value.native_handle())
+                : bison_set_object(owner_, key_, value.native_handle()),
+      "set_object");
   return *this;
 }
 
 inline std::optional<dynamic> field_ref::as_object() const {
-  if (is_index_)
-    throw std::logic_error("indexed fields do not support nested objects (bison_c.h has no bison_get_object_at)");
   bison_handle child = nullptr;
-  detail::check(bison_get_object(owner_, key_, &child), "get_object");
+  detail::check(
+      is_index_ ? bison_get_object_at(owner_, key_, &child) : bison_get_object(owner_, key_, &child), "get_object");
   if (!child)
     return std::nullopt;
   return dynamic::adopt(child);
@@ -807,6 +913,21 @@ inline std::string dynamic::pretty(bool multiline, const std::string& indent) co
   std::string result(out ? out : "");
   bison_free_string(out);
   return result;
+}
+
+inline std::vector<uint8_t> dynamic::serialize() const {
+  uint8_t* buf = nullptr;
+  size_t len = 0;
+  detail::check(bison_serialize(handle_, &buf, &len), "serialize");
+  std::vector<uint8_t> result(buf, buf + len);
+  bison_free_buffer(buf);
+  return result;
+}
+
+inline dynamic dynamic::deserialize(const uint8_t* data, size_t len) {
+  bison_handle h = nullptr;
+  detail::check(bison_deserialize(data, len, &h), "deserialize");
+  return dynamic::adopt(h);
 }
 
 // ── Class registry ────────────────────────────────────────────────────

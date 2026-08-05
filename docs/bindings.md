@@ -61,20 +61,33 @@ move-enabled wrapper around a `bison_handle`; failures raise
 A few gaps versus the internal C++ API are inherent to the ABI's surface,
 not this binding's choice — see `dynamic.hpp`'s and `rmi.hpp`'s top-level
 doc comments for the full list and reasoning:
-- No raw buffer/stream serialization or schema-driven wire format — only
-  `to_json()` / `to_yaml()` / `pretty()`, matching the Python/C# bindings.
-- Indexed (numeric) field access covers only `int32_t`/`float`/`std::string`
-  (`bison_c.h` has no `_at` variant for `bool`/`key_t`/nested objects).
-- Vector-typed fields can be registered (`addField(name, std::vector<...>)`)
-  but not read back — there is no `bison_get_vector_*` in the ABI.
+- `dynamic::serialize()` / `dynamic::deserialize()` wrap `bison_serialize()`
+  / `bison_deserialize()` (`bison_c.h`), the compact binary wire format
+  (`FORMAT.md`) — this is the ABI-reachable equivalent of the internal
+  `dynamic::serialize(buffer_serializer&)`. There is still no ABI entry
+  point for `stream_serializer` (arbitrary `std::iostream` targets) or the
+  schema-driven wire format (`serializeWithSchema()`); `to_json()` /
+  `to_yaml()` / `pretty()` remain the only text formats, matching the
+  Python/C# bindings.
 - `dynamic::addMethod()`'s callback populates a `result` out-parameter in
   place rather than returning a `dynamic` by value (there is no ABI call to
   copy an arbitrary field set out of a fresh object into the library-owned
-  result handle).
+  result handle) — this is the one remaining gap without a mechanical fix,
+  since it needs generic field enumeration, which `bison_c.h` doesn't
+  expose at all.
 - The RMI `client`/`proxy` are synchronous by default (matching
   `rmi_c.h`'s blocking calls) with `_async()` counterparts returning a
   `future` wrapping `rmi_future_handle`, rather than the internal API's
   uniform `std::future<T>` return type.
+
+Indexed (numeric) field access (`obj[0]`) and vector-typed fields
+(`obj["tags"_key] = std::vector<int32_t>{...}`) are both fully supported,
+including read-back — `bison_c.h` exports `bison_{get,set}_{bool,key,
+object}_at()` and `bison_{get,set}_vector_{bool,int,float,bytes}()`
+alongside the scalar functions. Vector-typed fields are still named-field
+only (`operator[](key_t)`), not reachable through `operator[](size_t)` —
+that indexing model builds an array *out of* many scalar fields, a
+different concept from a single field that itself holds a vector.
 
 A field the C++ side declares as `bison::key_t` is a distinct field-variant
 type from `int32_t` — this resolves naturally through ordinary C++ overload
@@ -172,6 +185,20 @@ same way `"value"_key` would be in C++) to write one instead. Reading is
 transparent: `obj["id"]` falls back to `bison_get_key()` automatically once
 int/float/bool/string/object all fail by type mismatch. `obj.add_field_key(name,
 value, meta=None)` is the `add_field()` counterpart for schema declarations.
+`obj.set_key_at(index, value)` is the indexed counterpart, for the same
+reason `obj[index] = value` can't dispatch to it from a bare `int`.
+
+Every numeric-index (`obj[0]`) type `obj["field"]` supports also works at an
+index, including `bool` (round-trips as a real `bool`, not silently coerced
+to `int`), nested objects, and `None`. Vector-typed fields
+(`obj["tags"] = [1, 2, 3]`, `bytes`/`bytearray` for `vector<uint8_t>`) are
+named-field only — read them back the same way (`obj["tags"]` returns a
+`list`/`bytes`); `obj.add_field("tags", [...])` is the schema-declaration
+form. An empty list has no element-type information to infer from and
+defaults to `vector<int32_t>`. `obj.serialize()` / `bison.deserialize(data)`
+round-trip the compact binary wire format (`FORMAT.md`), the counterpart to
+`to_json()`/`to_yaml()` for a self-contained (no key-name map needed) byte
+representation.
 
 **Requirements:** Python 3.x, `pytest` (optional, for tests)
 
@@ -228,7 +255,20 @@ int32, so use `obj.SetKey("id", value)` (overloads take an already-hashed
 `uint` or a name string to hash) to write one instead. Reading is
 transparent: the indexer's `Get()` falls back to `GetKey()` automatically
 once every other type check fails. `obj.AddFieldKey(name, value, meta)` is
-the `AddField()` counterpart for schema declarations.
+the `AddField()` counterpart for schema declarations. `obj.SetKeyAt(index,
+value)` is the indexed counterpart, for the same reason `obj[index] = value`
+can't dispatch to it from a bare `int`.
+
+Every numeric-index (`obj[0]`) type `obj["field"]` supports also works at an
+index, including `bool` (round-trips as a real `bool`, not silently coerced
+to `int`), nested `Dynamic` objects, and `null`. Vector-typed fields
+(`obj["tags"] = new[] { 1, 2, 3 }`; `bool[]`/`int[]`/`float[]`/`byte[]`) are
+named-field only — read them back the same way (`obj["tags"]` returns the
+matching array type, cast accordingly); `obj.AddField("tags", array)` is the
+schema-declaration form. `obj.Serialize()` / `Dynamic.Deserialize(bytes)`
+round-trip the compact binary wire format (`FORMAT.md`), the counterpart to
+`ToJson()`/`ToYaml()` for a self-contained (no key-name map needed) byte
+representation.
 
 Every handle is an `IDisposable` RAII wrapper (`Dynamic`, `Client`, `Server`,
 `Proxy`, `Future`) with a finalizer safety net, so `using`/`Dispose()` is

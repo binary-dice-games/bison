@@ -355,6 +355,132 @@ TEST(VectorFieldTests, NullObjectHandleReturnsNullError) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// 2c. Vector field read-back / mutation
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(VectorFieldAccessTests, IntSetThenGetRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  const int32_t values[] = {1, 2, 3};
+  ASSERT_EQ(bison_set_vector_int(h, H("scores"), values, 3), BISON_OK);
+
+  size_t len = 0;
+  ASSERT_EQ(bison_get_vector_int(h, H("scores"), nullptr, 0, &len), BISON_OK);
+  ASSERT_EQ(len, 3u);
+
+  int32_t out[3] = {};
+  ASSERT_EQ(bison_get_vector_int(h, H("scores"), out, 3, nullptr), BISON_OK);
+  EXPECT_EQ(out[0], 1);
+  EXPECT_EQ(out[1], 2);
+  EXPECT_EQ(out[2], 3);
+}
+
+TEST(VectorFieldAccessTests, RegisteredVectorIsReadable) {
+  // The gap this closes: bison_add_field_vector_int() alone (no
+  // bison_get_vector_int()) previously left a vector field write-only.
+  ScopedHandle h{bison_create(0)};
+  const int32_t values[] = {10, 20};
+  ASSERT_EQ(bison_add_field_vector_int(h, H("v"), values, 2, nullptr), BISON_OK);
+
+  int32_t out[2] = {};
+  size_t len = 0;
+  ASSERT_EQ(bison_get_vector_int(h, H("v"), out, 2, &len), BISON_OK);
+  EXPECT_EQ(len, 2u);
+  EXPECT_EQ(out[0], 10);
+  EXPECT_EQ(out[1], 20);
+}
+
+TEST(VectorFieldAccessTests, BoolSetThenGetRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  const int values[] = {1, 0, 1};
+  ASSERT_EQ(bison_set_vector_bool(h, H("flags"), values, 3), BISON_OK);
+
+  int out[3] = {};
+  size_t len = 0;
+  ASSERT_EQ(bison_get_vector_bool(h, H("flags"), out, 3, &len), BISON_OK);
+  ASSERT_EQ(len, 3u);
+  EXPECT_EQ(out[0], 1);
+  EXPECT_EQ(out[1], 0);
+  EXPECT_EQ(out[2], 1);
+}
+
+TEST(VectorFieldAccessTests, FloatSetThenGetRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  const float values[] = {1.5f, 2.5f};
+  ASSERT_EQ(bison_set_vector_float(h, H("ratios"), values, 2), BISON_OK);
+
+  float out[2] = {};
+  ASSERT_EQ(bison_get_vector_float(h, H("ratios"), out, 2, nullptr), BISON_OK);
+  EXPECT_NEAR(out[0], 1.5f, 1e-4f);
+  EXPECT_NEAR(out[1], 2.5f, 1e-4f);
+}
+
+TEST(VectorFieldAccessTests, BytesSetThenGetRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  const uint8_t values[] = {0, 1, 255};
+  ASSERT_EQ(bison_set_vector_bytes(h, H("blob"), values, 3), BISON_OK);
+
+  uint8_t out[3] = {};
+  ASSERT_EQ(bison_get_vector_bytes(h, H("blob"), out, 3, nullptr), BISON_OK);
+  EXPECT_EQ(out[0], 0);
+  EXPECT_EQ(out[1], 1);
+  EXPECT_EQ(out[2], 255);
+}
+
+TEST(VectorFieldAccessTests, SetReplacesExistingContents) {
+  ScopedHandle h{bison_create(0)};
+  const int32_t first[] = {1, 2, 3};
+  const int32_t second[] = {9, 9};
+  ASSERT_EQ(bison_set_vector_int(h, H("v"), first, 3), BISON_OK);
+  ASSERT_EQ(bison_set_vector_int(h, H("v"), second, 2), BISON_OK);
+
+  int32_t out[2] = {};
+  size_t len = 0;
+  ASSERT_EQ(bison_get_vector_int(h, H("v"), out, 2, &len), BISON_OK);
+  EXPECT_EQ(len, 2u);
+  EXPECT_EQ(out[0], 9);
+  EXPECT_EQ(out[1], 9);
+}
+
+TEST(VectorFieldAccessTests, GetWithNullBufOnlyQueriesLength) {
+  ScopedHandle h{bison_create(0)};
+  const int32_t values[] = {1, 2, 3, 4};
+  ASSERT_EQ(bison_set_vector_int(h, H("v"), values, 4), BISON_OK);
+
+  size_t len = 0;
+  EXPECT_EQ(bison_get_vector_int(h, H("v"), nullptr, 0, &len), BISON_OK);
+  EXPECT_EQ(len, 4u);
+}
+
+TEST(VectorFieldAccessTests, GetWrongTypeReturnsTypeError) {
+  ScopedHandle h{bison_create(0)};
+  ASSERT_EQ(bison_set_int(h, H("x"), 1), BISON_OK);
+  int32_t out[1] = {};
+  EXPECT_EQ(bison_get_vector_int(h, H("x"), out, 1, nullptr), BISON_ERR_TYPE);
+}
+
+TEST(VectorFieldAccessTests, SetWrongTypeReturnsTypeError) {
+  ScopedHandle h{bison_create(0)};
+  ASSERT_EQ(bison_set_int(h, H("x"), 1), BISON_OK);
+  const int32_t values[] = {1};
+  EXPECT_EQ(bison_set_vector_int(h, H("x"), values, 1), BISON_ERR_TYPE);
+}
+
+TEST(VectorFieldAccessTests, EmptyVectorWithNullValuesSucceeds) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_vector_int(h, H("empty"), nullptr, 0), BISON_OK);
+  size_t len = 1; // must be overwritten with 0
+  EXPECT_EQ(bison_get_vector_int(h, H("empty"), nullptr, 0, &len), BISON_OK);
+  EXPECT_EQ(len, 0u);
+}
+
+TEST(VectorFieldAccessTests, NullHandleReturnsNullError) {
+  const int32_t values[] = {1};
+  int32_t out[1] = {};
+  EXPECT_EQ(bison_set_vector_int(nullptr, H("x"), values, 1), BISON_ERR_NULL);
+  EXPECT_EQ(bison_get_vector_int(nullptr, H("x"), out, 1, nullptr), BISON_ERR_NULL);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // 3. Indexed (array-like) access
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -385,6 +511,54 @@ TEST(IndexedTests, StringAtRoundTrip) {
   EXPECT_STREQ(buf, "item0");
 }
 
+TEST(IndexedTests, BoolAtRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_bool_at(h, 0, 1), BISON_OK);
+  EXPECT_EQ(bison_set_bool_at(h, 1, 0), BISON_OK);
+  int v = -1;
+  EXPECT_EQ(bison_get_bool_at(h, 0, &v), BISON_OK);
+  EXPECT_EQ(v, 1);
+  EXPECT_EQ(bison_get_bool_at(h, 1, &v), BISON_OK);
+  EXPECT_EQ(v, 0);
+}
+
+TEST(IndexedTests, KeyAtRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_key_at(h, 0, H("hero")), BISON_OK);
+  bison_hash v = 0;
+  EXPECT_EQ(bison_get_key_at(h, 0, &v), BISON_OK);
+  EXPECT_EQ(v, H("hero"));
+}
+
+TEST(IndexedTests, KeyAtDoesNotAliasIntAt) {
+  ScopedHandle h{bison_create(0)};
+  ASSERT_EQ(bison_set_int_at(h, 0, 42), BISON_OK);
+  EXPECT_EQ(bison_set_key_at(h, 0, H("anything")), BISON_ERR_TYPE);
+}
+
+TEST(IndexedTests, ObjectAtRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  ScopedHandle child{bison_create(0)};
+  ASSERT_EQ(bison_set_int(child, H("v"), 7), BISON_OK);
+
+  EXPECT_EQ(bison_set_object_at(h, 0, child), BISON_OK);
+  bison_handle out = nullptr;
+  EXPECT_EQ(bison_get_object_at(h, 0, &out), BISON_OK);
+  ASSERT_NE(out, nullptr);
+  int32_t v = 0;
+  EXPECT_EQ(bison_get_int(out, H("v"), &v), BISON_OK);
+  EXPECT_EQ(v, 7);
+  bison_release(out);
+}
+
+TEST(IndexedTests, ObjectAtNullRoundTrip) {
+  ScopedHandle h{bison_create(0)};
+  EXPECT_EQ(bison_set_object_at(h, 0, nullptr), BISON_OK);
+  bison_handle out = reinterpret_cast<bison_handle>(1); // sentinel, must be overwritten with NULL
+  EXPECT_EQ(bison_get_object_at(h, 0, &out), BISON_OK);
+  EXPECT_EQ(out, nullptr);
+}
+
 TEST(IndexedTests, SizeOfEmptyObjectIsZero) {
   ScopedHandle h{bison_create(0)};
   EXPECT_EQ(bison_size(h), 0u);
@@ -392,6 +566,102 @@ TEST(IndexedTests, SizeOfEmptyObjectIsZero) {
 
 TEST(IndexedTests, SizeOfNullIsZero) {
   EXPECT_EQ(bison_size(nullptr), 0u);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3b. Binary serialization
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(SerializationTests, RoundTripsScalarFields) {
+  ScopedHandle h{bison_create(0)};
+  ASSERT_EQ(bison_set_int(h, H("x"), 42), BISON_OK);
+  ASSERT_EQ(bison_set_float(h, H("y"), 2.5f), BISON_OK);
+  ASSERT_EQ(bison_set_bool(h, H("z"), 1), BISON_OK);
+  ASSERT_EQ(bison_set_string(h, H("s"), "hello"), BISON_OK);
+
+  uint8_t* buf = nullptr;
+  size_t len = 0;
+  ASSERT_EQ(bison_serialize(h, &buf, &len), BISON_OK);
+  ASSERT_NE(buf, nullptr);
+  ASSERT_GT(len, 0u);
+
+  bison_handle decoded = nullptr;
+  ASSERT_EQ(bison_deserialize(buf, len, &decoded), BISON_OK);
+  ASSERT_NE(decoded, nullptr);
+  bison_free_buffer(buf);
+
+  int32_t x = 0;
+  float y = 0.f;
+  int z = 0;
+  char s[16] = {};
+  EXPECT_EQ(bison_get_int(decoded, H("x"), &x), BISON_OK);
+  EXPECT_EQ(x, 42);
+  EXPECT_EQ(bison_get_float(decoded, H("y"), &y), BISON_OK);
+  EXPECT_NEAR(y, 2.5f, 1e-4f);
+  EXPECT_EQ(bison_get_bool(decoded, H("z"), &z), BISON_OK);
+  EXPECT_EQ(z, 1);
+  EXPECT_EQ(bison_get_string(decoded, H("s"), s, sizeof s, nullptr), BISON_OK);
+  EXPECT_STREQ(s, "hello");
+  bison_release(decoded);
+}
+
+TEST(SerializationTests, RoundTripsNestedObject) {
+  ScopedHandle h{bison_create(0)};
+  ScopedHandle child{bison_create(0)};
+  ASSERT_EQ(bison_set_string(child, H("city"), "Springfield"), BISON_OK);
+  ASSERT_EQ(bison_set_object(h, H("address"), child), BISON_OK);
+
+  uint8_t* buf = nullptr;
+  size_t len = 0;
+  ASSERT_EQ(bison_serialize(h, &buf, &len), BISON_OK);
+
+  bison_handle decoded = nullptr;
+  ASSERT_EQ(bison_deserialize(buf, len, &decoded), BISON_OK);
+  bison_free_buffer(buf);
+
+  bison_handle addr = nullptr;
+  ASSERT_EQ(bison_get_object(decoded, H("address"), &addr), BISON_OK);
+  ASSERT_NE(addr, nullptr);
+  char city[32] = {};
+  EXPECT_EQ(bison_get_string(addr, H("city"), city, sizeof city, nullptr), BISON_OK);
+  EXPECT_STREQ(city, "Springfield");
+  bison_release(addr);
+  bison_release(decoded);
+}
+
+TEST(SerializationTests, RoundTripsEmptyObject) {
+  ScopedHandle h{bison_create(0)};
+  uint8_t* buf = nullptr;
+  size_t len = 0;
+  ASSERT_EQ(bison_serialize(h, &buf, &len), BISON_OK);
+
+  bison_handle decoded = nullptr;
+  ASSERT_EQ(bison_deserialize(buf, len, &decoded), BISON_OK);
+  ASSERT_NE(decoded, nullptr);
+  bison_free_buffer(buf);
+  bison_release(decoded);
+}
+
+TEST(SerializationTests, DeserializeMalformedBufferReturnsParseError) {
+  const uint8_t garbage[] = {0xFF, 0x00, 0x01};
+  bison_handle decoded = nullptr;
+  EXPECT_EQ(bison_deserialize(garbage, sizeof garbage, &decoded), BISON_ERR_PARSE);
+  EXPECT_EQ(decoded, nullptr);
+}
+
+TEST(SerializationTests, SerializeNullHandleReturnsNullError) {
+  uint8_t* buf = nullptr;
+  size_t len = 0;
+  EXPECT_EQ(bison_serialize(nullptr, &buf, &len), BISON_ERR_NULL);
+}
+
+TEST(SerializationTests, DeserializeNullOutReturnsNullError) {
+  const uint8_t data[] = {0x00};
+  EXPECT_EQ(bison_deserialize(data, sizeof data, nullptr), BISON_ERR_NULL);
+}
+
+TEST(SerializationTests, FreeBufferNullIsSafe) {
+  bison_free_buffer(nullptr); // must not crash
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
