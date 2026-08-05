@@ -12,7 +12,7 @@ method by name (equivalent to ``obj.call("some_method", {"a": 1, "b": 2})``).
 import ctypes
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Callable, Iterator, Optional, Union
+from typing import Any, Callable, Iterator, Optional, Sequence, Union
 
 from . import _native as _n
 
@@ -23,6 +23,7 @@ __all__ = [
     "key",
     "from_json",
     "from_yaml",
+    "deserialize",
     "add_class",
     "find_class",
     "instantiate",
@@ -109,6 +110,96 @@ def _meta_ptr(meta: Optional[Attributes]):
     return ctypes.pointer(c)
 
 
+# ─── Vector field helpers ────────────────────────────────────────────────────
+#
+# A Python list/tuple has no fixed element type the way bison::key_t / int32_t
+# / float do, so -- unlike the scalar dispatches above, which switch on
+# isinstance(value, ...) directly -- writing a vector field needs to inspect
+# the sequence's first element to decide which of bison_{add_field_vector,
+# set_vector}_{bool,int,float}() to call. bytes/bytearray map directly to
+# vector<uint8_t> and need no such inspection.
+
+_NOT_A_VECTOR = object()  # sentinel: "none of the four vector getters matched"
+
+
+def _vector_kind(values: Sequence[Any]) -> str:
+    """Classify a list/tuple as "bool", "int", or "float" for vector dispatch.
+
+    An empty sequence carries no element-type information at all; it
+    defaults to "int" (vector<int32_t>), the same default plain Python
+    ``int`` gets elsewhere in this module.
+    """
+    if len(values) == 0:
+        return "int"
+    first = values[0]
+    if isinstance(first, bool):
+        return "bool"
+    if isinstance(first, int):
+        return "int"
+    if isinstance(first, float):
+        return "float"
+    raise TypeError(f"Unsupported vector element type: {type(first)}")
+
+
+def _add_field_vector(lib, h, k: int, name: Any, values: Sequence[Any], meta_ptr) -> None:
+    kind = _vector_kind(values)
+    count = len(values)
+    if kind == "bool":
+        arr = (ctypes.c_int * count)(*[int(v) for v in values]) if values else None
+        _check(lib.bison_add_field_vector_bool(h, k, arr, count, meta_ptr), f"add_field_vector_bool[{name}]")
+    elif kind == "int":
+        arr = (ctypes.c_int32 * count)(*values) if values else None
+        _check(lib.bison_add_field_vector_int(h, k, arr, count, meta_ptr), f"add_field_vector_int[{name}]")
+    else:
+        arr = (ctypes.c_float * count)(*values) if values else None
+        _check(lib.bison_add_field_vector_float(h, k, arr, count, meta_ptr), f"add_field_vector_float[{name}]")
+
+
+def _set_vector_field(lib, h, k: int, name: Any, values: Sequence[Any]) -> None:
+    kind = _vector_kind(values)
+    if kind == "bool":
+        arr = (ctypes.c_int * len(values))(*[int(v) for v in values]) if values else None
+        _check(lib.bison_set_vector_bool(h, k, arr, len(values)), f"set_vector_bool[{name}]")
+    elif kind == "int":
+        arr = (ctypes.c_int32 * len(values))(*values) if values else None
+        _check(lib.bison_set_vector_int(h, k, arr, len(values)), f"set_vector_int[{name}]")
+    else:
+        arr = (ctypes.c_float * len(values))(*values) if values else None
+        _check(lib.bison_set_vector_float(h, k, arr, len(values)), f"set_vector_float[{name}]")
+
+
+def _get_vector_field(lib, h, k: int) -> Any:
+    """Try each vector getter in turn. Returns :data:`_NOT_A_VECTOR` if the
+    field holds none of them (see the callers' cascade-ordering notes)."""
+    len_out = ctypes.c_size_t(0)
+
+    if lib.bison_get_vector_int(h, k, None, 0, ctypes.byref(len_out)) == _n.BISON_OK:
+        arr = (ctypes.c_int32 * len_out.value)()
+        if len_out.value:
+            lib.bison_get_vector_int(h, k, arr, len_out.value, None)
+        return list(arr)
+
+    if lib.bison_get_vector_float(h, k, None, 0, ctypes.byref(len_out)) == _n.BISON_OK:
+        arr = (ctypes.c_float * len_out.value)()
+        if len_out.value:
+            lib.bison_get_vector_float(h, k, arr, len_out.value, None)
+        return list(arr)
+
+    if lib.bison_get_vector_bool(h, k, None, 0, ctypes.byref(len_out)) == _n.BISON_OK:
+        arr = (ctypes.c_int * len_out.value)()
+        if len_out.value:
+            lib.bison_get_vector_bool(h, k, arr, len_out.value, None)
+        return [bool(v) for v in arr]
+
+    if lib.bison_get_vector_bytes(h, k, None, 0, ctypes.byref(len_out)) == _n.BISON_OK:
+        buf = (ctypes.c_uint8 * len_out.value)()
+        if len_out.value:
+            lib.bison_get_vector_bytes(h, k, buf, len_out.value, None)
+        return bytes(buf)
+
+    return _NOT_A_VECTOR
+
+
 class Dynamic:
     """A reference-counted Bison dynamic object.
 
@@ -174,14 +265,23 @@ class Dynamic:
     def __setitem__(self, name: Any, value: Any) -> None:
         lib, h = self._lib, self._handle
         if isinstance(name, int):
+            # bool is checked before int (bool is a subclass of int in
+            # Python) so it round-trips as a real bison bool field via
+            # bison_set_bool_at() -- not silently coerced to int32, the same
+            # distinction bison_set_bool()/bison_set_int() already make for
+            # named fields.
             if isinstance(value, bool):
-                value = int(value)
-            if isinstance(value, int):
+                _check(lib.bison_set_bool_at(h, name, int(value)), f"set_bool_at[{name}]")
+            elif isinstance(value, int):
                 _check(lib.bison_set_int_at(h, name, value), f"set_int_at[{name}]")
             elif isinstance(value, float):
                 _check(lib.bison_set_float_at(h, name, value), f"set_float_at[{name}]")
             elif isinstance(value, str):
                 _check(lib.bison_set_string_at(h, name, value.encode()), f"set_string_at[{name}]")
+            elif isinstance(value, Dynamic):
+                _check(lib.bison_set_object_at(h, name, value._handle), f"set_object_at[{name}]")
+            elif value is None:
+                _check(lib.bison_set_object_at(h, name, None), f"set_object_at_null[{name}]")
             else:
                 raise TypeError(f"Unsupported value type for indexed field: {type(value)}")
             return
@@ -199,6 +299,11 @@ class Dynamic:
             _check(lib.bison_set_object(h, k, value._handle), f"set_object[{name}]")
         elif value is None:
             _check(lib.bison_set_object(h, k, None), f"set_object_null[{name}]")
+        elif isinstance(value, (bytes, bytearray)):
+            arr = (ctypes.c_uint8 * len(value))(*value) if value else None
+            _check(lib.bison_set_vector_bytes(h, k, arr, len(value)), f"set_vector_bytes[{name}]")
+        elif isinstance(value, (list, tuple)):
+            _set_vector_field(lib, h, k, name, value)
         else:
             raise TypeError(f"Unsupported value type: {type(value)}")
 
@@ -239,6 +344,15 @@ class Dynamic:
         if lib.bison_get_key(h, k, ctypes.byref(v_key)) == _n.BISON_OK:
             return int(v_key.value)
 
+        # Vector-typed fields are tried last of all, for the same reason
+        # bison_get_key() is: a field that was never explicitly set as a
+        # vector would already have been claimed (and auto-vivified) by
+        # bison_get_int() above, so these four only ever succeed for a
+        # field actually holding that vector variant.
+        vector = _get_vector_field(lib, h, k)
+        if vector is not _NOT_A_VECTOR:
+            return vector
+
         raise KeyError(f"Field '{name}' not found or has an unsupported type")
 
     def _get_at(self, index: int) -> Any:
@@ -252,11 +366,25 @@ class Dynamic:
         if lib.bison_get_float_at(h, index, ctypes.byref(v_float)) == _n.BISON_OK:
             return float(v_float.value)
 
+        v_bool = ctypes.c_int(0)
+        if lib.bison_get_bool_at(h, index, ctypes.byref(v_bool)) == _n.BISON_OK:
+            return bool(v_bool.value)
+
         len_out = ctypes.c_size_t(0)
         if lib.bison_get_string_at(h, index, None, 0, ctypes.byref(len_out)) == _n.BISON_OK:
             buf = ctypes.create_string_buffer(len_out.value + 1)
             lib.bison_get_string_at(h, index, buf, len_out.value + 1, None)
             return buf.value.decode()
+
+        child = _n.Handle(0)
+        if lib.bison_get_object_at(h, index, ctypes.byref(child)) == _n.BISON_OK:
+            return Dynamic(_handle=child.value) if child.value else None
+
+        # See __getitem__'s identical note on why bison_get_key() is tried
+        # last: it only succeeds for an index already holding a key_t value.
+        v_key = _n.Hash(0)
+        if lib.bison_get_key_at(h, index, ctypes.byref(v_key)) == _n.BISON_OK:
+            return int(v_key.value)
 
         raise IndexError(f"Index {index} not found or has an unsupported type")
 
@@ -289,6 +417,13 @@ class Dynamic:
         """
         v = value if isinstance(value, int) else key(value)
         _check(self._lib.bison_set_key(self._handle, key(name), v), f"set_key[{name}]")
+
+    def set_key_at(self, index: int, value: Union[int, str]) -> None:
+        """Set a ``bison::key_t``-valued field by numeric index -- the
+        indexed counterpart to :meth:`set_key`, for the same reason a bare
+        ``obj[index] = value`` int assignment can't dispatch to this."""
+        v = value if isinstance(value, int) else key(value)
+        _check(self._lib.bison_set_key_at(self._handle, index, v), f"set_key_at[{index}]")
 
     # ── Array-like helpers ───────────────────────────────────────────────────
 
@@ -415,6 +550,11 @@ class Dynamic:
             _check(lib.bison_add_field_float(h, k, value, m), f"add_field_float[{name}]")
         elif isinstance(value, str):
             _check(lib.bison_add_field_string(h, k, value.encode(), m), f"add_field_string[{name}]")
+        elif isinstance(value, (bytes, bytearray)):
+            arr = (ctypes.c_uint8 * len(value))(*value) if value else None
+            _check(lib.bison_add_field_vector_bytes(h, k, arr, len(value), m), f"add_field_vector_bytes[{name}]")
+        elif isinstance(value, (list, tuple)):
+            _add_field_vector(lib, h, k, name, value, m)
         else:
             raise TypeError(f"Unsupported value type for add_field: {type(value)}")
 
@@ -462,6 +602,20 @@ class Dynamic:
         finally:
             self._lib.bison_free_string(out)
 
+    def serialize(self) -> bytes:
+        """Serialize to the compact binary wire format (see ``FORMAT.md``) --
+        the counterpart to module-level :func:`deserialize`. Field keys are
+        encoded as their raw hash, so (unlike :meth:`to_json`/:meth:`to_yaml`)
+        this format is self-contained and needs no key-name map to round-trip.
+        """
+        out = ctypes.POINTER(ctypes.c_uint8)()
+        out_len = ctypes.c_size_t(0)
+        _check(self._lib.bison_serialize(self._handle, ctypes.byref(out), ctypes.byref(out_len)), "serialize")
+        try:
+            return ctypes.string_at(out, out_len.value)
+        finally:
+            self._lib.bison_free_buffer(out)
+
     # ── Repr ──────────────────────────────────────────────────────────────────
 
     def __repr__(self) -> str:
@@ -491,6 +645,15 @@ def from_yaml(text: str) -> Dynamic:
     if not h:
         raise ValueError("from_yaml: invalid or unsupported YAML")
     return Dynamic(_handle=h)
+
+
+def deserialize(data: bytes) -> Dynamic:
+    """Deserialize a buffer produced by :meth:`Dynamic.serialize`."""
+    lib = _n.get_lib()
+    buf = (ctypes.c_uint8 * len(data)).from_buffer_copy(data) if data else None
+    h = _n.Handle(0)
+    _check(lib.bison_deserialize(buf, len(data), ctypes.byref(h)), "deserialize")
+    return Dynamic(_handle=h.value)
 
 
 # bison_add_class() copies field/method data out of *prototype* into the C++

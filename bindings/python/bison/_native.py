@@ -39,7 +39,7 @@ BISON_ERROR_MESSAGES = {
     BISON_ERR_NOT_FOUND: "Method or field not found",
     BISON_ERR_DUPLICATE: "Duplicate class or method",
     BISON_ERR_EXCEPTION: "Internal C++ exception",
-    BISON_ERR_PARSE: "Parse error (JSON / YAML)",
+    BISON_ERR_PARSE: "Parse error (JSON / YAML / binary buffer)",
 }
 
 # ─── rmi_error codes ────────────────────────────────────────────────────────
@@ -223,6 +223,12 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_set_float_at.argtypes = [Handle, ctypes.c_size_t, ctypes.c_float]
     lib.bison_set_string_at.restype = Error
     lib.bison_set_string_at.argtypes = [Handle, ctypes.c_size_t, ctypes.c_char_p]
+    lib.bison_set_bool_at.restype = Error
+    lib.bison_set_bool_at.argtypes = [Handle, ctypes.c_size_t, ctypes.c_int]
+    lib.bison_set_key_at.restype = Error
+    lib.bison_set_key_at.argtypes = [Handle, ctypes.c_size_t, Hash]
+    lib.bison_set_object_at.restype = Error
+    lib.bison_set_object_at.argtypes = [Handle, ctypes.c_size_t, Handle]
 
     # ── Scalar getters (named) ──────────────────────────────────────────────
     lib.bison_get_int.restype = Error
@@ -245,6 +251,12 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_get_float_at.argtypes = [Handle, ctypes.c_size_t, P(ctypes.c_float)]
     lib.bison_get_string_at.restype = Error
     lib.bison_get_string_at.argtypes = [Handle, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t, P(ctypes.c_size_t)]
+    lib.bison_get_bool_at.restype = Error
+    lib.bison_get_bool_at.argtypes = [Handle, ctypes.c_size_t, P(ctypes.c_int)]
+    lib.bison_get_key_at.restype = Error
+    lib.bison_get_key_at.argtypes = [Handle, ctypes.c_size_t, P(Hash)]
+    lib.bison_get_object_at.restype = Error
+    lib.bison_get_object_at.argtypes = [Handle, ctypes.c_size_t, P(Handle)]
 
     lib.bison_size.restype = ctypes.c_size_t
     lib.bison_size.argtypes = [Handle]
@@ -267,6 +279,42 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.bison_add_field_string.argtypes = [Handle, Hash, ctypes.c_char_p, P(CAttributes)]
     lib.bison_add_field_key.restype = Error
     lib.bison_add_field_key.argtypes = [Handle, Hash, Hash, P(CAttributes)]
+
+    lib.bison_add_field_vector_bool.restype = Error
+    lib.bison_add_field_vector_bool.argtypes = [Handle, Hash, P(ctypes.c_int), ctypes.c_size_t, P(CAttributes)]
+    lib.bison_add_field_vector_int.restype = Error
+    lib.bison_add_field_vector_int.argtypes = [Handle, Hash, P(ctypes.c_int32), ctypes.c_size_t, P(CAttributes)]
+    lib.bison_add_field_vector_float.restype = Error
+    lib.bison_add_field_vector_float.argtypes = [Handle, Hash, P(ctypes.c_float), ctypes.c_size_t, P(CAttributes)]
+    lib.bison_add_field_vector_bytes.restype = Error
+    lib.bison_add_field_vector_bytes.argtypes = [Handle, Hash, P(ctypes.c_uint8), ctypes.c_size_t, P(CAttributes)]
+
+    # ── Vector field access ─────────────────────────────────────────────────
+    lib.bison_get_vector_bool.restype = Error
+    lib.bison_get_vector_bool.argtypes = [Handle, Hash, P(ctypes.c_int), ctypes.c_size_t, P(ctypes.c_size_t)]
+    lib.bison_get_vector_int.restype = Error
+    lib.bison_get_vector_int.argtypes = [Handle, Hash, P(ctypes.c_int32), ctypes.c_size_t, P(ctypes.c_size_t)]
+    lib.bison_get_vector_float.restype = Error
+    lib.bison_get_vector_float.argtypes = [Handle, Hash, P(ctypes.c_float), ctypes.c_size_t, P(ctypes.c_size_t)]
+    lib.bison_get_vector_bytes.restype = Error
+    lib.bison_get_vector_bytes.argtypes = [Handle, Hash, P(ctypes.c_uint8), ctypes.c_size_t, P(ctypes.c_size_t)]
+
+    lib.bison_set_vector_bool.restype = Error
+    lib.bison_set_vector_bool.argtypes = [Handle, Hash, P(ctypes.c_int), ctypes.c_size_t]
+    lib.bison_set_vector_int.restype = Error
+    lib.bison_set_vector_int.argtypes = [Handle, Hash, P(ctypes.c_int32), ctypes.c_size_t]
+    lib.bison_set_vector_float.restype = Error
+    lib.bison_set_vector_float.argtypes = [Handle, Hash, P(ctypes.c_float), ctypes.c_size_t]
+    lib.bison_set_vector_bytes.restype = Error
+    lib.bison_set_vector_bytes.argtypes = [Handle, Hash, P(ctypes.c_uint8), ctypes.c_size_t]
+
+    # ── Binary serialization ────────────────────────────────────────────────
+    lib.bison_serialize.restype = Error
+    lib.bison_serialize.argtypes = [Handle, P(P(ctypes.c_uint8)), P(ctypes.c_size_t)]
+    lib.bison_deserialize.restype = Error
+    lib.bison_deserialize.argtypes = [P(ctypes.c_uint8), ctypes.c_size_t, P(Handle)]
+    lib.bison_free_buffer.restype = None
+    lib.bison_free_buffer.argtypes = [P(ctypes.c_uint8)]
 
     # ── Utility ──────────────────────────────────────────────────────────────
     lib.bison_key.restype = Hash

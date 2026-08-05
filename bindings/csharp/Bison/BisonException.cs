@@ -17,7 +17,7 @@ public sealed class BisonException : Exception
         [BisonErrorCode.NotFound] = "Method or field not found",
         [BisonErrorCode.Duplicate] = "Duplicate class or method",
         [BisonErrorCode.Exception] = "Internal C++ exception",
-        [BisonErrorCode.Parse] = "Parse error (JSON / YAML)",
+        [BisonErrorCode.Parse] = "Parse error (JSON / YAML / binary buffer)",
     };
 
     public BisonErrorCode Code { get; }

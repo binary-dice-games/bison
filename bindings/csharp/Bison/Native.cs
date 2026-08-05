@@ -233,6 +233,15 @@ internal static partial class Native
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial int bison_set_string_at(nint h, nuint index, string value);
 
+    [LibraryImport(LibName)]
+    public static partial int bison_set_bool_at(nint h, nuint index, int value);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_set_key_at(nint h, nuint index, uint value);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_set_object_at(nint h, nuint index, nint value);
+
     // ── Scalar getters (named) ───────────────────────────────────────────────
 
     [LibraryImport(LibName)]
@@ -265,6 +274,15 @@ internal static partial class Native
     public static partial int bison_get_string_at(nint h, nuint index, byte[]? buf, nuint bufLen, out nuint lenOut);
 
     [LibraryImport(LibName)]
+    public static partial int bison_get_bool_at(nint h, nuint index, out int out_);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_key_at(nint h, nuint index, out uint out_);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_object_at(nint h, nuint index, out nint out_);
+
+    [LibraryImport(LibName)]
     public static partial nuint bison_size(nint h);
 
     // ── Methods ───────────────────────────────────────────────────────────────
@@ -291,6 +309,55 @@ internal static partial class Native
 
     [LibraryImport(LibName)]
     public static unsafe partial int bison_add_field_key(nint obj, uint key, uint value, NativeAttributes* meta);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int bison_add_field_vector_bool(nint obj, uint key, int[]? values, nuint count, NativeAttributes* meta);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int bison_add_field_vector_int(nint obj, uint key, int[]? values, nuint count, NativeAttributes* meta);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int bison_add_field_vector_float(nint obj, uint key, float[]? values, nuint count, NativeAttributes* meta);
+
+    [LibraryImport(LibName)]
+    public static unsafe partial int bison_add_field_vector_bytes(nint obj, uint key, byte[]? values, nuint count, NativeAttributes* meta);
+
+    // ── Vector field access ──────────────────────────────────────────────────
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_vector_bool(nint h, uint name, int[]? buf, nuint bufLen, out nuint lenOut);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_vector_int(nint h, uint name, int[]? buf, nuint bufLen, out nuint lenOut);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_vector_float(nint h, uint name, float[]? buf, nuint bufLen, out nuint lenOut);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_get_vector_bytes(nint h, uint name, byte[]? buf, nuint bufLen, out nuint lenOut);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_set_vector_bool(nint h, uint name, int[]? values, nuint count);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_set_vector_int(nint h, uint name, int[]? values, nuint count);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_set_vector_float(nint h, uint name, float[]? values, nuint count);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_set_vector_bytes(nint h, uint name, byte[]? values, nuint count);
+
+    // ── Binary serialization ─────────────────────────────────────────────────
+
+    [LibraryImport(LibName)]
+    public static partial int bison_serialize(nint h, out nint out_, out nuint outLen);
+
+    [LibraryImport(LibName)]
+    public static partial int bison_deserialize(byte[]? data, nuint len, out nint out_);
+
+    [LibraryImport(LibName)]
+    public static partial void bison_free_buffer(nint buf);
 
     // ── Utility ───────────────────────────────────────────────────────────────
 

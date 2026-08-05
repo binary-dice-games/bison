@@ -127,6 +127,21 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
             case null:
                 BisonException.Check(Native.bison_set_object(Handle, k, nint.Zero), $"set_object_null[{name}]");
                 break;
+            case bool[] boolArr:
+                {
+                    var ints = Array.ConvertAll(boolArr, x => x ? 1 : 0);
+                    BisonException.Check(Native.bison_set_vector_bool(Handle, k, ints, (nuint)ints.Length), $"set_vector_bool[{name}]");
+                    break;
+                }
+            case int[] intArr:
+                BisonException.Check(Native.bison_set_vector_int(Handle, k, intArr, (nuint)intArr.Length), $"set_vector_int[{name}]");
+                break;
+            case float[] floatArr:
+                BisonException.Check(Native.bison_set_vector_float(Handle, k, floatArr, (nuint)floatArr.Length), $"set_vector_float[{name}]");
+                break;
+            case byte[] byteArr:
+                BisonException.Check(Native.bison_set_vector_bytes(Handle, k, byteArr, (nuint)byteArr.Length), $"set_vector_bytes[{name}]");
+                break;
             default:
                 throw new ArgumentException($"Unsupported value type: {value.GetType()}");
         }
@@ -164,8 +179,107 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
         {
             return vKey;
         }
+        // Vector-typed fields are tried last of all, for the same reason
+        // bison_get_key() is: a field never explicitly set as a vector
+        // would already have been claimed (and auto-vivified) by
+        // bison_get_int() above, so these four only ever succeed for a
+        // field actually holding that vector variant.
+        if (TryGetVector(k, out var vector))
+        {
+            return vector;
+        }
 
         throw new KeyNotFoundException($"Field '{name}' not found or has an unsupported type");
+    }
+
+    private bool TryGetVector(uint k, out object? value)
+    {
+        if (TryGetVectorInt(k, out var vInt))
+        {
+            value = vInt;
+            return true;
+        }
+        if (TryGetVectorFloat(k, out var vFloat))
+        {
+            value = vFloat;
+            return true;
+        }
+        if (TryGetVectorBool(k, out var vBool))
+        {
+            value = vBool;
+            return true;
+        }
+        if (TryGetVectorBytes(k, out var vBytes))
+        {
+            value = vBytes;
+            return true;
+        }
+        value = null;
+        return false;
+    }
+
+    private bool TryGetVectorInt(uint k, out int[]? value)
+    {
+        if (Native.bison_get_vector_int(Handle, k, null, 0, out var lenOut) != (int)BisonErrorCode.Ok)
+        {
+            value = null;
+            return false;
+        }
+        var arr = new int[lenOut];
+        if (lenOut > 0)
+        {
+            Native.bison_get_vector_int(Handle, k, arr, lenOut, out _);
+        }
+        value = arr;
+        return true;
+    }
+
+    private bool TryGetVectorFloat(uint k, out float[]? value)
+    {
+        if (Native.bison_get_vector_float(Handle, k, null, 0, out var lenOut) != (int)BisonErrorCode.Ok)
+        {
+            value = null;
+            return false;
+        }
+        var arr = new float[lenOut];
+        if (lenOut > 0)
+        {
+            Native.bison_get_vector_float(Handle, k, arr, lenOut, out _);
+        }
+        value = arr;
+        return true;
+    }
+
+    private bool TryGetVectorBool(uint k, out bool[]? value)
+    {
+        if (Native.bison_get_vector_bool(Handle, k, null, 0, out var lenOut) != (int)BisonErrorCode.Ok)
+        {
+            value = null;
+            return false;
+        }
+        var arr = new int[lenOut];
+        if (lenOut > 0)
+        {
+            Native.bison_get_vector_bool(Handle, k, arr, lenOut, out _);
+        }
+        value = Array.ConvertAll(arr, x => x != 0);
+        return true;
+    }
+
+    private bool TryGetVectorBytes(uint k, out byte[]? value)
+    {
+        if (Native.bison_get_vector_bytes(Handle, k, null, 0, out var lenOut) != (int)BisonErrorCode.Ok)
+        {
+            value = null;
+            return false;
+        }
+        var arr = new byte[lenOut];
+        if (lenOut > 0)
+        {
+            Native.bison_get_vector_bytes(Handle, k, arr, lenOut, out _);
+        }
+        value = arr;
+        return true;
     }
 
     private bool TryGetString(uint k, out string? value)
@@ -193,11 +307,25 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
         {
             return vFloat;
         }
+        if (Native.bison_get_bool_at(Handle, idx, out var vBool) == (int)BisonErrorCode.Ok)
+        {
+            return vBool != 0;
+        }
         if (Native.bison_get_string_at(Handle, idx, null, 0, out var lenOut) == (int)BisonErrorCode.Ok)
         {
             var buf = new byte[lenOut + 1];
             Native.bison_get_string_at(Handle, idx, buf, (nuint)buf.Length, out _);
             return System.Text.Encoding.UTF8.GetString(buf, 0, (int)lenOut);
+        }
+        if (Native.bison_get_object_at(Handle, idx, out var child) == (int)BisonErrorCode.Ok)
+        {
+            return child != nint.Zero ? new Dynamic(child) : null;
+        }
+        // See Get()'s identical note on why bison_get_key() is tried last:
+        // it only succeeds for an index already holding a key_t value.
+        if (Native.bison_get_key_at(Handle, idx, out var vKey) == (int)BisonErrorCode.Ok)
+        {
+            return vKey;
         }
 
         throw new IndexOutOfRangeException($"Index {index} not found or has an unsupported type");
@@ -208,8 +336,14 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
         var idx = (nuint)index;
         switch (value)
         {
+            // bool is checked before int (a boxed bool would never match a
+            // `case int` pattern, but listed first for clarity/symmetry with
+            // Set()) so it round-trips as a real bison bool field via
+            // bison_set_bool_at() -- not silently coerced to int32, the same
+            // distinction bison_set_bool()/bison_set_int() already make for
+            // named fields.
             case bool b:
-                BisonException.Check(Native.bison_set_int_at(Handle, idx, b ? 1 : 0), $"set_int_at[{index}]");
+                BisonException.Check(Native.bison_set_bool_at(Handle, idx, b ? 1 : 0), $"set_bool_at[{index}]");
                 break;
             case int i:
                 BisonException.Check(Native.bison_set_int_at(Handle, idx, i), $"set_int_at[{index}]");
@@ -222,6 +356,12 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
                 break;
             case string s:
                 BisonException.Check(Native.bison_set_string_at(Handle, idx, s), $"set_string_at[{index}]");
+                break;
+            case Dynamic dyn:
+                BisonException.Check(Native.bison_set_object_at(Handle, idx, dyn.Handle), $"set_object_at[{index}]");
+                break;
+            case null:
+                BisonException.Check(Native.bison_set_object_at(Handle, idx, nint.Zero), $"set_object_at_null[{index}]");
                 break;
             default:
                 throw new ArgumentException($"Unsupported value type for indexed field: {value?.GetType()}");
@@ -255,6 +395,17 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
     /// <paramref name="value"/>, the same way <c>"value"_key</c> would in
     /// C++.</summary>
     public void SetKey(string name, string value) => SetKey(name, Key.Of(value));
+
+    /// <summary>Sets a <c>bison::key_t</c>-valued field by numeric index --
+    /// the indexed counterpart to <see cref="SetKey(string, uint)"/>, for the
+    /// same reason a bare <c>obj[index] = value</c> int assignment can't
+    /// dispatch to this.</summary>
+    public void SetKeyAt(int index, uint value) =>
+        BisonException.Check(Native.bison_set_key_at(Handle, (nuint)index, value), $"set_key_at[{index}]");
+
+    /// <summary>Overload of <see cref="SetKeyAt(int, uint)"/> taking a name
+    /// to hash instead of an already-hashed value.</summary>
+    public void SetKeyAt(int index, string value) => SetKeyAt(index, Key.Of(value));
 
     // ── Array-like helpers ────────────────────────────────────────────────────
 
@@ -455,6 +606,25 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
                 case string s:
                     BisonException.Check(Native.bison_add_field_string(Handle, k, s, metaPtr), $"add_field_string[{name}]");
                     break;
+                case bool[] boolArr:
+                    {
+                        var ints = Array.ConvertAll(boolArr, x => x ? 1 : 0);
+                        BisonException.Check(
+                            Native.bison_add_field_vector_bool(Handle, k, ints, (nuint)ints.Length, metaPtr), $"add_field_vector_bool[{name}]");
+                        break;
+                    }
+                case int[] intArr:
+                    BisonException.Check(
+                        Native.bison_add_field_vector_int(Handle, k, intArr, (nuint)intArr.Length, metaPtr), $"add_field_vector_int[{name}]");
+                    break;
+                case float[] floatArr:
+                    BisonException.Check(
+                        Native.bison_add_field_vector_float(Handle, k, floatArr, (nuint)floatArr.Length, metaPtr), $"add_field_vector_float[{name}]");
+                    break;
+                case byte[] byteArr:
+                    BisonException.Check(
+                        Native.bison_add_field_vector_bytes(Handle, k, byteArr, (nuint)byteArr.Length, metaPtr), $"add_field_vector_bytes[{name}]");
+                    break;
                 default:
                     throw new ArgumentException($"Unsupported value type for AddField: {value.GetType()}");
             }
@@ -541,9 +711,39 @@ public sealed class Dynamic : DynamicObject, IDisposable, IEnumerable<object?>
         }
     }
 
+    /// <summary>Serializes to the compact binary wire format (see
+    /// <c>FORMAT.md</c>) -- the counterpart to <see cref="Deserialize"/>.
+    /// Field keys are encoded as their raw hash, so (unlike
+    /// <see cref="ToJson"/>/<see cref="ToYaml"/>) this format is
+    /// self-contained and needs no key-name map to round-trip.</summary>
+    public byte[] Serialize()
+    {
+        BisonException.Check(Native.bison_serialize(Handle, out var outPtr, out var outLen), "serialize");
+        try
+        {
+            var result = new byte[outLen];
+            if (outLen > 0)
+            {
+                Marshal.Copy(outPtr, result, 0, (int)outLen);
+            }
+            return result;
+        }
+        finally
+        {
+            Native.bison_free_buffer(outPtr);
+        }
+    }
+
     public override string ToString() => Pretty();
 
     // ── Factory / registry functions ─────────────────────────────────────────
+
+    /// <summary>Deserializes a buffer produced by <see cref="Serialize"/>.</summary>
+    public static Dynamic Deserialize(byte[] data)
+    {
+        BisonException.Check(Native.bison_deserialize(data, (nuint)data.Length, out var h), "deserialize");
+        return new Dynamic(h);
+    }
 
     public static Dynamic FromJson(string text)
     {

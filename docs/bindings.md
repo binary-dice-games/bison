@@ -185,6 +185,20 @@ same way `"value"_key` would be in C++) to write one instead. Reading is
 transparent: `obj["id"]` falls back to `bison_get_key()` automatically once
 int/float/bool/string/object all fail by type mismatch. `obj.add_field_key(name,
 value, meta=None)` is the `add_field()` counterpart for schema declarations.
+`obj.set_key_at(index, value)` is the indexed counterpart, for the same
+reason `obj[index] = value` can't dispatch to it from a bare `int`.
+
+Every numeric-index (`obj[0]`) type `obj["field"]` supports also works at an
+index, including `bool` (round-trips as a real `bool`, not silently coerced
+to `int`), nested objects, and `None`. Vector-typed fields
+(`obj["tags"] = [1, 2, 3]`, `bytes`/`bytearray` for `vector<uint8_t>`) are
+named-field only — read them back the same way (`obj["tags"]` returns a
+`list`/`bytes`); `obj.add_field("tags", [...])` is the schema-declaration
+form. An empty list has no element-type information to infer from and
+defaults to `vector<int32_t>`. `obj.serialize()` / `bison.deserialize(data)`
+round-trip the compact binary wire format (`FORMAT.md`), the counterpart to
+`to_json()`/`to_yaml()` for a self-contained (no key-name map needed) byte
+representation.
 
 **Requirements:** Python 3.x, `pytest` (optional, for tests)
 
@@ -241,7 +255,20 @@ int32, so use `obj.SetKey("id", value)` (overloads take an already-hashed
 `uint` or a name string to hash) to write one instead. Reading is
 transparent: the indexer's `Get()` falls back to `GetKey()` automatically
 once every other type check fails. `obj.AddFieldKey(name, value, meta)` is
-the `AddField()` counterpart for schema declarations.
+the `AddField()` counterpart for schema declarations. `obj.SetKeyAt(index,
+value)` is the indexed counterpart, for the same reason `obj[index] = value`
+can't dispatch to it from a bare `int`.
+
+Every numeric-index (`obj[0]`) type `obj["field"]` supports also works at an
+index, including `bool` (round-trips as a real `bool`, not silently coerced
+to `int`), nested `Dynamic` objects, and `null`. Vector-typed fields
+(`obj["tags"] = new[] { 1, 2, 3 }`; `bool[]`/`int[]`/`float[]`/`byte[]`) are
+named-field only — read them back the same way (`obj["tags"]` returns the
+matching array type, cast accordingly); `obj.AddField("tags", array)` is the
+schema-declaration form. `obj.Serialize()` / `Dynamic.Deserialize(bytes)`
+round-trip the compact binary wire format (`FORMAT.md`), the counterpart to
+`ToJson()`/`ToYaml()` for a self-contained (no key-name map needed) byte
+representation.
 
 Every handle is an `IDisposable` RAII wrapper (`Dynamic`, `Client`, `Server`,
 `Proxy`, `Future`) with a finalizer safety net, so `using`/`Dispose()` is

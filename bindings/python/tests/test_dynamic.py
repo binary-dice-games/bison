@@ -14,7 +14,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from bison import Attributes, BisonError, Dynamic, add_class, class_attributes, clear_registry, find_class
-from bison import from_json, from_yaml, instantiate, key
+from bison import deserialize, from_json, from_yaml, instantiate, key
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Lifecycle
@@ -107,6 +107,38 @@ class TestFieldAccess(unittest.TestCase):
         with self.assertRaises(BisonError):
             self.obj[0] = 1.5
 
+    def test_indexed_bool_round_trips_as_bool(self):
+        # Regression coverage: indexed bool used to be silently coerced to
+        # int32 (bison_set_bool_at() didn't exist yet), so obj[0] came back
+        # as `1`/`0` instead of `True`/`False`.
+        self.obj[0] = True
+        self.obj[1] = False
+        self.assertIs(self.obj[0], True)
+        self.assertIs(self.obj[1], False)
+
+    def test_indexed_bool_type_locked(self):
+        self.obj[0] = True
+        with self.assertRaises(BisonError):
+            self.obj[0] = 5
+
+    def test_indexed_object_round_trip(self):
+        child = Dynamic()
+        child["v"] = 9
+        self.obj[0] = child
+        child.release()
+
+        out = self.obj[0]
+        self.assertEqual(out["v"], 9)
+        out.release()
+
+    def test_indexed_null_object_round_trip(self):
+        self.obj[0] = None
+        self.assertIsNone(self.obj[0])
+
+    def test_set_key_at_round_trips(self):
+        self.obj.set_key_at(0, "hero")
+        self.assertEqual(self.obj[0], key("hero"))
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # key_t-typed field access
@@ -161,6 +193,80 @@ class TestKeyTypedFieldAccess(unittest.TestCase):
     def test_add_field_key_with_name_string(self):
         self.obj.add_field_key("id", "sidekick")
         self.assertEqual(self.obj["id"], key("sidekick"))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Vector fields
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestVectorFields(unittest.TestCase):
+    def setUp(self):
+        self.obj = Dynamic()
+
+    def tearDown(self):
+        self.obj.release()
+
+    def test_int_round_trip(self):
+        self.obj["ints"] = [1, 2, 3]
+        self.assertEqual(self.obj["ints"], [1, 2, 3])
+
+    def test_bool_round_trip(self):
+        self.obj["flags"] = [True, False, True]
+        self.assertEqual(self.obj["flags"], [True, False, True])
+
+    def test_float_round_trip(self):
+        self.obj["ratios"] = [1.5, 2.5]
+        self.assertEqual(self.obj["ratios"], [1.5, 2.5])
+
+    def test_bytes_round_trip(self):
+        self.obj["blob"] = bytes([0, 1, 255])
+        self.assertEqual(self.obj["blob"], bytes([0, 1, 255]))
+
+    def test_bytearray_round_trip(self):
+        self.obj["blob"] = bytearray([1, 2, 3])
+        self.assertEqual(self.obj["blob"], bytes([1, 2, 3]))
+
+    def test_tuple_is_accepted(self):
+        self.obj["ints"] = (1, 2, 3)
+        self.assertEqual(self.obj["ints"], [1, 2, 3])
+
+    def test_assignment_replaces_existing_contents(self):
+        self.obj["ints"] = [1, 2, 3]
+        self.obj["ints"] = [9, 9]
+        self.assertEqual(self.obj["ints"], [9, 9])
+
+    def test_empty_list_defaults_to_int(self):
+        self.obj["empty"] = []
+        self.assertEqual(self.obj["empty"], [])
+
+    def test_wrong_type_read_raises(self):
+        self.obj["x"] = 1
+        # x already holds int32 (a scalar, not a vector), so none of the
+        # vector getters match -- this hits __getitem__'s final KeyError,
+        # not a vector-specific error, since bison_get_int() above already
+        # claimed the field.
+        self.assertEqual(self.obj["x"], 1)
+
+    def test_add_field_registers_and_is_readable(self):
+        self.obj.add_field("ints", [1, 2, 3])
+        self.assertEqual(self.obj["ints"], [1, 2, 3])
+
+    def test_add_field_rejects_duplicate(self):
+        self.obj.add_field("ints", [1, 2, 3])
+        with self.assertRaises(BisonError) as ctx:
+            self.obj.add_field("ints", [9])
+        self.assertEqual(ctx.exception.code, -4)  # BISON_ERR_DUPLICATE
+
+    def test_add_field_bytes(self):
+        self.obj.add_field("blob", bytes([1, 2, 3]))
+        self.assertEqual(self.obj["blob"], bytes([1, 2, 3]))
+
+    def test_indexed_assignment_raises_type_error(self):
+        # Vectors have no numeric-index form (bison_c.h has no
+        # bison_set_vector_*_at) -- only named fields support them.
+        with self.assertRaises(TypeError):
+            self.obj[0] = [1, 2, 3]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -351,6 +457,51 @@ class TestSerialization(unittest.TestCase):
     def test_invalid_json_raises(self):
         with self.assertRaises(ValueError):
             from_json("not json")
+
+
+class TestBinarySerialization(unittest.TestCase):
+    def test_round_trips_scalar_fields(self):
+        obj = Dynamic()
+        obj["x"] = 42
+        obj["y"] = 2.5
+        obj["s"] = "hello"
+
+        buf = obj.serialize()
+        self.assertIsInstance(buf, bytes)
+        self.assertGreater(len(buf), 0)
+
+        decoded = deserialize(buf)
+        self.assertEqual(decoded["x"], 42)
+        self.assertAlmostEqual(decoded["y"], 2.5)
+        self.assertEqual(decoded["s"], "hello")
+        obj.release()
+        decoded.release()
+
+    def test_round_trips_nested_object(self):
+        obj = Dynamic()
+        child = Dynamic()
+        child["city"] = "Springfield"
+        obj["address"] = child
+        child.release()
+
+        decoded = deserialize(obj.serialize())
+        addr = decoded["address"]
+        self.assertEqual(addr["city"], "Springfield")
+        addr.release()
+        obj.release()
+        decoded.release()
+
+    def test_malformed_buffer_raises(self):
+        with self.assertRaises(BisonError) as ctx:
+            deserialize(b"\xff\x00\x01")
+        self.assertEqual(ctx.exception.code, -6)  # BISON_ERR_PARSE
+
+    def test_empty_object_round_trips(self):
+        obj = Dynamic()
+        decoded = deserialize(obj.serialize())
+        self.assertIsInstance(decoded, Dynamic)
+        obj.release()
+        decoded.release()
 
 
 class TestKeyHashing(unittest.TestCase):
