@@ -217,7 +217,7 @@ doxygen Doxyfile
 | [docs/tutorial.md](docs/tutorial.md) | Beginner-friendly walkthrough of the library with runnable examples |
 | [docs/building.md](docs/building.md) | Linux/WSL/MSYS2/native-Windows setup, CMake integration |
 | [docs/examples.md](docs/examples.md) | Running C++, RMI socket, stdio PTY, and benchmark examples |
-| [docs/bindings.md](docs/bindings.md) | Python and C# binding setup and usage |
+| [docs/bindings.md](docs/bindings.md) | C++ (header-only), Python, and C# binding setup and usage |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |
 

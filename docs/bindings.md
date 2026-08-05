@@ -21,6 +21,134 @@ set BISON_LIB=%cd%\build\Debug\bison_abi.dll
 
 ---
 
+## C++ (header-only) (`bindings/cpp/`)
+
+Header-only wrapper (`bindings/cpp/include/bison/`) that gives the
+precompiled `bison_abi` shared library an interface mirroring the internal
+`bdg::bison::dynamic` C++ API (`src/bison/bison.hpp`) as closely as the C
+ABI allows — `dynamic obj{"Player"_key}; obj["hp"_key] = 100;` instead of
+`bison_set_int(h, bison_key("hp"), 100)`. Unlike the Python and C#
+bindings, there is no dynamic library loading step: `#include
+"bison/bison.hpp"` and link `bison_abi` like any other library — the
+compiler resolves `bison_c.h` / `rmi_c.h`'s C symbols at link time, the
+same as an application linking any other precompiled shared library.
+
+The binding lives in `bdg::bison::abi` (one namespace level below the
+internal `bdg::bison`) rather than reusing the internal namespace verbatim.
+This isn't just caution: `bison_abi`'s shared library keeps the *default*
+(exported) ELF visibility on every internal C++ symbol it links in from
+`libbison.a` (only the C functions declared in `bison_c.h`/`rmi_c.h` get
+explicit `BISON_API` visibility), so reusing the exact name
+`bdg::bison::dynamic` for a completely different, incompatible class
+layout would mangle to the same symbol names `libbison_abi.so` already
+exports as weak/COMDAT symbols — any consumer executable that also defines
+those symbols would trigger ELF symbol interposition, silently rebinding
+calls *inside* the library's own internal C++ code to this header's
+unrelated class and corrupting memory. This was reproduced directly while
+developing the binding; see `bindings/cpp/include/bison/dynamic.hpp`'s
+top-level doc comment for the full account. `key_t`/`hash_t`/`hash()` stay
+under `abi` too, for the same reason.
+
+`"name"_key` is `constexpr`, computed by a compile-time FNV-1a hash
+identical to the internal `bdg::bison::hash()` — unlike the Python/C#
+bindings' `key()`/`Key.Of()`, which must call across the ABI (or, for C#,
+maintain a runtime memoization cache) because those languages have no way
+to hash a string literal before run time. Every `dynamic` is an RAII,
+move-enabled wrapper around a `bison_handle`; failures raise
+`bison_exception` / `rmi_exception` (wrapping the `bison_error` /
+`rmi_error` codes) instead of requiring manual return-code checks.
+
+A few gaps versus the internal C++ API are inherent to the ABI's surface,
+not this binding's choice — see `dynamic.hpp`'s and `rmi.hpp`'s top-level
+doc comments for the full list and reasoning:
+- No raw buffer/stream serialization or schema-driven wire format — only
+  `to_json()` / `to_yaml()` / `pretty()`, matching the Python/C# bindings.
+- Indexed (numeric) field access covers only `int32_t`/`float`/`std::string`
+  (`bison_c.h` has no `_at` variant for `bool`/`key_t`/nested objects).
+- Vector-typed fields can be registered (`addField(name, std::vector<...>)`)
+  but not read back — there is no `bison_get_vector_*` in the ABI.
+- `dynamic::addMethod()`'s callback populates a `result` out-parameter in
+  place rather than returning a `dynamic` by value (there is no ABI call to
+  copy an arbitrary field set out of a fresh object into the library-owned
+  result handle).
+- The RMI `client`/`proxy` are synchronous by default (matching
+  `rmi_c.h`'s blocking calls) with `_async()` counterparts returning a
+  `future` wrapping `rmi_future_handle`, rather than the internal API's
+  uniform `std::future<T>` return type.
+
+A field the C++ side declares as `bison::key_t` is a distinct field-variant
+type from `int32_t` — this resolves naturally through ordinary C++ overload
+resolution: `obj["id"_key] = "hero"_key;` (a `key_t` argument) picks the
+`key_t` overload of `field_ref::operator=`, while `obj["id"_key] =
+int32_t{7};` picks the `int32_t` overload — no separate `set_key()` call is
+needed the way Python's `set_key()` / C#'s `SetKey()` need one, since C++
+already knows the argument's static type. `addFieldKey()` is still the
+`addField()` counterpart for schema declarations, since a bare `addField(name,
+int32_t)` can't be told to register a `key_t` field instead.
+
+**Requirements:** A `bison_abi` build (any platform), a C++20 compiler, and
+the `bison_c.h` / `rmi_c.h` headers already shipped alongside it.
+
+```bash
+# Build bison_abi first (see the shared instructions above), then the
+# binding's own examples/tests build as part of the normal CMake build:
+cmake -B build -DPACKAGE_TESTS=ON
+cmake --build build --config Debug
+
+# Run examples:
+./build/bindings/cpp/bison_cpp_example
+./build/bindings/cpp/rmi_cpp_standalone_example
+./build/bindings/cpp/rmi_cpp_server_example --transport=tcp --port=7070   # separate terminal
+./build/bindings/cpp/rmi_cpp_client_example --transport=tcp --port=7070
+
+# Run tests:
+ctest --test-dir build -R "^cpp_binding\." --output-on-failure
+```
+
+To use the binding from a project outside this repository, add
+`bindings/cpp/include` to the include path, link the precompiled
+`bison_abi` shared library, and make sure `bison_c.h`/`rmi_c.h` (shipped
+alongside `bison_abi` in the release zip — see `cmake/Packaging.cmake`) are
+on the include path too:
+
+```bash
+g++ -std=c++20 -I bindings/cpp/include -I include myapp.cpp -o myapp -L build -lbison_abi
+```
+
+Quick-start snippet:
+
+```cpp
+#include "bison/bison.hpp"   // dynamic.hpp alone is enough without RMI
+using namespace bdg::bison::abi;
+
+int main() {
+    dynamic p{"Player"_key};
+    p["hp"_key] = 100;
+    p["name"_key] = std::string{"hero"};
+    std::cout << p["hp"_key].as<int32_t>();   // 100
+
+    auto client = rmi::client::standalone();
+    client.connect();
+    auto calc = client.instantiate("Calculator"_key);
+    dynamic args;
+    args["a"_key] = 1.0f;
+    args["b"_key] = 2.0f;
+    dynamic result = calc.call("add"_key, args);   // calls the "add" remote method
+    std::cout << result["result"_key].as<float>();
+}
+```
+
+`bdg::bison::abi::key_t` (and, in test files, `bison_exception`) should
+stay explicitly qualified at any declaration site reachable after `using
+namespace bdg::bison::abi;` — glibc's `<sys/types.h>` (pulled in
+transitively by many standard headers) also declares a global `key_t`
+typedef, making a bare `key_t` ambiguous. This is the same, already-known
+pitfall the internal C++ test suite documents (see
+`tests/bison_c_tests.cpp`); `bindings/cpp/tests/dynamic_tests.cpp` and the
+RMI examples show the qualified-alias workaround in practice.
+
+---
+
 ## Python (`bindings/python/`)
 
 Thin `ctypes` wrapper (`bindings/python/bison/`) exposing both APIs through
