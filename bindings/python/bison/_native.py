@@ -414,10 +414,7 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.rmi_server_term_create.argtypes = [ctypes.c_char_p]
 
     lib.rmi_server_listen.restype = Error
-    lib.rmi_server_listen.argtypes = [ServerHandle, Handle]
-
-    lib.rmi_server_set_auth.restype = Error
-    lib.rmi_server_set_auth.argtypes = [ServerHandle, AuthFn, ctypes.c_void_p]
+    lib.rmi_server_listen.argtypes = [ServerHandle, Handle, AuthFn, ctypes.c_void_p]
 
     lib.rmi_server_stop.restype = None
     lib.rmi_server_stop.argtypes = [ServerHandle]

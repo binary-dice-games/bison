@@ -2,9 +2,9 @@
 
 Most tests use Client.standalone() (in-process dispatch) so the suite has no
 dependency on sockets/ports being available in the test environment.
-TestTcpAuthRmi is the exception -- Server.set_auth() is evaluated during the
-OP_CONNECT handshake, which standalone sessions skip entirely, so it needs a
-real TCP client/server round trip.
+TestTcpAuthRmi is the exception -- Server.listen()'s auth parameter is
+evaluated during the OP_CONNECT handshake, which standalone sessions skip
+entirely, so it needs a real TCP client/server round trip.
 
 Build bison_abi first, then run from the repository root::
 
@@ -116,8 +116,7 @@ class TestTcpAuthRmi(unittest.TestCase):
             seen["username"] = payload["username"]
             return True, "alice-id"
 
-        server.set_auth(handler)
-        server.listen()
+        server.listen(auth=handler)
 
         client = Client.tcp("127.0.0.1", port)
         try:
@@ -132,8 +131,7 @@ class TestTcpAuthRmi(unittest.TestCase):
     def test_rejecting_callback_fails_connect(self):
         port = next(_next_tcp_port)
         server = Server.tcp("127.0.0.1", port)
-        server.set_auth(lambda payload: (False, ""))
-        server.listen()
+        server.listen(auth=lambda payload: (False, ""))
 
         client = Client.tcp("127.0.0.1", port)
         try:
@@ -141,17 +139,6 @@ class TestTcpAuthRmi(unittest.TestCase):
                 client.connect()
         finally:
             client.release()
-            server.stop()
-            server.release()
-
-    def test_set_auth_after_listen_raises(self):
-        port = next(_next_tcp_port)
-        server = Server.tcp("127.0.0.1", port)
-        server.listen()
-        try:
-            with self.assertRaises(RmiError):
-                server.set_auth(lambda payload: (True, ""))
-        finally:
             server.stop()
             server.release()
 

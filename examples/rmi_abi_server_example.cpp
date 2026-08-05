@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  rmi_error err = rmi_server_listen(server, NULL);
+  rmi_error err = rmi_server_listen(server, NULL, NULL, NULL);
   if (err != RMI_OK) {
     fprintf(stderr, "[Server] listen failed (%d)\n", (int)err);
     rmi_server_release(server);

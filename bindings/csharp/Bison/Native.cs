@@ -464,10 +464,7 @@ internal static partial class Native
     public static partial nint rmi_server_term_create(string? cmd);
 
     [LibraryImport(LibName)]
-    public static partial int rmi_server_listen(nint server, nint parameters);
-
-    [LibraryImport(LibName)]
-    public static partial int rmi_server_set_auth(nint server, nint handler, nint user);
+    public static partial int rmi_server_listen(nint server, nint parameters, nint authHandler, nint authUser);
 
     [LibraryImport(LibName)]
     public static partial void rmi_server_stop(nint server);

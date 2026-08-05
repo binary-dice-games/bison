@@ -9,7 +9,6 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
-#include <functional>
 #include <string>
 #include <thread>
 
@@ -105,22 +104,19 @@ static void noop_proxy_event_handler(bison_handle, void*) {}
  * a plain per-process port counter can still collide when several test
  * processes start at the same instant and pick the same first port.
  *
- * @p configure, if given, runs after the server is created but before
- * `rmi_server_listen()` -- e.g. to call `rmi_server_set_auth()`, which must
- * precede `listen()`. @p out_port receives the bound port so the caller can
- * create a client on the *same* port for an actual connect round trip.
+ * @p auth_handler/@p auth_user, if given, are forwarded to
+ * `rmi_server_listen()`. @p out_port receives the bound port so the caller
+ * can create a client on the *same* port for an actual connect round trip.
  */
 static rmi_server_handle
-make_paired_tcp_server(uint16_t* out_port, const std::function<void(rmi_server_handle)>& configure = {}) {
+make_paired_tcp_server(uint16_t* out_port, rmi_auth_fn auth_handler = nullptr, void* auth_user = nullptr) {
   static std::atomic<uint16_t> next_port{29800};
   for (int attempt = 0; attempt < 64; ++attempt) {
     uint16_t port = next_port.fetch_add(1);
     rmi_server_handle server = rmi_server_tcp_create("127.0.0.1", port);
     if (!server)
       continue;
-    if (configure)
-      configure(server);
-    if (rmi_server_listen(server, nullptr) == RMI_OK) {
+    if (rmi_server_listen(server, nullptr, auth_handler, auth_user) == RMI_OK) {
       *out_port = port;
       return server;
     }
@@ -183,7 +179,7 @@ TEST(ServerLifecycleTests, StopNullServerIsSafe) {
 TEST(ServerLifecycleTests, ListenSucceedsWithNullParams) {
   ScopedServerHandle server{make_test_server()};
   ASSERT_NE(server.h, nullptr);
-  rmi_error err = rmi_server_listen(server, nullptr);
+  rmi_error err = rmi_server_listen(server, nullptr, nullptr, nullptr);
   EXPECT_EQ(err, RMI_OK);
   rmi_server_stop(server);
 }
@@ -195,7 +191,7 @@ TEST(ServerLifecycleTests, ListenSucceedsWithNullParams) {
 TEST(ParameterTests, ClientConnectWithParams) {
   ScopedServerHandle server{make_test_server()};
   ASSERT_NE(server.h, nullptr);
-  ASSERT_EQ(rmi_server_listen(server, nullptr), RMI_OK);
+  ASSERT_EQ(rmi_server_listen(server, nullptr, nullptr, nullptr), RMI_OK);
 
   ScopedClientHandle client{make_test_client()};
   ASSERT_NE(client.h, nullptr);
@@ -356,7 +352,7 @@ TEST(BisonIntegrationTests, ListenWithBisonParams) {
   ASSERT_NE(params.h, nullptr);
   ASSERT_EQ(bison_set_int(params, H("backlog"), 5), BISON_OK);
 
-  rmi_error err = rmi_server_listen(server, params);
+  rmi_error err = rmi_server_listen(server, params, nullptr, nullptr);
   EXPECT_EQ(err, RMI_OK);
   rmi_server_stop(server);
 }
@@ -405,7 +401,7 @@ TEST(TimeoutTests, ProxyGetWithTimeoutMs) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 6b. Authentication (rmi_server_set_auth)
+// 6b. Authentication (rmi_server_listen()'s auth_handler/auth_user)
 // ═════════════════════════════════════════════════════════════════════════════
 
 namespace {
@@ -428,7 +424,7 @@ bool rejecting_auth_handler(bison_handle, char*, size_t, void*) {
 
 } // namespace
 
-TEST(RmiAuthTests, NoAuthSetConnectSucceeds) {
+TEST(RmiAuthTests, NoAuthHandlerConnectSucceeds) {
   uint16_t port = 0;
   ScopedServerHandle server{make_paired_tcp_server(&port)};
   ASSERT_NE(server.h, nullptr);
@@ -438,12 +434,10 @@ TEST(RmiAuthTests, NoAuthSetConnectSucceeds) {
   EXPECT_EQ(rmi_client_connect(client, nullptr), RMI_OK);
 }
 
-TEST(RmiAuthTests, AcceptingCallbackReceivesPayloadAndConnectSucceeds) {
+TEST(RmiAuthTests, AcceptingHandlerReceivesPayloadAndConnectSucceeds) {
   uint16_t port = 0;
   std::string seen_username;
-  ScopedServerHandle server{make_paired_tcp_server(&port, [&](rmi_server_handle s) {
-    EXPECT_EQ(rmi_server_set_auth(s, accepting_auth_handler, &seen_username), RMI_OK);
-  })};
+  ScopedServerHandle server{make_paired_tcp_server(&port, accepting_auth_handler, &seen_username)};
   ASSERT_NE(server.h, nullptr);
 
   ScopedClientHandle client{rmi_client_tcp_create("127.0.0.1", port)};
@@ -457,11 +451,9 @@ TEST(RmiAuthTests, AcceptingCallbackReceivesPayloadAndConnectSucceeds) {
   EXPECT_EQ(seen_username, "alice");
 }
 
-TEST(RmiAuthTests, RejectingCallbackFailsConnect) {
+TEST(RmiAuthTests, RejectingHandlerFailsConnect) {
   uint16_t port = 0;
-  ScopedServerHandle server{make_paired_tcp_server(&port, [](rmi_server_handle s) {
-    EXPECT_EQ(rmi_server_set_auth(s, rejecting_auth_handler, nullptr), RMI_OK);
-  })};
+  ScopedServerHandle server{make_paired_tcp_server(&port, rejecting_auth_handler, nullptr)};
   ASSERT_NE(server.h, nullptr);
 
   ScopedClientHandle client{rmi_client_tcp_create("127.0.0.1", port)};
@@ -470,16 +462,8 @@ TEST(RmiAuthTests, RejectingCallbackFailsConnect) {
   EXPECT_NE(rmi_client_connect(client, nullptr), RMI_OK);
 }
 
-TEST(RmiAuthTests, SetAuthNullServerReturnsError) {
-  EXPECT_EQ(rmi_server_set_auth(nullptr, accepting_auth_handler, nullptr), RMI_ERR_NULL);
-}
-
-TEST(RmiAuthTests, SetAuthAfterListenReturnsInvalidState) {
-  ScopedServerHandle server{make_test_server()};
-  ASSERT_NE(server.h, nullptr);
-  ASSERT_EQ(rmi_server_listen(server, nullptr), RMI_OK);
-
-  EXPECT_EQ(rmi_server_set_auth(server, accepting_auth_handler, nullptr), RMI_ERR_INVALID_STATE);
+TEST(RmiAuthTests, ListenNullServerReturnsError) {
+  EXPECT_EQ(rmi_server_listen(nullptr, nullptr, accepting_auth_handler, nullptr), RMI_ERR_NULL);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

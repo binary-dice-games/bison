@@ -80,21 +80,20 @@ doc comments for the full list and reasoning:
   `future` wrapping `rmi_future_handle`, rather than the internal API's
   uniform `std::future<T>` return type.
 
-RMI servers can gate incoming connections with `server::set_auth()`, which
-wraps the internal `auth_module_iface` (`src/rmi/server/auth.hpp`) — the one
-`on_*` extension hook this binding exposes (see this header's top-level doc
-comment). Register a handler before `listen()`; it receives the client's
+RMI servers can gate incoming connections with `listen()`'s optional `auth`
+parameter, which wraps the internal `auth_module_iface`
+(`src/rmi/server/auth.hpp`) — the one `on_*` extension hook this binding
+exposes (see this header's top-level doc comment). It receives the client's
 `OP_CONNECT` payload and returns `true`/`false` to accept or reject the
 connection, optionally writing an identity string through the
 `std::string&` out-parameter:
 
 ```cpp
-server.set_auth([](const dynamic& payload, std::string& out_identity) {
+server.listen(dynamic(), [](const dynamic& payload, std::string& out_identity) {
   if (payload["token"_key].as<std::string>() != "secret") return false;
   out_identity = "user-42";
   return true;
 });
-server.listen();
 ```
 
 Indexed (numeric) field access (`obj[0]`) and vector-typed fields
@@ -217,10 +216,9 @@ round-trip the compact binary wire format (`FORMAT.md`), the counterpart to
 `to_json()`/`to_yaml()` for a self-contained (no key-name map needed) byte
 representation.
 
-`Server.set_auth(handler)` gates connections with a Python callable,
-evaluated once per `OP_CONNECT` handshake. Register it before `listen()`;
-*handler* takes the connect payload as a `Dynamic` and returns `(accepted,
-identity)`:
+`Server.listen()`'s optional `auth` parameter gates connections with a
+Python callable, evaluated once per `OP_CONNECT` handshake. *auth* takes the
+connect payload as a `Dynamic` and returns `(accepted, identity)`:
 
 ```python
 def authenticate(payload):
@@ -228,8 +226,7 @@ def authenticate(payload):
         return False, ""
     return True, "user-42"
 
-server.set_auth(authenticate)
-server.listen()
+server.listen(auth=authenticate)
 ```
 
 **Requirements:** Python 3.x, `pytest` (optional, for tests)
@@ -317,15 +314,13 @@ set reused across many calls, so caching turns most lookups into a
 dictionary hit instead of a string encode + P/Invoke call, while staying
 bounded so a caller hashing high-cardinality strings can't grow it forever.
 
-`Server.SetAuth(handler)` gates connections, evaluated once per
-`OP_CONNECT` handshake. Register it before `Listen()`; *handler* takes the
-connect payload as a `Dynamic` and returns `(bool Accepted, string
-Identity)`:
+`Server.Listen()`'s optional `auth` parameter gates connections, evaluated
+once per `OP_CONNECT` handshake. It takes the connect payload as a
+`Dynamic` and returns `(bool Accepted, string Identity)`:
 
 ```csharp
-server.SetAuth(payload =>
+server.Listen(auth: payload =>
     (string?)payload["token"] == "secret" ? (true, "user-42") : (false, string.Empty));
-server.Listen();
 ```
 
 **Requirements:** .NET 8 SDK

@@ -149,9 +149,6 @@ static inline bool client_handle_is_valid(rmi_client_handle h) {
 struct server_state {
   std::unique_ptr<term::terminal> term_owner;
   std::unique_ptr<server> server_owner;
-  rmi_auth_fn auth_fn = nullptr;
-  void* auth_user = nullptr;
-  bool listening = false;
 };
 
 /**
@@ -815,35 +812,23 @@ RMI_API rmi_server_handle rmi_server_term_create(const char* cmd) {
   }
 }
 
-RMI_API rmi_error rmi_server_listen(rmi_server_handle h, bison_handle params) {
-  server_state* state = as_server_state(h);
-  server* s = state ? state->server_owner.get() : nullptr;
+RMI_API rmi_error
+rmi_server_listen(rmi_server_handle h, bison_handle params, rmi_auth_fn auth_handler, void* auth_user) {
+  server* s = server_deref(h);
   if (!s)
     return RMI_ERR_NULL;
   (void)params; // params not yet supported via C API
   try {
     auth_module_ptr auth;
-    if (state->auth_fn)
-      auth = std::make_shared<c_auth_module>(state->auth_fn, state->auth_user);
+    if (auth_handler)
+      auth = std::make_shared<c_auth_module>(auth_handler, auth_user);
     s->listen(dynamic{}, std::move(auth));
-    state->listening = true;
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;
   } catch (...) {
     return RMI_ERR_EXCEPTION;
   }
-}
-
-RMI_API rmi_error rmi_server_set_auth(rmi_server_handle h, rmi_auth_fn handler, void* user) {
-  server_state* state = as_server_state(h);
-  if (!state || !state->server_owner)
-    return RMI_ERR_NULL;
-  if (state->listening)
-    return RMI_ERR_INVALID_STATE;
-  state->auth_fn = handler;
-  state->auth_user = user;
-  return RMI_OK;
 }
 
 RMI_API void rmi_server_stop(rmi_server_handle h) {

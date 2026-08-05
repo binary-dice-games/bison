@@ -5,9 +5,9 @@
  *
  * RmiTests uses Client.Standalone() (in-process dispatch) exclusively so the
  * suite has no dependency on sockets/ports being available in the test
- * environment. RmiAuthTests is the exception -- Server.SetAuth() is
- * evaluated during the OP_CONNECT handshake, which standalone sessions skip
- * entirely, so it needs a real TCP client/server round trip.
+ * environment. RmiAuthTests is the exception -- Server.Listen()'s auth
+ * parameter is evaluated during the OP_CONNECT handshake, which standalone
+ * sessions skip entirely, so it needs a real TCP client/server round trip.
  */
 
 using Bdg.Bison;
@@ -127,12 +127,11 @@ public class RmiAuthTests
         var port = NextPort();
         using var server = Server.Tcp("127.0.0.1", port);
         string? seenUsername = null;
-        server.SetAuth(payload =>
+        server.Listen(auth: payload =>
         {
             seenUsername = (string?)payload["username"];
             return (true, "alice-id");
         });
-        server.Listen();
 
         using var client = Client.Tcp("127.0.0.1", port);
         client.Connect(new Dictionary<string, object?> { ["username"] = "alice" });
@@ -145,20 +144,9 @@ public class RmiAuthTests
     {
         var port = NextPort();
         using var server = Server.Tcp("127.0.0.1", port);
-        server.SetAuth(payload => (false, string.Empty));
-        server.Listen();
+        server.Listen(auth: payload => (false, string.Empty));
 
         using var client = Client.Tcp("127.0.0.1", port);
         Assert.Throws<RmiException>(() => client.Connect());
-    }
-
-    [Fact]
-    public void SetAuthAfterListenThrows()
-    {
-        var port = NextPort();
-        using var server = Server.Tcp("127.0.0.1", port);
-        server.Listen();
-
-        Assert.Throws<RmiException>(() => server.SetAuth(payload => (true, string.Empty)));
     }
 }
