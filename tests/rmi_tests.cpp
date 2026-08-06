@@ -168,6 +168,38 @@ TEST_F(RmiEnvelopeTests, RoundtripWithError) {
   EXPECT_EQ(message, "boom");
 }
 
+TEST_F(RmiEnvelopeTests, NoErrorEncodingSkipsErrorPayloadOnWire) {
+  const bison_key_t req_id = "sizeReq";
+
+  envelope success;
+  success.kind = KIND_RESPONSE;
+  success.op = OP_CALL;
+  success.request_id = req_id;
+  success.object_id = {};
+  success.with_schema = false;
+  success.oneway = false;
+  // success.error is left default-constructed: no FIELD_ERROR_CODE field at
+  // all, matching what server::send_response() produces on every successful
+  // response.
+
+  envelope explicit_empty_error = success;
+  explicit_empty_error.error = dynamic{CLASS_ERROR};
+  explicit_empty_error.error[FIELD_ERROR_CODE] = bison_key_t{0u};
+  explicit_empty_error.error[FIELD_ERROR_MESSAGE] = std::string{};
+
+  const auto success_frame = success.encode();
+  const auto explicit_frame = explicit_empty_error.encode();
+
+  // envelope::encode() skips building/serializing the "__error" object
+  // entirely when FIELD_ERROR_CODE was never set, so the success frame must
+  // be strictly smaller than one that explicitly (and pointlessly) encodes
+  // an all-default error object.
+  EXPECT_LT(success_frame.size(), explicit_frame.size());
+
+  auto decoded = envelope::decode(success_frame);
+  EXPECT_EQ(static_cast<hash_t>(decoded.error.as<bison_key_t>(FIELD_ERROR_CODE)), 0u);
+}
+
 TEST_F(RmiEnvelopeTests, VersionFieldIsOne) {
   envelope out;
   out.kind = KIND_REQUEST;

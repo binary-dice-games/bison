@@ -151,6 +151,13 @@ struct uv_stream_state {
   bison::synchronized<std::queue<bison::buffer>> recv_queue;
   std::atomic<bool> recv_closed{false};
 
+  // ── Recycled frame buffer: caller thread → loop thread ─────────────────────
+  // Populated by dequeue_frame() with a just-superseded frame buffer's spare
+  // capacity; drained by the loop thread (on_read()/tls_stream_state's
+  // pump_decrypt()) via frame_parser::offer_reuse() so the next frame's
+  // allocation can reuse it instead of a fresh malloc.
+  bison::synchronized<bison::buffer> recycle_slot;
+
   // ── Send queue: caller → loop thread ───────────────────────────────────────
   bison::synchronized<std::queue<std::vector<uint8_t>>> send_queue;
 
@@ -264,6 +271,11 @@ struct uv_stream_state {
       if (q.empty() && !recv_closed.load())
         return false;
       if (!q.empty()) {
+        if (frame.capacity() > 0)
+          recycle_slot.withWLock([&](auto& spare) {
+            if (frame.capacity() > spare.capacity())
+              spare = std::move(frame);
+          });
         frame = std::move(q.front());
         q.pop();
         got = true;
@@ -292,10 +304,22 @@ struct uv_stream_state {
     if (nread == 0)
       return;
 
-    st->parser.feed(st->read_buf.data(), static_cast<size_t>(nread), [st](bison::buffer&& frame) {
+    bison::buffer recycled;
+    st->recycle_slot.withWLock([&](auto& spare) { recycled = std::move(spare); });
+    if (recycled.capacity() > 0)
+      st->parser.offer_reuse(std::move(recycled));
+
+    const bool ok = st->parser.feed(st->read_buf.data(), static_cast<size_t>(nread), [st](bison::buffer&& frame) {
       st->recv_queue.withWLock([&](auto& q) { q.push(std::move(frame)); });
       st->recv_queue.notify_one();
     });
+    if (!ok) {
+      // Declared frame length exceeded frame_parser::kMaxFrameBytes -- treat
+      // as a fatal protocol error, same as a peer-initiated close.
+      st->recv_closed.store(true);
+      st->recv_queue.notify_all();
+      uv_read_stop(stream);
+    }
   }
 
   static void on_send(uv_async_t* async) {

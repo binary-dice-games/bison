@@ -250,8 +250,9 @@ The bytes stored in `__payload` are either:
 
 ### 4.5 Error bytes (`__error`)
 
-The bytes stored in `__error` are always encoded in Schema-Driven Compact
-Format (§3.2) using the pre-registered class `"__error"`.
+**When there is an error** (the envelope carries a non-zero `__code`), the
+bytes stored in `__error` are encoded in Schema-Driven Compact Format (§3.2)
+using the pre-registered class `"__error"`.
 
 **Error schema (`"__error"`) — field order:**
 
@@ -261,8 +262,17 @@ Format (§3.2) using the pre-registered class `"__error"`.
 | `__message`   | `"__message"`   | 7 (`string`)   | Human-readable message |
 | `__details`   | `"__details"`   | 6 (`dynamic_ptr`) | Optional structured details object |
 
-When there is no error the bytes encode an `"__error"` object with all fields
-at their default (zero / empty) values.
+**When there is no error** (the overwhelming majority of responses),
+`__error` is encoded as an **empty (zero-length) byte buffer** rather than a
+fully-encoded `"__error"` object with all-default field values — the
+`__envelope` prototype's own default for `__error` is already an empty
+buffer (see §3.2 point 4 and `src/rmi/shared/schemas.hpp`), so the writer
+simply omits the field instead of paying the cost of constructing and
+schema-serializing an all-zero `"__error"` object under the class-registry
+lock for every successful call. Decoders MUST treat an empty `__error`
+buffer as equivalent to a default-valued `"__error"` object (i.e. `__code ==
+0`) rather than attempting to run it through the Schema-Driven Compact
+Format decoder.
 
 ### 4.6 Canonical error code tokens
 
@@ -296,6 +306,12 @@ wrapped in a lightweight length-prefix frame.
 The length field is written using `htonl` / read using `ntohl`, i.e. standard
 network byte order (big-endian), and represents the number of bytes in the
 payload that immediately follows.
+
+`payload_length` MUST NOT exceed `kMaxFrameBytes` (64 MiB; see
+`src/rmi/transport/frame_parser.hpp`). The reference implementation checks
+this before allocating space for the payload, and closes the connection if a
+peer sends a larger declared length — this bounds how much memory a single
+malformed or malicious length prefix can force the receiver to allocate.
 
 ### 5.1a TLS-secured TCP transport
 

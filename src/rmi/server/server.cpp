@@ -701,27 +701,34 @@ void server::handle_set(context& ctx, const shared::envelope& env, transport::se
   }
   auto& obj = *it->second;
 
-  bison::dynamic patch = env.payload.clone();
+  // NAMESPACE must never be copied from a patch -- see the identical
+  // exclusion in standalone::handle_set() for the full explanation: a
+  // __setter hook probing patch.findField<T>() for an optional field can
+  // miss and cause resolveNamespace() to cache a spurious __namespace=0
+  // onto `patch`, which would otherwise overwrite the target object's
+  // real namespace here and break its method resolution.
+  auto apply_patch = [&obj](const bison::dynamic& patch) {
+    patch.forEach([&obj](bison::key_t k, const bison::field& v) {
+      if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT && k != bison::dynamic::NAMESPACE)
+        obj[k] = v;
+    });
+  };
 
+  // Only clone the incoming payload when a __setter hook actually needs an
+  // owned/mutable copy to transform; the common case (no hook) applies
+  // env.payload's fields directly with no copy at all.
   if (obj.findMethod(HOOK_SETTER) != nullptr) {
+    bison::dynamic patched;
     try {
-      patch = obj.call(HOOK_SETTER, patch);
+      patched = obj.call(HOOK_SETTER, env.payload);
     } catch (const std::exception& e) {
       send_error(ctx, conn, env, OP_SET, ERR_INTERNAL_ERROR, std::string("__setter failed: ") + e.what());
       return;
     }
+    apply_patch(patched);
+  } else {
+    apply_patch(env.payload);
   }
-
-  patch.forEach([&obj](bison::key_t k, const bison::field& v) {
-    // NAMESPACE must never be copied from a patch -- see the identical
-    // exclusion in standalone::handle_set() for the full explanation: a
-    // __setter hook probing patch.findField<T>() for an optional field can
-    // miss and cause resolveNamespace() to cache a spurious __namespace=0
-    // onto `patch`, which would otherwise overwrite the target object's
-    // real namespace here and break its method resolution.
-    if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT && k != bison::dynamic::NAMESPACE)
-      obj[k] = v;
-  });
 
   send_response(ctx, conn, env, OP_SET, bison::dynamic{});
 }
@@ -746,7 +753,12 @@ void server::handle_get(context& ctx, const shared::envelope& env, transport::se
 
   bison::dynamic result;
   if (!has_projection) {
-    result = obj.clone();
+    // Copy-construct directly rather than obj.clone(): clone() goes through
+    // the virtual clone_ptr(), which heap-allocates a whole shared_ptr
+    // control block just to immediately unwrap and discard it. The plain
+    // copy constructor performs the identical deep copy (including cloning
+    // nested dynamic_ptr fields) without that extra allocation.
+    result = bison::dynamic{obj};
   } else {
     projection.forEach([&](bison::key_t k, const bison::field&) {
       if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT)

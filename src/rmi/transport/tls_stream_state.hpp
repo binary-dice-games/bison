@@ -481,10 +481,22 @@ struct tls_stream_state {
     for (;;) {
       const int n = mbedtls_ssl_read(&ssl, buf, sizeof(buf));
       if (n > 0) {
-        parser.feed(buf, static_cast<size_t>(n), [this](bison::buffer&& frame) {
+        bison::buffer recycled;
+        io.recycle_slot.withWLock([&](auto& spare) { recycled = std::move(spare); });
+        if (recycled.capacity() > 0)
+          parser.offer_reuse(std::move(recycled));
+
+        const bool ok = parser.feed(buf, static_cast<size_t>(n), [this](bison::buffer&& frame) {
           io.recv_queue.withWLock([&](auto& q) { q.push(std::move(frame)); });
           io.recv_queue.notify_one();
         });
+        if (!ok) {
+          // Declared frame length exceeded frame_parser::kMaxFrameBytes --
+          // fatal protocol error, same as a peer-initiated close.
+          io.recv_closed.store(true);
+          io.recv_queue.notify_all();
+          return;
+        }
         continue;
       }
       if (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE)

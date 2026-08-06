@@ -67,6 +67,7 @@ void socket_client_transport::open(bison::dynamic params) {
   auto st = std::make_unique<tcp_conn_state>();
   uv_loop_init(&st->loop);
   uv_tcp_init(&st->loop, &st->handle);
+  tune_tcp_socket(&st->handle);
 
   struct connect_ctx {
     tcp_conn_state* st;
@@ -254,6 +255,7 @@ struct socket_server_transport::impl {
     uv_tcp_init(&cst->loop, &cst->handle);
     if (uv_tcp_open(&cst->handle, dup_sock) != 0)
       return;
+    tune_tcp_socket(&cst->handle);
 
     cst->init_asyncs();
     cst->start_loop();

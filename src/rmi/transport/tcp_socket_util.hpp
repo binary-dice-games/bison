@@ -54,4 +54,21 @@ inline uv_os_sock_t duplicate_tcp_socket(uv_tcp_t* handle) {
 #endif
 }
 
+/**
+ * @brief Tune a connected TCP handle for RPC-shaped traffic.
+ *
+ * Disables Nagle's algorithm (`TCP_NODELAY`) so small, frequent RMI
+ * request/response frames aren't held back waiting to coalesce with more
+ * outbound data, and enables TCP keepalive so a peer that vanishes without a
+ * clean FIN/RST (e.g. a dropped network path) is eventually detected instead
+ * of leaking that connection's session, threads, and buffers indefinitely.
+ * Applied identically on the client and on every accepted server connection.
+ * Failures are non-fatal -- worst case the connection keeps the OS default
+ * behavior -- so the return codes are intentionally ignored.
+ */
+inline void tune_tcp_socket(uv_tcp_t* handle, unsigned int keepalive_delay_sec = 60) {
+  uv_tcp_nodelay(handle, 1);
+  uv_tcp_keepalive(handle, 1, keepalive_delay_sec);
+}
+
 } // namespace bdg::bison::rmi::transport

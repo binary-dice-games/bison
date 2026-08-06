@@ -23,17 +23,48 @@
 namespace bdg::bison::rmi::transport {
 
 /**
+ * @brief Upper bound on a single frame's declared payload length.
+ *
+ * The 4-byte length prefix (FORMAT.md §5.1) is attacker/corruption
+ * controlled and read before any payload bytes have arrived, so `feed()`
+ * checks it against this ceiling before reserving space for it -- without
+ * this, a bogus or malicious length prefix (up to ~4 GiB) could drive a
+ * single huge allocation per connection. 64 MiB comfortably covers any
+ * legitimate bison payload while bounding the worst case.
+ */
+inline constexpr uint32_t kMaxFrameBytes = 64u * 1024 * 1024;
+
+/**
  * @brief Incremental parser for the 4-byte-BE-length-prefixed frame format.
  *
- * Not thread-safe: callers must confine `feed()` calls to a single thread
- * (the owning connection's I/O loop thread), matching every existing user of
- * this parser.
+ * Not thread-safe: callers must confine `feed()`/`offer_reuse()` calls to a
+ * single thread (the owning connection's I/O loop thread), matching every
+ * existing user of this parser.
  */
 struct frame_parser {
   uint8_t hdr[4]{};
   uint32_t hdr_pos{0};
   uint32_t payload_left{0};
   bison::buffer partial;
+
+  /**
+   * @brief Offer a previously-used buffer for the parser to reuse instead of
+   *        allocating fresh capacity for the next frame's payload.
+   *
+   * `feed()` cannot keep `partial`'s own allocation across frames -- once a
+   * frame completes, ownership of its bytes moves out to `on_frame`'s
+   * caller. Callers that later discard a fully-consumed frame buffer can
+   * hand it back here (see `uv_stream_state::dequeue_frame()`) so the next
+   * frame's `partial.reserve()` reuses that capacity instead of a fresh
+   * malloc. No-op if @p buf is not larger than the parser's current scratch
+   * buffer.
+   */
+  void offer_reuse(bison::buffer&& buf) {
+    if (buf.capacity() > partial.capacity()) {
+      buf.clear();
+      partial = std::move(buf);
+    }
+  }
 
   /**
    * @brief Feed @p left bytes of newly-arrived application data.
@@ -46,9 +77,12 @@ struct frame_parser {
    * @param left     Number of bytes available at @p p.
    * @param on_frame Called as `on_frame(bison::buffer&& frame)` once per
    *                 complete frame.
+   * @return `false` if a declared frame length exceeded `kMaxFrameBytes`
+   *         (the caller should treat this as a fatal protocol error and
+   *         close the connection); `true` otherwise.
    */
   template <typename OnFrame>
-  void feed(const uint8_t* p, size_t left, OnFrame&& on_frame) {
+  bool feed(const uint8_t* p, size_t left, OnFrame&& on_frame) {
     while (left > 0) {
       if (hdr_pos < 4) {
         const size_t take = std::min(size_t{4} - hdr_pos, left);
@@ -60,6 +94,8 @@ struct frame_parser {
           uint32_t net_hdr{};
           std::memcpy(&net_hdr, hdr, 4);
           payload_left = byte_swap(net_hdr);
+          if (payload_left > kMaxFrameBytes)
+            return false;
           partial.clear();
           partial.reserve(payload_left);
         }
@@ -72,11 +108,12 @@ struct frame_parser {
         left -= take;
         if (payload_left == 0) {
           on_frame(std::move(partial));
-          partial = bison::buffer{};
+          partial.clear();
           hdr_pos = 0;
         }
       }
     }
+    return true;
   }
 };
 
