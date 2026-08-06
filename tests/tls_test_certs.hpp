@@ -25,6 +25,8 @@
  */
 #pragma once
 
+#include "src/bison/bison.hpp"
+
 #include <string>
 
 namespace bdg::bison::rmi::transport::test {
@@ -111,5 +113,40 @@ AwEHoUQDQgAErbPVvcIu2hrewmx9yzjWUjmDJAxVow4UbK/OViHSRJiUGYiGDtkL
 wuoHHSnkkVZhBZ2oFzGDC715bP3fdMmQAg==
 -----END EC PRIVATE KEY-----
 )";
+
+/**
+ * @brief Build a `tls_socket_server_transport::start()` params `dynamic` from
+ *        the test PKI constants above.
+ *
+ * Shared by `tls_socket_transport_tests.cpp` and the `server_app`/
+ * `bridge_app` CLI-scaffold tests so they don't each re-derive the same
+ * `dynamic` param shape.
+ */
+inline bison::dynamic tls_server_params(const std::string& cert_pem, const std::string& key_pem,
+                                         const std::string& client_auth = "", const std::string& ca_pem = "") {
+  bison::dynamic params;
+  params["cert_pem"_key] = cert_pem;
+  params["key_pem"_key] = key_pem;
+  if (!client_auth.empty())
+    params["client_auth"_key] = client_auth;
+  if (!ca_pem.empty())
+    params["ca_pem"_key] = ca_pem;
+  return params;
+}
+
+/** @brief Client-side counterpart to `tls_server_params()`. */
+inline bison::dynamic tls_client_params(const std::string& ca_pem, bool insecure_skip_verify = false,
+                                         const std::string& cert_pem = "", const std::string& key_pem = "") {
+  bison::dynamic params;
+  if (!ca_pem.empty())
+    params["ca_pem"_key] = ca_pem;
+  if (insecure_skip_verify)
+    params["insecure_skip_verify"_key] = true;
+  if (!cert_pem.empty()) {
+    params["cert_pem"_key] = cert_pem;
+    params["key_pem"_key] = key_pem;
+  }
+  return params;
+}
 
 } // namespace bdg::bison::rmi::transport::test

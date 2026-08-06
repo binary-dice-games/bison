@@ -21,10 +21,12 @@ machine-level client identity in addition to (or instead of)
 [src/rmi/DESIGN.md](../src/rmi/DESIGN.md) §13 for the tradeoff this defaults
 against.
 
-> **Scope note:** `tls_socket_transport` is currently usable from C++ only.
-> CLI (`--transport=tls`), `bridge_app`, and C ABI/binding wiring are planned
-> follow-ups (see `src/rmi/DESIGN.md` §15) — the transport class itself is
-> complete and tested.
+`--transport=tls` (and `--downstream_transport=tls`/`--upstream_transport=tls`
+for `bridge_app`) is available on every `server_app`/`client_app`/`bridge_app`-based
+binary bison ships (`bison-cli`, `calc-server`, `rmi_server_example`,
+`rmi_client_example`, `rmi_bridge_example`) — see "CLI usage" below. C
+ABI/language-binding wiring (`include/rmi_c.h`, `bindings/`) remains a
+planned follow-up (see `src/rmi/DESIGN.md` §15).
 
 ## Generating a development certificate
 
@@ -93,6 +95,7 @@ the filesystem.
 | `ca_file` / `ca_pem` | string | Trust anchor for verifying the server's certificate — required unless `insecure_skip_verify` is set |
 | `insecure_skip_verify` | bool, default `false` | Skip server certificate verification entirely — **unsafe for production**, a `curl -k`-equivalent dev/test escape hatch for self-signed certs |
 | `cert_file` / `cert_pem`, `key_file` / `key_pem` | string, optional | Client certificate/key, used only when the server requests/accepts mutual TLS |
+| `key_password` | string, optional | Passphrase for an encrypted client private key |
 
 ## Mutual TLS
 
@@ -128,6 +131,54 @@ and rotating a certificate per client is cheap. For an open or
 product-facing client population, the default (server-only TLS plus
 `auth_module_iface` for client login) is the better fit — see
 [src/rmi/DESIGN.md](../src/rmi/DESIGN.md) §13 for the full reasoning.
+
+## CLI usage
+
+`--transport=tls` is a first-class value everywhere `--transport=tcp` works,
+on `bison-cli`, `calc-server`, `rmi_server_example`, and `rmi_client_example`.
+The `dynamic` param keys above are exposed 1:1 as flags (`cert_file` →
+`--cert_file`, etc.); `--host`/`--port` are reused unchanged from `tcp`.
+
+```bash
+# Server-only TLS
+./calc-server --transport=tls --host=0.0.0.0 --port=8443 \
+    --cert_file=server-cert.pem --key_file=server-key.pem
+
+./bison-cli --transport=tls --host=<server-host> --port=8443 \
+    --ca_file=ca-cert.pem
+```
+
+```bash
+# Mutual TLS
+./calc-server --transport=tls --host=0.0.0.0 --port=8443 \
+    --cert_file=server-cert.pem --key_file=server-key.pem \
+    --client_auth=required --ca_file=client-ca-cert.pem
+
+./bison-cli --transport=tls --host=<server-host> --port=8443 \
+    --ca_file=ca-cert.pem --cert_file=client-cert.pem --key_file=client-key.pem
+```
+
+`rmi_server_example`/`rmi_client_example` accept the identical flags (see
+[docs/examples.md](examples.md)).
+
+### Bridge (`bridge_app`)
+
+`bridge_app`'s two sides (`rmi_bridge_example`) use the same
+`downstream_`/`upstream_`-prefixed convention as its other flags
+(`--downstream_host`, `--upstream_host`, etc.):
+
+```bash
+./rmi_bridge_example \
+    --downstream_transport=tls --downstream_host=0.0.0.0 --downstream_port=8443 \
+    --downstream_cert_file=server-cert.pem --downstream_key_file=server-key.pem \
+    --upstream_transport=tls --upstream_host=<upstream-host> --upstream_port=8444 \
+    --upstream_ca_file=ca-cert.pem
+```
+
+`--downstream_client_auth`/`--downstream_ca_file` (mutual TLS on the
+downstream/listening side) and `--upstream_cert_file`/`--upstream_key_file`
+(mutual TLS on the upstream/dial-out side) mirror the server/client flags
+above, `downstream_`/`upstream_`-prefixed.
 
 ## Why mbedTLS
 

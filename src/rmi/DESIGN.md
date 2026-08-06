@@ -779,11 +779,12 @@ Versioning strategy:
 - Event dispatch (`onEvent`, server-initiated event frames)
 - All transport implementations (in-memory, TCP, TLS-secured TCP, named pipe, anonymous pipe) — all cross-platform via libuv
 - C ABI (`rmi_c.h`) exposing client, server lifecycle to C and language bindings
+- CLI wiring for `tls_socket_transport`: `--transport=tls` on `server_app`/`client_app` (`bison-cli`, `calc-server`, `rmi_server_example`, `rmi_client_example`) and `--downstream_transport=tls`/`--upstream_transport=tls` on `bridge_app` (`rmi_bridge_example`), including the new `server_app::on_listen_params()`/`bridge_app::on_downstream_listen_params()` hooks that inject cert/key material into `listen()`/`start()` -- see `docs/tls.md`'s "CLI usage" section
 
 **Future:**
 
 - HTTP transport
-- CLI (`--transport=tls`), `bridge_app`, and C ABI/binding wiring for `tls_socket_transport` (the C++ transport itself is complete -- see §3.4/§5.5/§13; this is exposing it through the same flag/binding surface `tcp`/`pipe`/`term` already have)
+- C ABI/binding wiring for `tls_socket_transport` (`include/rmi_c.h`, `bindings/`) -- the C++ transport and its CLI/`bridge_app` wiring are complete, see §3.4/§5.5/§13 and `docs/tls.md`
 - Capability negotiation in the RMI protocol layer (auth hooks are implemented -- see § 10.1 and "Completed" above)
 - Performance optimization and batching
 

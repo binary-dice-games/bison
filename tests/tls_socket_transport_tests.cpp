@@ -21,31 +21,8 @@ using namespace bdg::bison::rmi::transport::test;
 
 namespace {
 
-dynamic tls_server_params(const std::string& cert_pem, const std::string& key_pem,
-                           const std::string& client_auth = "", const std::string& ca_pem = "") {
-  dynamic params;
-  params["cert_pem"_key] = cert_pem;
-  params["key_pem"_key] = key_pem;
-  if (!client_auth.empty())
-    params["client_auth"_key] = client_auth;
-  if (!ca_pem.empty())
-    params["ca_pem"_key] = ca_pem;
-  return params;
-}
-
-dynamic tls_client_params(const std::string& ca_pem, bool insecure_skip_verify = false,
-                           const std::string& cert_pem = "", const std::string& key_pem = "") {
-  dynamic params;
-  if (!ca_pem.empty())
-    params["ca_pem"_key] = ca_pem;
-  if (insecure_skip_verify)
-    params["insecure_skip_verify"_key] = true;
-  if (!cert_pem.empty()) {
-    params["cert_pem"_key] = cert_pem;
-    params["key_pem"_key] = key_pem;
-  }
-  return params;
-}
+// tls_server_params()/tls_client_params() live in tls_test_certs.hpp, shared
+// with the server_app/client_app/bridge_app CLI-scaffold tests.
 
 tls_socket_server_transport make_tls_server_transport(const dynamic& server_params) {
   static std::atomic<uint16_t> next_port{29000};

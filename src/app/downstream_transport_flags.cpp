@@ -27,10 +27,13 @@ transport_kind selected_downstream_transport() {
     return transport_kind::tcp;
   if (FLAGS_downstream_transport == "pipe")
     return transport_kind::pipe;
+  if (FLAGS_downstream_transport == "tls")
+    return transport_kind::tls;
   if (FLAGS_downstream_transport == "term")
     return transport_kind::term;
   throw std::runtime_error(
-      "invalid --downstream_transport value '" + FLAGS_downstream_transport + "' (expected tcp, pipe, or term)");
+      "invalid --downstream_transport value '" + FLAGS_downstream_transport +
+      "' (expected tcp, pipe, tls, or term)");
 }
 
 } // namespace bdg::bison::app

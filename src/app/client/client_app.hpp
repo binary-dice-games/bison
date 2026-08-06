@@ -27,13 +27,25 @@ namespace bdg::bison::app {
  *
  * Transport is chosen by gflags CLI flags:
  *   - `--transport T`           — selects the transport: `tcp` (default),
- *                                 `pipe` or `term`. Only the flags relevant
- *                                 to the selected transport are read; the others
- *                                 are simply ignored (see `src/app/transport_flags.hpp`).
- *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`
+ *                                 `pipe`, `tls`, or `term`. Only the flags
+ *                                 relevant to the selected transport are
+ *                                 read; the others are simply ignored (see
+ *                                 `src/app/transport_flags.hpp`).
+ *   - `--host HOST --port PORT` — TCP socket, for `--transport=tcp`/`tls`
  *                                 (default: `127.0.0.1:7070`)
  *   - `--name PATH`             — named-pipe / Unix-socket path, used by
  *                                 `--transport=pipe`
+ *   - `--ca_file`/`--ca_pem`    — trust anchor for verifying the server's
+ *                                 certificate, for `--transport=tls`
+ *                                 (required unless `--insecure_skip_verify`)
+ *   - `--insecure_skip_verify`  — skip server certificate verification
+ *                                 entirely; unsafe for production, a dev/test
+ *                                 escape hatch for self-signed certs
+ *   - `--server_name`           — SNI / hostname-verification target for
+ *                                 `--transport=tls` (defaults to `--host`)
+ *   - `--cert_file`/`--cert_pem`, `--key_file`/`--key_pem`, `--key_password`
+ *                                 — optional client certificate/key, used
+ *                                 only for mutual TLS (`--transport=tls`)
  *   - `--transport=term`        — same fd 0/1 wrapping and raw-mode/CRLF
  *                                 handling as `--transport=pty`, but framed
  *                                 as OSC-99 escape sequences instead of

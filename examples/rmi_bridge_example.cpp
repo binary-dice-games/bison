@@ -13,16 +13,37 @@
 
 #include <gflags/gflags.h>
 
-DEFINE_string(downstream_transport, "tcp", "Downstream transport to use: tcp, pipe, or term");
-DEFINE_string(downstream_host, "0.0.0.0", "Downstream bind host address (downstream_transport=tcp)");
-DEFINE_int32(downstream_port, 7071, "Downstream listen port (downstream_transport=tcp)");
+DEFINE_string(downstream_transport, "tcp", "Downstream transport to use: tcp, pipe, tls, or term");
+DEFINE_string(downstream_host, "0.0.0.0", "Downstream bind host address (downstream_transport=tcp/tls)");
+DEFINE_int32(downstream_port, 7071, "Downstream listen port (downstream_transport=tcp/tls)");
 DEFINE_string(downstream_name, "", "Downstream named-pipe / Unix-socket path (downstream_transport=pipe)");
 DEFINE_string(cmd, "", "Command to spawn (downstream_transport=term)");
+DEFINE_string(downstream_cert_file, "", "Downstream server certificate chain file (downstream_transport=tls)");
+DEFINE_string(downstream_cert_pem, "", "Downstream server certificate chain PEM (downstream_transport=tls)");
+DEFINE_string(downstream_key_file, "", "Downstream server private key file (downstream_transport=tls)");
+DEFINE_string(downstream_key_pem, "", "Downstream server private key PEM (downstream_transport=tls)");
+DEFINE_string(downstream_key_password, "", "Passphrase for an encrypted downstream private key (downstream_transport=tls)");
+DEFINE_string(downstream_client_auth, "none",
+              "Downstream mutual TLS mode: none, optional, or required (downstream_transport=tls)");
+DEFINE_string(downstream_ca_file, "",
+              "Trust anchor file for verifying downstream client certs (downstream_transport=tls, client_auth!=none)");
+DEFINE_string(downstream_ca_pem, "",
+              "Trust anchor PEM for verifying downstream client certs (downstream_transport=tls, client_auth!=none)");
 
-DEFINE_string(upstream_transport, "term", "Upstream transport to use: tcp, pipe, or term");
-DEFINE_string(upstream_host, "127.0.0.1", "Upstream host address (upstream_transport=tcp)");
-DEFINE_int32(upstream_port, 7070, "Upstream port (upstream_transport=tcp)");
+DEFINE_string(upstream_transport, "term", "Upstream transport to use: tcp, pipe, tls, or term");
+DEFINE_string(upstream_host, "127.0.0.1", "Upstream host address (upstream_transport=tcp/tls)");
+DEFINE_int32(upstream_port, 7070, "Upstream port (upstream_transport=tcp/tls)");
 DEFINE_string(upstream_name, "", "Upstream named-pipe / Unix-socket path (upstream_transport=pipe)");
+DEFINE_string(upstream_ca_file, "", "Trust anchor file for verifying the upstream server's cert (upstream_transport=tls)");
+DEFINE_string(upstream_ca_pem, "", "Trust anchor PEM for verifying the upstream server's cert (upstream_transport=tls)");
+DEFINE_string(upstream_server_name, "", "SNI / hostname-verification target (upstream_transport=tls, default: --upstream_host)");
+DEFINE_bool(upstream_insecure_skip_verify, false,
+            "Skip upstream server certificate verification -- unsafe, dev/test only (upstream_transport=tls)");
+DEFINE_string(upstream_cert_file, "", "Upstream client certificate file, for mutual TLS (upstream_transport=tls)");
+DEFINE_string(upstream_cert_pem, "", "Upstream client certificate PEM, for mutual TLS (upstream_transport=tls)");
+DEFINE_string(upstream_key_file, "", "Upstream client private key file, for mutual TLS (upstream_transport=tls)");
+DEFINE_string(upstream_key_pem, "", "Upstream client private key PEM, for mutual TLS (upstream_transport=tls)");
+DEFINE_string(upstream_key_password, "", "Passphrase for an encrypted upstream private key (upstream_transport=tls)");
 
 DEFINE_int32(timeout, 30000, "Upstream per-request timeout in milliseconds");
 DEFINE_bool(verbose, false, "Print downstream request/response trace messages to stdout");

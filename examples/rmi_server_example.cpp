@@ -19,13 +19,21 @@
 using namespace bdg::bison;
 using namespace bdg::bison::rmi::shared::constants;
 
-DEFINE_string(transport, "term", "Transport to use: tcp, pipe, or term");
-DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp)");
-DEFINE_int32(port, 7070, "Listen port (transport=tcp)");
+DEFINE_string(transport, "term", "Transport to use: tcp, pipe, tls, or term");
+DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp/tls)");
+DEFINE_int32(port, 7070, "Listen port (transport=tcp/tls)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
 DEFINE_string(cmd, "", "Command to spawn (transport=term)");
 DEFINE_bool(verbose, false, "Print request/response trace messages to stdout");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
+DEFINE_string(cert_file, "", "Server certificate chain file (transport=tls)");
+DEFINE_string(cert_pem, "", "Server certificate chain PEM (transport=tls)");
+DEFINE_string(key_file, "", "Server private key file (transport=tls)");
+DEFINE_string(key_pem, "", "Server private key PEM (transport=tls)");
+DEFINE_string(key_password, "", "Passphrase for an encrypted server private key (transport=tls)");
+DEFINE_string(client_auth, "none", "Mutual TLS mode: none, optional, or required (transport=tls)");
+DEFINE_string(ca_file, "", "Trust anchor file for verifying client certificates (transport=tls, client_auth!=none)");
+DEFINE_string(ca_pem, "", "Trust anchor PEM for verifying client certificates (transport=tls, client_auth!=none)");
 
 static void register_calculator() {
   auto proto = dynamic_ptr{"Calculator"_key, {}};

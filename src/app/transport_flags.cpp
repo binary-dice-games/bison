@@ -21,9 +21,12 @@ transport_kind selected_transport() {
     return transport_kind::tcp;
   if (FLAGS_transport == "pipe")
     return transport_kind::pipe;
+  if (FLAGS_transport == "tls")
+    return transport_kind::tls;
   if (FLAGS_transport == "term")
     return transport_kind::term;
-  throw std::runtime_error("invalid --transport value '" + FLAGS_transport + "' (expected tcp, pipe, or term)");
+  throw std::runtime_error(
+      "invalid --transport value '" + FLAGS_transport + "' (expected tcp, pipe, tls, or term)");
 }
 
 } // namespace bdg::bison::app

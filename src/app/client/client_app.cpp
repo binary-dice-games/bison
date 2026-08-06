@@ -11,6 +11,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/term_transport.hpp"
+#include "src/rmi/transport/tls_socket_transport.hpp"
 #include "src/term/scoped_terminal_config.hpp"
 
 #include <gflags/gflags.h>
@@ -25,6 +26,15 @@ DECLARE_int32(port);
 DECLARE_string(name);
 DECLARE_int32(timeout);
 DECLARE_bool(debugger);
+DECLARE_string(ca_file);
+DECLARE_string(ca_pem);
+DECLARE_string(server_name);
+DECLARE_bool(insecure_skip_verify);
+DECLARE_string(cert_file);
+DECLARE_string(cert_pem);
+DECLARE_string(key_file);
+DECLARE_string(key_pem);
+DECLARE_string(key_password);
 
 namespace bdg::bison::app {
 
@@ -32,6 +42,23 @@ namespace bdg::bison::app {
 
 void client_app::on_connect_params(bison::dynamic& params) const {
   params["timeout_ms"_key] = int32_t{static_cast<int32_t>(timeout_.count())};
+  if (selected_transport() != transport_kind::tls)
+    return;
+  // Only set server_name when --server_name is explicitly non-empty: an
+  // empty value here would override tls_socket_client_transport::open()'s
+  // own fallback (defaults to --host) with a literal empty hostname, which
+  // mbedTLS rejects as "verify without an expected hostname" instead of
+  // silently falling back itself.
+  if (!FLAGS_server_name.empty())
+    params["server_name"_key] = FLAGS_server_name;
+  params["ca_file"_key] = FLAGS_ca_file;
+  params["ca_pem"_key] = FLAGS_ca_pem;
+  params["insecure_skip_verify"_key] = FLAGS_insecure_skip_verify;
+  params["cert_file"_key] = FLAGS_cert_file;
+  params["cert_pem"_key] = FLAGS_cert_pem;
+  params["key_file"_key] = FLAGS_key_file;
+  params["key_pem"_key] = FLAGS_key_pem;
+  params["key_password"_key] = FLAGS_key_password;
 }
 
 std::unique_ptr<rmi::client> client_app::make_client(
@@ -84,6 +111,9 @@ int client_app::run(int argc, char** argv) {
       case transport_kind::tcp:
         return run_with_transport(
             std::make_unique<rmi::transport::socket_client_transport>(FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
+      case transport_kind::tls:
+        return run_with_transport(std::make_unique<rmi::transport::tls_socket_client_transport>(
+            FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
       case transport_kind::term: {
         term::scoped_terminal_config stc{{0, 1}};
         auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
