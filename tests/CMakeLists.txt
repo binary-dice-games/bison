@@ -34,6 +34,9 @@ target_link_libraries(bridge_app_test gflags)
 # term (OSC-99 chunked) transport tests — cross-platform
 package_add_test(term_transport_test term_transport_tests.cpp)
 
+# TLS socket transport tests — cross-platform
+package_add_test(tls_socket_transport_test tls_socket_transport_tests.cpp)
+
 # terminal tests (Linux and MSYS2; native-Windows ConPTY path is untested here)
 if(NOT WIN32 OR MSYS OR CYGWIN)
     package_add_test(terminal_posix_test terminal_posix_tests.cpp)

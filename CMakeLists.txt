@@ -55,6 +55,15 @@ set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
 add_subdirectory("extern/gflags")
 
+# mbedTLS: static-only, no bundled programs/tests/docs (see src/rmi/DESIGN.md
+# §3.4 for why mbedTLS was chosen for the tls_socket_transport dependency).
+set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+add_subdirectory("extern/mbedtls")
+
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
   ${BISON_PUBLIC_HEADERS}
@@ -70,6 +79,7 @@ target_include_directories(bison
 
 target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml gflags)
 target_link_libraries(bison PRIVATE uv_a)
+target_link_libraries(bison PRIVATE mbedtls mbedx509 mbedcrypto)
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -79,6 +89,7 @@ target_sources(bison PRIVATE
   src/rmi/transport/memory_transport.cpp
   src/rmi/transport/named_pipe_transport.cpp
   src/rmi/transport/socket_transport.cpp
+  src/rmi/transport/tls_socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
   src/rmi/transport/term_transport.cpp
   src/rmi/bridge/bridge.cpp
@@ -154,7 +165,7 @@ target_include_directories(bison_abi
     PRIVATE
   src/rmi
 )
-target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags)
+target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags mbedtls mbedx509 mbedcrypto)
 if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN))
   target_link_libraries(bison_abi PRIVATE util)
 endif()

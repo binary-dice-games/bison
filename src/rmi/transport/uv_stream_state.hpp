@@ -32,6 +32,7 @@
 #pragma once
 
 #include "src/bison/bison.hpp"
+#include "src/rmi/transport/frame_parser.hpp"
 
 #include <uv.h>
 
@@ -43,7 +44,46 @@
 #include <thread>
 #include <vector>
 
+// BISON_NATIVE_WINDOWS (not _WIN32) is the right guard here: MSYS2 still
+// defines _WIN32 (it's a mingw-toolchain build) but shares Linux's POSIX
+// signal semantics -- including a real, deliverable SIGPIPE -- via its
+// runtime, same as every other POSIX-vs-native-Windows split in this
+// codebase (see CLAUDE.md's platform-support rules). BISON_NATIVE_WINDOWS is
+// only defined by CMakeLists.txt's `WIN32 AND NOT MSYS AND NOT CYGWIN`
+// branch, so this correctly stays active for both Linux and MSYS2.
+#if !defined(BISON_NATIVE_WINDOWS)
+#include <csignal>
+#endif
+
 namespace bdg::bison::rmi::transport {
+
+#if !defined(BISON_NATIVE_WINDOWS)
+namespace {
+
+/**
+ * @brief Ignore SIGPIPE once per process on Linux/MSYS2.
+ *
+ * Writing to a socket whose peer has already reset/closed the connection
+ * raises SIGPIPE, which defaults to terminating the process instead of the
+ * write simply failing with EPIPE -- a completely normal occurrence for any
+ * network server (the peer disconnecting mid-write) that a caller should be
+ * able to handle via a return code, not a signal. libuv only guards against
+ * this via `SO_NOSIGPIPE` where the platform provides it (BSD/macOS); Linux
+ * (and MSYS2, which shares its POSIX signal semantics) has neither that
+ * socket option nor `MSG_NOSIGNAL` wired into libuv's own write path, so
+ * every libuv-backed transport (socket, named pipe, TLS) is otherwise
+ * exposed. All of them construct a `uv_stream_state`, making this the
+ * natural single place to harden the whole transport layer.
+ */
+struct ignore_sigpipe_once {
+  ignore_sigpipe_once() {
+    std::signal(SIGPIPE, SIG_IGN);
+  }
+};
+const ignore_sigpipe_once ignore_sigpipe_once_instance;
+
+} // namespace
+#endif
 
 // ── write_req ─────────────────────────────────────────────────────────────────
 
@@ -104,10 +144,7 @@ struct uv_stream_state {
   uv_async_t stop_async{};
 
   // ── Incremental frame parser (loop thread only; no locking needed) ─────────
-  uint8_t hdr[4]{};
-  uint32_t hdr_pos{0};
-  uint32_t payload_left{0};
-  bison::buffer partial;
+  frame_parser parser;
   std::vector<uint8_t> read_buf = std::vector<uint8_t>(65536);
 
   // ── Receive queue: loop thread → caller ────────────────────────────────────
@@ -255,38 +292,10 @@ struct uv_stream_state {
     if (nread == 0)
       return;
 
-    const auto* p = st->read_buf.data();
-    auto left = static_cast<size_t>(nread);
-
-    while (left > 0) {
-      if (st->hdr_pos < 4) {
-        const size_t take = std::min(size_t{4} - st->hdr_pos, left);
-        std::memcpy(st->hdr + st->hdr_pos, p, take);
-        st->hdr_pos += static_cast<uint32_t>(take);
-        p += take;
-        left -= take;
-        if (st->hdr_pos == 4) {
-          uint32_t net_hdr{};
-          std::memcpy(&net_hdr, st->hdr, 4);
-          st->payload_left = byte_swap(net_hdr);
-          st->partial.clear();
-          st->partial.reserve(st->payload_left);
-        }
-      }
-      if (st->hdr_pos == 4 && (left > 0 || st->payload_left == 0)) {
-        const size_t take = std::min(static_cast<size_t>(st->payload_left), left);
-        st->partial.insert(st->partial.end(), p, p + take);
-        st->payload_left -= static_cast<uint32_t>(take);
-        p += take;
-        left -= take;
-        if (st->payload_left == 0) {
-          st->recv_queue.withWLock([&](auto& q) { q.push(std::move(st->partial)); });
-          st->recv_queue.notify_one();
-          st->partial = bison::buffer{};
-          st->hdr_pos = 0;
-        }
-      }
-    }
+    st->parser.feed(st->read_buf.data(), static_cast<size_t>(nread), [st](bison::buffer&& frame) {
+      st->recv_queue.withWLock([&](auto& q) { q.push(std::move(frame)); });
+      st->recv_queue.notify_one();
+    });
   }
 
   static void on_send(uv_async_t* async) {

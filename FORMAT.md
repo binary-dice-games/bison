@@ -297,6 +297,33 @@ The length field is written using `htonl` / read using `ntohl`, i.e. standard
 network byte order (big-endian), and represents the number of bytes in the
 payload that immediately follows.
 
+### 5.1a TLS-secured TCP transport
+
+`tls_socket_client_transport` / `tls_socket_server_transport`
+(`src/rmi/transport/tls_socket_transport.hpp`) wrap a TCP connection in a TLS
+session (mbedTLS; see `src/rmi/DESIGN.md` §3.4 for the library choice). TLS
+is a transparent transport-layer wrapper, not a new wire format: the exact
+§5.1 frame stream (`[4 bytes BE payload_length][payload_length bytes]`) is
+carried as TLS application data, unchanged. There is no bison-specific
+handshake or envelope field for this -- the standard TLS record layer
+(RFC 8446 for TLS 1.3, RFC 5246 for TLS 1.2) performs its own handshake and
+key exchange before any application data (i.e. any §5.1 frame) flows, and
+that handshake is entirely opaque to the RMI protocol layer described in §4.
+
+By default the server authenticates itself to the client via a certificate
+(`cert_file`/`cert_pem` + `key_file`/`key_pem` passed to
+`tls_socket_server_transport::start()`), and the client verifies it against
+a trust anchor (`ca_file`/`ca_pem` passed to
+`tls_socket_client_transport::open()`) -- the same trust model as HTTPS.
+Client-certificate verification (mutual TLS) is an opt-in per listener via
+`client_auth` (`"none"` | `"optional"` | `"required"`); see
+`src/rmi/DESIGN.md` §13 for the tradeoff this defaults against. Either way,
+the application-level `"connect"` operation (§4.3) and the optional
+`auth_module_iface` hook (`src/rmi/server/auth.hpp`) that can run against it
+are unaffected: they operate on the decrypted §4 envelope exactly as they do
+over any other transport, now carried over an already-confidential,
+server-authenticated (and optionally client-authenticated) channel.
+
 ### 5.2 Term transport (OSC-99 client→server, `BISON<...>` server→client)
 
 The term transport (`term_client_transport` / `term_server_transport`,
