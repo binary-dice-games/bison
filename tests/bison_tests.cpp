@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <limits>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
@@ -390,6 +391,113 @@ TEST(BufferSerializerTests, StringViewRoundTrip) {
   std::string result;
   in.read(result);
   EXPECT_EQ(result, backing);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3a. ULEB128 varint length prefixes (FORMAT.md §1.4)
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(VarintTests, SingleByteValuesRoundTrip) {
+  for (uint64_t v : {uint64_t{0}, uint64_t{1}, uint64_t{63}, uint64_t{127}}) {
+    buffer_serializer out;
+    out.write_varint(v);
+    auto buf = out.release();
+    EXPECT_EQ(buf.size(), 1u) << "value " << v;
+
+    buffer_deserializer in(buf);
+    EXPECT_EQ(in.read_varint(), v);
+  }
+}
+
+TEST(VarintTests, MatchesFormatMdByteLevelExamples) {
+  // FORMAT.md §1.4: 300 encodes as two bytes, 0xAC 0x02.
+  {
+    buffer_serializer out;
+    out.write_varint(300);
+    auto buf = out.release();
+    ASSERT_EQ(buf.size(), 2u);
+    EXPECT_EQ(buf[0], 0xACu);
+    EXPECT_EQ(buf[1], 0x02u);
+  }
+  // 128 is the smallest value needing a second byte: 0x80 0x01.
+  {
+    buffer_serializer out;
+    out.write_varint(128);
+    auto buf = out.release();
+    ASSERT_EQ(buf.size(), 2u);
+    EXPECT_EQ(buf[0], 0x80u);
+    EXPECT_EQ(buf[1], 0x01u);
+  }
+}
+
+TEST(VarintTests, MultiByteValuesRoundTrip) {
+  for (uint64_t v : {uint64_t{128}, uint64_t{300}, uint64_t{16384}, uint64_t{1'000'000},
+                      uint64_t{std::numeric_limits<uint32_t>::max()}, std::numeric_limits<uint64_t>::max()}) {
+    buffer_serializer out;
+    out.write_varint(v);
+    auto buf = out.release();
+
+    buffer_deserializer in(buf);
+    EXPECT_EQ(in.read_varint(), v) << "value " << v;
+  }
+}
+
+TEST(VarintTests, TruncatedContinuationByteThrowsUnderflow) {
+  buffer_serializer out;
+  out.write_varint(300); // two bytes, second is not a continuation byte
+  auto buf = out.release();
+  buf.resize(1); // drop the second byte, leaving only a continuation byte
+
+  buffer_deserializer in(buf);
+  EXPECT_THROW(in.read_varint(), std::runtime_error);
+}
+
+TEST(VarintTests, OverlongEncodingThrows) {
+  // 11 continuation bytes (77 payload bits) exceeds the 64-bit limit.
+  buffer out(11, 0x80);
+  out.push_back(0x01);
+
+  buffer_deserializer in(out);
+  EXPECT_THROW(in.read_varint(), std::runtime_error);
+}
+
+TEST(VarintTests, BufferAndStreamAgree) {
+  const uint64_t values[] = {0, 1, 127, 128, 300, 16384, 2'097'151, 2'097'152};
+
+  std::stringstream ss;
+  {
+    stream_serializer s{ss};
+    for (uint64_t v : values)
+      s.write(std::vector<uint8_t>(static_cast<size_t>(v % 5), 0xAB)); // exercises write_varint via write(vector)
+  }
+  // Cross-check: buffer_serializer's write(vector<uint8_t>) must produce the
+  // identical bytes for the same inputs (both delegate through write_varint
+  // for the length prefix).
+  buffer_serializer buf_out;
+  for (uint64_t v : values)
+    buf_out.write(std::vector<uint8_t>(static_cast<size_t>(v % 5), 0xAB));
+  auto buf_bytes = buf_out.release();
+  std::string stream_bytes = ss.str();
+
+  ASSERT_EQ(stream_bytes.size(), buf_bytes.size());
+  EXPECT_EQ(0, std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
+}
+
+TEST(VarintTests, LargeVectorRoundTripsThroughMultiByteCount) {
+  std::vector<int32_t> v(20000);
+  for (size_t i = 0; i < v.size(); ++i)
+    v[i] = static_cast<int32_t>(i);
+
+  buffer_serializer out;
+  out.write(v);
+  auto buf = out.release();
+  // 20000 needs a 3-byte varint (20000 > 2^14 - 1), vs. 8 fixed bytes before.
+  EXPECT_LT(buf.size(), 8 + v.size() * sizeof(int32_t));
+
+  buffer_deserializer in(buf);
+  std::vector<int32_t> result;
+  in.read(result);
+  EXPECT_EQ(result, v);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

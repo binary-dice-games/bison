@@ -15,7 +15,10 @@
  *
  * All values are written in **big-endian** (network) byte order using
  * `byte_swap` from `bison_common.hpp`.  Strings and vectors are prefixed with
- * a `size_t` element count (also big-endian).
+ * an element/byte count encoded as a ULEB128 variable-length integer (see
+ * `write_varint`/`read_varint` below and FORMAT.md §1.4) rather than a
+ * fixed-width `size_t`, since real payloads' counts are almost always well
+ * under 2^16.
  */
 
 #pragma once
@@ -70,11 +73,27 @@ class buffer_serializer {
     return *this;
   }
 
+  /**
+   * @brief Write @p value as a ULEB128 variable-length unsigned integer.
+   *
+   * Used for every element/byte-count prefix (vectors, strings, the
+   * Standard-Format field count) instead of a fixed-width `size_t` -- see
+   * FORMAT.md §1.4 for the exact byte-level encoding.
+   */
+  buffer_serializer& write_varint(uint64_t value) {
+    do {
+      uint8_t byte = static_cast<uint8_t>(value & 0x7Fu);
+      value >>= 7;
+      if (value != 0)
+        byte |= 0x80u;
+      buf_.push_back(byte);
+    } while (value != 0);
+    return *this;
+  }
+
   template <typename T>
   buffer_serializer& write(const std::vector<T>& data) {
-    size_t count = byte_swap(data.size());
-    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
-    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    write_varint(data.size());
     if constexpr (std::is_same_v<T, bool>) {
       for (bool elem : data) {
         unsigned char val = elem ? 1u : 0u;
@@ -98,9 +117,7 @@ class buffer_serializer {
 
   template <typename T>
   buffer_serializer& write(std::span<const T> data) {
-    size_t count = byte_swap(data.size());
-    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
-    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    write_varint(data.size());
     if constexpr (sizeof(T) == 1) {
       const uint8_t* p = reinterpret_cast<const uint8_t*>(data.data());
       buf_.insert(buf_.end(), p, p + data.size());
@@ -118,17 +135,13 @@ class buffer_serializer {
   }
 
   buffer_serializer& write(const std::string& data) {
-    size_t count = byte_swap(data.size());
-    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
-    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    write_varint(data.size());
     buf_.insert(buf_.end(), data.begin(), data.end());
     return *this;
   }
 
   buffer_serializer& write(std::string_view data) {
-    size_t count = byte_swap(data.size());
-    const uint8_t* cp = reinterpret_cast<const uint8_t*>(&count);
-    buf_.insert(buf_.end(), cp, cp + sizeof(size_t));
+    write_varint(data.size());
     buf_.insert(buf_.end(), data.begin(), data.end());
     return *this;
   }
@@ -189,9 +202,32 @@ class buffer_deserializer {
     return *this;
   }
 
+  /**
+   * @brief Read a ULEB128 variable-length unsigned integer written by
+   *        `buffer_serializer::write_varint`.
+   * @throws std::runtime_error on buffer underflow or an encoding that
+   *         exceeds 64 bits (more than 10 continuation bytes).
+   */
+  uint64_t read_varint() {
+    uint64_t result = 0;
+    unsigned shift = 0;
+    while (true) {
+      if (pos_ >= end_)
+        throw std::runtime_error("buffer_deserializer: buffer underflow");
+      const uint8_t byte = *pos_++;
+      result |= static_cast<uint64_t>(byte & 0x7Fu) << shift;
+      if ((byte & 0x80u) == 0)
+        break;
+      shift += 7;
+      if (shift >= 64)
+        throw std::runtime_error("buffer_deserializer: varint too long");
+    }
+    return result;
+  }
+
   template <typename T>
   buffer_deserializer& read(std::vector<T>& data) {
-    const size_t count = read<size_t>();
+    const size_t count = static_cast<size_t>(read_varint());
     data.resize(count);
     if constexpr (std::is_same_v<T, bool>) {
       for (size_t idx = 0; idx < count; ++idx) {
@@ -220,7 +256,7 @@ class buffer_deserializer {
 
   template <typename T>
   buffer_deserializer& read(std::span<T> data) {
-    const size_t count = read<size_t>();
+    const size_t count = static_cast<size_t>(read_varint());
     if (count != data.size()) {
       throw std::runtime_error("buffer_deserializer: Invalid span size");
     }
@@ -231,7 +267,7 @@ class buffer_deserializer {
   }
 
   buffer_deserializer& read(std::string& data) {
-    const size_t count = read<size_t>();
+    const size_t count = static_cast<size_t>(read_varint());
     if (pos_ + count > end_) {
       throw std::runtime_error("buffer_deserializer: buffer underflow");
     }
@@ -360,55 +396,67 @@ class stream_deserializer {
     return *this;
   }
 
+  /**
+   * @brief Read a ULEB128 variable-length unsigned integer written by
+   *        `stream_serializer`'s (`buffer_serializer`-delegated)
+   *        `write_varint`.
+   * @throws std::runtime_error on stream underflow or an encoding that
+   *         exceeds 64 bits (more than 10 continuation bytes).
+   */
+  uint64_t read_varint() {
+    uint64_t result = 0;
+    unsigned shift = 0;
+    while (true) {
+      const int c = in_.get();
+      if (c == std::char_traits<char>::eof())
+        throw std::runtime_error("stream_deserializer: buffer underflow");
+      const uint8_t byte = static_cast<uint8_t>(c);
+      result |= static_cast<uint64_t>(byte & 0x7Fu) << shift;
+      if ((byte & 0x80u) == 0)
+        break;
+      shift += 7;
+      if (shift >= 64)
+        throw std::runtime_error("stream_deserializer: varint too long");
+    }
+    return result;
+  }
+
   template <typename T>
   stream_deserializer& read(std::vector<T>& data) {
-    size_t count_be = 0;
-    in_.read(reinterpret_cast<char*>(&count_be), sizeof(size_t));
-    const size_t count = byte_swap(count_be);
-
-    size_t payload_size = 0;
+    const size_t count = static_cast<size_t>(read_varint());
+    data.resize(count);
     if constexpr (std::is_same_v<T, bool>) {
-      payload_size = count;
+      for (size_t idx = 0; idx < count; ++idx) {
+        char b = 0;
+        in_.read(&b, 1);
+        data[idx] = (static_cast<unsigned char>(b) != 0u);
+      }
+    } else if constexpr (sizeof(T) == 1) {
+      if (count > 0) {
+        in_.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(count));
+      }
     } else {
-      payload_size = count * sizeof(T);
+      for (size_t idx = 0; idx < count; ++idx) {
+        data[idx] = read<T>();
+      }
     }
-
-    buffer chunk(sizeof(size_t) + payload_size);
-    std::memcpy(chunk.data(), &count_be, sizeof(size_t));
-    if (payload_size > 0) {
-      in_.read(reinterpret_cast<char*>(chunk.data() + sizeof(size_t)), static_cast<std::streamsize>(payload_size));
-    }
-
-    buffer_deserializer buffered(chunk);
-    buffered.read(data);
     return *this;
   }
 
   template <typename T>
   stream_deserializer& read(std::span<T> data) {
-    size_t count_be = 0;
-    in_.read(reinterpret_cast<char*>(&count_be), sizeof(size_t));
-    const size_t count = byte_swap(count_be);
+    const size_t count = static_cast<size_t>(read_varint());
     if (count != data.size()) {
       throw std::runtime_error("Invalid span size");
     }
-
-    const size_t payload_size = count * sizeof(T);
-    buffer chunk(sizeof(size_t) + payload_size);
-    std::memcpy(chunk.data(), &count_be, sizeof(size_t));
-    if (payload_size > 0) {
-      in_.read(reinterpret_cast<char*>(chunk.data() + sizeof(size_t)), static_cast<std::streamsize>(payload_size));
+    for (size_t idx = 0; idx < count; ++idx) {
+      data[idx] = read<T>();
     }
-
-    buffer_deserializer buffered(chunk);
-    buffered.read(data);
     return *this;
   }
 
   stream_deserializer& read(std::string& data) {
-    size_t count_be = 0;
-    in_.read(reinterpret_cast<char*>(&count_be), sizeof(size_t));
-    const size_t count = byte_swap(count_be);
+    const size_t count = static_cast<size_t>(read_varint());
     data.resize(count);
     if (count > 0) {
       in_.read(data.data(), static_cast<std::streamsize>(count));

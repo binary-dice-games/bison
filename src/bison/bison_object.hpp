@@ -1792,7 +1792,7 @@ inline void dynamic::serializeWithSchema(stream_serializer& out) const {
 
 inline dynamic dynamic::deserialize(stream_deserializer& in) {
   dynamic dyn{};
-  auto count = in.read<size_t>();
+  const size_t count = static_cast<size_t>(in.read_varint());
   for (size_t i = 0; i < count; ++i) {
     auto key = in.read<key_t>();
     dyn.fields_[key] = field::deserialize(in);
@@ -1907,7 +1907,7 @@ inline field field::deserialize(buffer_deserializer& in) {
 }
 
 inline void dynamic::serialize(buffer_serializer& out) const {
-  out.write(fields_.size());
+  out.write_varint(fields_.size());
   for (const auto& kv : fields_) {
     out.write(kv.first);
     kv.second.serialize(out);
@@ -1942,7 +1942,7 @@ inline void dynamic::serializeWithSchema(buffer_serializer& out) const {
 
 inline dynamic dynamic::deserialize(buffer_deserializer& in) {
   dynamic dyn{};
-  const auto count = in.read<size_t>();
+  const size_t count = static_cast<size_t>(in.read_varint());
   for (size_t i = 0; i < count; ++i) {
     auto key = in.read<key_t>();
     dyn.fields_[key] = field::deserialize(in);

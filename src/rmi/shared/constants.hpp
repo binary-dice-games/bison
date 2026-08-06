@@ -157,7 +157,15 @@ inline const bison::key_t FIELD_FIELDS = "__fields"_key;
 inline const bison::key_t FIELD_METHODS = "__methods"_key;
 
 // ── Protocol version ─────────────────────────────────────────────────────────
-/** @brief Current wire protocol version expected by client and server. */
-inline const int32_t PROTOCOL_VERSION = 1;
+/**
+ * @brief Current wire protocol version expected by client and server.
+ *
+ * Bumped 1 -> 2: string/vector/object-field-count length prefixes switched
+ * from a fixed 8-byte size_t to a ULEB128 varint (see FORMAT.md §1.4,
+ * `bison::buffer_serializer::write_varint`). This is wire-breaking; bison
+ * has no external readers of its wire format yet, so no compatibility shim
+ * was added -- rebuild both sides together.
+ */
+inline const int32_t PROTOCOL_VERSION = 2;
 
 } // namespace bdg::bison::rmi::shared::constants

@@ -141,6 +141,22 @@ transport-specific code. See `src/rmi/DESIGN.md` §9.2 for the design
 rationale, including why a further libuv I/O-loop-level pooling pass (the
 per-connection `uv_loop_t`/thread pair) was scoped out.
 
+### Wire format: varint length prefixes
+
+Every string/vector/Standard-Format field count was previously written as a
+fixed 8-byte big-endian `size_t` (`src/bison/bison_serialization.hpp`), even
+though real payloads' counts are almost always well under 2^16 -- most
+strings, arrays, and field-count prefixes now cost 1 byte instead of 8.
+`buffer_serializer`/`buffer_deserializer` and `stream_serializer`/
+`stream_deserializer` now encode every such count as a ULEB128 varint
+(`write_varint`/`read_varint`; see FORMAT.md §1.4 for the exact byte-level
+format) instead. This is a **wire-breaking change** -- protocol version
+bumped 1 -> 2 (`src/rmi/shared/constants.hpp`'s `PROTOCOL_VERSION`); bison
+has no external readers of its wire format yet, so no compatibility shim was
+added. Reduces both per-message network bytes and, since every count now
+usually fits in one byte instead of eight, per-message serialization/
+deserialization work.
+
 See the RMI framework design doc (`src/rmi/DESIGN.md`) for the broader
 scaling analysis this work is part of, including the still-outstanding
 per-connection libuv I/O-loop/thread model (§5.4).

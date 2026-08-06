@@ -242,7 +242,7 @@ Attributes are intentionally not serialized.
 
 serialize and deserialize format:
 
-1. size_t field count
+1. varint (ULEB128) field count -- see FORMAT.md §1.4
 2. For each field: key_t key, then serialized field value
 
 Properties:
