@@ -19,6 +19,7 @@ enum class transport_kind {
   tcp, ///< `--host`/`--port` TCP socket.
   pipe, ///< `--name` named-pipe / Unix-socket path.
   term, ///< interactive pty/stdio OSC-99 framing (Linux/MSYS2 forkpty or Windows ConPTY); optional `--cmd`.
+  tls, ///< `--host`/`--port` TLS-secured TCP socket; `--cert_file`/`--key_file`/`--ca_file`/etc. (see `docs/tls.md`).
 };
 
 /**
@@ -35,7 +36,7 @@ enum class transport_kind {
  *
  * @return The selected transport.
  * @throws std::runtime_error if `FLAGS_transport` is not one of "tcp",
- *         "pipe" or "term".
+ *         "pipe", "tls" or "term".
  */
 transport_kind selected_transport();
 
@@ -50,7 +51,7 @@ transport_kind selected_transport();
  *
  * @return The selected downstream transport.
  * @throws std::runtime_error if `FLAGS_downstream_transport` is not one of
- *         "tcp", "pipe" or "term".
+ *         "tcp", "pipe", "tls" or "term".
  */
 transport_kind selected_downstream_transport();
 
@@ -64,7 +65,7 @@ transport_kind selected_downstream_transport();
  *
  * @return The selected upstream transport.
  * @throws std::runtime_error if `FLAGS_upstream_transport` is not one of
- *         "tcp", "pipe" or "term".
+ *         "tcp", "pipe", "tls" or "term".
  */
 transport_kind selected_upstream_transport();
 

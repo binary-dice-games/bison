@@ -32,13 +32,20 @@ namespace bdg::bison::app {
  *
  * Supported gflags CLI flags:
  *   - `--transport T`   selects the transport: `tcp` (default), `pipe`,
- *                       `pty`, or `console`. Only the flags relevant to the
+ *                       `tls`, or `term`. Only the flags relevant to the
  *                       selected transport are read; the others are simply
  *                       ignored (see `src/app/transport_flags.hpp`).
- *   - `--host HOST`     bind host for `--transport=tcp` (default: `0.0.0.0`)
- *   - `--port PORT`     listen port for `--transport=tcp` (default: `7070`)
+ *   - `--host HOST`     bind host for `--transport=tcp`/`tls` (default: `0.0.0.0`)
+ *   - `--port PORT`     listen port for `--transport=tcp`/`tls` (default: `7070`)
  *   - `--name PATH`     named-pipe / Unix-socket path, used by
  *                       `--transport=pipe`
+ *   - `--cert_file`/`--cert_pem`, `--key_file`/`--key_pem`, `--key_password`
+ *                       server certificate/key, required for `--transport=tls`
+ *                       (see `docs/tls.md`)
+ *   - `--client_auth`   `none` (default) | `optional` | `required` -- mutual
+ *                       TLS mode, for `--transport=tls`
+ *   - `--ca_file`/`--ca_pem` trust anchor for verifying client certificates,
+ *                       required when `--client_auth` is not `none`
  *   - `--verbose`       print one request trace line and one response trace
  *                       line per RMI operation to stdout (open, connect,
  *                       instantiate, call, get, set, destroy, disconnect, …)
@@ -168,15 +175,31 @@ class server_app {
   virtual std::unique_ptr<rmi::server> make_server(rmi::transport::server_transport_iface& transport);
 
   /**
+   * @brief Populate transport-specific listen parameters before `srv->listen()`.
+   *
+   * Default: no-op unless `--transport=tls` is selected, in which case
+   * populates `cert_file`/`cert_pem`/`key_file`/`key_pem`/`key_password`/
+   * `client_auth`/`ca_file`/`ca_pem` from the corresponding `FLAGS_*` (see
+   * `tls_socket_server_transport::start()` in `docs/tls.md`). Called from
+   * `run_with_transport()` after flag parsing, so `FLAGS_*` values are
+   * available. Mirrors `client_app::on_connect_params()`.
+   *
+   * @param params In/out parameter map, forwarded to `transport.start()` via
+   *               `rmi::server::listen()`.
+   */
+  virtual void on_listen_params(bison::dynamic& params) const;
+
+  /**
    * @brief Create a server using `transport` and block until shutdown.
    *
    * Override to substitute a different server type (e.g. one with a GUI
-   * render loop). The default creates a `bridged_server` and blocks on
-   * `wait_for_shutdown()`.
+   * render loop). The default creates a `bridged_server`, calls
+   * `on_listen_params()` to build the params passed to `listen()`, and
+   * blocks on `wait_for_shutdown()`.
    *
    * Host and port are not passed as parameters — they are available through
    * `FLAGS_host` and `FLAGS_port`, which are defined in the binary's
-   * `main.cpp` and carry meaning only for `--transport=tcp`.
+   * `main.cpp` and carry meaning only for `--transport=tcp`/`tls`.
    *
    * @param transport  Bound transport to serve.
    * @return 0 on clean shutdown, non-zero on error.

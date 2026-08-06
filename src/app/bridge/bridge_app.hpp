@@ -39,23 +39,45 @@ namespace bdg::bison::app {
  *
  * Supported gflags CLI flags:
  *   - `--downstream_transport T` downstream transport: `tcp` (default),
- *                                `pipe`, or `term`. Same semantics as
+ *                                `pipe`, `tls`, or `term`. Same semantics as
  *                                `server_app`'s `--transport`; a bridge's
  *                                downstream side behaves exactly like a
  *                                server's, but uses its own flag name so it
  *                                is never confused with `--upstream_transport`.
  *   - `--downstream_host HOST --downstream_port PORT` downstream TCP bind
- *                                address (downstream_transport=tcp)
+ *                                address (downstream_transport=tcp/tls)
  *   - `--downstream_name PATH`   downstream named-pipe / Unix-socket path
  *                                (downstream_transport=pipe)
  *   - `--cmd`                    command to spawn for the downstream terminal
  *                                (downstream_transport=term)
+ *   - `--downstream_cert_file`/`--downstream_cert_pem`,
+ *     `--downstream_key_file`/`--downstream_key_pem`,
+ *     `--downstream_key_password` downstream server certificate/key
+ *                                (downstream_transport=tls, see `docs/tls.md`)
+ *   - `--downstream_client_auth` `none` (default) | `optional` | `required`
+ *                                -- downstream mutual TLS mode
+ *   - `--downstream_ca_file`/`--downstream_ca_pem` trust anchor for
+ *                                verifying downstream client certificates,
+ *                                required when `--downstream_client_auth` is
+ *                                not `none`
  *   - `--upstream_transport T`   upstream transport: `tcp` (default), `pipe`,
- *                                or `term`.
+ *                                `tls`, or `term`.
  *   - `--upstream_host HOST --upstream_port PORT` upstream TCP address
- *                                (upstream_transport=tcp)
+ *                                (upstream_transport=tcp/tls)
  *   - `--upstream_name PATH`     upstream named-pipe / Unix-socket path
  *                                (upstream_transport=pipe)
+ *   - `--upstream_ca_file`/`--upstream_ca_pem` trust anchor for verifying the
+ *                                upstream server's certificate
+ *                                (upstream_transport=tls, required unless
+ *                                `--upstream_insecure_skip_verify`)
+ *   - `--upstream_insecure_skip_verify` skip upstream server certificate
+ *                                verification entirely; unsafe for production
+ *   - `--upstream_server_name`   SNI / hostname-verification target for the
+ *                                upstream side (defaults to `--upstream_host`)
+ *   - `--upstream_cert_file`/`--upstream_cert_pem`,
+ *     `--upstream_key_file`/`--upstream_key_pem`,
+ *     `--upstream_key_password` optional upstream client certificate/key,
+ *                                used only for mutual TLS
  *   - `--timeout MS`             upstream per-request timeout
  *   - `--verbose`                print request/response trace lines for the
  *                                downstream side (same as `server_app`)
@@ -155,11 +177,28 @@ class bridge_app {
    * @brief Populate upstream connection parameters before the bridge connects.
    *
    * Default: sets `timeout_ms` to the value of `FLAGS_timeout` (or 30 000 if
-   * not parsed yet).
+   * not parsed yet); when `--upstream_transport=tls` is selected, also
+   * populates `server_name`/`ca_file`/`ca_pem`/`insecure_skip_verify`/
+   * `cert_file`/`cert_pem`/`key_file`/`key_pem`/`key_password` from the
+   * corresponding `FLAGS_upstream_*` (see `docs/tls.md`).
    *
    * @param params In/out parameter map.
    */
   virtual void on_upstream_connect_params(bison::dynamic& params) const;
+
+  /**
+   * @brief Populate downstream listen parameters before the bridge starts
+   *        accepting connections.
+   *
+   * Default: no-op unless `--downstream_transport=tls` is selected, in which
+   * case populates `cert_file`/`cert_pem`/`key_file`/`key_pem`/
+   * `key_password`/`client_auth`/`ca_file`/`ca_pem` from the corresponding
+   * `FLAGS_downstream_*`. Mirrors `server_app::on_listen_params()`.
+   *
+   * @param params In/out parameter map, forwarded to `br->start()` /
+   *               `rmi::bridge::start()` -> `server::listen()`.
+   */
+  virtual void on_downstream_listen_params(bison::dynamic& params) const;
 
   /**
    * @brief Construct the bridge bound to the given transports.

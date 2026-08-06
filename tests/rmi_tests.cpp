@@ -3,6 +3,8 @@
 
 #include "src/rmi/rmi.hpp"
 #include "src/rmi/shared/schemas.hpp"
+#include "src/rmi/transport/tls_socket_transport.hpp"
+#include "tests/tls_test_certs.hpp"
 
 #include <gtest/gtest.h>
 
@@ -17,6 +19,7 @@ using namespace bdg::bison::rmi;
 using namespace bdg::bison::rmi::shared;
 using namespace bdg::bison::rmi::shared::constants;
 using namespace bdg::bison::rmi::transport;
+using namespace bdg::bison::rmi::transport::test;
 
 using bison_key_t = bdg::bison::key_t;
 
@@ -519,6 +522,79 @@ TEST(RmiAuth, AcceptingModuleFiresOnAuthenticatedWithIdentity) {
   dynamic params;
   params["username"_key] = std::string{"alice"};
   EXPECT_NO_THROW(c.connect(std::move(params)));
+  EXPECT_EQ(srv.authenticated_calls.load(), 1);
+  EXPECT_EQ(srv.last_identity, "alice");
+  c.disconnect();
+  srv.stop();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 6c. End-to-end: auth_module_iface over TLS
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// Proves auth_module_iface (an app-level, transport-agnostic hook -- see
+// src/rmi/server/auth.hpp) composes correctly under tls_socket_transport
+// with no changes to auth.hpp/server.hpp: the client authenticates its
+// identity via the ordinary OP_CONNECT payload, now carried over an
+// already-encrypted, server-authenticated channel.
+
+namespace {
+
+dynamic make_tls_server_listen_params() {
+  dynamic params;
+  params["cert_pem"_key] = kTestServerCert;
+  params["key_pem"_key] = kTestServerKey;
+  return params;
+}
+
+dynamic make_tls_client_connect_params(const std::string& username = "") {
+  dynamic params;
+  params["ca_pem"_key] = kTestCaCert;
+  if (!username.empty())
+    params["username"_key] = username;
+  return params;
+}
+
+std::atomic<uint16_t> g_tls_auth_port{29600};
+
+} // namespace
+
+TEST(RmiAuthOverTls, NoModuleSetBehavesUnchanged) {
+  clearClassRegistry();
+  tls_socket_server_transport server_transport{"127.0.0.1", g_tls_auth_port.fetch_add(1)};
+  auth_tracking_server srv{server_transport};
+  srv.listen(make_tls_server_listen_params()); // no auth_module argument
+
+  client c{server_transport.connect()};
+  EXPECT_NO_THROW(c.connect(make_tls_client_connect_params()));
+  EXPECT_EQ(srv.authenticated_calls.load(), 0);
+  c.disconnect();
+  srv.stop();
+}
+
+TEST(RmiAuthOverTls, RejectingModuleFailsConnectAndSkipsOnAuthenticated) {
+  clearClassRegistry();
+  tls_socket_server_transport server_transport{"127.0.0.1", g_tls_auth_port.fetch_add(1)};
+  auth_tracking_server srv{server_transport};
+  auto auth_module = std::make_shared<test_auth_module>(/*accept=*/false);
+  srv.listen(make_tls_server_listen_params(), auth_module);
+
+  client c{server_transport.connect()};
+  EXPECT_THROW(c.connect(make_tls_client_connect_params()), std::exception);
+  EXPECT_TRUE(auth_module->called_);
+  EXPECT_EQ(srv.authenticated_calls.load(), 0);
+  srv.stop();
+}
+
+TEST(RmiAuthOverTls, AcceptingModuleFiresOnAuthenticatedWithIdentityOverTls) {
+  clearClassRegistry();
+  tls_socket_server_transport server_transport{"127.0.0.1", g_tls_auth_port.fetch_add(1)};
+  auth_tracking_server srv{server_transport};
+  auto auth_module = std::make_shared<test_auth_module>(/*accept=*/true);
+  srv.listen(make_tls_server_listen_params(), auth_module);
+
+  client c{server_transport.connect()};
+  EXPECT_NO_THROW(c.connect(make_tls_client_connect_params("alice")));
   EXPECT_EQ(srv.authenticated_calls.load(), 1);
   EXPECT_EQ(srv.last_identity, "alice");
   c.disconnect();

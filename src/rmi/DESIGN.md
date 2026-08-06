@@ -22,19 +22,30 @@ Source tree:
 - `src/rmi/server`: server runtime, session context, request handlers, lifecycle.
 - `src/rmi/transport`: all transport implementations. Each transport is a single cross-platform file backed by libuv:
 - `socket_transport.cpp` — TCP socket transport
+- `tls_socket_transport.cpp` — TLS-secured TCP socket transport (see §3.4)
 - `named_pipe_transport.cpp` — named pipe / Unix domain socket transport
 - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
 - `stream_transport.cpp` — wraps an external `std::iostream`
 
-`socket_transport.cpp` has one small platform-facing step: accepted
-connections are moved from the listener's `uv_loop_t` to their own dedicated
-loop by duplicating the underlying OS socket descriptor (libuv's
-`uv_accept()` requires the client handle to already share the listener's
-loop, so the connection's own loop can't be used directly). Duplicating a
-socket has no libuv-portable API, so `duplicate_tcp_socket()` calls POSIX
-`dup()` directly (shared by native Linux and MSYS2 — the only supported
-targets). This does not change transport *behavior* across platforms — it
-is a single OS primitive with no libuv equivalent.
+`socket_transport.cpp` and `tls_socket_transport.cpp` share one small
+platform-facing step: accepted connections are moved from the listener's
+`uv_loop_t` to their own dedicated loop by duplicating the underlying OS
+socket descriptor (libuv's `uv_accept()` requires the client handle to
+already share the listener's loop, so the connection's own loop can't be
+used directly). Duplicating a socket has no libuv-portable API, so
+`duplicate_tcp_socket()` (hoisted into the shared `tcp_socket_util.hpp` so
+both transports use one implementation) calls POSIX `dup()` directly (shared
+by native Linux and MSYS2 — the only supported targets). This does not
+change transport *behavior* across platforms — it is a single OS primitive
+with no libuv equivalent.
+
+Both TCP-backed transports also share `frame_parser.hpp` (the incremental
+`[4-byte length][payload]` reassembly state machine, §5.3) and build on
+`uv_stream_state.hpp` (the per-connection libuv loop/queue plumbing, §5.4);
+`tls_socket_transport.cpp` additionally uses `tls_stream_state.hpp`, which
+wraps a `uv_stream_state` by composition to insert the mbedTLS
+encrypt/decrypt step between raw socket bytes and the shared frame parser
+(see §3.4 for the dependency and §13 for the security model).
 
 ## 3. Platform Independence Strategy
 
@@ -59,6 +70,47 @@ target_link_libraries(bison PRIVATE uv_a)
 ```
 
 libuv internally links `ws2_32` and other Windows system libraries as needed on MSYS2 builds; the bison build does not add them manually.
+
+### 3.4 TLS Dependency
+
+`tls_socket_transport` (§5.5) is built on **mbedTLS**, included as a git submodule at `extern/mbedtls` (pinned to the 3.6.x LTS branch) and linked as three static targets (`mbedtls`, `mbedx509`, `mbedcrypto`):
+
+```cmake
+set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
+set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+add_subdirectory("extern/mbedtls")
+target_link_libraries(bison PRIVATE mbedtls mbedx509 mbedcrypto)
+```
+
+mbedTLS was chosen over OpenSSL, BoringSSL, and wolfSSL for this specific
+constraint set -- must build via a plain `add_subdirectory()` like every
+other `extern/` dependency (no Perl/NASM/Go toolchain requirement beyond
+what libuv/gflags already need), must statically link into both the
+`STATIC bison` target and the `SHARED bison_abi` target, must support
+optional mutual TLS, and must carry a license consistent with the rest of
+bison's permissive (MIT/BSD/Apache) dependency set:
+
+- **OpenSSL** has no native CMake build (`Configure` is a Perl script, plus
+  NASM for asm on Windows) -- it doesn't fit the `add_subdirectory()`
+  precedent every other dependency here follows.
+- **BoringSSL** needs Go and NASM to build, and upstream explicitly
+  disclaims API/ABI stability for third-party embedders.
+- **wolfSSL** is dual GPLv2/commercial-licensed; statically linking GPLv2
+  code into bison's single binary would put the whole binary under GPL
+  terms absent a commercial license.
+- **mbedTLS** has a native `CMakeLists.txt` that drops in exactly like
+  `extern/libuv`, is pure C with no extra toolchain requirements, builds
+  cleanly with plain MSVC or mingw64, and is Apache-2.0 licensed. Its
+  `mbedtls_ssl_conf_authmode()` covers both server-only and mutual TLS from
+  one API.
+
+`extern/mbedtls` itself carries a nested submodule at `framework/`
+(`mbedtls-framework`), required unconditionally by mbedTLS 3.6.x's own
+`CMakeLists.txt` even to build just the library (not only its test suite).
+`git clone --recurse-submodules` (README.md's documented clone command)
+already recurses into it; no extra step is needed.
 
 ## 4. Architecture Overview
 
@@ -151,6 +203,7 @@ pipes there.
 |---|---|---|
 | In-process pipe | `pipe_client_transport`, `pipe_server_transport` | `uv_pipe_t` (named pipe, unique path per channel) |
 | TCP socket | `socket_client_transport`, `socket_server_transport` | `uv_tcp_t` |
+| TLS-secured TCP socket | `tls_socket_client_transport`, `tls_socket_server_transport` | `uv_tcp_t` + mbedTLS session (see §3.4) |
 | Named pipe / Unix socket | `named_pipe_client_transport`, `named_pipe_server_transport` | `uv_pipe_t` |
 | In-memory | `memory_server_transport`, `memory_client_transport` | No I/O — shared queue |
 | Stream | `stream_client_transport` | Wraps external `std::iostream` |
@@ -698,7 +751,7 @@ Recommended defaults:
 - Server validates all object ids against session context.
 - Remote object ids are opaque random values and must not be predictable from previous allocations.
 - Input payload validation is required before invoking class methods.
-- Transport-level security and authentication (TLS, local pipe ACL, transport credentials, etc.) are delegated to transport implementations.
+- Transport-level security and authentication (TLS, local pipe ACL, transport credentials, etc.) are delegated to transport implementations. `tls_socket_transport` (§3.4, §5.5) provides this for TCP: confidentiality plus mandatory server authentication via a certificate (like HTTPS), with optional mutual TLS (client certificates, opt-in per listener via `client_auth`) for deployments that want it. mTLS defaults to off because `auth_module_iface`'s shape (a per-connection, app-supplied credential check keyed off the `"connect"` payload -- see §10.1) already covers client identity for the common case of an open/product-facing client population; mTLS is a machine-identity mechanism better suited to a small, fixed fleet (service-to-service/zero-trust), where the cost of issuing and rotating a certificate per client is justified. The two compose without any interface change: mTLS (when enabled) authenticates the TCP connection itself before any bison bytes flow; `auth_module_iface` then authenticates the session on top, over the resulting confidential channel -- `auth.hpp`/`server.hpp` need no TLS-awareness at all.
 
 ## 14. Extensibility
 
@@ -724,12 +777,14 @@ Versioning strategy:
 - Server runtime: listen, accept loop, per-session context isolation, request dispatch, all hook methods
 - Auth hook: `auth_module_iface` + `server::listen()`'s `auth_module` parameter + `on_authenticated()` hook (see § 10.1) -- policy-free accept/reject and optional identity extraction, evaluated once per connection from `handle_connect()`
 - Event dispatch (`onEvent`, server-initiated event frames)
-- All transport implementations (in-memory, TCP, named pipe, anonymous pipe) — all cross-platform via libuv
+- All transport implementations (in-memory, TCP, TLS-secured TCP, named pipe, anonymous pipe) — all cross-platform via libuv
 - C ABI (`rmi_c.h`) exposing client, server lifecycle to C and language bindings
+- CLI wiring for `tls_socket_transport`: `--transport=tls` on `server_app`/`client_app` (`bison-cli`, `calc-server`, `rmi_server_example`, `rmi_client_example`) and `--downstream_transport=tls`/`--upstream_transport=tls` on `bridge_app` (`rmi_bridge_example`), including the new `server_app::on_listen_params()`/`bridge_app::on_downstream_listen_params()` hooks that inject cert/key material into `listen()`/`start()` -- see `docs/tls.md`'s "CLI usage" section
 
 **Future:**
 
 - HTTP transport
+- C ABI/binding wiring for `tls_socket_transport` (`include/rmi_c.h`, `bindings/`) -- the C++ transport and its CLI/`bridge_app` wiring are complete, see §3.4/§5.5/§13 and `docs/tls.md`
 - Capability negotiation in the RMI protocol layer (auth hooks are implemented -- see § 10.1 and "Completed" above)
 - Performance optimization and batching
 

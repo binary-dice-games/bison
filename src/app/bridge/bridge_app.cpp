@@ -11,6 +11,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/term_transport.hpp"
+#include "src/rmi/transport/tls_socket_transport.hpp"
 #include "src/term/scoped_terminal_config.hpp"
 #include "src/term/terminal.hpp"
 
@@ -26,10 +27,27 @@ DECLARE_string(downstream_name);
 DECLARE_string(cmd);
 DECLARE_int32(timeout);
 DECLARE_bool(debugger);
+DECLARE_string(downstream_cert_file);
+DECLARE_string(downstream_cert_pem);
+DECLARE_string(downstream_key_file);
+DECLARE_string(downstream_key_pem);
+DECLARE_string(downstream_key_password);
+DECLARE_string(downstream_client_auth);
+DECLARE_string(downstream_ca_file);
+DECLARE_string(downstream_ca_pem);
 
 DECLARE_string(upstream_host);
 DECLARE_int32(upstream_port);
 DECLARE_string(upstream_name);
+DECLARE_string(upstream_server_name);
+DECLARE_string(upstream_ca_file);
+DECLARE_string(upstream_ca_pem);
+DECLARE_bool(upstream_insecure_skip_verify);
+DECLARE_string(upstream_cert_file);
+DECLARE_string(upstream_cert_pem);
+DECLARE_string(upstream_key_file);
+DECLARE_string(upstream_key_pem);
+DECLARE_string(upstream_key_password);
 
 namespace bdg::bison::app {
 
@@ -69,6 +87,33 @@ class bridged_bridge : public rmi::bridge {
 
 void bridge_app::on_upstream_connect_params(bison::dynamic& params) const {
   params["timeout_ms"_key] = int32_t{FLAGS_timeout};
+  if (selected_upstream_transport() != transport_kind::tls)
+    return;
+  // Only set server_name when --upstream_server_name is explicitly
+  // non-empty -- see client_app::on_connect_params()'s identical comment.
+  if (!FLAGS_upstream_server_name.empty())
+    params["server_name"_key] = FLAGS_upstream_server_name;
+  params["ca_file"_key] = FLAGS_upstream_ca_file;
+  params["ca_pem"_key] = FLAGS_upstream_ca_pem;
+  params["insecure_skip_verify"_key] = FLAGS_upstream_insecure_skip_verify;
+  params["cert_file"_key] = FLAGS_upstream_cert_file;
+  params["cert_pem"_key] = FLAGS_upstream_cert_pem;
+  params["key_file"_key] = FLAGS_upstream_key_file;
+  params["key_pem"_key] = FLAGS_upstream_key_pem;
+  params["key_password"_key] = FLAGS_upstream_key_password;
+}
+
+void bridge_app::on_downstream_listen_params(bison::dynamic& params) const {
+  if (selected_downstream_transport() != transport_kind::tls)
+    return;
+  params["cert_file"_key] = FLAGS_downstream_cert_file;
+  params["cert_pem"_key] = FLAGS_downstream_cert_pem;
+  params["key_file"_key] = FLAGS_downstream_key_file;
+  params["key_pem"_key] = FLAGS_downstream_key_pem;
+  params["key_password"_key] = FLAGS_downstream_key_password;
+  params["client_auth"_key] = FLAGS_downstream_client_auth;
+  params["ca_file"_key] = FLAGS_downstream_ca_file;
+  params["ca_pem"_key] = FLAGS_downstream_ca_pem;
 }
 
 void bridge_app::on_error(const std::string& msg) const {
@@ -92,6 +137,9 @@ void bridge_app::on_listening() const {
     case transport_kind::tcp:
       downstream_desc = FLAGS_downstream_host + ":" + std::to_string(FLAGS_downstream_port);
       break;
+    case transport_kind::tls:
+      downstream_desc = FLAGS_downstream_host + ":" + std::to_string(FLAGS_downstream_port) + " (tls)";
+      break;
     case transport_kind::term:
       downstream_desc = "--downstream_transport=term";
       break;
@@ -110,7 +158,10 @@ int bridge_app::run_with_transport(
 
   std::unique_ptr<rmi::bridge> br =
       make_bridge(downstream_transport, std::move(upstream_transport), std::move(upstream_params));
-  br->start();
+
+  bison::dynamic downstream_params;
+  on_downstream_listen_params(downstream_params);
+  br->start(std::move(downstream_params));
   on_listening();
   wait_for_shutdown();
   br->stop();
@@ -168,6 +219,10 @@ int bridge_app::run(int argc, char** argv) {
         upstream_transport = std::make_unique<rmi::transport::socket_client_transport>(
             FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
         break;
+      case transport_kind::tls:
+        upstream_transport = std::make_unique<rmi::transport::tls_socket_client_transport>(
+            FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
+        break;
       case transport_kind::term: {
         upstream_stc = std::make_unique<term::scoped_terminal_config>(term::scoped_terminal_config::params{0, 1});
         term::scoped_terminal_config* stc = upstream_stc.get();
@@ -213,6 +268,13 @@ int bridge_app::run(int argc, char** argv) {
         auto port = static_cast<uint16_t>(FLAGS_downstream_port);
         rmi::transport::socket_server_transport socket_transport{FLAGS_downstream_host, port};
         int rc = run_with_transport(socket_transport, std::move(upstream_transport));
+        active_term_ = nullptr;
+        return rc;
+      }
+      case transport_kind::tls: {
+        auto port = static_cast<uint16_t>(FLAGS_downstream_port);
+        rmi::transport::tls_socket_server_transport tls_transport{FLAGS_downstream_host, port};
+        int rc = run_with_transport(tls_transport, std::move(upstream_transport));
         active_term_ = nullptr;
         return rc;
       }

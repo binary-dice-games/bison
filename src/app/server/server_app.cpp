@@ -11,6 +11,7 @@
 #include "src/rmi/transport/named_pipe_transport.hpp"
 #include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/term_transport.hpp"
+#include "src/rmi/transport/tls_socket_transport.hpp"
 #include "src/term/terminal.hpp"
 
 #include <gflags/gflags.h>
@@ -37,6 +38,14 @@ DECLARE_string(name);
 DECLARE_string(cmd);
 DECLARE_bool(verbose);
 DECLARE_bool(debugger);
+DECLARE_string(cert_file);
+DECLARE_string(cert_pem);
+DECLARE_string(key_file);
+DECLARE_string(key_pem);
+DECLARE_string(key_password);
+DECLARE_string(client_auth);
+DECLARE_string(ca_file);
+DECLARE_string(ca_pem);
 
 namespace bdg::bison::app {
 
@@ -119,6 +128,11 @@ void server_app::on_listening() const {
       std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port << " -- press Enter to stop\n"
                 << std::flush;
       return;
+    case transport_kind::tls:
+      std::cout << "[server_app] listening on " << FLAGS_host << ':' << FLAGS_port
+                << " (tls) -- press Enter to stop\n"
+                << std::flush;
+      return;
     case transport_kind::term:
       std::cout << "[server_app] listening via --transport=term -- exit the spawned terminal to stop\n" << std::flush;
       return;
@@ -143,11 +157,26 @@ std::unique_ptr<rmi::server> server_app::make_server(rmi::transport::server_tran
   return std::make_unique<bridged_server>(transport, *this);
 }
 
+void server_app::on_listen_params(bison::dynamic& params) const {
+  if (selected_transport() != transport_kind::tls)
+    return;
+  params["cert_file"_key] = FLAGS_cert_file;
+  params["cert_pem"_key] = FLAGS_cert_pem;
+  params["key_file"_key] = FLAGS_key_file;
+  params["key_pem"_key] = FLAGS_key_pem;
+  params["key_password"_key] = FLAGS_key_password;
+  params["client_auth"_key] = FLAGS_client_auth;
+  params["ca_file"_key] = FLAGS_ca_file;
+  params["ca_pem"_key] = FLAGS_ca_pem;
+}
+
 // ── Default run_with_transport — socket/stream sessions ──────────────────────
 
 int server_app::run_with_transport(rmi::transport::server_transport_iface& transport) {
   std::unique_ptr<rmi::server> srv = make_server(transport);
-  srv->listen();
+  bison::dynamic params;
+  on_listen_params(params);
+  srv->listen(std::move(params));
   on_listening();
   wait_for_shutdown();
   srv->stop();
@@ -217,6 +246,11 @@ int server_app::run(int argc, char** argv) {
         auto port = static_cast<uint16_t>(FLAGS_port);
         rmi::transport::socket_server_transport socket_transport{FLAGS_host, port};
         return run_with_transport(socket_transport);
+      }
+      case transport_kind::tls: {
+        auto port = static_cast<uint16_t>(FLAGS_port);
+        rmi::transport::tls_socket_server_transport tls_transport{FLAGS_host, port};
+        return run_with_transport(tls_transport);
       }
       case transport_kind::term: {
         term::terminal term_proc{FLAGS_cmd, terminal_label()};

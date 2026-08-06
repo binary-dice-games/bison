@@ -156,7 +156,7 @@ See [docs/tutorial.md](docs/tutorial.md) for runnable examples of each.
 
 The RMI subsystem lets a client invoke methods and read/write fields on objects hosted by a server, over a transport of choice, using request/response async futures; the server can also push events to connected clients.
 
-**Transports:** `socket_*_transport` (TCP), `named_pipe_*_transport` (named pipe / Unix domain socket), `memory_*_transport` (in-process queues), `stream_*_transport` (any `std::iostream`, e.g. stdin/stdout), and `term_*_transport` (`--transport=term`, an interactive terminal hop framed as OSC-99 for ConPTY-safe relaying). `rmi::standalone` combines client and server in-process with no serialization overhead.
+**Transports:** `socket_*_transport` (TCP), `tls_socket_*_transport` (TLS-secured TCP, server-authenticated by default with optional mutual TLS — see [docs/tls.md](docs/tls.md)), `named_pipe_*_transport` (named pipe / Unix domain socket), `memory_*_transport` (in-process queues), `stream_*_transport` (any `std::iostream`, e.g. stdin/stdout), and `term_*_transport` (`--transport=term`, an interactive terminal hop framed as OSC-99 for ConPTY-safe relaying). `rmi::standalone` combines client and server in-process with no serialization overhead.
 
 **Server** — register classes, then listen:
 
@@ -218,6 +218,7 @@ doxygen Doxyfile
 | [docs/building.md](docs/building.md) | Linux/WSL/MSYS2/native-Windows setup, CMake integration |
 | [docs/examples.md](docs/examples.md) | Running C++, RMI socket, stdio PTY, and benchmark examples |
 | [docs/bindings.md](docs/bindings.md) | C++ (header-only), Python, and C# binding setup and usage |
+| [docs/tls.md](docs/tls.md) | Configuring `tls_socket_transport`: server-only vs. mutual TLS, certificate setup |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |
 

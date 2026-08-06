@@ -26,6 +26,15 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 # Optional flags: --host=HOST --port=PORT
 ```
 
+`--transport=tls` works the same way, with certificate flags added -- see
+[docs/tls.md](tls.md) for generating a development certificate and the full
+flag reference:
+
+```bash
+./build/examples/rmi_server_example --transport=tls --cert_file=server-cert.pem --key_file=server-key.pem
+./build/examples/rmi_client_example --transport=tls --ca_file=ca-cert.pem
+```
+
 ## RMI Standalone Example
 
 `rmi_standalone_example` demonstrates `rmi::standalone` (in-process,
@@ -59,6 +68,11 @@ cmake --build build --config Debug --target rmi_server_example rmi_bridge_exampl
 # 3. Client talks to the bridge instead of the real server:
 ./build/examples/rmi_client_example --port=7071
 ```
+
+Either side (or both) can be TLS-secured with `--downstream_transport=tls`/
+`--upstream_transport=tls` and the matching `downstream_`/`upstream_`-prefixed
+certificate flags -- see [docs/tls.md](tls.md)'s "Bridge" section for the full
+flag reference and a mutual-TLS example.
 
 ## RMI Term Hop Mode (OSC-99, Linux/MSYS2 and Windows)
 
