@@ -239,8 +239,14 @@ TEST(TermTransport, PassthroughReceivesNonOscBytes) {
 
   write_raw(p.client_write, "hello prompt: ");
 
-  for (int i = 0; i < 100 && collected.find("hello prompt: ") == std::string::npos; ++i)
+  for (int i = 0; i < 100; ++i) {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      if (collected.find("hello prompt: ") != std::string::npos)
+        break;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
 
   std::lock_guard<std::mutex> lock(m);
   EXPECT_NE(collected.find("hello prompt: "), std::string::npos);
@@ -273,8 +279,14 @@ TEST(TermTransport, PassthroughAndFrameCoexist) {
   ASSERT_TRUE(conn->receive(received, std::chrono::milliseconds{2000}));
   EXPECT_EQ(received, frame);
 
-  for (int i = 0; i < 100 && collected.find("shell output\n") == std::string::npos; ++i)
+  for (int i = 0; i < 100; ++i) {
+    {
+      std::lock_guard<std::mutex> lock(m);
+      if (collected.find("shell output\n") != std::string::npos)
+        break;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
 
   std::lock_guard<std::mutex> lock(m);
   EXPECT_NE(collected.find("shell output\n"), std::string::npos);
@@ -405,13 +417,24 @@ TEST(TermTransport, ShutdownFromReaderThreadOnEofDoesNotDeadlock) {
   duplex_pipes p{};
   ASSERT_TRUE(make_duplex_pipes(p));
 
+  // client_t's reader thread starts inside its own constructor, before
+  // make_unique() even returns -- so the callback below must not read the
+  // outer `client_t` unique_ptr directly (racy: nothing formally orders
+  // that read against the main thread's assignment to it, even though in
+  // this test's actual timeline the EOF that triggers the callback can't
+  // arrive until well after construction/open() complete). Publish the raw
+  // pointer through an atomic instead, so the synchronization is explicit.
   std::unique_ptr<term_client_transport> client_t;
+  std::atomic<term_client_transport*> client_ptr{nullptr};
   term_passthrough_cb self_shutdown = [&](std::string_view chunk) {
-    if (chunk.empty() && client_t)
-      client_t->shutdown();
+    if (chunk.empty()) {
+      if (auto* c = client_ptr.load(std::memory_order_acquire))
+        c->shutdown();
+    }
   };
 
   client_t = std::make_unique<term_client_transport>(p.client_read, p.client_write, self_shutdown);
+  client_ptr.store(client_t.get(), std::memory_order_release);
   client_t->open(dynamic{});
 
   // Closing the peer's write end delivers EOF to client_t's reader thread.

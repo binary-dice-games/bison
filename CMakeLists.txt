@@ -14,6 +14,22 @@ option(PACKAGE_TESTS "Build the tests" ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+# ── Sanitizers ────────────────────────────────────────────────────────────────
+# Opt-in Clang/GCC sanitizer build, e.g. `cmake -B build -DBISON_SANITIZE=thread`.
+# Used to validate concurrent code (the RMI transport/server threading model)
+# that unit tests alone can't reliably catch races in. Applied globally, before
+# any add_subdirectory() calls, so bundled dependencies (libuv, mbedtls, ...)
+# are instrumented too -- otherwise a race entirely inside a non-instrumented
+# dependency would go undetected.
+set(BISON_SANITIZE "" CACHE STRING "Build with a sanitizer: thread, address, undefined, or empty for none")
+if(BISON_SANITIZE)
+  message(STATUS "Building with sanitizer: ${BISON_SANITIZE}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=${BISON_SANITIZE} -fno-omit-frame-pointer -g -O1")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=${BISON_SANITIZE} -fno-omit-frame-pointer -g -O1")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=${BISON_SANITIZE}")
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=${BISON_SANITIZE}")
+endif()
+
 set(BISON_PUBLIC_HEADERS
   "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison.hpp"
   "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_common.hpp"
@@ -62,6 +78,11 @@ set(USE_SHARED_MBEDTLS_LIBRARY OFF CACHE BOOL "" FORCE)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
 set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+# Enables MBEDTLS_THREADING_C/MBEDTLS_THREADING_PTHREAD -- required for
+# mbedTLS's own internal shared state (PSA key slots, lazily-initialized
+# ciphersuite tables) to be thread-safe, which tls_socket_transport's
+# concurrent-handshake design (see cmake/mbedtls_user_config.h) depends on.
+set(MBEDTLS_USER_CONFIG_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/mbedtls_user_config.h" CACHE FILEPATH "" FORCE)
 add_subdirectory("extern/mbedtls")
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
