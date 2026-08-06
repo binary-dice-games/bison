@@ -1125,12 +1125,14 @@ TEST_F(InheritanceTest, MethodInheritedFromParent) {
   EXPECT_EQ(res["sound"_key].as<std::string>(), "...");
 }
 
-TEST_F(InheritanceTest, InheritedMethodSpecIsClonedPerInstance) {
-  // findMethod()'s "slow path" caches an inherited method into the
-  // instance's own methods_ map, same as findField() does for fields. A
-  // method's input/output specs are dynamic_ptr, so a naive method copy
-  // would alias the same spec object across every instance that inherits
-  // it -- verify each instance gets its own independent clone instead.
+TEST_F(InheritanceTest, InheritedMethodSpecIsSharedAcrossInstances) {
+  // findMethod()'s "slow path" caches a *shared* reference to the inherited
+  // method into the instance's own methods_ map (shared_ptr<const method>),
+  // unlike findField()'s inherited-default caching, which clones. A method
+  // (including its input/output specs) is never mutated in place after
+  // registration, so sharing it across every instance that inherits it is
+  // safe and avoids a per-instance deep copy -- verify two instances of the
+  // same class resolve to the exact same underlying method/spec objects.
   auto input_spec = dynamic_ptr{bdg::bison::key_t{0U}, {{"x"_key, int32_t{0}}}};
   auto base = dynamic_ptr{"Talker"_key};
   base->addMethod(
@@ -1141,14 +1143,23 @@ TEST_F(InheritanceTest, InheritedMethodSpecIsClonedPerInstance) {
   dynamic a = dynamic::instantiate("Talker"_key);
   dynamic b = dynamic::instantiate("Talker"_key);
 
-  auto* ma = a.findMethod("speak"_key);
-  auto* mb = b.findMethod("speak"_key);
+  const auto* ma = a.findMethod("speak"_key);
+  const auto* mb = b.findMethod("speak"_key);
   ASSERT_NE(ma, nullptr);
   ASSERT_NE(mb, nullptr);
+  EXPECT_EQ(ma, mb) << "two instances' cached inherited methods should share the same underlying object";
   ASSERT_NE(ma->inputSpec(), nullptr);
   ASSERT_NE(mb->inputSpec(), nullptr);
-  EXPECT_NE(ma->inputSpec(), mb->inputSpec())
-      << "two instances' cached method specs must not alias the same dynamic";
+  EXPECT_EQ(ma->inputSpec(), mb->inputSpec())
+      << "two instances' cached method specs should share the same underlying dynamic, not clone it";
+
+  // dynamic's copy constructor must likewise share (not deep-copy) already
+  // cached methods_ entries, since copy_ctor/clone_into() now just copy
+  // shared_ptr<const method> handles.
+  dynamic c{a};
+  const auto* mc = c.findMethod("speak"_key);
+  ASSERT_NE(mc, nullptr);
+  EXPECT_EQ(mc, ma) << "copy-constructing a dynamic should share cached method objects, not clone them";
 }
 
 TEST_F(InheritanceTest, DerivedClassOverridesParentField) {

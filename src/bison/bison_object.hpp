@@ -794,6 +794,10 @@ class dynamic {
    */
   dynamic(const dynamic& that)
       : fields_(that.fields_), methods_(that.methods_), userdata_(that.userdata_), factory_(that.factory_) {
+    // methods_ entries are shared_ptr<const method>, so this copy is just a
+    // refcount bump per entry -- no clone needed, since a method (including
+    // its input_/output_ specs) is never mutated in place after
+    // registration. See methods_'s own declaration comment.
     // field_lookup_ is intentionally left empty and rebuilt lazily.
     for (auto& kv : fields_) {
       if (kv.second.is<dynamic_ptr>()) {
@@ -887,9 +891,10 @@ class dynamic {
    *
    * All fields are copied; nested `dynamic_ptr` fields are recursively cloned
    * (via `clone_ptr()`, so their concrete subclass type is preserved) so the
-   * result shares no mutable state with the original.  Methods are copied by
-   * value (their `method_fn` callables are shared, which is safe since they
-   * are immutable).  The `userdata` pointer is shallow-copied.
+   * result shares no mutable state with the original.  Methods are shared,
+   * not copied (each `methods_` entry is a `shared_ptr<const method>`),
+   * which is safe since a `method` is immutable once registered.  The
+   * `userdata` pointer is shallow-copied.
    *
    * The top-level return is `dynamic` by value, so callers that need a typed
    * root (e.g. a tree whose root itself is a registered subclass) should call
@@ -1172,7 +1177,7 @@ class dynamic {
    *         already taken.
    */
   inline bool addMethod(key_t name, method m) {
-    return methods_.emplace(name, std::move(m)).second;
+    return methods_.emplace(name, std::make_shared<const method>(std::move(m))).second;
   }
 
   /**
@@ -1184,7 +1189,7 @@ class dynamic {
   template <typename F>
   void forEachMethod(F&& fn) const {
     for (const auto& kv : methods_) {
-      fn(kv.first, kv.second);
+      fn(kv.first, *kv.second);
     }
   }
 
@@ -1482,22 +1487,25 @@ class dynamic {
   /**
    * @brief Find a method on this instance or its class prototype chain.
    *
-   * Returns a pointer to the method (caching into `methods_` on first
-   * inherited hit), or `nullptr` if not found anywhere in the chain. The
-   * cached copy's `dynamic_ptr` input/output specs are cloned rather than
-   * aliased, for the same reason `findField()` clones an inherited
-   * `dynamic_ptr` field's default.
+   * Returns a pointer to the method (caching a shared reference into
+   * `methods_` on first inherited hit), or `nullptr` if not found anywhere
+   * in the chain. Unlike `findField()`'s inherited-default caching, the
+   * cached entry is *shared* (via `shared_ptr<const method>`) with the class
+   * prototype rather than cloned: a `method` (including its `input_`/
+   * `output_` specs) is never mutated in place after registration -- see
+   * `methods_`'s declaration comment -- so aliasing it across every instance
+   * that inherits it is safe and avoids a per-instance deep copy.
    * The correct namespace collection is resolved via `resolveNamespace`.
    *
    * @param name  Hash key to look up.
    * @return Pointer to the resolved method, or `nullptr`.
    */
-  method* findMethod(key_t name) const {
+  const method* findMethod(key_t name) const {
     // Fast path: method already cached in this instance.
     {
       auto it = methods_.find(name);
       if (it != methods_.end())
-        return &it->second;
+        return it->second.get();
     }
 
     // Slow path: search the class prototype chain.
@@ -1511,17 +1519,9 @@ class dynamic {
           auto& klass = itClass->second;
           auto itMethod = klass->methods_.find(name);
           if (itMethod != klass->methods_.end()) {
-            // Same aliasing hazard findField() has for inherited dynamic_ptr
-            // fields: method::input_/output_ are dynamic_ptr specs, and
-            // copying a `method` by value only copies those shared_ptrs, not
-            // the pointee. Clone them so this instance's cached copy doesn't
-            // share mutable state with the class prototype's method.
-            method inherited = itMethod->second;
-            if (inherited.input_ != nullptr)
-              inherited.input_ = inherited.input_->clone_ptr();
-            if (inherited.output_ != nullptr)
-              inherited.output_ = inherited.output_->clone_ptr();
-            methods_.insert(std::make_pair(name, std::move(inherited)));
+            // Share the class prototype's method object directly (refcount
+            // bump only) instead of cloning it.
+            methods_.insert(std::make_pair(name, itMethod->second));
             break;
           }
           itClass = col.find(klass->as<key_t>(PARENT));
@@ -1530,7 +1530,7 @@ class dynamic {
     }
 
     auto it = methods_.find(name);
-    return it != methods_.end() ? &it->second : nullptr;
+    return it != methods_.end() ? it->second.get() : nullptr;
   }
 
   /**
@@ -1613,7 +1613,17 @@ class dynamic {
 
  private:
   mutable std::map<key_t, field> fields_;
-  mutable std::unordered_map<key_t, method, key_t, key_t> methods_;
+  /// @brief Methods registered directly on this instance, plus any inherited
+  ///        entries cached by `findMethod()`. Stored as `shared_ptr<const
+  ///        method>` rather than by value: a `method` is immutable once
+  ///        constructed (nothing in this codebase mutates `fn_`/`input_`/
+  ///        `output_`/`attrs_` after `addMethod()`/`findMethod()`'s caching
+  ///        inserts it), so sharing one instance across every `dynamic` that
+  ///        registers or inherits it is safe and avoids an O(sessions ×
+  ///        methods) blow-up of duplicated method+spec storage when many
+  ///        instances of the same class are alive at once (e.g. one RMI
+  ///        server hosting many client sessions' objects).
+  mutable std::unordered_map<key_t, std::shared_ptr<const method>, key_t, key_t> methods_;
   /// @brief O(1) pointer cache into `fields_`. Entries are lazily populated
   ///        and invalidated by `erase`/`clear`. Cleared on copy and move so
   ///        stale pointers from the source object are never reused.

@@ -106,6 +106,20 @@ memory, and network cost. The following were implemented:
   discard it; it now copy-constructs directly, producing an identical deep
   copy without that extra allocation.
 
+### Core `dynamic`: shared (not duplicated) method metadata
+
+`dynamic::methods_` (`src/bison/bison_object.hpp`) now stores
+`shared_ptr<const method>` instead of `method` by value. A `method` --
+including its `input_`/`output_` parameter specs -- is never mutated in
+place after registration, so `findMethod()`'s inherited-method cache hit,
+`dynamic`'s copy constructor, and `clone_into()` all now share the
+underlying method object (a refcount bump) instead of deep-copying it
+(previously including a `clone_ptr()` call on each of `input_`/`output_`).
+This specifically targets many-session hosting: without it, N concurrent
+sessions each instantiating the same class and calling the same M methods
+would duplicate that class's method+spec storage N×M times instead of once.
+See `src/bison/DESIGN.md` §5.5 for the updated inheritance-lookup design.
+
 See the RMI framework design doc (`src/rmi/DESIGN.md`) for the broader
 scaling analysis this work is part of, including the still-outstanding
 thread-per-connection model.

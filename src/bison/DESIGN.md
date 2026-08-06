@@ -169,13 +169,13 @@ When `findField`, `findMethod`, or `findClass` is called, the private helper `re
 
 - Field lookup first checks instance `fields_`.
 - If not found, the correct namespace collection is selected and the class chain is traversed (via `PARENT` links, all within the same namespace collection).
-- On hit, the field value is copied into the instance's `fields_` cache. A `dynamic_ptr`-valued field is cloned (`clone_ptr()`), not aliased — see §4.4.
-- Method lookup uses the same strategy with `methods_` cache; a cached method's `dynamic_ptr` input/output specs are cloned for the same reason.
+- On hit, the field value is copied into the instance's `fields_` cache. A `dynamic_ptr`-valued field is cloned (`clone_ptr()`), not aliased — see §4.4, because field values are mutable per-instance state.
+- Method lookup walks the same chain, but caches differently: `methods_` stores `shared_ptr<const method>` rather than `method` by value, and an inherited hit caches a *shared* reference to the class prototype's method object (a refcount bump) rather than a clone. This is safe specifically because a `method` — including its `input_`/`output_` specs — is never mutated in place after registration (unlike fields, which are routinely reassigned), so aliasing it across every instance that inherits it can't produce the mutation-aliasing bug field caching avoids. `dynamic`'s copy constructor and `clone_into()` copy `methods_` the same cheap way (shared_ptr copies, no `clone_ptr()` calls), so copying/cloning an object no longer duplicates every method+spec it has resolved — this matters when many instances of the same class are alive at once (e.g. one RMI server hosting many client sessions' objects of the same registered class).
 
 Implication:
 
-- First inherited read is more expensive; subsequent reads are fast.
-- Instance can override inherited members by writing local entries.
+- First inherited method/field read still does a registry-locked chain walk; subsequent reads are O(1) cache hits.
+- Instance can override inherited members by writing local entries (an explicit `addMethod()` always inserts an owned entry into that instance's own `methods_`, so it never affects sibling instances or the class prototype).
 
 ## 6. Method Dispatch Model
 
