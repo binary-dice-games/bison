@@ -26,13 +26,29 @@ cmake --build build --config Debug --target rmi_server_example rmi_client_exampl
 # Optional flags: --host=HOST --port=PORT
 ```
 
-`--transport=tls` works the same way, with certificate flags added -- see
-[docs/tls.md](tls.md) for generating a development certificate and the full
+`--transport=tls` works the same way, with certificate flags added. A
+ready-to-use set of throwaway dev certificates already lives in
+[examples/certs/](../examples/certs/) (self-signed CA + server cert with a
+`localhost`/`127.0.0.1` SAN, plus a client CA + client cert for mutual TLS)
+-- see [docs/tls.md](tls.md) if you need to regenerate them or want the full
 flag reference:
 
 ```bash
-./build/examples/rmi_server_example --transport=tls --cert_file=server-cert.pem --key_file=server-key.pem
-./build/examples/rmi_client_example --transport=tls --ca_file=ca-cert.pem
+# Server-only TLS
+./build/examples/rmi_server_example --transport=tls \
+    --cert_file=examples/certs/server-cert.pem --key_file=examples/certs/server-key.pem
+./build/examples/rmi_client_example --transport=tls \
+    --ca_file=examples/certs/ca-cert.pem
+```
+
+```bash
+# Mutual TLS -- server also verifies the client's certificate
+./build/examples/rmi_server_example --transport=tls \
+    --cert_file=examples/certs/server-cert.pem --key_file=examples/certs/server-key.pem \
+    --client_auth=required --ca_file=examples/certs/client-ca-cert.pem
+./build/examples/rmi_client_example --transport=tls \
+    --ca_file=examples/certs/ca-cert.pem \
+    --cert_file=examples/certs/client-cert.pem --key_file=examples/certs/client-key.pem
 ```
 
 ## RMI Standalone Example

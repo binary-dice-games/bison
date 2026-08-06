@@ -140,6 +140,11 @@ on `bison-cli`, `calc-server`, `rmi_server_example`, and `rmi_client_example`.
 The `dynamic` param keys above are exposed 1:1 as flags (`cert_file` →
 `--cert_file`, etc.); `--host`/`--port` are reused unchanged from `tcp`.
 
+A ready-made set of throwaway dev certificates (server-only and mutual TLS)
+already lives in [examples/certs/](../examples/certs/), so `rmi_server_example`/
+`rmi_client_example` can be tried without running the steps above -- see
+[docs/examples.md](examples.md)'s "RMI Socket Examples" section.
+
 ```bash
 # Server-only TLS
 ./calc-server --transport=tls --host=0.0.0.0 --port=8443 \
