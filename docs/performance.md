@@ -120,6 +120,27 @@ sessions each instantiating the same class and calling the same M methods
 would duplicate that class's method+spec storage N×M times instead of once.
 See `src/bison/DESIGN.md` §5.5 for the updated inheritance-lookup design.
 
+### RMI server: bounded dispatch worker pool
+
+The RMI server previously spawned one dedicated OS thread per accepted
+session to run its request-dispatch loop (`server::accept_loop()`), so
+thread count scaled linearly with concurrent session count -- each thread
+reserving its own stack, this was the dominant ceiling on sessions per
+instance. `server.cpp` now services all sessions with a small **bounded**
+pool of dispatch worker threads (`dispatch_worker_state`, sized off
+`std::thread::hardware_concurrency()`): `accept_loop()` assigns each new
+session to a worker round-robin, and each worker polls its assigned
+sessions' `receive(timeout)` in turn (`kDispatchPollTimeout`, 5ms). Per-session
+request ordering and locking are unchanged -- only one worker ever owns a
+given session at a time -- at the cost of up to
+`kDispatchPollTimeout × sessions-on-that-worker` added worst-case latency for
+a session waiting behind idle sessions sharing its worker. This is
+transport-agnostic (built only on the existing `server_connection_iface::receive(timeout)`
+contract), so it applies uniformly to every transport without
+transport-specific code. See `src/rmi/DESIGN.md` §9.2 for the design
+rationale, including why a further libuv I/O-loop-level pooling pass (the
+per-connection `uv_loop_t`/thread pair) was scoped out.
+
 See the RMI framework design doc (`src/rmi/DESIGN.md`) for the broader
 scaling analysis this work is part of, including the still-outstanding
-thread-per-connection model.
+per-connection libuv I/O-loop/thread model (§5.4).

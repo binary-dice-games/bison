@@ -2136,3 +2136,69 @@ TEST(RmiResponseTrace, ErrorResponseIsTracedAsError) {
                      }) != recs.end();
   EXPECT_TRUE(found_error);
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 23. Bounded dispatch worker pool (server.cpp's dispatch_worker())
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Regression coverage for server::listen()'s bounded dispatch pool (see
+// server.hpp's dispatch_worker_state doc comment): many real TCP sessions,
+// all live at once, each round-robin-serviced by a small fixed pool of
+// worker threads instead of getting a dedicated dispatch thread of its own.
+// Verifies correctness (every session's call gets the right answer) under
+// that multiplexing, not just a single connection at a time.
+TEST(RmiDispatchPool, ManyConcurrentSessionsAllSucceed) {
+  clearClassRegistry();
+
+  auto proto = dynamic_ptr{"PoolAdder"_key, {{"v"_key, int32_t{0}}}};
+  proto->addMethod("add"_key, method{[](dynamic& /*self*/, const dynamic& params) -> dynamic {
+                      dynamic result;
+                      result["value"_key] = params["a"_key].as<int32_t>() + params["b"_key].as<int32_t>();
+                      return result;
+                    }});
+  ASSERT_TRUE(dynamic::addClass(0U, proto, 0U));
+
+  // Construct the transport directly rather than via
+  // make_socket_server_transport(): that helper already calls start() to
+  // probe for a free port, and server::listen() calls start() again --
+  // double-starting the same socket_server_transport re-initializes an
+  // already-running uv_loop_t/socket, which is undefined behavior.
+  static std::atomic<uint16_t> next_port{28100};
+  socket_server_transport server_transport{"127.0.0.1", next_port.fetch_add(1)};
+  server srv{server_transport};
+  srv.listen(dynamic{});
+
+  constexpr int kClients = 60;
+  std::vector<std::thread> client_threads;
+  client_threads.reserve(kClients);
+  std::atomic<int> success_count{0};
+
+  for (int i = 0; i < kClients; ++i) {
+    client_threads.emplace_back([&server_transport, &success_count, i] {
+      try {
+        client c{server_transport.connect()};
+        c.connect();
+        auto proxy = c.instantiate(0U, "PoolAdder"_key).get();
+
+        dynamic args;
+        args["a"_key] = int32_t{i};
+        args["b"_key] = int32_t{1000};
+        dynamic result = proxy.call("add"_key, std::move(args)).get();
+        if (result["value"_key].as<int32_t>() == i + 1000)
+          success_count.fetch_add(1);
+
+        c.destroy(std::move(proxy));
+        c.disconnect();
+      } catch (const std::exception&) {
+        // Counted as a failure via success_count falling short below.
+      }
+    });
+  }
+
+  for (auto& t : client_threads)
+    t.join();
+
+  EXPECT_EQ(success_count.load(), kClients);
+
+  srv.stop();
+}
