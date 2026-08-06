@@ -8,8 +8,8 @@ namespace Bdg.Bison.Rmi;
 
 /// <summary>
 /// RAII wrapper around an <c>rmi_server_handle</c>. Construct via
-/// <see cref="Tcp"/>, <see cref="Pipe"/>, or <see cref="Term"/>; dispose to
-/// stop/release.
+/// <see cref="Tcp"/>, <see cref="Tls"/>, <see cref="Pipe"/>, or
+/// <see cref="Term"/>; dispose to stop/release.
 /// </summary>
 public sealed class Server : IDisposable
 {
@@ -25,6 +25,23 @@ public sealed class Server : IDisposable
         if (h == nint.Zero)
         {
             throw new OutOfMemoryException("rmi_server_tcp_create failed");
+        }
+        return new Server(h);
+    }
+
+    /// <summary>
+    /// Creates a TLS-secured TCP server listener (not yet listening).
+    /// Server certificate/key material (<c>cert_file</c>/<c>cert_pem</c>,
+    /// <c>key_file</c>/<c>key_pem</c>, <c>key_password</c>) and optional
+    /// mutual-TLS settings (<c>client_auth</c>, <c>ca_file</c>/<c>ca_pem</c>)
+    /// are supplied via <see cref="Listen"/>'s params.
+    /// </summary>
+    public static Server Tls(string host, ushort port)
+    {
+        var h = Native.rmi_server_tls_create(host, port);
+        if (h == nint.Zero)
+        {
+            throw new OutOfMemoryException("rmi_server_tls_create failed");
         }
         return new Server(h);
     }

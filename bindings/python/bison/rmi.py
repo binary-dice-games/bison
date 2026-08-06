@@ -201,7 +201,7 @@ class Proxy:
 class Client:
     """RAII wrapper around an ``rmi_client_handle``.
 
-    Construct via :meth:`tcp`, :meth:`pipe`, :meth:`term`, or
+    Construct via :meth:`tcp`, :meth:`tls`, :meth:`pipe`, :meth:`term`, or
     :meth:`standalone`; use as a context manager to auto-connect/disconnect.
     """
 
@@ -217,6 +217,20 @@ class Client:
         h = _n.get_lib().rmi_client_tcp_create(host.encode(), port)
         if not h:
             raise MemoryError("rmi_client_tcp_create failed")
+        return cls(h)
+
+    @classmethod
+    def tls(cls, host: str, port: int) -> "Client":
+        """Create a TLS-secured TCP client (not yet connected).
+
+        TLS trust/identity material (``ca_file``/``ca_pem``,
+        ``insecure_skip_verify``, ``cert_file``/``cert_pem``,
+        ``key_file``/``key_pem``, ``key_password``, ``server_name``) is
+        supplied via :meth:`connect`'s *params*.
+        """
+        h = _n.get_lib().rmi_client_tls_create(host.encode(), port)
+        if not h:
+            raise MemoryError("rmi_client_tls_create failed")
         return cls(h)
 
     @classmethod
@@ -314,8 +328,8 @@ class Client:
 class Server:
     """RAII wrapper around an ``rmi_server_handle``.
 
-    Construct via :meth:`tcp`, :meth:`pipe`, or :meth:`term`; use as a
-    context manager to auto-listen/stop.
+    Construct via :meth:`tcp`, :meth:`tls`, :meth:`pipe`, or :meth:`term`;
+    use as a context manager to auto-listen/stop.
     """
 
     __slots__ = ("_lib", "_handle", "_listening", "_callbacks")
@@ -331,6 +345,20 @@ class Server:
         h = _n.get_lib().rmi_server_tcp_create(host.encode(), port)
         if not h:
             raise MemoryError("rmi_server_tcp_create failed")
+        return cls(h)
+
+    @classmethod
+    def tls(cls, host: str, port: int) -> "Server":
+        """Create a TLS-secured TCP server listener (not yet listening).
+
+        Server certificate/key material (``cert_file``/``cert_pem``,
+        ``key_file``/``key_pem``, ``key_password``) and optional
+        mutual-TLS settings (``client_auth``, ``ca_file``/``ca_pem``) are
+        supplied via :meth:`listen`'s *params*.
+        """
+        h = _n.get_lib().rmi_server_tls_create(host.encode(), port)
+        if not h:
+            raise MemoryError("rmi_server_tls_create failed")
         return cls(h)
 
     @classmethod

@@ -14,6 +14,7 @@
 
 // We clear the class registry using the C++ API to avoid state leakage.
 #include "src/bison/bison.hpp"
+#include "tests/tls_test_certs.hpp"
 
 static void rmi_c_clear_registry() {
   bdg::bison::dynamic::getRegistry().wlock()->clear();
@@ -93,6 +94,49 @@ static rmi_server_handle make_test_server() {
   return rmi_server_tcp_create("127.0.0.1", next_port.fetch_add(1));
 }
 
+static rmi_client_handle make_test_tls_client() {
+  static std::atomic<uint16_t> next_port{28500};
+  return rmi_client_tls_create("127.0.0.1", next_port.fetch_add(1));
+}
+
+static rmi_server_handle make_test_tls_server() {
+  static std::atomic<uint16_t> next_port{29500};
+  return rmi_server_tls_create("127.0.0.1", next_port.fetch_add(1));
+}
+
+static bison_handle make_tls_server_params(const std::string& cert_pem, const std::string& key_pem) {
+  bison_handle params = bison_create(0);
+  bison_set_string(params, bison_key("cert_pem"), cert_pem.c_str());
+  bison_set_string(params, bison_key("key_pem"), key_pem.c_str());
+  return params;
+}
+
+static bison_handle make_tls_client_params(const std::string& ca_pem) {
+  bison_handle params = bison_create(0);
+  bison_set_string(params, bison_key("ca_pem"), ca_pem.c_str());
+  return params;
+}
+
+/**
+ * Create and start listening a TLS server on a fresh port, retrying past
+ * bind conflicts, mirroring `make_paired_tcp_server()` above.
+ */
+static rmi_server_handle make_paired_tls_server(uint16_t* out_port, bison_handle listen_params) {
+  static std::atomic<uint16_t> next_port{29900};
+  for (int attempt = 0; attempt < 64; ++attempt) {
+    uint16_t port = next_port.fetch_add(1);
+    rmi_server_handle server = rmi_server_tls_create("127.0.0.1", port);
+    if (!server)
+      continue;
+    if (rmi_server_listen(server, listen_params, nullptr, nullptr) == RMI_OK) {
+      *out_port = port;
+      return server;
+    }
+    rmi_server_release(server);
+  }
+  return nullptr;
+}
+
 static void noop_proxy_event_handler(bison_handle, void*) {}
 
 /**
@@ -134,6 +178,11 @@ TEST(ClientLifecycleTests, TcpCreateReturnsNonNull) {
   EXPECT_NE(client.h, nullptr);
 }
 
+TEST(ClientLifecycleTests, TlsCreateReturnsNonNull) {
+  ScopedClientHandle client{make_test_tls_client()};
+  EXPECT_NE(client.h, nullptr);
+}
+
 TEST(ClientLifecycleTests, ReleaseNullIsSafe) {
   rmi_client_release(nullptr); // must not crash
 }
@@ -158,6 +207,11 @@ TEST(ClientLifecycleTests, DescribeUnconnectedClientFails) {
 
 TEST(ServerLifecycleTests, TcpCreateReturnsNonNull) {
   ScopedServerHandle server{make_test_server()};
+  EXPECT_NE(server.h, nullptr);
+}
+
+TEST(ServerLifecycleTests, TlsCreateReturnsNonNull) {
+  ScopedServerHandle server{make_test_tls_server()};
   EXPECT_NE(server.h, nullptr);
 }
 
@@ -201,6 +255,61 @@ TEST(ParameterTests, ClientConnectWithParams) {
   rmi_error err = rmi_client_connect(client, params);
   // Should succeed or fail gracefully, but not crash
   EXPECT_TRUE(err == RMI_OK || err == RMI_ERR_TRANSPORT);
+
+  rmi_server_stop(server);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3b. TLS transport round trips (rmi_client_tls_create / rmi_server_tls_create)
+// ═════════════════════════════════════════════════════════════════════════════
+
+using namespace bdg::bison::rmi::transport::test;
+
+TEST(TlsTransportTests, ServerListenWithCertParamsSucceeds) {
+  ScopedServerHandle server{make_test_tls_server()};
+  ASSERT_NE(server.h, nullptr);
+
+  ScopedBisonHandle params{make_tls_server_params(kTestServerCert, kTestServerKey)};
+  ASSERT_NE(params.h, nullptr);
+  EXPECT_EQ(rmi_server_listen(server, params, nullptr, nullptr), RMI_OK);
+  rmi_server_stop(server);
+}
+
+TEST(TlsTransportTests, ServerListenWithoutCertParamsFails) {
+  ScopedServerHandle server{make_test_tls_server()};
+  ASSERT_NE(server.h, nullptr);
+  EXPECT_NE(rmi_server_listen(server, nullptr, nullptr, nullptr), RMI_OK);
+}
+
+TEST(TlsTransportTests, ClientConnectWithTrustedCaSucceeds) {
+  ScopedBisonHandle server_params{make_tls_server_params(kTestServerCert, kTestServerKey)};
+  uint16_t port = 0;
+  ScopedServerHandle server{make_paired_tls_server(&port, server_params)};
+  ASSERT_NE(server.h, nullptr);
+
+  ScopedClientHandle client{rmi_client_tls_create("127.0.0.1", port)};
+  ASSERT_NE(client.h, nullptr);
+
+  ScopedBisonHandle client_params{make_tls_client_params(kTestCaCert)};
+  EXPECT_EQ(rmi_client_connect(client, client_params), RMI_OK);
+
+  rmi_client_disconnect(client);
+  rmi_server_stop(server);
+}
+
+TEST(TlsTransportTests, ClientConnectWithUntrustedServerCertFails) {
+  // Server presents a certificate that isn't signed by kTestCaCert, so the
+  // client's verification against that CA must fail the handshake.
+  ScopedBisonHandle server_params{make_tls_server_params(kUntrustedServerCert, kUntrustedServerKey)};
+  uint16_t port = 0;
+  ScopedServerHandle server{make_paired_tls_server(&port, server_params)};
+  ASSERT_NE(server.h, nullptr);
+
+  ScopedClientHandle client{rmi_client_tls_create("127.0.0.1", port)};
+  ASSERT_NE(client.h, nullptr);
+
+  ScopedBisonHandle client_params{make_tls_client_params(kTestCaCert)};
+  EXPECT_EQ(rmi_client_connect(client, client_params), RMI_ERR_TRANSPORT);
 
   rmi_server_stop(server);
 }

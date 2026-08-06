@@ -11,6 +11,7 @@
 #include "../../include/rmi_c.h"
 #include "rmi.hpp"
 #include "src/rmi/transport/term_transport.hpp"
+#include "src/rmi/transport/tls_socket_transport.hpp"
 #include "src/term/terminal.hpp"
 
 #include <cstring>
@@ -439,6 +440,17 @@ RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port)
   }
 }
 
+RMI_API rmi_client_handle rmi_client_tls_create(const char* host, uint16_t port) {
+  if (!host)
+    return nullptr;
+  try {
+    return make_owned_client_handle(
+        std::make_unique<client>(std::make_unique<tls_socket_client_transport>(host, port)));
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 RMI_API rmi_client_handle rmi_client_pipe_create(const char* path) {
   if (!path)
     return nullptr;
@@ -787,6 +799,18 @@ RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port)
   }
 }
 
+RMI_API rmi_server_handle rmi_server_tls_create(const char* host, uint16_t port) {
+  if (!host)
+    return nullptr;
+  try {
+    auto state = std::make_unique<server_state>();
+    state->server_owner = std::make_unique<server>(std::make_unique<tls_socket_server_transport>(host, port));
+    return as_server_handle(state.release());
+  } catch (...) {
+    return nullptr;
+  }
+}
+
 RMI_API rmi_server_handle rmi_server_pipe_create(const char* path) {
   if (!path)
     return nullptr;
@@ -817,12 +841,11 @@ rmi_server_listen(rmi_server_handle h, bison_handle params, rmi_auth_fn auth_han
   server* s = server_deref(h);
   if (!s)
     return RMI_ERR_NULL;
-  (void)params; // params not yet supported via C API
   try {
     auth_module_ptr auth;
     if (auth_handler)
       auth = std::make_shared<c_auth_module>(auth_handler, auth_user);
-    s->listen(dynamic{}, std::move(auth));
+    s->listen(bison_handle_to_dynamic(params), std::move(auth));
     return RMI_OK;
   } catch (const std::runtime_error&) {
     return RMI_ERR_TRANSPORT;

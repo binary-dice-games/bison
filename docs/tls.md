@@ -24,9 +24,10 @@ against.
 `--transport=tls` (and `--downstream_transport=tls`/`--upstream_transport=tls`
 for `bridge_app`) is available on every `server_app`/`client_app`/`bridge_app`-based
 binary bison ships (`bison-cli`, `calc-server`, `rmi_server_example`,
-`rmi_client_example`, `rmi_bridge_example`) — see "CLI usage" below. C
-ABI/language-binding wiring (`include/rmi_c.h`, `bindings/`) remains a
-planned follow-up (see `src/rmi/DESIGN.md` §15).
+`rmi_client_example`, `rmi_bridge_example`) — see "CLI usage" below. It is
+also available from the C ABI (`rmi_client_tls_create()` /
+`rmi_server_tls_create()`) and every language binding built on it — see
+"C ABI / language bindings" below.
 
 ## Generating a development certificate
 
@@ -179,6 +180,37 @@ The `dynamic` param keys above are exposed 1:1 as flags (`cert_file` →
 downstream/listening side) and `--upstream_cert_file`/`--upstream_key_file`
 (mutual TLS on the upstream/dial-out side) mirror the server/client flags
 above, `downstream_`/`upstream_`-prefixed.
+
+## C ABI / language bindings
+
+`rmi_client_tls_create(host, port)` / `rmi_server_tls_create(host, port)`
+(`include/rmi_c.h`) are the TLS counterparts of `rmi_client_tcp_create()` /
+`rmi_server_tcp_create()`. The client/server parameter tables above apply
+unchanged, supplied via `rmi_client_connect()`'s / `rmi_server_listen()`'s
+existing `params` argument (a `bison_handle`) — there is no separate TLS-only
+entry point for configuring trust/identity material.
+
+```c
+bison_handle params = bison_create(0);
+bison_set_string(params, bison_key("ca_file"), "ca-cert.pem");
+
+rmi_client_handle client = rmi_client_tls_create("example.com", 8443);
+rmi_client_connect(client, params);
+```
+
+```c
+bison_handle params = bison_create(0);
+bison_set_string(params, bison_key("cert_file"), "server-cert.pem");
+bison_set_string(params, bison_key("key_file"), "server-key.pem");
+
+rmi_server_handle server = rmi_server_tls_create("0.0.0.0", 8443);
+rmi_server_listen(server, params, NULL, NULL);
+```
+
+Every language binding built on `rmi_c.h` exposes the same factory
+alongside `tcp()`/`pipe()`/`term()`: `client::tls()` / `server::tls()`
+(C++, `bindings/cpp`), `Client.tls()` / `Server.tls()` (Python), and
+`Client.Tls()` / `Server.Tls()` (C#) — see [docs/bindings.md](bindings.md).
 
 ## Why mbedTLS
 

@@ -780,11 +780,11 @@ Versioning strategy:
 - All transport implementations (in-memory, TCP, TLS-secured TCP, named pipe, anonymous pipe) — all cross-platform via libuv
 - C ABI (`rmi_c.h`) exposing client, server lifecycle to C and language bindings
 - CLI wiring for `tls_socket_transport`: `--transport=tls` on `server_app`/`client_app` (`bison-cli`, `calc-server`, `rmi_server_example`, `rmi_client_example`) and `--downstream_transport=tls`/`--upstream_transport=tls` on `bridge_app` (`rmi_bridge_example`), including the new `server_app::on_listen_params()`/`bridge_app::on_downstream_listen_params()` hooks that inject cert/key material into `listen()`/`start()` -- see `docs/tls.md`'s "CLI usage" section
+- C ABI/binding wiring for `tls_socket_transport`: `rmi_client_tls_create()`/`rmi_server_tls_create()` (`include/rmi_c.h`), plus `client::tls()`/`server::tls()` (`bindings/cpp`), `Client.tls()`/`Server.tls()` (`bindings/python`), and `Client.Tls()`/`Server.Tls()` (`bindings/csharp`) -- cert/key/trust material flows through the existing `rmi_client_connect()`/`rmi_server_listen()` `params` argument, same as the CLI's `on_*_params()` hooks. Fixed a latent bug found along the way: `rmi_server_listen()` was silently discarding its `params` argument entirely (always passed an empty `dynamic{}` to `server::listen()`), which made TLS server configuration -- and any other listen-time param -- impossible through the C ABI; it now forwards `params` like `rmi_client_connect()` always did. See §3.4/§5.5/§13 and `docs/tls.md`.
 
 **Future:**
 
 - HTTP transport
-- C ABI/binding wiring for `tls_socket_transport` (`include/rmi_c.h`, `bindings/`) -- the C++ transport and its CLI/`bridge_app` wiring are complete, see §3.4/§5.5/§13 and `docs/tls.md`
 - Capability negotiation in the RMI protocol layer (auth hooks are implemented -- see § 10.1 and "Completed" above)
 - Performance optimization and batching
 

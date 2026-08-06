@@ -391,6 +391,9 @@ internal static partial class Native
     public static partial nint rmi_client_tcp_create(string host, ushort port);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial nint rmi_client_tls_create(string host, ushort port);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial nint rmi_client_pipe_create(string path);
 
     [LibraryImport(LibName)]
@@ -456,6 +459,9 @@ internal static partial class Native
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial nint rmi_server_tcp_create(string host, ushort port);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial nint rmi_server_tls_create(string host, ushort port);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     public static partial nint rmi_server_pipe_create(string path);

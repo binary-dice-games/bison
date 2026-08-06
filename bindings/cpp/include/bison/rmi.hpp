@@ -356,9 +356,9 @@ inline proxy future::get_proxy() {
 /**
  * @brief RAII wrapper around `rmi_client_handle`.
  *
- * Construct via `tcp()`, `pipe()`, `term()`, or `standalone()`; call
- * `connect()` before issuing requests (a no-op for `standalone()` clients,
- * matching `rmi_client_connect()`'s documented behavior).
+ * Construct via `tcp()`, `tls()`, `pipe()`, `term()`, or `standalone()`;
+ * call `connect()` before issuing requests (a no-op for `standalone()`
+ * clients, matching `rmi_client_connect()`'s documented behavior).
  */
 class client {
  public:
@@ -383,6 +383,18 @@ class client {
   /** @brief Create a TCP socket client (not yet connected). */
   static client tcp(const std::string& host, uint16_t port) {
     return client(checked(rmi_client_tcp_create(host.c_str(), port), "rmi_client_tcp_create"));
+  }
+
+  /**
+   * @brief Create a TLS-secured TCP socket client (not yet connected).
+   *
+   * TLS trust/identity material (`ca_file`/`ca_pem`, `insecure_skip_verify`,
+   * `cert_file`/`cert_pem`, `key_file`/`key_pem`, `key_password`,
+   * `server_name`) is supplied via `connect()`'s `params`, matching
+   * `tls_socket_client_transport::open()`.
+   */
+  static client tls(const std::string& host, uint16_t port) {
+    return client(checked(rmi_client_tls_create(host.c_str(), port), "rmi_client_tls_create"));
   }
 
   /** @brief Create a named-pipe / Unix-domain-socket client (not yet connected). */
@@ -488,10 +500,10 @@ class client {
 /**
  * @brief RAII wrapper around `rmi_server_handle`.
  *
- * Construct via `tcp()`, `pipe()`, or `term()`, register classes/methods
- * with plain `dynamic::addClass()` / `dynamic::addMethod()` beforehand
- * (see this header's top-level doc comment for why there is no separate
- * RMI-specific registration API), then `listen()`.
+ * Construct via `tcp()`, `tls()`, `pipe()`, or `term()`, register
+ * classes/methods with plain `dynamic::addClass()` / `dynamic::addMethod()`
+ * beforehand (see this header's top-level doc comment for why there is no
+ * separate RMI-specific registration API), then `listen()`.
  */
 class server {
  public:
@@ -516,6 +528,19 @@ class server {
   /** @brief Create a TCP socket server listener (not yet listening). */
   static server tcp(const std::string& host, uint16_t port) {
     return server(checked(rmi_server_tcp_create(host.c_str(), port), "rmi_server_tcp_create"));
+  }
+
+  /**
+   * @brief Create a TLS-secured TCP socket server listener (not yet
+   *        listening).
+   *
+   * Server certificate/key material (`cert_file`/`cert_pem`,
+   * `key_file`/`key_pem`, `key_password`) and optional mutual-TLS settings
+   * (`client_auth`, `ca_file`/`ca_pem`) are supplied via `listen()`'s
+   * `params`, matching `tls_socket_server_transport::start()`.
+   */
+  static server tls(const std::string& host, uint16_t port) {
+    return server(checked(rmi_server_tls_create(host.c_str(), port), "rmi_server_tls_create"));
   }
 
   /** @brief Create a named-pipe / Unix-domain-socket server listener (not

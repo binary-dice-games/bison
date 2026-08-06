@@ -8,8 +8,9 @@ namespace Bdg.Bison.Rmi;
 
 /// <summary>
 /// RAII wrapper around an <c>rmi_client_handle</c>. Construct via
-/// <see cref="Tcp"/>, <see cref="Pipe"/>, <see cref="Term"/>, or
-/// <see cref="Standalone"/>; dispose to disconnect/release.
+/// <see cref="Tcp"/>, <see cref="Tls"/>, <see cref="Pipe"/>,
+/// <see cref="Term"/>, or <see cref="Standalone"/>; dispose to
+/// disconnect/release.
 /// </summary>
 public sealed class Client : IDisposable
 {
@@ -24,6 +25,23 @@ public sealed class Client : IDisposable
         if (h == nint.Zero)
         {
             throw new OutOfMemoryException("rmi_client_tcp_create failed");
+        }
+        return new Client(h);
+    }
+
+    /// <summary>
+    /// Creates a TLS-secured TCP client (not yet connected). TLS
+    /// trust/identity material (<c>ca_file</c>/<c>ca_pem</c>,
+    /// <c>insecure_skip_verify</c>, <c>cert_file</c>/<c>cert_pem</c>,
+    /// <c>key_file</c>/<c>key_pem</c>, <c>key_password</c>,
+    /// <c>server_name</c>) is supplied via <see cref="Connect"/>'s params.
+    /// </summary>
+    public static Client Tls(string host, ushort port)
+    {
+        var h = Native.rmi_client_tls_create(host, port);
+        if (h == nint.Zero)
+        {
+            throw new OutOfMemoryException("rmi_client_tls_create failed");
         }
         return new Client(h);
     }

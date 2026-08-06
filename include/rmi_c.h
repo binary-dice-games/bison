@@ -33,9 +33,9 @@
  *
  * ## Transport selection
  *
- * Socket (TCP), named-pipe / Unix-socket and terminal (spawned
- * subprocess) transports are all exposed via the regular client/server C
- * API. In-memory transport is available only through C++.
+ * Socket (TCP), TLS-secured TCP, named-pipe / Unix-socket, and terminal
+ * (spawned subprocess) transports are all exposed via the regular
+ * client/server C API. In-memory transport is available only through C++.
  */
 
 #ifndef RMI_C_H
@@ -184,6 +184,31 @@ RMI_API void rmi_future_release(rmi_future_handle future);
  * @endcode
  */
 RMI_API rmi_client_handle rmi_client_tcp_create(const char* host, uint16_t port);
+
+/**
+ * @brief Create a TLS-secured TCP socket client.
+ *
+ * The client is not connected until `rmi_client_connect()` is called. TLS
+ * trust/identity material (`ca_file`/`ca_pem`, `insecure_skip_verify`,
+ * `cert_file`/`cert_pem`, `key_file`/`key_pem`, `key_password`,
+ * `server_name`) is supplied via the `params` argument of
+ * `rmi_client_connect()`, matching `tls_socket_client_transport::open()`
+ * (see `src/rmi/transport/tls_socket_transport.hpp`).
+ *
+ * @param host    Server hostname or IP address (e.g., "127.0.0.1").
+ * @param port    Server port number (0-65535).
+ * @return New client handle, or `NULL` on allocation failure.
+ *
+ * @code{.c}
+ * bison_handle params = bison_create(0);
+ * bison_set_string(params, bison_key("ca_file"), "ca.pem");
+ * rmi_client_handle client = rmi_client_tls_create("127.0.0.1", 8443);
+ * rmi_client_connect(client, params);
+ * // ... use client ...
+ * rmi_client_release(client);
+ * @endcode
+ */
+RMI_API rmi_client_handle rmi_client_tls_create(const char* host, uint16_t port);
 
 /**
  * @brief Create named-pipe / Unix-socket client.
@@ -465,6 +490,34 @@ rmi_proxy_call_async(rmi_proxy_handle proxy, bison_hash method, bison_handle par
  * @endcode
  */
 RMI_API rmi_server_handle rmi_server_tcp_create(const char* host, uint16_t port);
+
+/**
+ * @brief Create a TLS-secured TCP socket server listener.
+ *
+ * The server is not listening until `rmi_server_listen()` is called.
+ * Server certificate/key material (`cert_file`/`cert_pem`,
+ * `key_file`/`key_pem`, `key_password`) is required, and optional mutual-TLS
+ * settings (`client_auth`, `ca_file`/`ca_pem`) may be supplied, via the
+ * `params` argument of `rmi_server_listen()`, matching
+ * `tls_socket_server_transport::start()` (see
+ * `src/rmi/transport/tls_socket_transport.hpp`).
+ *
+ * @param host    Bind address (e.g., "0.0.0.0" for all interfaces, or
+ * "127.0.0.1" for localhost).
+ * @param port    Bind port number.
+ * @return New server handle, or `NULL` on allocation failure.
+ *
+ * @code{.c}
+ * bison_handle params = bison_create(0);
+ * bison_set_string(params, bison_key("cert_file"), "server.pem");
+ * bison_set_string(params, bison_key("key_file"), "server-key.pem");
+ * rmi_server_handle server = rmi_server_tls_create("0.0.0.0", 8443);
+ * rmi_server_listen(server, params, NULL, NULL);
+ * // ... use server ...
+ * rmi_server_release(server);
+ * @endcode
+ */
+RMI_API rmi_server_handle rmi_server_tls_create(const char* host, uint16_t port);
 
 /**
  * @brief Create named-pipe / Unix-socket server listener.

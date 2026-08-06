@@ -342,6 +342,9 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     lib.rmi_client_tcp_create.restype = ClientHandle
     lib.rmi_client_tcp_create.argtypes = [ctypes.c_char_p, ctypes.c_uint16]
 
+    lib.rmi_client_tls_create.restype = ClientHandle
+    lib.rmi_client_tls_create.argtypes = [ctypes.c_char_p, ctypes.c_uint16]
+
     lib.rmi_client_pipe_create.restype = ClientHandle
     lib.rmi_client_pipe_create.argtypes = [ctypes.c_char_p]
 
@@ -406,6 +409,9 @@ def _setup_signatures(lib: ctypes.CDLL) -> None:
     # ── rmi_c.h: server ──────────────────────────────────────────────────────
     lib.rmi_server_tcp_create.restype = ServerHandle
     lib.rmi_server_tcp_create.argtypes = [ctypes.c_char_p, ctypes.c_uint16]
+
+    lib.rmi_server_tls_create.restype = ServerHandle
+    lib.rmi_server_tls_create.argtypes = [ctypes.c_char_p, ctypes.c_uint16]
 
     lib.rmi_server_pipe_create.restype = ServerHandle
     lib.rmi_server_pipe_create.argtypes = [ctypes.c_char_p]
