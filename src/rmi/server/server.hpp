@@ -422,10 +422,23 @@ class server {
       const std::string& message);
 
  private:
+  /**
+   * @brief One connection's dispatch state, owned by exactly one worker in
+   *        `dispatch_workers_`. See that member's doc comment.
+   */
+  struct session_slot {
+    std::unique_ptr<transport::server_connection_iface> conn;
+    context_holder ctx_holder;
+    bison::key_t session_id;
+  };
+
   // ── Private methods (defined in server.cpp) ───────────────────────────────
 
   void accept_loop();
-  void client_worker(std::unique_ptr<transport::server_connection_iface> conn);
+  void start_session(std::unique_ptr<transport::server_connection_iface> conn, size_t worker_index);
+  void dispatch_worker(size_t worker_index);
+  void service_session(session_slot& slot);
+  void teardown_session(session_slot& slot);
   void join_workers();
 
   void handle_request(context& ctx, const shared::envelope& env, transport::server_connection_iface& conn);
@@ -479,7 +492,59 @@ class server {
    *         lifetime (see `listen()`'s `auth_module` parameter doc). */
   auth_module_ptr auth_module_;
 
-  bison::synchronized<std::vector<std::thread>> workers_;
+  /**
+   * @brief One dispatch worker: a single OS thread servicing a bounded
+   *        subset of live sessions, instead of every connection getting its
+   *        own dedicated thread.
+   *
+   * `accept_loop()` assigns each newly-accepted connection to one worker
+   * (round robin, see `start_session()`). That worker's thread
+   * (`dispatch_worker()`) repeatedly cycles through its own `sessions`,
+   * calling `session_slot::conn->receive()` with a short timeout
+   * (`kDispatchPollTimeout`) for each in turn -- a real (non-busy)
+   * condition-variable wait per session that returns immediately if data
+   * has already arrived, or after the timeout if not, before moving on to
+   * the next session in this worker's list. A session assigned to a worker
+   * is never touched by any other thread, so per-session request ordering
+   * and the existing `ctx_holder`-based locking are unaffected -- only the
+   * OS thread issuing `receive()` calls for it is now shared across many
+   * sessions rather than dedicated to just one.
+   *
+   * Tradeoff versus one thread per connection: this bounds total dispatch
+   * thread count (and therefore memory/scheduling cost) to a small,
+   * fixed number regardless of how many sessions are live, at the cost of
+   * added worst-case per-request latency that grows with how many sessions
+   * share a worker (bounded by roughly `kDispatchPollTimeout ×
+   * sessions-per-worker` when everything on a worker happens to be idle in
+   * sequence) -- see kDispatchPollTimeout's own doc comment. This works
+   * uniformly across every transport (TCP, TLS, named pipe, memory,
+   * stream, term) because it only uses the existing blocking
+   * `transport::server_connection_iface::receive(timeout)` contract, not
+   * anything transport-specific.
+   */
+  struct dispatch_worker_state {
+    std::thread thread;
+    bison::synchronized<std::vector<std::shared_ptr<session_slot>>> sessions;
+  };
+
+  /**
+   * @brief Per-session poll timeout used by `dispatch_worker()`'s round
+   *        robin over its assigned sessions.
+   *
+   * A real wait (via `synchronized<>::wait_for`'s condition variable), not
+   * a busy-spin: a session with data ready returns immediately, so this
+   * value only bounds how long an *idle* session is waited on before the
+   * worker moves on to give the next assigned session its turn. Smaller
+   * values reduce added latency per session at the cost of more wake/sleep
+   * cycles (and therefore more CPU) when most sessions on a worker are
+   * idle; larger values do the reverse. 5ms is a modest default that keeps
+   * worst-case added latency in the low hundreds of milliseconds even at a
+   * few hundred sessions per worker, while not spinning noticeably on an
+   * idle server.
+   */
+  static constexpr std::chrono::milliseconds kDispatchPollTimeout{5};
+
+  std::vector<std::unique_ptr<dispatch_worker_state>> dispatch_workers_;
 
   bison::synchronized<std::unordered_map<bison::hash_t, context_holder>> session_contexts_;
 };

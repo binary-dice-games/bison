@@ -231,6 +231,42 @@ struct term_pipe_thread {
   uv_stream_t* stream{nullptr};
   uv_async_t stop_async{};
   std::atomic<bool> stopped{false};
+  /**
+   * @brief Set once this thread has actually been detached/joined.
+   *
+   * `stopped.exchange()` below only guarantees `stop()`'s detach/join body
+   * runs exactly once -- it does not make `stop()` itself a barrier. A
+   * caller that loses the exchange (observes `stopped == true`) must not
+   * treat that as "already safe to destroy this object": the winning
+   * caller's detach()/join() may still be in flight on another thread,
+   * concurrently with the loser's caller proceeding to tear down this
+   * object's owner (e.g. term_writer -> term_conn_state ->
+   * term_client_transport, all reachable from two different threads when a
+   * passthrough callback triggers shutdown() from the reader's own loop
+   * thread while the owning client is concurrently destroyed on another --
+   * see tests/term_transport_tests.cpp's
+   * ShutdownFromReaderThreadOnEofDoesNotDeadlock). Every caller of stop(),
+   * winner or loser, waits on this flag before returning, so stop() is a
+   * real barrier: once it returns, `loop_thread` is guaranteed to be
+   * detached or joined, and it is safe to destroy this object.
+   */
+  bison::synchronized<bool> stop_done{false};
+  /**
+   * @brief Set as the very last action of the thread body (start()'s
+   *        lambda), strictly after uv_loop_close() returns.
+   *
+   * `stop_done` only guarantees `stop()`'s detach()/join() call has
+   * happened -- in the self-join (detach) case, `detach()` returns
+   * immediately without waiting for the underlying OS thread to actually
+   * finish `uv_run()`/`post_run()`/`uv_loop_close()`. A caller that destroys
+   * this object (or a sibling member of its owner, e.g. term_reader's
+   * `recv_queue`) right after `stop()` returns can therefore still race the
+   * detached thread finishing up. `wait_until_finished()` blocks on this
+   * flag instead, for callers (destructors) that can safely wait -- see its
+   * own doc comment for why `stop()` itself cannot just do this uniformly.
+   */
+  bison::synchronized<bool> thread_finished{false};
+  std::atomic<bool> started{false};
   std::thread loop_thread;
 
   void init_pipe(int fd, const char* which, uv_async_cb on_stop, void* owner) {
@@ -269,34 +305,60 @@ struct term_pipe_thread {
 
   template <typename PreRun, typename PostRun>
   void start(PreRun&& pre_run, PostRun&& post_run) {
+    started.store(true);
     loop_thread =
         std::thread([this, pre_run = std::forward<PreRun>(pre_run), post_run = std::forward<PostRun>(post_run)] {
           pre_run();
           uv_run(&loop, UV_RUN_DEFAULT);
           post_run();
           uv_loop_close(&loop);
+          thread_finished.withWLock([](bool& done) { done = true; });
+          thread_finished.notify_all();
         });
   }
 
+  /**
+   * @brief Block until the thread body has fully finished running, after a
+   *        prior `stop()` call.
+   *
+   * Only safe to call from a thread other than this pipe's own loop thread
+   * -- e.g. from an owning object's destructor, running on whatever thread
+   * is destroying it. Calling this from a passthrough callback reacting
+   * synchronously on this pipe's own thread would deadlock waiting for
+   * itself. No-op if `start()` was never called (nothing to wait for).
+   */
+  void wait_until_finished() {
+    if (!started.load())
+      return;
+    thread_finished.wait([](bool& done) { return done; });
+  }
+
   void stop() {
-    if (stopped.exchange(true))
-      return;
-    if (!loop_thread.joinable())
-      return;
-    uv_async_send(&stop_async);
-    if (std::this_thread::get_id() == loop_thread.get_id()) {
-      // stop() was invoked synchronously from a callback running on this
-      // very loop thread (e.g. a disconnect/EOF handler reached through
-      // on_read() -> passthrough()) -- std::thread::join() on the thread
-      // calling join() throws std::system_error("Resource deadlock
-      // avoided"). uv_async_send() above already scheduled on_stop to run
-      // and close every handle on the next loop iteration, so uv_run()
-      // will return and the thread will finish on its own; detach instead
-      // of joining so this call can return without waiting on itself.
-      loop_thread.detach();
+    if (stopped.exchange(true)) {
+      // Someone else already won the race to detach/join loop_thread --
+      // wait for them to actually finish before returning, so this call is
+      // a real barrier (see stop_done's doc comment above).
+      stop_done.wait([](bool& done) { return done; });
       return;
     }
-    loop_thread.join();
+    if (loop_thread.joinable()) {
+      uv_async_send(&stop_async);
+      if (std::this_thread::get_id() == loop_thread.get_id()) {
+        // stop() was invoked synchronously from a callback running on this
+        // very loop thread (e.g. a disconnect/EOF handler reached through
+        // on_read() -> passthrough()) -- std::thread::join() on the thread
+        // calling join() throws std::system_error("Resource deadlock
+        // avoided"). uv_async_send() above already scheduled on_stop to run
+        // and close every handle on the next loop iteration, so uv_run()
+        // will return and the thread will finish on its own; detach instead
+        // of joining so this call can return without waiting on itself.
+        loop_thread.detach();
+      } else {
+        loop_thread.join();
+      }
+    }
+    stop_done.withWLock([](bool& done) { done = true; });
+    stop_done.notify_all();
   }
 };
 
@@ -360,6 +422,14 @@ struct term_reader {
   term_reader() = default;
   ~term_reader() {
     stop();
+    // stop() alone is not enough when it took the self-join (detach) path:
+    // detach() returns before the detached thread's post_run()/
+    // uv_loop_close() actually finish, and those still touch recv_queue
+    // (below). Wait for full completion before member destruction begins --
+    // safe here since a destructor never runs on this pipe's own thread in
+    // any supported usage (only shutdown(), not destruction, is ever
+    // triggered reentrantly from a passthrough callback).
+    io.wait_until_finished();
   }
   term_reader(const term_reader&) = delete;
   term_reader& operator=(const term_reader&) = delete;
@@ -648,6 +718,10 @@ struct term_writer {
   term_writer() = default;
   ~term_writer() {
     stop();
+    // See term_reader::~term_reader()'s identical comment: stop() alone
+    // doesn't wait out the self-join (detach) case's still-finishing
+    // thread, which touches send_queue (below).
+    io.wait_until_finished();
   }
   term_writer(const term_writer&) = delete;
   term_writer& operator=(const term_writer&) = delete;
@@ -663,8 +737,13 @@ struct term_writer {
   }
 
   void stop() {
-    if (stopped.exchange(true))
-      return;
+    // Mark stopped immediately (for enqueue_bytes()'s fast check below) but
+    // always forward to io.stop() -- it is itself safe to call from
+    // multiple threads/repeatedly (see term_pipe_thread::stop_done's doc
+    // comment): every caller blocks until the thread is actually
+    // detached/joined, so there is no need to (and no correctness benefit
+    // to) short-circuit here.
+    stopped.store(true);
     io.stop();
   }
 

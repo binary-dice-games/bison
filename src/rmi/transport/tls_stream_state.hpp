@@ -123,6 +123,28 @@ inline void load_private_key(mbedtls_pk_context& pk, const std::string& file, co
     throw_mbedtls_error("tls: failed to parse private key", rc);
 }
 
+/**
+ * @brief Force mbedTLS's lazily-computed ciphersuite table to be built
+ *        exactly once, before any concurrent handshakes can race it.
+ *
+ * `mbedtls_ssl_list_ciphersuites()` (called internally by every
+ * `mbedtls_ssl_config_defaults()` call) fills a file-static
+ * `supported_ciphersuites` array on first use, guarded only by a plain
+ * (non-atomic, unlocked) `static int supported_init` flag --
+ * `extern/mbedtls/library/ssl_ciphersuites.c` has no `MBEDTLS_THREADING_C`
+ * guard around it, unlike mbedTLS's PSA crypto key-slot state. Since bison
+ * runs concurrent handshakes by design (a client's `open()` and a server's
+ * per-connection accept thread both reach `mbedtls_ssl_config_defaults()`
+ * around the same time -- see `src/rmi/DESIGN.md` §13), calling this once
+ * up front lets C++11's thread-safe static-local initialization
+ * ("magic statics") do the one-time build before any second caller can ever
+ * observe a partially-filled table, without touching vendored mbedTLS code.
+ */
+inline void warm_ciphersuite_table() {
+  static const int* const warmed = mbedtls_ssl_list_ciphersuites();
+  (void)warmed;
+}
+
 inline int client_auth_to_mode(const std::string& mode) {
   if (mode == "none")
     return MBEDTLS_SSL_VERIFY_NONE;
@@ -255,6 +277,7 @@ struct tls_stream_state {
 
   /** @brief Configure this connection as a TLS server endpoint. Call before the handshake. */
   void configure_as_server(const tls_server_options& opts) {
+    detail::warm_ciphersuite_table();
     seed_rng("bison_tls_server");
 
     detail::load_cert_chain(own_cert, opts.cert_file, opts.cert_pem, "server certificate");
@@ -287,6 +310,7 @@ struct tls_stream_state {
 
   /** @brief Configure this connection as a TLS client endpoint. Call before the handshake. */
   void configure_as_client(const tls_client_options& opts) {
+    detail::warm_ciphersuite_table();
     seed_rng("bison_tls_client");
 
     int rc = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
@@ -481,10 +505,22 @@ struct tls_stream_state {
     for (;;) {
       const int n = mbedtls_ssl_read(&ssl, buf, sizeof(buf));
       if (n > 0) {
-        parser.feed(buf, static_cast<size_t>(n), [this](bison::buffer&& frame) {
+        bison::buffer recycled;
+        io.recycle_slot.withWLock([&](auto& spare) { recycled = std::move(spare); });
+        if (recycled.capacity() > 0)
+          parser.offer_reuse(std::move(recycled));
+
+        const bool ok = parser.feed(buf, static_cast<size_t>(n), [this](bison::buffer&& frame) {
           io.recv_queue.withWLock([&](auto& q) { q.push(std::move(frame)); });
           io.recv_queue.notify_one();
         });
+        if (!ok) {
+          // Declared frame length exceeded frame_parser::kMaxFrameBytes --
+          // fatal protocol error, same as a peer-initiated close.
+          io.recv_closed.store(true);
+          io.recv_queue.notify_all();
+          return;
+        }
         continue;
       }
       if (n == MBEDTLS_ERR_SSL_WANT_READ || n == MBEDTLS_ERR_SSL_WANT_WRITE)

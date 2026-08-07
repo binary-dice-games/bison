@@ -1,0 +1,47 @@
+# ThreadSanitizer suppressions for bison.
+#
+# Usage: TSAN_OPTIONS="suppressions=$(pwd)/tests/tsan_suppressions.txt" ctest
+# (run from a build directory configured with -DBISON_SANITIZE=thread).
+#
+# Only add an entry here for a race whose root cause has been investigated
+# and is confirmed to live outside code this repo controls (a vendored
+# extern/ dependency) -- never as a shortcut to silence a warning in
+# src/bison or src/rmi without first understanding it.
+
+# ── libuv: uv_async_send() vs. uv_loop_close()/uv__async_stop() ────────────
+#
+# libuv's uv_async_t implementation shares one eventfd per uv_loop_t
+# (loop->async_io_watcher.fd) across every uv_async_t handle registered on
+# that loop. uv_async_send() writes to it from any thread; uv_loop_close()
+# (via uv__async_stop()) closes it once the loop's run() call returns.
+# bison's own usage (src/rmi/transport/uv_stream_state.hpp's stop(): send a
+# stop_async wakeup, then join the loop thread) already sequences this
+# correctly at the application level -- the loop thread only reaches
+# uv_loop_close() after processing the very stop_async notification that
+# triggered it, and stop() only ever calls uv_async_send() once (guarded by
+# an exchange on `stopped`). The write()/close() pair on the shared eventfd
+# is genuinely ordered by that dependency (via the kernel's epoll wakeup),
+# but ThreadSanitizer's userspace instrumentation does not model epoll as a
+# synchronization point the way it does plain read()/write() pairs on pipes,
+# so it reports a race between the two syscalls regardless.
+#
+# This is a known category of libuv issue (see
+# https://github.com/libuv/libuv/issues/2226), reproduces on the current
+# pinned commit (extern/libuv, checked 2026-08-06), and is independent of
+# whether the loop is privately owned per-connection or a shared reactor
+# pool loop (src/rmi/transport/io_reactor_pool.hpp) -- suppressing it here
+# rather than attempting an application-level workaround, since the actual
+# synchronization gap is inside libuv's own eventfd-based wakeup mechanism.
+race:uv__async_send
+race:uv__async_stop
+
+# Note: an mbedTLS MBEDTLS_SELF_TEST instrumentation-counter race
+# (add_count/dbl_count/mul_count in extern/mbedtls/library/ecp.c) and a
+# lazily-initialized-without-locking ciphersuite table race
+# (mbedtls_ssl_list_ciphersuites() in ssl_ciphersuites.c) were found here
+# too. Both are fixed at the source instead of suppressed -- see
+# cmake/mbedtls_user_config.h (MBEDTLS_SELF_TEST disabled) and
+# src/rmi/transport/tls_stream_state.hpp's warm_ciphersuite_table()
+# (forces mbedTLS's lazy ciphersuite table to build once, thread-safely,
+# via C++11 magic statics, before any concurrent handshake can race it).
+

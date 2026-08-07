@@ -110,6 +110,7 @@ void tls_socket_client_transport::open(bison::dynamic params) {
   auto st = std::make_unique<tls_conn_state>();
   uv_loop_init(&st->io.loop);
   uv_tcp_init(&st->io.loop, &st->io.handle);
+  tune_tcp_socket(&st->io.handle);
 
   struct connect_ctx {
     tls_conn_state* st;
@@ -307,6 +308,7 @@ struct tls_socket_server_transport::impl {
     uv_tcp_init(&cst->io.loop, &cst->io.handle);
     if (uv_tcp_open(&cst->io.handle, dup_sock) != 0)
       return;
+    tune_tcp_socket(&cst->io.handle);
 
     try {
       cst->configure_as_server(im->tls_opts);

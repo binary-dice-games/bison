@@ -614,9 +614,35 @@ Flow:
 
 ### 9.2 Server Side
 
-- One listening thread handles `accept` loop.
-- One worker thread per active client connection handles request loop.
-- Per-client context is only mutated by that client worker thread (preferred) to reduce lock contention.
+- One listening thread handles `accept` loop (per transport; see §5.4 for the
+  I/O side of this).
+- A **bounded dispatch worker pool** (`server::dispatch_worker_state`,
+  `src/rmi/server/server.cpp`), sized off
+  `std::thread::hardware_concurrency()`, services all sessions instead of one
+  dedicated OS thread per connection. `accept_loop()` assigns each newly
+  accepted session to a worker round-robin; each worker owns a
+  `bison::synchronized<std::vector<std::shared_ptr<session_slot>>>` and loops
+  over its assigned sessions, calling `receive(frame, kDispatchPollTimeout)`
+  (currently 5ms) on each in turn. This bounds total dispatch threads to pool
+  size regardless of session count — the fix for thread-per-session not
+  scaling — at the cost of up to `kDispatchPollTimeout × sessions-on-that-worker`
+  added worst-case latency for a session waiting behind idle sessions on the
+  same worker.
+- Per-session ordering is unchanged: a given session's requests are still
+  processed strictly one-at-a-time, since only its assigned worker ever
+  touches its `context` (`service_session()` holds that session's
+  `ctx_holder` wlock for the duration of one request).
+- This is deliberately **transport-agnostic**: it only depends on the
+  existing blocking `server_connection_iface::receive(timeout)` contract, so
+  it works uniformly across every transport (TCP, TLS, named pipe, memory,
+  stream) without transport-specific code. A shared-`uv_loop_t` I/O reactor
+  pool (pooling the *libuv* thread-per-connection side too, not just RMI
+  dispatch) was prototyped and rejected: it only covered the plain-TCP
+  transport cleanly, since TLS's synchronous handshake and
+  `named_pipe_transport.cpp` both assume a private per-connection loop;
+  extending pooling to those would need an async handshake rewrite, out of
+  scope here. The dispatch pool captures the session-count win without that
+  transport-layer risk.
 - Shared registries (class metadata) are read-only after startup or protected by RW lock.
 
 ## 10. Operation Semantics

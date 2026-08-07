@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <array>
+#include <limits>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
@@ -390,6 +391,113 @@ TEST(BufferSerializerTests, StringViewRoundTrip) {
   std::string result;
   in.read(result);
   EXPECT_EQ(result, backing);
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 3a. ULEB128 varint length prefixes (FORMAT.md §1.4)
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(VarintTests, SingleByteValuesRoundTrip) {
+  for (uint64_t v : {uint64_t{0}, uint64_t{1}, uint64_t{63}, uint64_t{127}}) {
+    buffer_serializer out;
+    out.write_varint(v);
+    auto buf = out.release();
+    EXPECT_EQ(buf.size(), 1u) << "value " << v;
+
+    buffer_deserializer in(buf);
+    EXPECT_EQ(in.read_varint(), v);
+  }
+}
+
+TEST(VarintTests, MatchesFormatMdByteLevelExamples) {
+  // FORMAT.md §1.4: 300 encodes as two bytes, 0xAC 0x02.
+  {
+    buffer_serializer out;
+    out.write_varint(300);
+    auto buf = out.release();
+    ASSERT_EQ(buf.size(), 2u);
+    EXPECT_EQ(buf[0], 0xACu);
+    EXPECT_EQ(buf[1], 0x02u);
+  }
+  // 128 is the smallest value needing a second byte: 0x80 0x01.
+  {
+    buffer_serializer out;
+    out.write_varint(128);
+    auto buf = out.release();
+    ASSERT_EQ(buf.size(), 2u);
+    EXPECT_EQ(buf[0], 0x80u);
+    EXPECT_EQ(buf[1], 0x01u);
+  }
+}
+
+TEST(VarintTests, MultiByteValuesRoundTrip) {
+  for (uint64_t v : {uint64_t{128}, uint64_t{300}, uint64_t{16384}, uint64_t{1'000'000},
+                      uint64_t{std::numeric_limits<uint32_t>::max()}, std::numeric_limits<uint64_t>::max()}) {
+    buffer_serializer out;
+    out.write_varint(v);
+    auto buf = out.release();
+
+    buffer_deserializer in(buf);
+    EXPECT_EQ(in.read_varint(), v) << "value " << v;
+  }
+}
+
+TEST(VarintTests, TruncatedContinuationByteThrowsUnderflow) {
+  buffer_serializer out;
+  out.write_varint(300); // two bytes, second is not a continuation byte
+  auto buf = out.release();
+  buf.resize(1); // drop the second byte, leaving only a continuation byte
+
+  buffer_deserializer in(buf);
+  EXPECT_THROW(in.read_varint(), std::runtime_error);
+}
+
+TEST(VarintTests, OverlongEncodingThrows) {
+  // 11 continuation bytes (77 payload bits) exceeds the 64-bit limit.
+  buffer out(11, 0x80);
+  out.push_back(0x01);
+
+  buffer_deserializer in(out);
+  EXPECT_THROW(in.read_varint(), std::runtime_error);
+}
+
+TEST(VarintTests, BufferAndStreamAgree) {
+  const uint64_t values[] = {0, 1, 127, 128, 300, 16384, 2'097'151, 2'097'152};
+
+  std::stringstream ss;
+  {
+    stream_serializer s{ss};
+    for (uint64_t v : values)
+      s.write(std::vector<uint8_t>(static_cast<size_t>(v % 5), 0xAB)); // exercises write_varint via write(vector)
+  }
+  // Cross-check: buffer_serializer's write(vector<uint8_t>) must produce the
+  // identical bytes for the same inputs (both delegate through write_varint
+  // for the length prefix).
+  buffer_serializer buf_out;
+  for (uint64_t v : values)
+    buf_out.write(std::vector<uint8_t>(static_cast<size_t>(v % 5), 0xAB));
+  auto buf_bytes = buf_out.release();
+  std::string stream_bytes = ss.str();
+
+  ASSERT_EQ(stream_bytes.size(), buf_bytes.size());
+  EXPECT_EQ(0, std::memcmp(stream_bytes.data(), buf_bytes.data(), stream_bytes.size()));
+}
+
+TEST(VarintTests, LargeVectorRoundTripsThroughMultiByteCount) {
+  std::vector<int32_t> v(20000);
+  for (size_t i = 0; i < v.size(); ++i)
+    v[i] = static_cast<int32_t>(i);
+
+  buffer_serializer out;
+  out.write(v);
+  auto buf = out.release();
+  // 20000 needs a 3-byte varint (20000 > 2^14 - 1), vs. 8 fixed bytes before.
+  EXPECT_LT(buf.size(), 8 + v.size() * sizeof(int32_t));
+
+  buffer_deserializer in(buf);
+  std::vector<int32_t> result;
+  in.read(result);
+  EXPECT_EQ(result, v);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1125,12 +1233,14 @@ TEST_F(InheritanceTest, MethodInheritedFromParent) {
   EXPECT_EQ(res["sound"_key].as<std::string>(), "...");
 }
 
-TEST_F(InheritanceTest, InheritedMethodSpecIsClonedPerInstance) {
-  // findMethod()'s "slow path" caches an inherited method into the
-  // instance's own methods_ map, same as findField() does for fields. A
-  // method's input/output specs are dynamic_ptr, so a naive method copy
-  // would alias the same spec object across every instance that inherits
-  // it -- verify each instance gets its own independent clone instead.
+TEST_F(InheritanceTest, InheritedMethodSpecIsSharedAcrossInstances) {
+  // findMethod()'s "slow path" caches a *shared* reference to the inherited
+  // method into the instance's own methods_ map (shared_ptr<const method>),
+  // unlike findField()'s inherited-default caching, which clones. A method
+  // (including its input/output specs) is never mutated in place after
+  // registration, so sharing it across every instance that inherits it is
+  // safe and avoids a per-instance deep copy -- verify two instances of the
+  // same class resolve to the exact same underlying method/spec objects.
   auto input_spec = dynamic_ptr{bdg::bison::key_t{0U}, {{"x"_key, int32_t{0}}}};
   auto base = dynamic_ptr{"Talker"_key};
   base->addMethod(
@@ -1141,14 +1251,23 @@ TEST_F(InheritanceTest, InheritedMethodSpecIsClonedPerInstance) {
   dynamic a = dynamic::instantiate("Talker"_key);
   dynamic b = dynamic::instantiate("Talker"_key);
 
-  auto* ma = a.findMethod("speak"_key);
-  auto* mb = b.findMethod("speak"_key);
+  const auto* ma = a.findMethod("speak"_key);
+  const auto* mb = b.findMethod("speak"_key);
   ASSERT_NE(ma, nullptr);
   ASSERT_NE(mb, nullptr);
+  EXPECT_EQ(ma, mb) << "two instances' cached inherited methods should share the same underlying object";
   ASSERT_NE(ma->inputSpec(), nullptr);
   ASSERT_NE(mb->inputSpec(), nullptr);
-  EXPECT_NE(ma->inputSpec(), mb->inputSpec())
-      << "two instances' cached method specs must not alias the same dynamic";
+  EXPECT_EQ(ma->inputSpec(), mb->inputSpec())
+      << "two instances' cached method specs should share the same underlying dynamic, not clone it";
+
+  // dynamic's copy constructor must likewise share (not deep-copy) already
+  // cached methods_ entries, since copy_ctor/clone_into() now just copy
+  // shared_ptr<const method> handles.
+  dynamic c{a};
+  const auto* mc = c.findMethod("speak"_key);
+  ASSERT_NE(mc, nullptr);
+  EXPECT_EQ(mc, ma) << "copy-constructing a dynamic should share cached method objects, not clone them";
 }
 
 TEST_F(InheritanceTest, DerivedClassOverridesParentField) {

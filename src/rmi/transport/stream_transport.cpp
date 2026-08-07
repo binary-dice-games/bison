@@ -4,6 +4,7 @@
  * @brief iostream-backed transport implementation.
  */
 #include "src/rmi/transport/stream_transport.hpp"
+#include "src/rmi/transport/frame_parser.hpp"
 
 #include <stdexcept>
 #include <thread>
@@ -34,6 +35,8 @@ bool stream_read_frame(std::istream& in, bison::buffer& frame) {
     throw std::runtime_error("stream_transport: partial length prefix");
 
   const uint32_t len = bison::byte_swap(len_wire);
+  if (len > kMaxFrameBytes)
+    throw std::runtime_error("stream_transport: frame length exceeds kMaxFrameBytes");
 
   frame.resize(len);
   if (len > 0) {

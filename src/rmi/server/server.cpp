@@ -10,6 +10,7 @@
 #include "src/rmi/shared/ids.hpp"
 #include "src/rmi/shared/schemas.hpp"
 
+#include <algorithm>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -241,6 +242,14 @@ void server::listen(bison::dynamic params, auth_module_ptr auth_module) {
   auth_module_ = std::move(auth_module);
   running_.store(true);
   transport_.get()->start(std::move(params));
+
+  const size_t worker_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+  dispatch_workers_.reserve(worker_count);
+  for (size_t i = 0; i < worker_count; ++i)
+    dispatch_workers_.push_back(std::make_unique<dispatch_worker_state>());
+  for (size_t i = 0; i < worker_count; ++i)
+    dispatch_workers_[i]->thread = std::thread(&server::dispatch_worker, this, i);
+
   accept_thread_ = std::thread(&server::accept_loop, this);
 }
 
@@ -254,46 +263,54 @@ void server::stop() {
 }
 
 /**
- * @brief Join and clear all per-connection worker threads.
+ * @brief Join the bounded dispatch worker pool.
+ *
+ * Each worker tears down any sessions still assigned to it (see
+ * `dispatch_worker()`'s shutdown sweep) as the last thing it does before
+ * its thread function returns, so by the time every thread here has been
+ * joined, every session has been torn down exactly once.
  */
 void server::join_workers() {
-  auto lp = workers_.wlock();
-  for (auto& t : *lp)
-    if (t.joinable())
-      t.join();
-  lp->clear();
+  for (auto& w : dispatch_workers_)
+    if (w->thread.joinable())
+      w->thread.join();
+  dispatch_workers_.clear();
 }
 
 // ── Accept loop
 // ───────────────────────────────────────────────────────────────
 
 /**
- * @brief Accept incoming connections and spawn per-client workers.
+ * @brief Accept incoming connections and hand each to a dispatch worker.
  */
 void server::accept_loop() {
+  size_t next_worker = 0;
   while (running_.load(std::memory_order_acquire)) {
     auto conn = transport_.get()->accept(std::chrono::milliseconds{100});
     if (!conn)
       continue;
-    workers_.wlock()->emplace_back(std::thread(&server::client_worker, this, std::move(conn)));
+    start_session(std::move(conn), next_worker);
+    next_worker = (next_worker + 1) % dispatch_workers_.size();
   }
 }
 
-// ── Client worker
-// ─────────────────────────────────────────────────────────────
-
 /**
- * @brief Process one client connection until closed.
- * @param conn Active connection object.
+ * @brief Create a session for a freshly-accepted connection and assign it
+ *        to dispatch worker @p worker_index.
  */
-void server::client_worker(std::unique_ptr<transport::server_connection_iface> conn) {
-  auto session_id = shared::generate_id();
-  auto ctx_holder = std::make_shared<bison::synchronized<std::unique_ptr<context>>>(
-      std::in_place, on_create_context(session_id));
+void server::start_session(std::unique_ptr<transport::server_connection_iface> conn, size_t worker_index) {
+  auto slot = std::make_shared<session_slot>();
+  slot->session_id = shared::generate_id();
+  slot->ctx_holder = std::make_shared<bison::synchronized<std::unique_ptr<context>>>(
+      std::in_place, on_create_context(slot->session_id));
 
+  // Safe to capture the raw connection pointer (not conn, which is about to
+  // be moved into slot): slot and its conn share one lifetime from here on,
+  // and emit_event never outlives ctx_holder, which lives inside slot.
+  auto* raw_conn = conn.get();
   {
-    auto lp = ctx_holder->wlock();
-    (*lp)->emit_event = [&conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
+    auto lp = slot->ctx_holder->wlock();
+    (*lp)->emit_event = [raw_conn](bison::key_t oid, bison::key_t name, bison::dynamic params) {
       bison::dynamic ev_payload;
       ev_payload[FIELD_NAME] = name;
       ev_payload[FIELD_PARAMS] = bison::dynamic_ptr{std::move(params)};
@@ -304,71 +321,142 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
       event_env.oneway = true;
       event_env.payload = std::move(ev_payload);
       auto frame = event_env.encode();
-      conn->send(std::move(frame));
+      raw_conn->send(std::move(frame));
     };
   }
+  slot->conn = std::move(conn);
 
   // Register the context so external observers can access it.
-  session_contexts_.wlock()->emplace(session_id.id, ctx_holder);
+  session_contexts_.wlock()->emplace(slot->session_id.id, slot->ctx_holder);
   {
-    auto lp = ctx_holder->wlock();
+    auto lp = slot->ctx_holder->wlock();
     on_session_created(**lp);
   }
 
-  while (running_.load(std::memory_order_acquire) && !conn->is_closed()) {
-    bison::buffer frame;
-    if (!conn->receive(frame, std::chrono::milliseconds{50}))
-      continue;
+  dispatch_workers_[worker_index]->sessions.withWLock([&](auto& v) { v.push_back(std::move(slot)); });
+}
 
-    shared::envelope env;
-    try {
-      env = shared::envelope::decode(frame);
-    } catch (const std::exception& e) {
-      try {
-        bison::dynamic error_payload{CLASS_ERROR};
-        error_payload[FIELD_ERROR_CODE] = ERR_INVALID_REQUEST;
-        error_payload[FIELD_ERROR_MESSAGE] = std::string{e.what()};
+// ── Dispatch worker
+// ───────────────────────────────────────────────────────
 
-        shared::envelope frame_err_env;
-        frame_err_env.kind = KIND_RESPONSE;
-        frame_err_env.op = OP_CONNECT;
-        frame_err_env.oneway = false;
-        frame_err_env.error = std::move(error_payload);
-        auto frame_err = frame_err_env.encode();
-        conn->send(std::move(frame_err));
-      } catch (...) {
-      }
+/**
+ * @brief Round-robin over this worker's assigned sessions until shutdown.
+ * @param worker_index Index into `dispatch_workers_` for this thread.
+ */
+void server::dispatch_worker(size_t worker_index) {
+  auto& w = *dispatch_workers_[worker_index];
+
+  while (running_.load(std::memory_order_acquire)) {
+    // Snapshot the current session list rather than holding the lock across
+    // the receive() calls below (each up to kDispatchPollTimeout) -- doing
+    // so would block start_session() (which needs the write lock to assign
+    // new connections to this worker) for the whole lap.
+    std::vector<std::shared_ptr<session_slot>> current;
+    w.sessions.withRLock([&](auto& v) { current = v; });
+
+    if (current.empty()) {
+      std::this_thread::sleep_for(kDispatchPollTimeout);
       continue;
     }
 
-    {
-      auto lp = ctx_holder->wlock();
-      context& ctx = **lp;
-      on_before_dispatch(ctx);
-      try {
-        handle_request(ctx, env, *conn);
-        on_after_dispatch(ctx);
-      } catch (const std::exception& e) {
-        on_after_dispatch(ctx);
-        try {
-          send_error(ctx, *conn, env, env.op, ERR_INVALID_REQUEST, e.what());
-        } catch (...) {
-        }
+    std::vector<std::shared_ptr<session_slot>> closed;
+    for (auto& slot : current) {
+      if (!running_.load(std::memory_order_acquire))
+        break;
+      if (slot->conn->is_closed()) {
+        closed.push_back(slot);
+        continue;
       }
+      service_session(*slot);
+      if (slot->conn->is_closed())
+        closed.push_back(slot);
+    }
+
+    if (!closed.empty()) {
+      for (auto& slot : closed)
+        teardown_session(*slot);
+      w.sessions.withWLock([&](auto& v) {
+        v.erase(std::remove_if(
+                    v.begin(), v.end(),
+                    [&](const auto& s) { return std::find(closed.begin(), closed.end(), s) != closed.end(); }),
+                v.end());
+      });
     }
   }
 
+  // Shutdown: tear down every session still assigned to this worker.
+  std::vector<std::shared_ptr<session_slot>> remaining;
+  w.sessions.withWLock([&](auto& v) {
+    remaining = std::move(v);
+    v.clear();
+  });
+  for (auto& slot : remaining)
+    teardown_session(*slot);
+}
+
+/**
+ * @brief Try to receive and dispatch one frame for @p slot; a no-op if
+ *        nothing arrived within `kDispatchPollTimeout`.
+ */
+void server::service_session(session_slot& slot) {
+  bison::buffer frame;
+  if (!slot.conn->receive(frame, kDispatchPollTimeout))
+    return;
+
+  shared::envelope env;
+  try {
+    env = shared::envelope::decode(frame);
+  } catch (const std::exception& e) {
+    try {
+      bison::dynamic error_payload{CLASS_ERROR};
+      error_payload[FIELD_ERROR_CODE] = ERR_INVALID_REQUEST;
+      error_payload[FIELD_ERROR_MESSAGE] = std::string{e.what()};
+
+      shared::envelope frame_err_env;
+      frame_err_env.kind = KIND_RESPONSE;
+      frame_err_env.op = OP_CONNECT;
+      frame_err_env.oneway = false;
+      frame_err_env.error = std::move(error_payload);
+      auto frame_err = frame_err_env.encode();
+      slot.conn->send(std::move(frame_err));
+    } catch (...) {
+    }
+    return;
+  }
+
+  auto lp = slot.ctx_holder->wlock();
+  context& ctx = **lp;
+  on_before_dispatch(ctx);
+  try {
+    handle_request(ctx, env, *slot.conn);
+    on_after_dispatch(ctx);
+  } catch (const std::exception& e) {
+    on_after_dispatch(ctx);
+    try {
+      send_error(ctx, *slot.conn, env, env.op, ERR_INVALID_REQUEST, e.what());
+    } catch (...) {
+    }
+  }
+}
+
+/**
+ * @brief Run session teardown hooks and unregister @p slot.
+ *
+ * Called exactly once per session, either when its connection closes or
+ * during a dispatch worker's shutdown sweep.
+ */
+void server::teardown_session(session_slot& slot) {
   {
-    auto lp = ctx_holder->wlock();
+    auto lp = slot.ctx_holder->wlock();
     context& ctx = **lp;
     // Bracket teardown in the same on_before_dispatch/on_after_dispatch
-    // hooks used around handle_request() above -- overrides rely on these to
-    // know a thread already holds ctx's wlock (e.g. so a destructor invoked
-    // from cleanup_context()'s HOOK_DESTRUCT calls / ctx.objects.clear()
-    // doesn't try to re-acquire it and self-deadlock). Without this,
-    // on_session_destroyed() was covered (called directly under the wlock)
-    // but cleanup_context() -- where objects, and therefore their
-    // destructors, actually run -- was not.
+    // hooks used around handle_request() in service_session() -- overrides
+    // rely on these to know a thread already holds ctx's wlock (e.g. so a
+    // destructor invoked from cleanup_context()'s HOOK_DESTRUCT calls /
+    // ctx.objects.clear() doesn't try to re-acquire it and self-deadlock).
+    // Without this, on_session_destroyed() was covered (called directly
+    // under the wlock) but cleanup_context() -- where objects, and
+    // therefore their destructors, actually run -- was not.
     on_before_dispatch(ctx);
     on_session_destroyed(ctx);
     cleanup_context(ctx);
@@ -376,7 +464,7 @@ void server::client_worker(std::unique_ptr<transport::server_connection_iface> c
   }
 
   // Unregister and clear emit_event to prevent dangling references to conn.
-  session_contexts_.wlock()->erase(session_id.id);
+  session_contexts_.wlock()->erase(slot.session_id.id);
 }
 
 // ── Envelope helpers
@@ -701,27 +789,34 @@ void server::handle_set(context& ctx, const shared::envelope& env, transport::se
   }
   auto& obj = *it->second;
 
-  bison::dynamic patch = env.payload.clone();
+  // NAMESPACE must never be copied from a patch -- see the identical
+  // exclusion in standalone::handle_set() for the full explanation: a
+  // __setter hook probing patch.findField<T>() for an optional field can
+  // miss and cause resolveNamespace() to cache a spurious __namespace=0
+  // onto `patch`, which would otherwise overwrite the target object's
+  // real namespace here and break its method resolution.
+  auto apply_patch = [&obj](const bison::dynamic& patch) {
+    patch.forEach([&obj](bison::key_t k, const bison::field& v) {
+      if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT && k != bison::dynamic::NAMESPACE)
+        obj[k] = v;
+    });
+  };
 
+  // Only clone the incoming payload when a __setter hook actually needs an
+  // owned/mutable copy to transform; the common case (no hook) applies
+  // env.payload's fields directly with no copy at all.
   if (obj.findMethod(HOOK_SETTER) != nullptr) {
+    bison::dynamic patched;
     try {
-      patch = obj.call(HOOK_SETTER, patch);
+      patched = obj.call(HOOK_SETTER, env.payload);
     } catch (const std::exception& e) {
       send_error(ctx, conn, env, OP_SET, ERR_INTERNAL_ERROR, std::string("__setter failed: ") + e.what());
       return;
     }
+    apply_patch(patched);
+  } else {
+    apply_patch(env.payload);
   }
-
-  patch.forEach([&obj](bison::key_t k, const bison::field& v) {
-    // NAMESPACE must never be copied from a patch -- see the identical
-    // exclusion in standalone::handle_set() for the full explanation: a
-    // __setter hook probing patch.findField<T>() for an optional field can
-    // miss and cause resolveNamespace() to cache a spurious __namespace=0
-    // onto `patch`, which would otherwise overwrite the target object's
-    // real namespace here and break its method resolution.
-    if (k != bison::dynamic::CLASS && k != bison::dynamic::PARENT && k != bison::dynamic::NAMESPACE)
-      obj[k] = v;
-  });
 
   send_response(ctx, conn, env, OP_SET, bison::dynamic{});
 }
@@ -746,7 +841,12 @@ void server::handle_get(context& ctx, const shared::envelope& env, transport::se
 
   bison::dynamic result;
   if (!has_projection) {
-    result = obj.clone();
+    // Copy-construct directly rather than obj.clone(): clone() goes through
+    // the virtual clone_ptr(), which heap-allocates a whole shared_ptr
+    // control block just to immediately unwrap and discard it. The plain
+    // copy constructor performs the identical deep copy (including cloning
+    // nested dynamic_ptr fields) without that extra allocation.
+    result = bison::dynamic{obj};
   } else {
     projection.forEach([&](bison::key_t k, const bison::field&) {
       if (k == bison::dynamic::CLASS || k == bison::dynamic::PARENT)

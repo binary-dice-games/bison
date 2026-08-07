@@ -22,11 +22,13 @@ and write; on big-endian hosts the bytes are passed through unchanged.
 | `uint32_t` | 4 B   | `hash_t`, `key_t`, `hash_t`-typed field payload |
 | `int32_t`  | 4 B   | signed 32-bit integer field payload |
 | `float`    | 4 B   | IEEE 754 single-precision |
-| `size_t`   | 8 B   | element/byte count prefix (platform `sizeof(size_t)` on the **writing** host; the reference implementation is 64-bit) |
+| varint     | 1-10 B | element/byte count prefix -- see §1.4 |
 
-> **Note on `size_t` width.** The reference implementation writes `size_t` as
-> 8 bytes on 64-bit hosts.  Portable reimplementations should treat all length
-> prefixes as 8-byte big-endian unsigned integers.
+> **History.** Protocol version 1 wrote count prefixes as a fixed 8-byte
+> big-endian `size_t`. Version 2 (current) switched to the varint encoding
+> in §1.4, since real payloads' counts are almost always well under 2^16 --
+> see §4.1's version-bump note. The two versions are wire-incompatible;
+> `__version` must match between reader and writer (§7 point 6).
 
 ### 1.3 Name hashing (FNV-1a)
 
@@ -63,6 +65,37 @@ class registry names referenced by the serialisation layer.
 > `"__class"_key`, etc.  An implementing library only needs to reproduce the
 > FNV-1a formula above to derive them.
 
+### 1.4 Variable-length integers (varint)
+
+Element/byte count prefixes (§2.3, §3.1's `field_count`) are encoded as
+**ULEB128** (unsigned little-endian base-128), the same variable-length
+integer format used by DWARF, Protocol Buffers, and WebAssembly:
+
+- The value is split into 7-bit groups, least-significant group first.
+- Each output byte holds one 7-bit group in its low 7 bits.
+- The high bit (`0x80`) of a byte is a **continuation flag**: set if another
+  byte follows, clear on the last byte.
+- A value that fits in `N` groups needs at least `N` bytes; the current
+  implementation always emits the minimal encoding (no padding with extra
+  zero groups) and readers should treat a non-minimal encoding as
+  acceptable to decode but never produce one themselves.
+- Encodings wider than 10 bytes (i.e. more than 64 payload bits) are
+  invalid; readers must reject them rather than silently truncating.
+
+Example: the value `300` (`0b1_0010_1100`) splits into two 7-bit groups
+(`0101100`, `0000010`), encoded low-group-first with the continuation bit
+set on all but the last byte:
+
+```
+AC 02
+```
+
+`0xAC` = `1010_1100` (continuation bit set, payload `0101100`),
+`0x02` = `0000_0010` (no continuation bit, payload `0000010`).
+
+Values `0`-`127` always encode as a single byte with the continuation bit
+clear (e.g. `0` -> `00`, `127` -> `7F`).
+
 ---
 
 ## 2. Field Encoding
@@ -85,11 +118,11 @@ requires a protocol version bump.
 | `4` | `int32_t`              | 4 bytes big-endian signed integer |
 | `5` | `float`                | 4 bytes IEEE 754 single-precision, big-endian |
 | `6` | `dynamic_ptr` (object) | 1-byte presence flag, then nested object (see §2.2) |
-| `7` | `std::string`          | 8-byte big-endian length, then UTF-8 bytes |
-| `8` | `vector<bool>`         | 8-byte big-endian count, then *count* × 1-byte elements |
-| `9` | `vector<int32_t>`      | 8-byte big-endian count, then *count* × 4-byte big-endian `int32_t` |
-| `10`| `vector<float>`        | 8-byte big-endian count, then *count* × 4-byte big-endian `float` |
-| `11`| `vector<uint8_t>`      | 8-byte big-endian count, then *count* raw bytes |
+| `7` | `std::string`          | varint length (§1.4), then UTF-8 bytes |
+| `8` | `vector<bool>`         | varint count (§1.4), then *count* × 1-byte elements |
+| `9` | `vector<int32_t>`      | varint count (§1.4), then *count* × 4-byte big-endian `int32_t` |
+| `10`| `vector<float>`        | varint count (§1.4), then *count* × 4-byte big-endian `float` |
+| `11`| `vector<uint8_t>`      | varint count (§1.4), then *count* raw bytes |
 
 ### 2.2 Nested `dynamic_ptr` (tag 6)
 
@@ -104,9 +137,8 @@ requires a protocol version bump.
 
 ### 2.3 String and array length prefixes
 
-All variable-length payloads (strings and vectors) are prefixed with an 8-byte
-big-endian unsigned integer giving the number of **elements** (not bytes) that
-follow.
+All variable-length payloads (strings and vectors) are prefixed with a
+varint (§1.4) giving the number of **elements** (not bytes) that follow.
 
 ---
 
@@ -120,7 +152,7 @@ Used by `dynamic::serialize` / `dynamic::deserialize`.  Requires no prior
 knowledge of any class schema.
 
 ```
-[8 bytes BE: field_count  (number of key-value pairs to follow)]
+[varint: field_count  (number of key-value pairs to follow, §1.4)]
 for each field (field_count times):
     [4 bytes BE: key  (hash_t / key_t of the field name)]
     [field encoding (§2)]
@@ -179,7 +211,7 @@ pre-registered class `"__envelope"`.
 
 | Field name         | String literal    | Wire tag | Type        | Meaning |
 |--------------------|-------------------|----------|-------------|---------|
-| `__version`        | `"__version"`     | 4 (`int32_t`) | Protocol version; current value = **1** |
+| `__version`        | `"__version"`     | 4 (`int32_t`) | Protocol version; current value = **2** (see §1.2's history note -- version 1 used fixed 8-byte length prefixes) |
 | `__kind`           | `"__kind"`        | 2 (`key_t`)   | Message kind token (see §4.2) |
 | `__op`             | `"__op"`          | 2 (`key_t`)   | Operation token (see §4.3) |
 | `__requestId`      | `"__requestId"`   | 2 (`key_t`)   | Correlation ID; echoed back in the response |
@@ -250,8 +282,9 @@ The bytes stored in `__payload` are either:
 
 ### 4.5 Error bytes (`__error`)
 
-The bytes stored in `__error` are always encoded in Schema-Driven Compact
-Format (§3.2) using the pre-registered class `"__error"`.
+**When there is an error** (the envelope carries a non-zero `__code`), the
+bytes stored in `__error` are encoded in Schema-Driven Compact Format (§3.2)
+using the pre-registered class `"__error"`.
 
 **Error schema (`"__error"`) — field order:**
 
@@ -261,8 +294,17 @@ Format (§3.2) using the pre-registered class `"__error"`.
 | `__message`   | `"__message"`   | 7 (`string`)   | Human-readable message |
 | `__details`   | `"__details"`   | 6 (`dynamic_ptr`) | Optional structured details object |
 
-When there is no error the bytes encode an `"__error"` object with all fields
-at their default (zero / empty) values.
+**When there is no error** (the overwhelming majority of responses),
+`__error` is encoded as an **empty (zero-length) byte buffer** rather than a
+fully-encoded `"__error"` object with all-default field values — the
+`__envelope` prototype's own default for `__error` is already an empty
+buffer (see §3.2 point 4 and `src/rmi/shared/schemas.hpp`), so the writer
+simply omits the field instead of paying the cost of constructing and
+schema-serializing an all-zero `"__error"` object under the class-registry
+lock for every successful call. Decoders MUST treat an empty `__error`
+buffer as equivalent to a default-valued `"__error"` object (i.e. `__code ==
+0`) rather than attempting to run it through the Schema-Driven Compact
+Format decoder.
 
 ### 4.6 Canonical error code tokens
 
@@ -296,6 +338,12 @@ wrapped in a lightweight length-prefix frame.
 The length field is written using `htonl` / read using `ntohl`, i.e. standard
 network byte order (big-endian), and represents the number of bytes in the
 payload that immediately follows.
+
+`payload_length` MUST NOT exceed `kMaxFrameBytes` (64 MiB; see
+`src/rmi/transport/frame_parser.hpp`). The reference implementation checks
+this before allocating space for the payload, and closes the connection if a
+peer sends a larger declared length — this bounds how much memory a single
+malformed or malicious length prefix can force the receiver to allocate.
 
 ### 5.1a TLS-secured TCP transport
 
@@ -432,7 +480,7 @@ Object: `{ "x": int32(3), "y": int32(7) }`
 (assuming `hash("x") = 0xABCD1234` and `hash("y") = 0xABCD5678` for illustration)
 
 ```
-00 00 00 00 00 00 00 02   ← field_count = 2 (8-byte BE)
+02                       ← field_count = 2 (varint, §1.4)
 AB CD 12 34              ← key = hash("x") (4-byte BE uint32_t)
 04                       ← tag = 4 (int32_t)
 00 00 00 03              ← value = 3 (4-byte BE int32_t)
@@ -445,7 +493,7 @@ AB CD 56 78              ← key = hash("y")
 
 ```
 07                       ← tag = 7 (std::string)
-00 00 00 00 00 00 00 00  ← length = 0 (8-byte BE)
+00                       ← length = 0 (varint, §1.4)
                          ← (no bytes follow)
 ```
 
@@ -503,6 +551,8 @@ Object of class `"Point"` (registered in global namespace) with fields
    It does not perform any length-based validation; a schema mismatch will
    corrupt the decoded object without raising an error.
 
-6. **Protocol version.** The current protocol version constant is **1**.
+6. **Protocol version.** The current protocol version constant is **2**.
    Implementations should reject (or at least warn on) envelopes whose
-   `__version` field does not match the expected value.
+   `__version` field does not match the expected value. The reference
+   server (`src/rmi/server/server.cpp`) rejects a mismatched version with
+   `ERR_UNSUPPORTED_VERSION` on the `"connect"` operation.
