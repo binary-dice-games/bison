@@ -36,6 +36,9 @@ target_link_libraries(server_app_test gflags)
 package_add_test(client_app_test client_app_tests.cpp)
 target_link_libraries(client_app_test gflags)
 
+# line_edit_state editing-rules tests (terminal-agnostic; no tty needed)
+package_add_test(line_editor_test line_editor_tests.cpp)
+
 # term (OSC-99 chunked) transport tests — cross-platform
 package_add_test(term_transport_test term_transport_tests.cpp)
 

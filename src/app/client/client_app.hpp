@@ -5,6 +5,7 @@
  */
 #pragma once
 
+#include "src/app/client/line_editor.hpp"
 #include "src/bison/bison.hpp"
 #include "src/rmi/client/client.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
@@ -150,23 +151,35 @@ class client_app {
   virtual int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
 
   /**
-   * @brief Read one line of console (operator) input, blocking until a line
-   *        is available.
+   * @brief Print @p prompt, then read one line of console (operator) input,
+   *        blocking until a line is available.
    *
-   * Always just `std::getline(std::cin, line)`. In `--transport=term` mode
-   * fd 0 is backed by `term::scoped_terminal_config`, which redirects the
-   * transport's real, framed read fd elsewhere and feeds this class only
-   * the non-frame pass-through bytes (see `client_app.cpp` and
-   * `src/term/scoped_terminal_config.hpp`) — so plain `std::cin` reads are
-   * always safe here, regardless of transport.
+   * Backed by `line_editor_`: when stdin/stdout are an interactive tty,
+   * this gets arrow-key command history and in-line cursor editing (see
+   * `line_editor.hpp`); otherwise it degrades to plain
+   * `std::getline(std::cin, line)`, so scripted/piped input still works.
    *
-   * @param line Output line, without the trailing newline.
-   * @return `false` once no more input is available (EOF on `std::cin`).
+   * In `--transport=term` mode, fd 0 is backed by
+   * `term::scoped_terminal_config`, which redirects the transport's real,
+   * framed read fd elsewhere and feeds this class only the non-frame
+   * pass-through bytes (see `client_app.cpp` and
+   * `src/term/scoped_terminal_config.hpp`) — `isatty(0)` is therefore false
+   * in that mode (fd 0 is a pipe, not a terminal), so `line_editor_`
+   * naturally falls back to plain `std::cin` reads there, regardless of
+   * transport.
+   *
+   * @param prompt Text to print before reading (e.g. "> ").
+   * @param line   Output line, without the trailing newline.
+   * @return `false` once no more input is available (EOF).
    */
-  bool read_console_line(std::string& line);
+  bool read_console_line(std::string_view prompt, std::string& line);
 
   /** @brief Per-request timeout; set from `--timeout` before `on_session()`. */
   std::chrono::milliseconds timeout_{30000};
+
+ private:
+  /** @brief Backs `read_console_line()`; persists history across calls. */
+  line_editor line_editor_;
 };
 
 } // namespace bdg::bison::app

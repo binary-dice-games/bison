@@ -477,8 +477,7 @@ int cli_app::on_session(rmi::client& c) {
   repl_context ctx{c, handles, km, timeout_};
   std::string line;
   while (true) {
-    std::cout << "> " << std::flush;
-    if (!read_console_line(line))
+    if (!read_console_line("> ", line))
       break;
     if (!dispatch(line, ctx))
       break;

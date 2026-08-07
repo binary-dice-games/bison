@@ -120,6 +120,7 @@ target_sources(bison PRIVATE
   src/rmi/standalone/standalone.cpp
   src/app/bridge/bridge_app.cpp
   src/app/client/client_app.cpp
+  src/app/client/line_editor.cpp
   src/app/cli/cli_app.cpp
   src/app/server/server_app.cpp
   src/app/standalone/standalone_app.cpp
@@ -147,6 +148,7 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
     src/term/terminal_win.cpp
     src/term/scoped_terminal_config_win.cpp
     src/app/debugger_win.cpp
+    src/app/client/line_editor_win.cpp
   )
 else()
   if(WIN32)
@@ -156,6 +158,7 @@ else()
     src/term/terminal_posix.cpp
     src/term/scoped_terminal_config_posix.cpp
     src/app/debugger_posix.cpp
+    src/app/client/line_editor_posix.cpp
   )
 endif()
 

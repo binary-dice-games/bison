@@ -72,8 +72,8 @@ void client_app::on_error(const std::string& msg) const {
 
 // ── Console input ─────────────────────────────────────────────────────────────
 
-bool client_app::read_console_line(std::string& line) {
-  return static_cast<bool>(std::getline(std::cin, line));
+bool client_app::read_console_line(std::string_view prompt, std::string& line) {
+  return line_editor_.read_line(prompt, line);
 }
 
 // ── run_with_transport ────────────────────────────────────────────────────────

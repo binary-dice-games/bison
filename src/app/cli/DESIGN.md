@@ -34,7 +34,9 @@ Cross-platform (Windows, Linux, macOS)
 2. Allow interactive class discovery via `describe` and `info`.
 3. Support the full object lifecycle: instantiate, get/set fields, call methods, destroy.
 4. Accept and produce values as JSON.
-5. Require no external readline library — use `std::getline` for portability.
+5. Require no external readline library — use a small built-in line editor
+   (`src/app/client/line_editor.hpp`) for portability, falling back to
+   `std::getline` when input isn't an interactive terminal.
 6. Print results to stdout, errors to stderr, so output can be piped or scripted.
 7. Be extensible: downstream projects (e.g. a terminal UI) subclass `cli_app`
    and override `on_session()` to replace the REPL with a custom session.
@@ -125,9 +127,12 @@ argv  ──parse──→ cli_app::run()
                     └─ on_session(c)   ← override to replace REPL
                          │
                          └─ loop:
-                              read_console_line(line)  ← std::cin, or the
-                                                          --pty passthrough
-                                                          queue (see client_app)
+                              read_console_line("> ", line)  ← line_editor
+                                                                (arrow-key
+                                                                history, or
+                                                                std::getline
+                                                                fallback; see
+                                                                client_app)
                               dispatch(line, c, handles, km, timeout)
                                 ├─ name = instantiate(...) → proxy → handles
                                 ├─ name.get([projection])  → JSON to stdout
@@ -255,13 +260,24 @@ consistent with how proxies are used in C++ code.
 new code.  Output uses `nlohmann::json::dump(2)` for pretty-printing.  JSON
 is human-readable and machine-parseable for scripting.
 
-**`std::getline` instead of GNU readline.**
+**A small built-in line editor instead of GNU readline.**
 Readline requires a `find_package` dependency the project does not carry and
-is not available on all platforms.  `std::getline` is portable and sufficient.
-History and tab-completion can be added later without changing the core design.
-(In `--transport=pty` mode, `client_app::read_console_line()` reads from a passthrough
-queue instead of `std::cin` directly — see the `--transport=pty` note below — but it's
-still a plain blocking line read from `dispatch()`'s point of view.)
+is not available on all platforms. `src/app/client/line_editor.hpp` implements
+just enough of a readline-like editor in-tree — Left/Right cursor movement,
+Backspace/Delete, and Up/Down history recall — cross-platform (POSIX termios
+raw mode on Linux/MSYS2, Win32 console mode on native Windows; see
+`line_editor_posix.cpp` / `line_editor_win.cpp`). It only engages when stdin
+and stdout are both an interactive tty (`line_editor::is_interactive()`);
+otherwise `read_console_line()` degrades to plain `std::getline`, so piped or
+redirected input keeps working for scripting. The editing rules themselves
+(`line_edit_state`) are pure state machine code with no terminal I/O, so
+they're unit tested (`tests/line_editor_tests.cpp`) without a real tty.
+(In `--transport=term` mode, `fd 0` is redirected to a pipe by
+`term::scoped_terminal_config` before the REPL ever reads from it — see the
+`--transport=term` note below — so `isatty(0)` is false and
+`read_console_line()` naturally falls back to `std::getline` there too; that
+transport does its own raw-mode/backspace handling upstream of the redirected
+pipe.)
 
 **Per-request timeout via `std::future::wait_for`.**
 The `--timeout` flag sets `timeout_` before `on_session()` is called.  Each
@@ -298,9 +314,9 @@ in the listing, keeping the output readable even when hashes are involved.
 - All proxies in the variable table must be destroyed (via `client.destroy()`)
   before `client.disconnect()` is called. `on_session()` drains the table on
   every exit path before returning.
-- The REPL reads from `std::cin` (socket/pipe transports) or a passthrough
-  line queue (`--transport=pty` transport) via `client_app::read_console_line()`;
-  redirecting stdin enables non-interactive scripting in the former case.
+- The REPL reads via `client_app::read_console_line()`, which uses
+  `line_editor` (arrow-key history/editing) on an interactive tty and plain
+  `std::cin` otherwise; redirecting stdin enables non-interactive scripting.
 - `from_json()` is used for all JSON → dynamic conversions; it throws on
   malformed input. The REPL catches these exceptions and prints to stderr.
 - `--timeout MS` applies uniformly to all blocking `.get()` calls via
