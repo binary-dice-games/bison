@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include "src/bison/bison_sync.hpp"
+
 #include <functional>
 #include <memory>
 #include <string>
@@ -88,6 +90,26 @@ class scoped_terminal_config {
   void on_passthrough(std::string_view chunk);
 
   /**
+   * @brief Alternative to `on_passthrough()`'s default delivery: installs a
+   *        sink that receives every pass-through chunk immediately,
+   *        verbatim -- no software line buffering, no backspace handling,
+   *        and no automatic echo. Once installed, `on_passthrough()` stops
+   *        delivering to `params::read_fd`'s pipe (and stops echoing)
+   *        entirely; the sink owner takes over both responsibilities.
+   *
+   * For a caller that wants to react to individual keystrokes itself (e.g.
+   * arrow-key history in a line editor) instead of waiting for whole,
+   * already-backspace-applied lines on `params::read_fd`. Mirrors
+   * `on_passthrough()`'s own empty-chunk EOF signal -- the sink is called
+   * with an empty chunk when the upstream read side closes.
+   *
+   * Call once, before the first `on_passthrough()` call.
+   *
+   * @param sink Receives each pass-through chunk as it arrives.
+   */
+  void set_raw_input_sink(std::function<void(std::string_view)> sink);
+
+  /**
    * @brief Write @p chunk verbatim to @p fd, retrying on partial writes.
    *
    * An alternative to `on_passthrough()` for feeding a target that already
@@ -167,6 +189,7 @@ class scoped_terminal_config {
 
   params params_;
   impl_ptr impl_;
+  bison::synchronized<std::function<void(std::string_view)>> raw_input_sink_;
 };
 
 } // namespace bdg::bison::term

@@ -5,6 +5,10 @@
  */
 #pragma once
 
+#include "src/bison/bison_sync.hpp"
+
+#include <deque>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -78,10 +82,18 @@ class line_edit_state {
  *        cursor (never past the start of the line, so the prompt itself
  *        can't be erased), and Up/Down recall previously submitted lines.
  *
- * Only takes over the terminal (raw mode + manual echo/redraw) when both
- * stdin and stdout are an interactive tty (`is_interactive()`); otherwise
- * `read_line()` falls back to plain `std::getline(std::cin, ...)` so piped
- * or redirected input (scripting) is unaffected.
+ * Two ways to feed it keystrokes:
+ * - Direct tty ownership (the default): when stdin/stdout are an
+ *   interactive terminal (`is_interactive()`), `read_line()` puts the
+ *   terminal in raw mode itself and reads keystrokes directly. Otherwise it
+ *   falls back to plain `std::getline(std::cin, ...)`, so piped/redirected
+ *   input (scripting) is unaffected.
+ * - External feed (`enable_external_feed()` / `feed()`): for a caller where
+ *   something else already owns raw-mode input delivery and can only hand
+ *   over already-unframed keystroke bytes from a different thread (e.g.
+ *   `term::scoped_terminal_config` under `--transport=term`, where fd 0 is a
+ *   redirected pipe rather than the real terminal, so `is_interactive()` is
+ *   false even though the far end is an interactive terminal).
  */
 class line_editor {
  public:
@@ -108,6 +120,23 @@ class line_editor {
   /** @brief `true` if stdin and stdout are both an interactive terminal. */
   static bool is_interactive();
 
+  /**
+   * @brief Switches into external-feed mode (see class doc comment): reads
+   *        keystrokes from `feed()` instead of owning the terminal itself.
+   *        Must be called before the first `read_line()`.
+   */
+  void enable_external_feed();
+
+  /**
+   * @brief Delivers one chunk of raw keystroke bytes in external-feed mode;
+   *        a no-op otherwise. Thread-safe -- typically called from whatever
+   *        thread is pumping the transport, not the thread blocked in
+   *        `read_line()`.
+   *
+   * @param chunk Raw bytes; an empty chunk signals EOF.
+   */
+  void feed(std::string_view chunk);
+
  private:
   /** @brief Opaque platform-specific state (saved terminal mode, handles). */
   struct impl;
@@ -116,10 +145,36 @@ class line_editor {
   /** @brief Puts the terminal in raw mode; null if `is_interactive()` is false. */
   static impl_ptr create_impl();
 
-  /** @brief Blocking read of the next decoded keystroke. Defined per platform. */
+  /** @brief Blocking read of the next decoded keystroke from the owned tty. Defined per platform. */
   static key_event read_key(impl& state);
 
+  /**
+   * @brief Decodes one keystroke from a raw byte stream: plain bytes plus
+   *        ANSI/VT escape sequences (arrows, Home/End, Delete). Shared by
+   *        every backend that consumes a byte-at-a-time stream (POSIX direct
+   *        tty and external-feed mode on every platform, since pass-through
+   *        bytes from a real remote terminal are the same ANSI byte stream
+   *        regardless of the local platform).
+   *
+   * @param next_byte Callable that fetches the next byte via its out-param;
+   *                   returns `false` on EOF.
+   */
+  static key_event decode_byte_stream(const std::function<bool(unsigned char&)>& next_byte);
+
+  /** @brief Runs the redraw/key/apply loop against @p next_key until submit/EOF. */
+  bool run_edit_loop(std::string_view prompt, std::string& out, const std::function<key_event()>& next_key);
+
+  /** @brief Blocking pop of the next externally-fed byte. @return `false` on EOF. */
+  bool pop_fed_byte(unsigned char& out);
+
+  struct feed_queue_state {
+    std::deque<char> bytes;
+    bool eof{false};
+  };
+
   impl_ptr impl_;
+  bool external_mode_{false};
+  bison::synchronized<feed_queue_state> feed_queue_;
   std::vector<std::string> history_;
 };
 

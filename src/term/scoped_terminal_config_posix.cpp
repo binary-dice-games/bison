@@ -177,6 +177,11 @@ int scoped_terminal_config::upstream_write_fd() const {
 }
 
 void scoped_terminal_config::on_passthrough(std::string_view chunk) {
+  if (const auto sink = raw_input_sink_.copy(); sink) {
+    sink(chunk);
+    return;
+  }
+
   if (impl_->input_pipe_write_fd < 0)
     return;
 

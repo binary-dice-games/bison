@@ -49,6 +49,10 @@ void scoped_terminal_config::process_passthrough_chunk(
   }
 }
 
+void scoped_terminal_config::set_raw_input_sink(std::function<void(std::string_view)> sink) {
+  *raw_input_sink_.wlock() = std::move(sink);
+}
+
 scoped_terminal_config::scoped_terminal_config(params&& p) : params_(std::move(p)), impl_(create_state(params_)) {}
 
 scoped_terminal_config::~scoped_terminal_config() {

@@ -116,6 +116,16 @@ int client_app::run(int argc, char** argv) {
             FLAGS_host, static_cast<uint16_t>(FLAGS_port)));
       case transport_kind::term: {
         term::scoped_terminal_config stc{{0, 1}};
+        // fd 0 is redirected to a pipe by scoped_terminal_config (see
+        // read_console_line()'s doc comment), so line_editor_'s own
+        // is_interactive() check would see a pipe, not the real remote
+        // terminal, and fall back to plain std::getline -- losing arrow-key
+        // history entirely. Switch it into external-feed mode instead: it
+        // decodes keystrokes from the same pass-through bytes directly,
+        // before scoped_terminal_config's own line-buffering would batch
+        // them until Enter.
+        line_editor_.enable_external_feed();
+        stc.set_raw_input_sink([this](std::string_view chunk) { line_editor_.feed(chunk); });
         auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
             stc.upstream_read_fd(),
             stc.upstream_write_fd(),

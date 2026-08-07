@@ -1,10 +1,11 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file line_editor.cpp
- * @brief Platform-independent editing rules (`line_edit_state`) and the
+ * @brief Platform-independent editing rules (`line_edit_state`), the shared
+ *        ANSI byte-stream keystroke decoder, external-feed mode, and the
  *        `line_editor::read_line()` render loop built on top of them.
- *        Raw-mode setup and keystroke decoding are per platform, in
- *        line_editor_posix.cpp / line_editor_win.cpp.
+ *        Direct-tty raw-mode setup and keystroke decoding are per platform,
+ *        in line_editor_posix.cpp / line_editor_win.cpp.
  */
 #include "src/app/client/line_editor.hpp"
 
@@ -118,7 +119,99 @@ void line_edit_state::navigate_history(int delta) {
   cursor_ = buffer_.size();
 }
 
-// ── line_editor ────────────────────────────────────────────────────────────────
+// ── line_editor: shared ANSI byte-stream decoder ────────────────────────────────
+
+key_event line_editor::decode_byte_stream(const std::function<bool(unsigned char&)>& next_byte) {
+  unsigned char c;
+  if (!next_byte(c))
+    return {editor_key::eof, 0};
+
+  if (c == '\r' || c == '\n')
+    return {editor_key::enter, 0};
+  if (c == 0x7f || c == 0x08)
+    return {editor_key::backspace, 0};
+  if (c == 0x04)
+    return {editor_key::eof, 0};
+  if (c == 0x03)
+    return {editor_key::interrupt, 0};
+
+  if (c == 0x1b) {
+    unsigned char introducer;
+    if (!next_byte(introducer) || (introducer != '[' && introducer != 'O'))
+      return {editor_key::ignored, 0};
+
+    unsigned char code;
+    if (!next_byte(code))
+      return {editor_key::ignored, 0};
+
+    switch (code) {
+      case 'A':
+        return {editor_key::arrow_up, 0};
+      case 'B':
+        return {editor_key::arrow_down, 0};
+      case 'C':
+        return {editor_key::arrow_right, 0};
+      case 'D':
+        return {editor_key::arrow_left, 0};
+      case 'H':
+        return {editor_key::home, 0};
+      case 'F':
+        return {editor_key::end, 0};
+      case '1': // ESC [ 1 ~  == Home (some terminals)
+      case '7':
+      case '3': // ESC [ 3 ~  == Delete
+      case '4': // ESC [ 4 ~  == End (some terminals)
+      case '8': {
+        unsigned char tilde;
+        next_byte(tilde); // consume the trailing '~'
+        if (code == '3')
+          return {editor_key::delete_forward, 0};
+        if (code == '1' || code == '7')
+          return {editor_key::home, 0};
+        return {editor_key::end, 0};
+      }
+      default:
+        return {editor_key::ignored, 0};
+    }
+  }
+
+  if (c < 0x20)
+    return {editor_key::ignored, 0};
+
+  return {editor_key::char_input, static_cast<char>(c)};
+}
+
+// ── line_editor: external-feed mode ─────────────────────────────────────────────
+
+void line_editor::enable_external_feed() {
+  external_mode_ = true;
+}
+
+void line_editor::feed(std::string_view chunk) {
+  if (chunk.empty()) {
+    feed_queue_.wlock()->eof = true;
+  } else {
+    auto lp = feed_queue_.wlock();
+    lp->bytes.insert(lp->bytes.end(), chunk.begin(), chunk.end());
+  }
+  feed_queue_.notify_all();
+}
+
+bool line_editor::pop_fed_byte(unsigned char& out) {
+  bool got = false;
+  feed_queue_.wait([&](feed_queue_state& qs) {
+    if (!qs.bytes.empty()) {
+      out = static_cast<unsigned char>(qs.bytes.front());
+      qs.bytes.pop_front();
+      got = true;
+      return true;
+    }
+    return qs.eof; // stop waiting once EOF is signaled and the queue drains
+  });
+  return got;
+}
+
+// ── line_editor: render loop ────────────────────────────────────────────────────
 
 namespace {
 
@@ -151,21 +244,16 @@ void write_raw(std::string_view s) {
 
 } // namespace
 
-line_editor::line_editor() : impl_(create_impl()) {}
+line_editor::line_editor() : impl_(nullptr, [](impl*) {}) {}
 
 line_editor::~line_editor() = default;
 
-bool line_editor::read_line(std::string_view prompt, std::string& out) {
-  if (!impl_) {
-    std::cout << prompt << std::flush;
-    return static_cast<bool>(std::getline(std::cin, out));
-  }
-
+bool line_editor::run_edit_loop(std::string_view prompt, std::string& out, const std::function<key_event()>& next_key) {
   line_edit_state state(history_);
   redraw(prompt, state);
 
   for (;;) {
-    const key_event ev = read_key(*impl_);
+    const key_event ev = next_key();
     switch (state.apply(ev)) {
       case line_edit_state::outcome::editing:
         redraw(prompt, state);
@@ -189,6 +277,23 @@ bool line_editor::read_line(std::string_view prompt, std::string& out) {
         return false;
     }
   }
+}
+
+bool line_editor::read_line(std::string_view prompt, std::string& out) {
+  if (external_mode_) {
+    return run_edit_loop(prompt, out, [this] {
+      return decode_byte_stream([this](unsigned char& b) { return pop_fed_byte(b); });
+    });
+  }
+
+  if (!impl_)
+    impl_ = create_impl();
+  if (!impl_) {
+    std::cout << prompt << std::flush;
+    return static_cast<bool>(std::getline(std::cin, out));
+  }
+
+  return run_edit_loop(prompt, out, [this] { return read_key(*impl_); });
 }
 
 } // namespace bdg::bison::app
