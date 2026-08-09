@@ -283,6 +283,91 @@ class Enum : public attribute {
 };
 
 /**
+ * @brief Marks a field as excluded from generic reflection-driven UIs
+ *        (property inspectors, auto-generated forms, ...).
+ *
+ * Advisory only, like `Range`/`Step` — a consumer that walks a class's
+ * fields to build a UI decides for itself whether to honor this; nothing
+ * in bison enforces it. Typically used for structural fields (e.g. a
+ * child-object container) that a generic field editor should not attempt
+ * to render as a plain value.
+ */
+class Hidden : public attribute {
+ public:
+  Hidden() = default;
+};
+
+/**
+ * @brief Explicit ascending sort priority for a field or class in
+ *        reflection-driven UIs.
+ *
+ * Advisory only. Consumers that list fields/classes in declaration order
+ * by default may instead sort ascending by `priority()`, placing
+ * unannotated fields after annotated ones (or interleaved by their
+ * fallback order) at the consumer's discretion.
+ */
+class Order : public attribute {
+ public:
+  explicit Order(int32_t priority) : priority_(priority) {}
+  int32_t priority() const {
+    return priority_;
+  }
+
+ private:
+  int32_t priority_;
+};
+
+/**
+ * @brief Marks a `std::vector<float>` field (size 3 or 4) as an RGB/RGBA
+ *        color, hinting that a property editor should render it with a
+ *        color swatch/picker rather than as raw numeric components.
+ *
+ * Advisory only; does not affect serialization or runtime assignment.
+ */
+class ColorField : public attribute {
+ public:
+  ColorField() = default;
+};
+
+/**
+ * @brief Marks a `std::string` field as multi-line, hinting that a
+ *        property editor should use a multi-line text box instead of a
+ *        single-line one.
+ *
+ * Advisory only.
+ */
+class Multiline : public attribute {
+ public:
+  explicit Multiline(int32_t lines = 4) : lines_(lines) {}
+  int32_t lines() const {
+    return lines_;
+  }
+
+ private:
+  int32_t lines_;
+};
+
+/**
+ * @brief Marks a `dynamic_ptr` field as accepting drag-and-drop of a given
+ *        type, hinting that a property editor should render it as a drop
+ *        target instead of a read-only reference display.
+ *
+ * @p drop_type is an application-defined string (e.g. a UI framework's own
+ * generic drag/drop primitive matches it against the dragged payload's own
+ * type). Advisory only; bison itself does not interpret it.
+ */
+class DropTarget : public attribute {
+ public:
+  explicit DropTarget(std::string drop_type) : drop_type_(std::move(drop_type)) {}
+  const std::string& drop_type() const {
+    return drop_type_;
+  }
+
+ private:
+  std::string drop_type_;
+};
+
+/**
  * @brief A typed variant value with optional metadata attributes.
  *
  * `field` extends `field_base` (a `std::variant`) and enforces *stable-type*
