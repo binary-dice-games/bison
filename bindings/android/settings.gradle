@@ -1,0 +1,29 @@
+// bindings/android/settings.gradle
+//
+// One Gradle project covering the Android binding (:bison-lib, an Android
+// library module wrapping bison_abi/bison_jni via JNI -- see
+// docs/bindings.md) and the example app that exercises it
+// (:examples:BisonExample -- see docs/examples.md). `cd bindings/android &&
+// ./gradlew assembleDebug` builds both.
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "bison-android"
+
+include ':bison-lib'
+include ':examples:BisonExample'
+project(':examples:BisonExample').projectDir = file('examples/BisonExample')

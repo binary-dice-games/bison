@@ -60,7 +60,8 @@ if(MSYS OR CYGWIN)
   target_link_libraries(uv_a INTERFACE ${LIBUV_LIBRARIES})
   target_include_directories(uv_a INTERFACE ${LIBUV_INCLUDE_DIRS})
 else()
-  # Fallback to the bundled source for Linux and pure Windows
+  # Fallback to the bundled source for Linux, pure Windows, and Android (the
+  # NDK sysroot has no pkg-config'able system libuv to find).
   message(STATUS "Building bundled libuv from extern/")
   set(LIBUV_BUILD_SHARED OFF CACHE BOOL "" FORCE)
   set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -190,7 +191,14 @@ target_include_directories(bison_abi
   src/rmi
 )
 target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml gflags mbedtls mbedx509 mbedcrypto)
-if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN))
+# glibc (Linux) and MSYS2's runtime split forkpty()/openpty() (used by
+# src/term/terminal_posix.cpp, pulled in via term_transport's
+# rmi_server_term_create()) into a separate libutil that must be linked
+# explicitly. Bionic (Android's libc) has never had that split -- it has
+# exported forkpty()/openpty() directly from libc.so since API 23, and the
+# NDK sysroot ships no libutil.so to link against -- so Android is excluded
+# here the same way native Windows already is.
+if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN) AND NOT ANDROID)
   target_link_libraries(bison_abi PRIVATE util)
 endif()
 
@@ -215,6 +223,16 @@ endif()
 add_subdirectory(examples)
 add_subdirectory(src/srv)
 add_subdirectory(bindings/cpp)
+
+# ─── Android binding (JNI) ─────────────────────────────────────────────────
+# Only configured when cross-compiling with the NDK's CMake toolchain file
+# (which sets ANDROID); the JNI glue needs <jni.h>, which the NDK sysroot
+# provides for free, and has no reason to exist in a host Linux/Windows
+# build. See docs/bindings.md for the binding itself and docs/building.md
+# for the NDK toolchain invocation.
+if(ANDROID)
+  add_subdirectory(bindings/android/jni)
+endif()
 
 # ─── bison-cli executable ─────────────────────────────────────────────────────
 add_executable(bison-cli src/app/cli/main.cpp)

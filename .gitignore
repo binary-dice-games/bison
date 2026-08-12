@@ -19,3 +19,10 @@ bindings/csharp/tests/bin/
 bindings/java/target/
 # Generated Doxygen output
 docs/doxygen/
+# Android/Gradle build artifacts (bindings/android)
+bindings/android/.gradle/
+bindings/android/**/.cxx/
+bindings/android/local.properties
+bindings/android/**/*.iml
+bindings/android/.idea/
+bindings/android/captures/

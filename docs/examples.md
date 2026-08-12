@@ -1,6 +1,6 @@
 # Running Examples
 
-All examples below are the native C++ ones, under `examples/`. Build the project first (see [building.md](building.md)). New to the library? [tutorial.md](tutorial.md) walks through the same material concept-by-concept. Looking for the Python or C# examples instead? See [bindings.md](bindings.md).
+All examples below are the native C++ ones, under `examples/`, except "Android Example". Build the project first (see [building.md](building.md)). New to the library? [tutorial.md](tutorial.md) walks through the same material concept-by-concept. Looking for the Python or C# examples instead? See [bindings.md](bindings.md).
 
 ## C++ Core Example (`bison_examples`)
 
@@ -119,6 +119,39 @@ The client does not spawn anything here either — it wraps its own
 inherited stdin/stdout in OSC-99 framing. Non-OSC-99 bytes (shell prompts,
 operator-typed output) pass straight through, so the session stays fully
 interactive.
+
+## Android Example (emulator)
+
+`bindings/android/examples/BisonExample` is a small Kotlin app exercising the
+Android binding (`bindings/android/` -- see [bindings.md](bindings.md#android-java--kotlin-bindingsandroid))
+on-device: the `Dynamic` quick start, a locally registered method, and an
+in-process RMI round trip (`rmi::standalone`), each step logged to the
+screen. Requires the Android SDK/NDK and an emulator or device (Android
+Studio's SDK Manager is the easiest way to get both; see
+[building.md](building.md#building-for-android) for the NDK requirement).
+
+```bash
+cd bindings/android
+
+# Build and install on a running emulator/device:
+./gradlew :examples:BisonExample:installDebug
+adb shell am start -n com.bdg.bison.example/.MainActivity
+```
+
+Or open `bindings/android/` directly in Android Studio and run the
+`BisonExample` configuration on an `x86_64` AVD (create one via **Tools >
+Device Manager** if needed -- an x86_64 system image gives the emulator
+native-speed CPU emulation, unlike `arm64-v8a` on an x86_64 host).
+
+The app runs its demo automatically on launch and again on "Run Demo"; a
+successful run ends with "All steps completed successfully." To validate
+just the binding itself (no UI) the same way CI would, run its instrumented
+test suite instead:
+
+```bash
+./gradlew :bison-lib:connectedAndroidTest
+# Report: bindings/android/bison-lib/build/reports/androidTests/connected/index.html
+```
 
 ## Performance Benchmark
 

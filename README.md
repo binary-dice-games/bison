@@ -25,6 +25,7 @@
 | nlohmann/json | bundled as git submodule |
 | libyaml | bundled as git submodule |
 | Google Test | bundled as git submodule (tests only) |
+| Android NDK | r26+ (optional, for the Android build/binding) |
 
 ## Building
 
@@ -40,7 +41,7 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug
 ```
 
-Runs on Linux, MSYS2, and native Windows (MSVC/mingw64). For WSL/MSYS2/native-Windows setup and CMake integration details, see [docs/building.md](docs/building.md).
+Runs on Linux, MSYS2, native Windows (MSVC/mingw64), and Android (NDK, `arm64-v8a`/`x86_64`). For WSL/MSYS2/native-Windows/Android setup and CMake integration details, see [docs/building.md](docs/building.md).
 
 ## Quick Start
 
@@ -215,9 +216,9 @@ doxygen Doxyfile
 | Document | Contents |
 |---|---|
 | [docs/tutorial.md](docs/tutorial.md) | Beginner-friendly walkthrough of the library with runnable examples |
-| [docs/building.md](docs/building.md) | Linux/WSL/MSYS2/native-Windows setup, CMake integration |
+| [docs/building.md](docs/building.md) | Linux/WSL/MSYS2/native-Windows/Android setup, CMake integration |
 | [docs/examples.md](docs/examples.md) | Running C++, RMI socket, stdio PTY, and benchmark examples |
-| [docs/bindings.md](docs/bindings.md) | C++ (header-only), Python, and C# binding setup and usage |
+| [docs/bindings.md](docs/bindings.md) | C++ (header-only), Python, C#, and Android (Java/Kotlin) binding setup and usage |
 | [docs/tls.md](docs/tls.md) | Configuring `tls_socket_transport`: server-only vs. mutual TLS, certificate setup |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |

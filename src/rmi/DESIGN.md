@@ -35,9 +35,10 @@ already share the listener's loop, so the connection's own loop can't be
 used directly). Duplicating a socket has no libuv-portable API, so
 `duplicate_tcp_socket()` (hoisted into the shared `tcp_socket_util.hpp` so
 both transports use one implementation) calls POSIX `dup()` directly (shared
-by native Linux and MSYS2 — the only supported targets). This does not
-change transport *behavior* across platforms — it is a single OS primitive
-with no libuv equivalent.
+by every non-native-Windows target — Linux, MSYS2, and Android, whose
+Bionic libc is POSIX-complete here). This does not change transport
+*behavior* across platforms — it is a single OS primitive with no libuv
+equivalent.
 
 Both TCP-backed transports also share `frame_parser.hpp` (the incremental
 `[4-byte length][payload]` reassembly state machine, §5.3) and build on
@@ -58,7 +59,7 @@ All transport I/O is implemented using **libuv** (`extern/libuv`, static target 
 - Every transport file is a single `.cpp` file with no platform conditionals in I/O behavior.
 - libuv handles OS differences transparently: process spawning, TTY raw mode, and socket I/O.
 - The only permitted `#ifdef` in transport code is for narrow, single-line differences, not a behavioral split.
-- `socket_transport.cpp`'s socket-duplication step (see §2) is implemented directly with POSIX `dup()`, since both supported targets (Linux and MSYS2) share that API; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
+- `socket_transport.cpp`'s socket-duplication step (see §2) is implemented directly with POSIX `dup()`, since every non-native-Windows target (Linux, MSYS2, Android) shares that API; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
 
 ### 3.3 libuv Dependency
 
