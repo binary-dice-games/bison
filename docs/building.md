@@ -132,6 +132,55 @@ targeting mingw64 still takes the native Windows path described above. For
 the MSYS2 path instead (sharing the POSIX implementation with Linux), see
 "Building on WSL" above, run from an MSYS2 shell.
 
+### Building for Android
+
+Android is cross-compiled with the NDK's own CMake toolchain file, same as
+any other NDK-based CMake project — nothing Bison-specific to invoke beyond
+pointing `-DCMAKE_TOOLCHAIN_FILE` at it. CMake's Android toolchain sets the
+`ANDROID` variable, which selects the POSIX code path everywhere the rest of
+this document's platform matrix branches on `WIN32`/`MSYS`/`CYGWIN` (Android
+takes the same `terminal_posix.cpp`/`debugger_posix.cpp` sources Linux and
+MSYS2 do), with one exception: `bison_abi` skips linking `-lutil`. Linux and
+MSYS2 need it for `forkpty()`/`openpty()` (pulled in transitively by
+`term_transport`'s `rmi_server_term_create()`); Bionic (Android's libc) has
+exported those directly from `libc.so` since API 23 and the NDK sysroot ships
+no `libutil.so` to link against, so `CMakeLists.txt` excludes Android from
+that `target_link_libraries(bison_abi PRIVATE util)` call the same way it
+already excludes native Windows.
+
+```bash
+# From an NDK install (r26+; set ANDROID_NDK_ROOT to its path):
+cmake -B build-android-arm64 -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI=arm64-v8a \
+    -DANDROID_PLATFORM=android-24 \
+    -DPACKAGE_TESTS=OFF
+cmake --build build-android-arm64 --target bison_abi bison_jni
+
+# For the emulator (x86_64):
+cmake -B build-android-x86_64 -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI=x86_64 \
+    -DANDROID_PLATFORM=android-24 \
+    -DPACKAGE_TESTS=OFF
+cmake --build build-android-x86_64 --target bison_abi bison_jni
+```
+
+`bison_jni` (`bindings/android/jni/`, the Java/Kotlin binding's JNI glue) is
+only configured when `ANDROID` is set — it needs `<jni.h>`, which the NDK
+sysroot provides, and has no reason to exist in a host build. `-DPACKAGE_TESTS=OFF`
+skips configuring GoogleTest and the test suite, which this cross build has
+no use for.
+
+In practice this whole invocation is driven by Gradle's `externalNativeBuild`
+instead of by hand — `bindings/android/bison-lib/build.gradle` points
+straight at this repo's root `CMakeLists.txt` and restricts the build to the
+`bison_abi`/`bison_jni` targets, so `./gradlew assembleDebug` (or an
+Android Studio sync) runs the equivalent of the commands above once per
+`abiFilters` entry automatically. See [docs/bindings.md](bindings.md) for the
+binding itself and [docs/examples.md](examples.md) for building/running the
+example app on an emulator.
+
 ---
 
 ## Packaging a release

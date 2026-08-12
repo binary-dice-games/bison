@@ -50,6 +50,19 @@ install(DIRECTORY bindings/cpp/include DESTINATION bindings/cpp
 install(DIRECTORY bindings/cpp/examples DESTINATION bindings/cpp
     COMPONENT bison)
 
+# bindings/android is a Gradle multi-module project (:bison-lib -- the JNI
+# binding itself, built by cross-compiling this repo's own root
+# CMakeLists.txt with the Android NDK toolchain, see docs/building.md --
+# and :examples:BisonExample). There's no Android SDK/NDK at packaging time
+# to build an .aar/.apk from it, so ship the Gradle project and sources
+# as-is, minus local build/cache state.
+install(DIRECTORY bindings/android DESTINATION bindings
+    COMPONENT bison
+    PATTERN ".gradle" EXCLUDE
+    PATTERN ".cxx" EXCLUDE
+    PATTERN "build" EXCLUDE
+    PATTERN "local.properties" EXCLUDE)
+
 # PATH/library-path registration helpers, so `bison-cli` and
 # bison_abi.dll/libbison_abi.so are discoverable from anywhere in the
 # filesystem after extracting the zip, not just from inside bin/. See

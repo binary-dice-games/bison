@@ -1,0 +1,49 @@
+// bindings/android/examples/BisonExample/build.gradle
+//
+// Example app exercising :bison-lib (com.bdg.bison) -- the Dynamic quick
+// start, a locally-registered method, and an in-process RMI round trip --
+// on a real device/emulator. See docs/examples.md for how to build and run
+// it. Pure Kotlin: registering the demo RMI class uses Dynamic.registerClass
+// (bindings/android/bison-lib), so no native code of this app's own is
+// needed.
+
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.bdg.bison.example'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.bdg.bison.example"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+
+dependencies {
+    implementation project(':bison-lib')
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+}

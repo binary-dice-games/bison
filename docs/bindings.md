@@ -368,3 +368,105 @@ to resolve through `TryGetMember` at run time — a statically-typed
 `Dynamic result` would need the indexer (`result["result"]`) instead, since
 C# only defers member lookup to `DynamicObject` when the reference's static
 type is `dynamic`.
+
+---
+
+## Android (Java / Kotlin) (`bindings/android/`)
+
+Unlike the other bindings, which load a precompiled `bison_abi` at run time
+(`ctypes.CDLL`, `[LibraryImport]`, or link-time for C++), Android apps ship
+their native libraries inside the APK and load them by name. This binding is
+therefore two pieces instead of one: `bindings/android/jni/` is a small JNI
+glue layer (`bison_jni`, built straight from this repo's own root
+`CMakeLists.txt` — see [docs/building.md](building.md#building-for-android))
+linked against `bison_abi`, and `bindings/android/bison-lib/` is the Java
+package (`com.bdg.bison`) that calls it — `Dynamic p = new Dynamic("Player");
+p.setInt("hp", 100);` instead of `bison_set_int(h, bison_key("hp"), 100)`.
+Both `bison_abi.so` and `bison_jni.so` end up in the app's `jniLibs/<abi>/`;
+`NativeLibrary.ensureLoaded()` (called from every public class's static
+initializer) loads both, `bison_abi` first.
+
+Field/method names hash through `Key.of(name)` (memoized, bounded at 4096
+entries) the same way Python's `bison.dynamic.key()` and C#'s `Key.Of()` do
+— Java has no way to hash a string literal at compile time either.
+`Dynamic` is `AutoCloseable`, matching C#'s `IDisposable` choice: use a
+try-with-resources block, or call `close()` directly.
+
+```java
+import com.bdg.bison.Dynamic;
+
+try (Dynamic p = new Dynamic("Player")) {
+    p.setInt("hp", 100);
+    p.setString("name", "hero");
+    System.out.println(p.getInt("hp"));   // 100
+}
+```
+
+```java
+import com.bdg.bison.rmi.Client;
+import com.bdg.bison.rmi.Proxy;
+
+try (Client client = Client.standalone()) {
+    client.connect();
+    try (Proxy calc = client.instantiate("Calculator", null)) {
+        try (Dynamic args = new Dynamic()) {
+            args.setInt("a", 1);
+            args.setInt("b", 2);
+            try (Dynamic result = calc.call("add", args)) {   // calls the "add" remote method
+                System.out.println(result.getInt("value"));
+            }
+        }
+    }
+}
+```
+
+Method registration (`addMethod`) works from Java too, including as the
+server side of an RMI class — the callback is invoked via a JNI upcall from
+whatever native thread dispatches it (an RMI worker thread for a remote
+call), which needs its own `JNIEnv` attached; the binding handles that
+transparently:
+
+```java
+calc.addMethod("add", (self, params, result) ->
+    result.setInt("value", params.getInt("a") + params.getInt("b")));
+```
+
+**Requirements:** Android NDK r26+, `compileSdk`/`targetSdk` 34, `minSdk` 24
+(see [docs/building.md](building.md#building-for-android) for why 24, not
+21, is the floor). No separate `bison_abi` build step to run by hand —
+Gradle's `externalNativeBuild` drives it (see below).
+
+```bash
+cd bindings/android
+./gradlew assembleDebug              # builds :bison-lib and :examples:BisonExample
+./gradlew :bison-lib:connectedAndroidTest   # runs the binding's instrumented tests on a device/emulator
+```
+
+See [docs/examples.md](examples.md) for running the example app and its
+instrumented tests on an emulator specifically.
+
+### Gaps versus the internal C++ API
+
+This is a first pass at the Android platform, so its API surface is smaller
+than the Python/C#/C++ bindings':
+
+- **Indexed (numeric) field access** (`obj[0]`) is not exposed — named
+  fields only.
+- **Class inheritance and cross-namespace lookup** aren't exposed.
+  `Dynamic.registerClass(prototype)` covers registering a root (parentless)
+  class in the global namespace — enough to host a class for RMI, which is
+  all the example app needs — but there's no `instantiate(parent)` or
+  `findClass()` yet.
+- **Field/class/method attribute metadata** (`bison_attributes`) isn't
+  exposed.
+- **YAML text interop** isn't exposed (JSON is, via `toJson()`/`fromJson()`).
+- **RMI**: only the `standalone` and TCP socket transports are bound (no
+  named-pipe or `--transport=term` — neither is meaningful for an Android
+  app process), only the synchronous `rmi_proxy_*`/`rmi_client_instantiate`
+  calls (no `rmi_future_handle`/async), and `rmi_proxy_on_event` (server-
+  pushed events) and `rmi_server_listen`'s `auth_handler` aren't exposed.
+
+None of these are architectural dead ends — each is a straightforward
+extension of the same JNI-glue-plus-Java-wrapper shape already in place for
+the rest of the surface (see `bindings/android/jni/bison_jni.cpp` and
+`rmi_jni.cpp`).

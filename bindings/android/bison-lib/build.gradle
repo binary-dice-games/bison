@@ -1,0 +1,69 @@
+// bindings/android/bison-lib/build.gradle
+//
+// The Android binding itself: com.bdg.bison's Java sources (src/main/java)
+// plus the JNI glue built straight from this repo's own root CMakeLists.txt
+// (bindings/android/jni/, added there behind an `if(ANDROID)` guard) --
+// there is no separate "vendor a prebuilt .so" step, unlike how the
+// Python/C# bindings consume a precompiled bison_abi (see docs/bindings.md).
+
+plugins {
+    id 'com.android.library'
+}
+
+android {
+    namespace 'com.bdg.bison'
+    compileSdk 34
+    ndkVersion '26.1.10909125'
+
+    defaultConfig {
+        // forkpty()/openpty() (src/term/terminal_posix.cpp, pulled in by
+        // rmi_c.h's rmi_server_term_create(), which bison_abi always
+        // links) are exported directly from Bionic's libc.so starting at
+        // API 23 -- 24 keeps a one-level margin instead of pinning the
+        // exact boundary.
+        minSdk 24
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                // Skip configuring tests/examples/bison-cli/calc-server --
+                // this module only needs bison_abi and bison_jni. Matches
+                // how docs/building.md's "CMake Integration" snippet has
+                // any add_subdirectory(bison) consumer set this too.
+                arguments "-DPACKAGE_TESTS=OFF"
+                targets "bison_abi", "bison_jni"
+            }
+        }
+
+        ndk {
+            // arm64-v8a covers real devices; x86_64 covers the emulator
+            // image used to validate this binding (see docs/examples.md).
+            // Add armeabi-v7a/x86 here for 32-bit device support.
+            abiFilters "arm64-v8a", "x86_64"
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "../../../CMakeLists.txt"
+            version "3.22.1"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+}
