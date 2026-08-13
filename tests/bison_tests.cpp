@@ -723,6 +723,62 @@ TEST(EnumFlagsTests, EntriesReturnsRegisteredTable) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Hidden / Order / ColorField / Multiline / DropTarget attributes
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(HiddenTests, AttachAndFind) {
+  field f{int32_t{1}, attr<Hidden>()};
+  EXPECT_NE(f.findAttribute<Hidden>(), nullptr);
+}
+
+TEST(HiddenTests, AbsentByDefault) {
+  field f{int32_t{1}};
+  EXPECT_EQ(f.findAttribute<Hidden>(), nullptr);
+}
+
+TEST(OrderTests, PriorityRoundTrips) {
+  field f{int32_t{1}, attr<Order>(42)};
+  const Order* o = f.findAttribute<Order>();
+  ASSERT_NE(o, nullptr);
+  EXPECT_EQ(o->priority(), 42);
+}
+
+TEST(ColorFieldTests, AttachAndFind) {
+  field f{std::vector<float>{1.0f, 0.0f, 0.0f, 1.0f}, attr<ColorField>()};
+  EXPECT_NE(f.findAttribute<ColorField>(), nullptr);
+}
+
+TEST(MultilineTests, DefaultLineCount) {
+  field f{std::string{"hi"}, attr<Multiline>()};
+  const Multiline* m = f.findAttribute<Multiline>();
+  ASSERT_NE(m, nullptr);
+  EXPECT_EQ(m->lines(), 4);
+}
+
+TEST(MultilineTests, ExplicitLineCountRoundTrips) {
+  field f{std::string{"hi"}, attr<Multiline>(8)};
+  const Multiline* m = f.findAttribute<Multiline>();
+  ASSERT_NE(m, nullptr);
+  EXPECT_EQ(m->lines(), 8);
+}
+
+TEST(DropTargetTests, DropTypeRoundTrips) {
+  field f{dynamic_ptr{}, attr<DropTarget>("MyAsset")};
+  const DropTarget* d = f.findAttribute<DropTarget>();
+  ASSERT_NE(d, nullptr);
+  EXPECT_EQ(d->drop_type(), "MyAsset");
+}
+
+TEST(NewAttributeTests, SurviveCloneViaField) {
+  field f{true, attr<Hidden>(), attr<Order>(3)};
+  field g = f; // copy
+  EXPECT_NE(g.findAttribute<Hidden>(), nullptr);
+  const Order* o = g.findAttribute<Order>();
+  ASSERT_NE(o, nullptr);
+  EXPECT_EQ(o->priority(), 3);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Key-name registry: register_key_name / _rkey / lookup_registered_key_name
 // ─────────────────────────────────────────────────────────────────────────────
 
