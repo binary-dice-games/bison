@@ -26,3 +26,8 @@ bindings/android/local.properties
 bindings/android/**/*.iml
 bindings/android/.idea/
 bindings/android/captures/
+# Python packaging artifacts (bindings/python, `pip install`/scikit-build-core)
+bindings/python/*.egg-info/
+bindings/python/dist/
+bindings/python/_skbuild/
+.pytest_cache/

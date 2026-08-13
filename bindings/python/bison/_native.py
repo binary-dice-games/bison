@@ -9,6 +9,7 @@ proper argument/return types.  This module is internal; use
 import ctypes
 import ctypes.util
 import os
+import sys
 import threading
 from typing import Optional
 
@@ -104,22 +105,40 @@ class CPrintOptions(ctypes.Structure):
 
 
 def _find_library() -> str:
-    """Locate ``libbison_abi`` via ``BISON_LIB``, the ``build/`` dir, or the
-    system library search path."""
+    """Locate ``libbison_abi`` via ``BISON_LIB``, alongside this package (the
+    ``pip install``ed layout), the ``build/`` dir, or the system library
+    search path."""
     env_path = os.environ.get("BISON_LIB")
     if env_path:
         return env_path
 
-    # Layout: <repo>/bindings/python/bison/_native.py -> <repo>/build/...
     here = os.path.dirname(os.path.abspath(__file__))
+    lib_names = ("libbison_abi.so", "libbison_abi.dylib", "bison_abi.dll")
+
+    # Installed via `pip install` (bindings/python/pyproject.toml,
+    # scikit-build-core): libbison_abi ships inside the `bison` package
+    # directory itself, next to this file.
+    installed_candidates = [os.path.join(here, name) for name in lib_names]
+
+    # `pip install -e`: scikit-build-core's default "redirect" editable mode
+    # points this file's own __file__ back at the source tree (`here`,
+    # above), but leaves the compiled library where an ordinary install
+    # would put it -- some sys.path entry's site-packages/bison/. Check
+    # every sys.path entry's bison/ subdirectory to cover that layout too.
+    sys_path_candidates = [
+        os.path.join(entry, "bison", name) for entry in sys.path if entry for name in lib_names
+    ]
+
+    # Layout: <repo>/bindings/python/bison/_native.py -> <repo>/build/...
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    candidates = [
+    build_candidates = [
         os.path.join(repo_root, "build", "libbison_abi.so"),
         os.path.join(repo_root, "build", "libbison_abi.dylib"),
         os.path.join(repo_root, "build", "Release", "bison_abi.dll"),
         os.path.join(repo_root, "build", "Debug", "bison_abi.dll"),
     ]
-    for path in candidates:
+
+    for path in installed_candidates + sys_path_candidates + build_candidates:
         if os.path.isfile(path):
             return path
 

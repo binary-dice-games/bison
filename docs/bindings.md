@@ -186,7 +186,30 @@ instead of `bison_set_float(params, bison_key("a"), 10.0f)`. Every handle is
 wrapped in an RAII object (`Dynamic`, `Client`, `Server`, `Proxy`, `Future`);
 none of the `bison_*_release` / `rmi_*_release` functions need to be called
 directly — use `.release()`, a `with` block, or let the wrapper's
-`__del__` clean up. No installation needed — import directly.
+`__del__` clean up.
+
+Two ways to get `bison`, `import`able either way:
+
+- **`pip install`** (`bindings/python/pyproject.toml`, built via
+  [scikit-build-core](https://scikit-build-core.readthedocs.io/)): compiles
+  `bison_abi` from source and ships the shared library inside the installed
+  `bison` package, so nothing further needs building or setting afterwards.
+  ```bash
+  git clone --recurse-submodules https://github.com/binary-dice-games/bison.git
+  pip install ./bison/bindings/python
+  ```
+  Needs a C++20 compiler and CMake 3.11+ on the machine running `pip
+  install` (see [docs/building.md](building.md) for platform prerequisites);
+  the build compiles `bison_abi` and its bundled dependencies, which can
+  take a few minutes. `pip install -e ./bison/bindings/python` works too,
+  for iterating on the Python sources without recompiling `bison_abi` on
+  every change.
+- **Import directly, no install** — build `bison_abi` yourself (see the
+  shared instructions above) and either set `BISON_LIB` or run from a
+  checkout with a sibling `build/` directory; `bison/_native.py`'s
+  `_find_library()` finds it either way. This is the lower-friction path
+  when you're already building the rest of the repo (e.g. running the test
+  suite against a local checkout, as below).
 
 Fields support both attribute (`obj.field`) and dict (`obj["field"]`)
 notation — pick whichever reads best; array-style numeric indices
@@ -229,7 +252,10 @@ def authenticate(payload):
 server.listen(auth=authenticate)
 ```
 
-**Requirements:** Python 3.x, `pytest` (optional, for tests)
+**Requirements:** Python 3.8+, `pytest` (optional, for tests). Additionally,
+a C++20 compiler and CMake 3.11+ if installing via `pip` (which builds
+`bison_abi` from source) rather than importing directly against a `bison_abi`
+you already built.
 
 ```bash
 # Run examples:

@@ -1,0 +1,81 @@
+[build-system]
+requires = ["scikit-build-core>=0.10"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "bison-abi"
+version = "1.0.0"
+description = "Python bindings for the bison C++ RMI/serialization framework, over the bison_abi C ABI"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+authors = [{ name = "Binary Dice Games" }]
+keywords = ["bison", "serialization", "rmi", "ctypes"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Topic :: Software Development :: Libraries",
+]
+
+[project.urls]
+Homepage = "https://github.com/binary-dice-games/bison"
+Documentation = "https://github.com/binary-dice-games/bison/blob/main/docs/bindings.md"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+# ─── scikit-build-core ──────────────────────────────────────────────────────
+# This package (bindings/python/) doesn't hold the CMakeLists.txt it builds
+# from -- that's the repo root two levels up, which also builds the C++
+# library, tests, other bindings, etc. `cmake.source-dir` points there, and
+# `build.targets` restricts the actual build to just `bison_abi` (the C ABI
+# shared library the ctypes wrapper in `bison/_native.py` loads), so `pip
+# install` doesn't also compile bison-cli, the test suite, or the other
+# language bindings. See the `SKBUILD` branch in the root CMakeLists.txt for
+# the install() rule that places the built library inside the `bison`
+# package directory, and docs/bindings.md for end-to-end instructions.
+[tool.scikit-build]
+cmake.source-dir = "../.."
+cmake.build-type = "Release"
+build.targets = ["bison_abi"]
+# Restrict `cmake --install` to the `bison` COMPONENT (the SKBUILD install()
+# rule in the root CMakeLists.txt) so vendored dependencies' own install()
+# rules (libuv, mbedtls, ...) don't dump their untagged headers/static libs/
+# CMake package-config files into the wheel alongside libbison_abi.
+install.components = ["bison"]
+wheel.packages = ["bison"]
+# No CPython C API used (bison_abi is a plain ctypes-loaded shared library,
+# not a Python extension module) -- one wheel per platform covers every
+# CPython 3.x, instead of scikit-build-core's default of tagging the wheel
+# to the interpreter it happened to be built with.
+wheel.py-api = "py3"
+
+# No sdist support: an sdist can only package files under this directory
+# (bindings/python/), but cmake.source-dir points at the repo root two
+# levels up, whose CMakeLists.txt/src/extern/etc. an sdist built here
+# can't reach. `pip install` (or `pip install -e`) against a full git
+# checkout -- see docs/bindings.md -- builds directly from that checkout's
+# working tree instead of from an sdist, so this doesn't block local
+# installs; it only means "build a source distribution to publish
+# elsewhere" isn't a supported path yet.
+
+[tool.scikit-build.cmake.define]
+PACKAGE_TESTS = "OFF"
+
+# `pip install -e` uses scikit-build-core's default editable settings
+# (mode="redirect", rebuild=false) deliberately: `editable.rebuild = true`
+# reruns `cmake --build` on every import, and since `editable.rebuild_dir`
+# is unset, "inplace" mode's rebuild runs that build *in* cmake.source-dir
+# -- the repo root two levels up -- which is an in-source CMake build that
+# litters the whole repository (CMakeCache.txt, CMakeFiles/, build
+# artifacts under examples/, src/, bindings/cpp/, ...) rather than confining
+# itself to bindings/python/. `bison/_native.py`'s `_find_library()` scans
+# sys.path for the redirect mode's site-packages/bison/libbison_abi.so to
+# compensate for the one gap redirect mode leaves (it relocates only .py
+# imports back to this source tree, not the compiled library).
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

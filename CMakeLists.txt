@@ -202,17 +202,37 @@ if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN) AND NOT ANDROID)
   target_link_libraries(bison_abi PRIVATE util)
 endif()
 
-# Release packaging (see cmake/Packaging.cmake for the rest -- docs,
-# bindings, CPack ZIP config). Tagged COMPONENT bison so a project
-# consuming bison via add_subdirectory() doesn't get these mixed into its
-# own default install component.
-install(TARGETS bison_abi
-    RUNTIME DESTINATION bin COMPONENT bison   # bison_abi.dll (Windows/MSYS2)
-    LIBRARY DESTINATION bin COMPONENT bison   # libbison_abi.so (Linux)
-    ARCHIVE DESTINATION lib COMPONENT bison)  # bison_abi.lib (MSVC import lib)
-install(FILES include/bison_c.h include/rmi_c.h
-    DESTINATION include
-    COMPONENT bison)
+# SKBUILD is set by scikit-build-core (bindings/python/pyproject.toml) when
+# this CMakeLists.txt is configured to build the `bison-abi` Python wheel --
+# see bindings/python/pyproject.toml's [tool.scikit-build] and
+# docs/bindings.md. That build only ever builds the `bison_abi` target
+# (`build.targets`), so none of the other install() rules below (bison-cli,
+# the release-zip headers/docs/bindings tree in cmake/Packaging.cmake) have
+# a built target to install and must be skipped entirely in that mode --
+# `cmake --install` would otherwise fail trying to install files that were
+# never built.
+if(SKBUILD)
+  # Installed straight into the `bison` package directory, alongside its
+  # .py sources (wheel.packages = ["bison"] in pyproject.toml), so
+  # bison/_native.py's _find_library() finds it next to itself with no
+  # BISON_LIB / build-dir lookup needed after `pip install`.
+  install(TARGETS bison_abi
+      RUNTIME DESTINATION bison   # bison_abi.dll (Windows)
+      LIBRARY DESTINATION bison   # libbison_abi.so (Linux) / libbison_abi.dylib (macOS)
+      COMPONENT bison)
+else()
+  # Release packaging (see cmake/Packaging.cmake for the rest -- docs,
+  # bindings, CPack ZIP config). Tagged COMPONENT bison so a project
+  # consuming bison via add_subdirectory() doesn't get these mixed into its
+  # own default install component.
+  install(TARGETS bison_abi
+      RUNTIME DESTINATION bin COMPONENT bison   # bison_abi.dll (Windows/MSYS2)
+      LIBRARY DESTINATION bin COMPONENT bison   # libbison_abi.so (Linux)
+      ARCHIVE DESTINATION lib COMPONENT bison)  # bison_abi.lib (MSVC import lib)
+  install(FILES include/bison_c.h include/rmi_c.h
+      DESTINATION include
+      COMPONENT bison)
+endif()
 
 if(PACKAGE_TESTS)
     enable_testing()
@@ -234,18 +254,24 @@ if(ANDROID)
   add_subdirectory(bindings/android/jni)
 endif()
 
-# ─── bison-cli executable ─────────────────────────────────────────────────────
-add_executable(bison-cli src/app/cli/main.cpp)
-target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json gflags)
-target_include_directories(bison-cli PRIVATE src/rmi)
-install(TARGETS bison-cli RUNTIME DESTINATION bin COMPONENT bison)
+# bison-cli and the release-zip packaging rules (cmake/Packaging.cmake)
+# aren't needed by -- and, since scikit-build-core's `build.targets` never
+# builds bison-cli, would break -- the SKBUILD `bison_abi` wheel build (see
+# the SKBUILD branch above); skip both entirely in that mode.
+if(NOT SKBUILD)
+  # ─── bison-cli executable ───────────────────────────────────────────────
+  add_executable(bison-cli src/app/cli/main.cpp)
+  target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json gflags)
+  target_include_directories(bison-cli PRIVATE src/rmi)
+  install(TARGETS bison-cli RUNTIME DESTINATION bin COMPONENT bison)
 
-# Non-target install() rules (docs, license, binding sources/examples) plus
-# the CPack ZIP config live in cmake/Packaging.cmake. Only include it when
-# bison is the top-level project -- wish (and any other consumer) pulls
-# bison in via add_subdirectory("extern/bison"), and CPack's include(CPack)
-# is a global singleton (a second include() from wish's own packaging file
-# would silently no-op), so this must not run in that context.
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  include(cmake/Packaging.cmake)
+  # Non-target install() rules (docs, license, binding sources/examples) plus
+  # the CPack ZIP config live in cmake/Packaging.cmake. Only include it when
+  # bison is the top-level project -- wish (and any other consumer) pulls
+  # bison in via add_subdirectory("extern/bison"), and CPack's include(CPack)
+  # is a global singleton (a second include() from wish's own packaging file
+  # would silently no-op), so this must not run in that context.
+  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    include(cmake/Packaging.cmake)
+  endif()
 endif()
