@@ -19,9 +19,14 @@
 install(FILES README.md LICENSE DESTINATION . COMPONENT bison)
 install(DIRECTORY docs DESTINATION . COMPONENT bison)
 
-# bindings/python is a plain importable package (no setup.py/pyproject.toml
-# in this repo -- see docs/bindings.md); ship the source and examples
-# as-is, minus stray bytecode caches.
+# bindings/python is pip-installable from a full source checkout
+# (bindings/python/pyproject.toml -- see docs/bindings.md), but this
+# release zip is a precompiled binary drop with no CMakeLists.txt/src/
+# alongside it for that pyproject.toml's scikit-build-core backend to build
+# against, so pip-installing from an extracted zip isn't a supported path;
+# ship the plain importable bison/ package and examples as-is instead,
+# minus stray bytecode caches, for use against the libbison_abi.so this
+# same zip already ships (bin/, above).
 install(DIRECTORY bindings/python/bison DESTINATION bindings/python
     COMPONENT bison
     PATTERN "__pycache__" EXCLUDE)
