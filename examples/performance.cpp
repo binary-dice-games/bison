@@ -22,6 +22,9 @@
  * - Method-style call
  * - Serialize        (stream-based and buffer-based variants for dynamic)
  * - Deserialize      (stream-based and buffer-based variants for dynamic)
+ * - Copy / Clone     (deep copy of a prebuilt object)
+ * - Nested build/read (nested child object construction + field access)
+ * - Schema serialize / deserialize (`serializeWithSchema` / `deserializeWithSchema`)
  *
  * The harness supports warmup + repeated measured samples and reports
  * min/median timings. Results can be printed as table, CSV, or Markdown.
@@ -62,6 +65,13 @@ constexpr hash_t KEY_B = "b"_key;
 constexpr hash_t KEY_STEP = "step"_key;
 constexpr hash_t KEY_DELTA = "delta"_key;
 constexpr hash_t KEY_VALUE = "value"_key;
+constexpr hash_t KEY_CHILD = "child"_key;
+constexpr hash_t KEY_VERSION = "version"_key;
+constexpr hash_t KEY_WEIGHT = "weight"_key;
+
+/** @brief Class key used to register the schema-serialization benchmark
+ * prototype. */
+constexpr bdg::bison::key_t CLASS_SCHEMA_RECORD = "SchemaBenchmarkRecord"_key;
 
 /**
  * @brief Number of prebuilt objects/payloads used by serialization benchmarks.
@@ -171,6 +181,83 @@ json make_json_record(std::size_t iteration) {
       {"name", benchmark_name(iteration)}};
 }
 
+/** @brief Native child record nested inside `NativeWithChild`, mirroring the
+ * `dynamic_ptr`/nested-`json`-object benchmark fixtures below. */
+struct NativeChild {
+  std::int32_t version;
+  float weight;
+};
+
+/** @brief Native record with one nested child, used to benchmark nested
+ * object construction and field access. */
+struct NativeWithChild {
+  std::int32_t id;
+  NativeChild child;
+};
+
+NativeWithChild make_native_nested_record(std::size_t iteration) {
+  return NativeWithChild{
+      static_cast<std::int32_t>(iteration),
+      NativeChild{static_cast<std::int32_t>(iteration % 16u), 1.0f + static_cast<float>(iteration % 8u) * 0.125f}};
+}
+
+dynamic make_dynamic_nested_record(std::size_t iteration) {
+  dynamic obj;
+  obj[KEY_ID] = static_cast<std::int32_t>(iteration);
+  dynamic_ptr child{std::make_shared<dynamic>()};
+  (*child)[KEY_VERSION] = static_cast<std::int32_t>(iteration % 16u);
+  (*child)[KEY_WEIGHT] = 1.0f + static_cast<float>(iteration % 8u) * 0.125f;
+  obj[KEY_CHILD] = child;
+  return obj;
+}
+
+json make_json_nested_record(std::size_t iteration) {
+  json obj;
+  obj["id"] = static_cast<std::int32_t>(iteration);
+  json child;
+  child["version"] = static_cast<std::int32_t>(iteration % 16u);
+  child["weight"] = 1.0 + static_cast<double>(iteration % 8u) * 0.125;
+  obj["child"] = std::move(child);
+  return obj;
+}
+
+/**
+ * @brief Register the class prototype used by schema-based serialization
+ * benchmarks (`dynamic::serializeWithSchema` / `deserializeWithSchema`).
+ *
+ * The receiver of a schema-serialized payload must already know the field
+ * layout (via a matching `addClass` registration), which is why the
+ * prototype is registered once up front rather than per-iteration.
+ */
+void register_schema_class() {
+  dynamic::addClass(
+      0U,
+      dynamic_ptr{
+          CLASS_SCHEMA_RECORD,
+          {{"id"_key, std::int32_t{0}},
+           {"age"_key, std::int32_t{0}},
+           {"score"_key, float{0}},
+           {"ratio"_key, float{0}},
+           {"active"_key, false},
+           {"level"_key, std::int32_t{0}},
+           {"name"_key, std::string{}}}},
+      0U);
+}
+
+/** @brief Build a `dynamic` instance of the registered schema class,
+ * populated the same way as `make_dynamic_record()`. */
+dynamic make_schema_dynamic_record(std::size_t iteration) {
+  dynamic obj = dynamic::instantiate(CLASS_SCHEMA_RECORD);
+  obj[KEY_ID] = static_cast<std::int32_t>(iteration);
+  obj[KEY_AGE] = 20 + static_cast<std::int32_t>(iteration % 50u);
+  obj[KEY_SCORE] = 100.0f + static_cast<float>(iteration % 100u) * 0.25f;
+  obj[KEY_RATIO] = 0.5f + static_cast<float>(iteration % 10u) * 0.05f;
+  obj[KEY_ACTIVE] = (iteration & 1u) == 0u;
+  obj[KEY_LEVEL] = static_cast<std::int32_t>(iteration % 8u);
+  obj[KEY_NAME] = std::string{benchmark_name(iteration)};
+  return obj;
+}
+
 template <typename T>
 void append_bytes(std::string& buffer, const T& value) {
   buffer.append(reinterpret_cast<const char*>(&value), sizeof(T));
@@ -259,6 +346,26 @@ dynamic deserialize_dynamic_record_buf(const buffer& buf) {
   return dynamic::deserialize(in);
 }
 
+/**
+ * @brief Serialize a `bison::dynamic` object using the compact,
+ *        schema-driven wire format (field keys omitted; requires a matching
+ *        `addClass` registration on the receiving end).
+ */
+std::string serialize_dynamic_schema_record(const dynamic& obj) {
+  std::ostringstream out(std::ios::binary);
+  stream_serializer ser{out};
+  obj.serializeWithSchema(ser);
+  return out.str();
+}
+
+/** @brief Deserialize a `bison::dynamic` object from the schema-driven wire
+ * format. */
+dynamic deserialize_dynamic_schema_record(const std::string& buffer) {
+  std::istringstream in(buffer, std::ios::binary);
+  stream_deserializer des{in};
+  return dynamic::deserializeWithSchema(des);
+}
+
 /** @brief Serialize a JSON object using text encoding (`dump`). */
 std::string serialize_json_record(const json& obj) {
   return obj.dump();
@@ -280,6 +387,8 @@ struct benchmark_pool {
   std::vector<std::string> dynamic_payloads;
   std::vector<buffer> dynamic_buf_payloads; // buffer_serializer payloads
   std::vector<std::string> json_payloads;
+  std::vector<dynamic> dynamic_schema_records;
+  std::vector<std::string> dynamic_schema_payloads; // serializeWithSchema payloads
 };
 
 /**
@@ -296,12 +405,15 @@ benchmark_pool build_serialization_pool(std::size_t pool_size) {
   pool.dynamic_payloads.reserve(pool_size);
   pool.dynamic_buf_payloads.reserve(pool_size);
   pool.json_payloads.reserve(pool_size);
+  pool.dynamic_schema_records.reserve(pool_size);
+  pool.dynamic_schema_payloads.reserve(pool_size);
 
   // Build object fixtures first.
   for (std::size_t iteration = 0; iteration < pool_size; ++iteration) {
     pool.native_records.push_back(make_native_record(iteration));
     pool.dynamic_records.push_back(make_dynamic_record(iteration));
     pool.json_records.push_back(make_json_record(iteration));
+    pool.dynamic_schema_records.push_back(make_schema_dynamic_record(iteration));
   }
 
   // Then build payload fixtures derived from those objects.
@@ -310,6 +422,7 @@ benchmark_pool build_serialization_pool(std::size_t pool_size) {
     pool.dynamic_payloads.push_back(serialize_dynamic_record(pool.dynamic_records[iteration]));
     pool.dynamic_buf_payloads.push_back(serialize_dynamic_record_buf(pool.dynamic_records[iteration]));
     pool.json_payloads.push_back(serialize_json_record(pool.json_records[iteration]));
+    pool.dynamic_schema_payloads.push_back(serialize_dynamic_schema_record(pool.dynamic_schema_records[iteration]));
   }
 
   return pool;
@@ -696,9 +809,10 @@ void print_markdown(const benchmark_config& config, const std::vector<benchmark_
 int main(int argc, char** argv) {
   // Parse options and prebuild reusable fixtures used by serialization rows.
   const benchmark_config config = parse_config(argc, argv);
+  register_schema_class();
   const benchmark_pool pool = build_serialization_pool(SERIALIZATION_POOL_SIZE);
   std::vector<benchmark_row> rows;
-  rows.reserve(7);
+  rows.reserve(11);
 
   // 1) Cost of constructing and tearing down objects each iteration.
   rows.push_back(
@@ -901,6 +1015,83 @@ int main(int argc, char** argv) {
          consume_i32(obj["id"].get<std::int32_t>() + obj["level"].get<std::int32_t>());
          consume_string(obj["name"].get_ref<const std::string&>());
        })});
+
+  // 6) Cost of deep-copying prebuilt objects (dynamic::clone()).
+  rows.push_back(
+      {"Copy / Clone",
+       measure_stats(
+           config,
+           [&pool](std::size_t iteration) {
+             NativeRecord copy = pool.native_records[iteration % pool.native_records.size()];
+             consume_i32(copy.id + copy.level);
+             consume_string(copy.name);
+           }),
+       measure_stats(
+           config,
+           [&pool](std::size_t iteration) {
+             dynamic copy = pool.dynamic_records[iteration % pool.dynamic_records.size()].clone();
+             consume_i32(copy[KEY_ID].as<std::int32_t>() + copy[KEY_LEVEL].as<std::int32_t>());
+             consume_string(copy[KEY_NAME].as<std::string>());
+           }),
+       measure_stats(config, [&pool](std::size_t iteration) {
+         json copy = pool.json_records[iteration % pool.json_records.size()];
+         consume_i32(copy["id"].get<std::int32_t>() + copy["level"].get<std::int32_t>());
+         consume_string(copy["name"].get_ref<const std::string&>());
+       })});
+
+  // 7) Cost of building and reading a nested (child) object each iteration.
+  rows.push_back(
+      {"Nested build/read",
+       measure_stats(
+           config,
+           [](std::size_t iteration) {
+             auto obj = make_native_nested_record(iteration);
+             consume_i32(obj.id + obj.child.version);
+             consume_f32(obj.child.weight);
+           }),
+       measure_stats(
+           config,
+           [](std::size_t iteration) {
+             auto obj = make_dynamic_nested_record(iteration);
+             auto child = obj[KEY_CHILD].as<dynamic_ptr>();
+             consume_i32(obj[KEY_ID].as<std::int32_t>() + (*child)[KEY_VERSION].as<std::int32_t>());
+             consume_f32((*child)[KEY_WEIGHT].as<float>());
+           }),
+       measure_stats(config, [](std::size_t iteration) {
+         auto obj = make_json_nested_record(iteration);
+         consume_i32(obj["id"].get<std::int32_t>() + obj["child"]["version"].get<std::int32_t>());
+         consume_f32(static_cast<float>(obj["child"]["weight"].get<double>()));
+       })});
+
+  // 8) Schema-driven (compact, key-less) serialization; reuses the plain
+  //    Serialize row's C++/json baselines since they represent the same
+  //    binary/text encoding those rows already measured.
+  rows.push_back(
+      {"Schema serialize",
+       rows[3].native,
+       measure_stats(
+           config,
+           [&pool](std::size_t iteration) {
+             const dynamic& obj = pool.dynamic_schema_records[iteration % pool.dynamic_schema_records.size()];
+             const std::string payload = serialize_dynamic_schema_record(obj);
+             consume_u64(static_cast<std::uint64_t>(payload.size()));
+           }),
+       rows[3].json});
+
+  // 8b) Schema-driven deserialization counterpart of the row above.
+  rows.push_back(
+      {"Schema deserialize",
+       rows[5].native,
+       measure_stats(
+           config,
+           [&pool](std::size_t iteration) {
+             const std::string& payload =
+                 pool.dynamic_schema_payloads[iteration % pool.dynamic_schema_payloads.size()];
+             const auto obj = deserialize_dynamic_schema_record(payload);
+             consume_i32(obj[KEY_ID].as<std::int32_t>() + obj[KEY_LEVEL].as<std::int32_t>());
+             consume_string(obj[KEY_NAME].as<std::string>());
+           }),
+       rows[5].json});
 
   // Render results in the user-selected output format.
   switch (config.format) {

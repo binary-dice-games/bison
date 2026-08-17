@@ -2,13 +2,16 @@
 
 ## Benchmark Architecture
 
-The benchmark in `examples/performance.cpp` compares plain C++ struct, `bison::dynamic`, and `nlohmann::json` across five operations:
+The benchmark in `examples/performance.cpp` compares plain C++ struct, `bison::dynamic`, and `nlohmann::json` across nine operations:
 
 - **create / destroy** — object construction and destruction
 - **field set / get** — reading and writing named fields
 - **method-style calls** — invoking registered methods
-- **serialize** — encoding to binary (reuses prebuilt objects to isolate serialization cost)
-- **deserialize** — decoding from binary (reuses prebuilt payloads)
+- **serialize** / **serialize (buf)** — encoding to binary, stream- and buffer-based (reuses prebuilt objects to isolate serialization cost)
+- **deserialize** / **deserialize (buf)** — decoding from binary, stream- and buffer-based (reuses prebuilt payloads)
+- **copy / clone** — deep-copying a prebuilt object (`dynamic::clone()`, `NativeRecord`'s copy constructor, `json`'s copy constructor)
+- **nested build/read** — constructing an object with one nested child object and reading a field back through it (`dynamic_ptr` field vs. a nested native struct vs. a nested `json` object)
+- **schema serialize** / **schema deserialize** — the compact, key-less wire format (`dynamic::serializeWithSchema()` / `deserializeWithSchema()`, requiring a matching `addClass` registration); these two rows reuse the plain serialize/deserialize rows' C++/json baselines, since those already measure the same binary/text encodings at the same abstraction level — only the `dynamic` column differs.
 
 Each row reports `min/median` milliseconds. `dyn x` and `json x` ratio columns use median times to reduce outlier sensitivity. A volatile sink prevents dead-code elimination.
 

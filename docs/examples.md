@@ -170,4 +170,4 @@ cmake --build build --config Release --target bison_performance
 
 Supported `--format` values: `table`, `csv`, `markdown`.
 
-The benchmark compares plain C++ struct, `bison::dynamic`, and `nlohmann::json` across: create/destroy, field set/get, method calls, serialize, deserialize. See [performance.md](performance.md) for architecture details.
+The benchmark compares plain C++ struct, `bison::dynamic`, and `nlohmann::json` across: create/destroy, field set/get, method calls, serialize/deserialize (stream and buffer), copy/clone, nested object build/read, and schema-based serialize/deserialize. See [performance.md](performance.md) for architecture details.
