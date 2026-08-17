@@ -10,17 +10,15 @@ import com.bdg.bison.NativeLibrary;
 
 /**
  * Hosts objects for RMI clients to connect to. Wraps {@code
- * rmi_server_handle}. Class prototypes must be registered with {@code
- * bison_add_class} before a client can instantiate them; this binding does
- * not yet expose that call (see {@link Dynamic}'s gaps list), so a server
- * process built purely from this Android binding has nothing to serve --
- * pair it with prototypes registered from native/C++ code, or from another
- * binding, in the same process.
+ * rmi_server_handle}. Class prototypes must be registered with
+ * {@link Dynamic#registerClass} before a client can instantiate them.
  *
  * <p>The optional {@code auth_handler} callback ({@code rmi_server_listen}'s
- * connection-authentication hook) is not exposed either; {@link #listen}
- * always accepts every incoming connection, matching passing {@code NULL}
- * for it in C.
+ * connection-authentication hook) can be supplied to {@link #listen}; it is
+ * evaluated once per incoming connection for as long as the server keeps
+ * listening -- it can only be set here, not changed afterward. Omit it (or
+ * pass {@code null}) to accept every connection unconditionally, matching
+ * passing {@code NULL} for it in C.
  */
 public final class Server implements AutoCloseable {
   static {
@@ -38,11 +36,15 @@ public final class Server implements AutoCloseable {
   }
 
   public void listen() {
-    listen(null);
+    listen(null, null);
   }
 
   public void listen(Dynamic params) {
-    nativeListen(handle, params == null ? 0 : params.handle());
+    listen(params, null);
+  }
+
+  public void listen(Dynamic params, AuthHandler authHandler) {
+    nativeListen(handle, params == null ? 0 : params.handle(), authHandler);
   }
 
   public void stop() {
@@ -58,7 +60,7 @@ public final class Server implements AutoCloseable {
   }
 
   private static native long nativeTcpCreate(String host, int port);
-  private static native void nativeListen(long handle, long paramsHandle);
+  private static native void nativeListen(long handle, long paramsHandle, AuthHandler authHandler);
   private static native void nativeStop(long handle);
   private static native void nativeRelease(long handle);
 }

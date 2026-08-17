@@ -6,7 +6,6 @@
 package com.bdg.bison.example
 
 import android.os.Bundle
-import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.bdg.bison.Dynamic
@@ -30,7 +29,10 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         resultText = findViewById(R.id.resultText)
-        findViewById<Button>(R.id.runDemoButton).setOnClickListener { runDemo() }
+        // There is no re-run button: rmiStandaloneRoundTrip() registers
+        // "ExampleCalculator" into bison's process-lifetime class registry
+        // (no unregister call exists), so a second runDemo() in the same
+        // process throws "attempted to add a duplicate class or method".
         runDemo()
     }
 

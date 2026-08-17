@@ -13,6 +13,59 @@
 
 namespace bdg::bison::jni {
 
+JavaVM* g_jvm = nullptr;
+jclass g_dynamic_class = nullptr;
+jmethodID g_dynamic_wrap_borrowed = nullptr;
+jclass g_attributes_class = nullptr;
+jmethodID g_attributes_ctor = nullptr;
+jfieldID g_attributes_display_name = nullptr;
+jfieldID g_attributes_description = nullptr;
+jfieldID g_attributes_category = nullptr;
+jfieldID g_attributes_obsolete = nullptr;
+jfieldID g_attributes_obsolete_message = nullptr;
+jfieldID g_attributes_required = nullptr;
+jclass g_proxy_event_class = nullptr;
+jmethodID g_proxy_event_on_event = nullptr;
+jclass g_auth_handler_class = nullptr;
+jmethodID g_auth_handler_authenticate = nullptr;
+
+jni_env_guard::jni_env_guard() {
+  if (g_jvm->GetEnv(reinterpret_cast<void**>(&env_), JNI_VERSION_1_6) == JNI_EDETACHED) {
+    if (g_jvm->AttachCurrentThread(&env_, nullptr) != JNI_OK) {
+      env_ = nullptr;
+      return;
+    }
+    attached_ = true;
+  }
+}
+
+jni_env_guard::~jni_env_guard() {
+  if (attached_) g_jvm->DetachCurrentThread();
+}
+
+attributes_view::attributes_view(JNIEnv* env, jobject meta_obj)
+    : display_name_(env, meta_obj ? static_cast<jstring>(env->GetObjectField(meta_obj, g_attributes_display_name)) : nullptr),
+      description_(env, meta_obj ? static_cast<jstring>(env->GetObjectField(meta_obj, g_attributes_description)) : nullptr),
+      category_(env, meta_obj ? static_cast<jstring>(env->GetObjectField(meta_obj, g_attributes_category)) : nullptr),
+      obsolete_message_(
+          env, meta_obj ? static_cast<jstring>(env->GetObjectField(meta_obj, g_attributes_obsolete_message)) : nullptr) {
+  if (!meta_obj) return;
+  has_value_ = true;
+  attrs_.display_name = display_name_.c_str()[0] ? display_name_.c_str() : nullptr;
+  attrs_.description = description_.c_str()[0] ? description_.c_str() : nullptr;
+  attrs_.category = category_.c_str()[0] ? category_.c_str() : nullptr;
+  attrs_.obsolete = env->GetBooleanField(meta_obj, g_attributes_obsolete) == JNI_TRUE ? 1 : 0;
+  attrs_.obsolete_message = obsolete_message_.c_str()[0] ? obsolete_message_.c_str() : nullptr;
+  attrs_.required = env->GetBooleanField(meta_obj, g_attributes_required) == JNI_TRUE ? 1 : 0;
+}
+
+jobject new_attributes(JNIEnv* env, const bison_attributes& attrs) {
+  return env->NewObject(
+      g_attributes_class, g_attributes_ctor, to_jstring(env, attrs.display_name), to_jstring(env, attrs.description),
+      to_jstring(env, attrs.category), attrs.obsolete != 0 ? JNI_TRUE : JNI_FALSE,
+      to_jstring(env, attrs.obsolete_message), attrs.required != 0 ? JNI_TRUE : JNI_FALSE);
+}
+
 void log_error(const char* tag, const char* message) {
 #if defined(__ANDROID__)
   __android_log_print(ANDROID_LOG_ERROR, tag, "%s", message);

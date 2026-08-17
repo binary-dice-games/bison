@@ -25,17 +25,8 @@
 
 using namespace bdg::bison::jni;
 
-// ── JavaVM / cached class & method IDs (populated in JNI_OnLoad) ──────────
-// FindClass()/GetMethodID() are only reliable when called on a thread with
-// Java frames on its stack (e.g. inside JNI_OnLoad, or a Java-initiated
-// call); an RMI worker thread invoking a BisonMethod callback has neither,
-// so the class/method lookups needed for that upcall are done once here and
-// reused as global refs -- the standard fix for that gotcha.
 namespace {
 
-JavaVM* g_jvm = nullptr;
-jclass g_dynamic_class = nullptr;
-jmethodID g_dynamic_wrap_borrowed = nullptr;
 jclass g_bison_method_class = nullptr;
 jmethodID g_bison_method_invoke = nullptr;
 
@@ -50,12 +41,9 @@ struct method_ctx {
 void JNICALL method_trampoline(bison_handle self, bison_handle params, bison_handle result, void* user) {
   auto* ctx = static_cast<method_ctx*>(user);
 
-  JNIEnv* env = nullptr;
-  bool attached = false;
-  if (g_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
-    if (g_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK || !env) return;
-    attached = true;
-  }
+  jni_env_guard guard;
+  JNIEnv* env = guard.env();
+  if (!env) return;
 
   jobject j_self = env->CallStaticObjectMethod(g_dynamic_class, g_dynamic_wrap_borrowed, to_jlong(self));
   jobject j_params = env->CallStaticObjectMethod(g_dynamic_class, g_dynamic_wrap_borrowed, to_jlong(params));
@@ -76,8 +64,6 @@ void JNICALL method_trampoline(bison_handle self, bison_handle params, bison_han
   if (j_self) env->DeleteLocalRef(j_self);
   if (j_params) env->DeleteLocalRef(j_params);
   if (j_result) env->DeleteLocalRef(j_result);
-
-  if (attached) g_jvm->DetachCurrentThread();
 }
 
 // Two-call-convention helper for bison_get_vector_*(h, name, buf, buf_len,
@@ -127,6 +113,33 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
       g_bison_method_class, "invoke",
       "(Lcom/bdg/bison/Dynamic;Lcom/bdg/bison/Dynamic;Lcom/bdg/bison/Dynamic;)V");
 
+  jclass attrs_local = env->FindClass("com/bdg/bison/Attributes");
+  if (!attrs_local) return JNI_ERR;
+  g_attributes_class = static_cast<jclass>(env->NewGlobalRef(attrs_local));
+  g_attributes_ctor = env->GetMethodID(
+      g_attributes_class, "<init>",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;ZLjava/lang/String;Z)V");
+  g_attributes_display_name = env->GetFieldID(g_attributes_class, "displayName", "Ljava/lang/String;");
+  g_attributes_description = env->GetFieldID(g_attributes_class, "description", "Ljava/lang/String;");
+  g_attributes_category = env->GetFieldID(g_attributes_class, "category", "Ljava/lang/String;");
+  g_attributes_obsolete = env->GetFieldID(g_attributes_class, "obsolete", "Z");
+  g_attributes_obsolete_message = env->GetFieldID(g_attributes_class, "obsoleteMessage", "Ljava/lang/String;");
+  g_attributes_required = env->GetFieldID(g_attributes_class, "required", "Z");
+
+  // Cached for rmi_jni.cpp's upcall trampolines (ProxyEvent.onEvent,
+  // AuthHandler.authenticate) -- see jni_util.hpp's comment on why these
+  // lookups must happen here rather than at first use.
+  jclass proxy_event_local = env->FindClass("com/bdg/bison/rmi/ProxyEvent");
+  if (!proxy_event_local) return JNI_ERR;
+  g_proxy_event_class = static_cast<jclass>(env->NewGlobalRef(proxy_event_local));
+  g_proxy_event_on_event = env->GetMethodID(g_proxy_event_class, "onEvent", "(Lcom/bdg/bison/Dynamic;)V");
+
+  jclass auth_handler_local = env->FindClass("com/bdg/bison/rmi/AuthHandler");
+  if (!auth_handler_local) return JNI_ERR;
+  g_auth_handler_class = static_cast<jclass>(env->NewGlobalRef(auth_handler_local));
+  g_auth_handler_authenticate =
+      env->GetMethodID(g_auth_handler_class, "authenticate", "(Lcom/bdg/bison/Dynamic;)Ljava/lang/String;");
+
   return JNI_VERSION_1_6;
 }
 
@@ -146,6 +159,13 @@ JNIEXPORT jlong JNICALL Java_com_bdg_bison_Dynamic_nativeCreate(JNIEnv*, jclass,
 JNIEXPORT jlong JNICALL Java_com_bdg_bison_Dynamic_nativeFromJson(JNIEnv* env, jclass, jstring json) {
   jstring_view v(env, json);
   bison_handle h = bison_from_json(v.c_str());
+  if (!h) throw_bison_exception(env, BISON_ERR_PARSE);
+  return to_jlong(h);
+}
+
+JNIEXPORT jlong JNICALL Java_com_bdg_bison_Dynamic_nativeFromYaml(JNIEnv* env, jclass, jstring yaml) {
+  jstring_view v(env, yaml);
+  bison_handle h = bison_from_yaml(v.c_str());
   if (!h) throw_bison_exception(env, BISON_ERR_PARSE);
   return to_jlong(h);
 }
@@ -365,13 +385,256 @@ JNIEXPORT jbyteArray JNICALL Java_com_bdg_bison_Dynamic_nativeGetVectorBytes(
   return out;
 }
 
+// ─── Indexed (numeric) field access ─────────────────────────────────────
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeSetIntAt(
+    JNIEnv* env, jclass, jlong handle, jlong index, jint value) {
+  bison_error err = bison_set_int_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), value);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeSetFloatAt(
+    JNIEnv* env, jclass, jlong handle, jlong index, jfloat value) {
+  bison_error err = bison_set_float_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), value);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeSetBoolAt(
+    JNIEnv* env, jclass, jlong handle, jlong index, jboolean value) {
+  bison_error err = bison_set_bool_at(
+      from_jlong<bison_handle>(handle), static_cast<size_t>(index), value == JNI_TRUE ? 1 : 0);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeSetStringAt(
+    JNIEnv* env, jclass, jlong handle, jlong index, jstring value) {
+  jstring_view v(env, value);
+  bison_error err = bison_set_string_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), v.c_str());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeSetKeyAt(
+    JNIEnv* env, jclass, jlong handle, jlong index, jint value_hash) {
+  bison_error err = bison_set_key_at(
+      from_jlong<bison_handle>(handle), static_cast<size_t>(index), static_cast<bison_hash>(value_hash));
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeSetObjectAt(
+    JNIEnv* env, jclass, jlong handle, jlong index, jlong value_handle) {
+  bison_error err = bison_set_object_at(
+      from_jlong<bison_handle>(handle), static_cast<size_t>(index), from_jlong<bison_handle>(value_handle));
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT jint JNICALL Java_com_bdg_bison_Dynamic_nativeGetIntAt(
+    JNIEnv* env, jclass, jlong handle, jlong index) {
+  int32_t out = 0;
+  bison_error err = bison_get_int_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), &out);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+  return out;
+}
+
+JNIEXPORT jfloat JNICALL Java_com_bdg_bison_Dynamic_nativeGetFloatAt(
+    JNIEnv* env, jclass, jlong handle, jlong index) {
+  float out = 0;
+  bison_error err = bison_get_float_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), &out);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+  return out;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_bdg_bison_Dynamic_nativeGetBoolAt(
+    JNIEnv* env, jclass, jlong handle, jlong index) {
+  int out = 0;
+  bison_error err = bison_get_bool_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), &out);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+  return out != 0 ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL Java_com_bdg_bison_Dynamic_nativeGetStringAt(
+    JNIEnv* env, jclass, jlong handle, jlong index) {
+  bison_handle h = from_jlong<bison_handle>(handle);
+  size_t idx = static_cast<size_t>(index);
+  size_t len = 0;
+  bison_error err = bison_get_string_at(h, idx, nullptr, 0, &len);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return nullptr;
+  }
+  std::vector<char> buf(len + 1);
+  err = bison_get_string_at(h, idx, buf.data(), buf.size(), &len);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return nullptr;
+  }
+  return env->NewStringUTF(buf.data());
+}
+
+JNIEXPORT jint JNICALL Java_com_bdg_bison_Dynamic_nativeGetKeyAt(
+    JNIEnv* env, jclass, jlong handle, jlong index) {
+  bison_hash out = 0;
+  bison_error err = bison_get_key_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), &out);
+  if (err != BISON_OK) throw_bison_exception(env, err);
+  return static_cast<jint>(out);
+}
+
+JNIEXPORT jlong JNICALL Java_com_bdg_bison_Dynamic_nativeGetObjectAt(
+    JNIEnv* env, jclass, jlong handle, jlong index) {
+  bison_handle out = nullptr;
+  bison_error err = bison_get_object_at(from_jlong<bison_handle>(handle), static_cast<size_t>(index), &out);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return 0;
+  }
+  return to_jlong(out);
+}
+
 // ─── Class registry ─────────────────────────────────────────────────────
 
 JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddClass(
-    JNIEnv* env, jclass, jint ns_hash, jlong proto_handle, jint parent_hash) {
+    JNIEnv* env, jclass, jint ns_hash, jlong proto_handle, jint parent_hash, jobject meta) {
+  attributes_view attrs(env, meta);
   bison_error err = bison_add_class(
       static_cast<bison_hash>(ns_hash), from_jlong<bison_handle>(proto_handle),
-      static_cast<bison_hash>(parent_hash), nullptr);
+      static_cast<bison_hash>(parent_hash), attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT jlong JNICALL Java_com_bdg_bison_Dynamic_nativeFindClass(
+    JNIEnv*, jclass, jint ns_hash, jint klass_hash) {
+  return to_jlong(bison_find_class(static_cast<bison_hash>(ns_hash), static_cast<bison_hash>(klass_hash)));
+}
+
+JNIEXPORT jlong JNICALL Java_com_bdg_bison_Dynamic_nativeInstantiate(
+    JNIEnv*, jclass, jint ns_hash, jint klass_hash) {
+  return to_jlong(bison_instantiate(static_cast<bison_hash>(ns_hash), static_cast<bison_hash>(klass_hash)));
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeClearRegistry(JNIEnv*, jclass) {
+  bison_clear_registry();
+}
+
+JNIEXPORT jobject JNICALL Java_com_bdg_bison_Dynamic_nativeGetClassAttributes(
+    JNIEnv* env, jclass, jint ns_hash, jint klass_hash) {
+  bison_attributes out{};
+  bison_error err =
+      bison_get_class_attributes(static_cast<bison_hash>(ns_hash), static_cast<bison_hash>(klass_hash), &out);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return nullptr;
+  }
+  return new_attributes(env, out);
+}
+
+JNIEXPORT jobject JNICALL Java_com_bdg_bison_Dynamic_nativeGetFieldAttributes(
+    JNIEnv* env, jclass, jlong handle, jint field_hash) {
+  bison_attributes out{};
+  bison_error err = bison_get_field_attributes(from_jlong<bison_handle>(handle), field_hash, &out);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return nullptr;
+  }
+  return new_attributes(env, out);
+}
+
+JNIEXPORT jobject JNICALL Java_com_bdg_bison_Dynamic_nativeGetMethodAttributes(
+    JNIEnv* env, jclass, jlong handle, jint method_hash) {
+  bison_attributes out{};
+  bison_error err = bison_get_method_attributes(from_jlong<bison_handle>(handle), method_hash, &out);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return nullptr;
+  }
+  return new_attributes(env, out);
+}
+
+// ─── Field registration with optional attribute metadata ───────────────
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldInt(
+    JNIEnv* env, jclass, jlong handle, jint key, jint value, jobject meta) {
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_int(from_jlong<bison_handle>(handle), key, value, attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldFloat(
+    JNIEnv* env, jclass, jlong handle, jint key, jfloat value, jobject meta) {
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_float(from_jlong<bison_handle>(handle), key, value, attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldBool(
+    JNIEnv* env, jclass, jlong handle, jint key, jboolean value, jobject meta) {
+  attributes_view attrs(env, meta);
+  bison_error err =
+      bison_add_field_bool(from_jlong<bison_handle>(handle), key, value == JNI_TRUE ? 1 : 0, attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldString(
+    JNIEnv* env, jclass, jlong handle, jint key, jstring value, jobject meta) {
+  jstring_view v(env, value);
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_string(from_jlong<bison_handle>(handle), key, v.c_str(), attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldKey(
+    JNIEnv* env, jclass, jlong handle, jint key, jint value_hash, jobject meta) {
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_key(
+      from_jlong<bison_handle>(handle), key, static_cast<bison_hash>(value_hash), attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldVectorBool(
+    JNIEnv* env, jclass, jlong handle, jint key, jbooleanArray values, jobject meta) {
+  jsize len = values ? env->GetArrayLength(values) : 0;
+  std::vector<jboolean> src(len);
+  std::vector<int> ints(len);
+  if (len > 0) {
+    env->GetBooleanArrayRegion(values, 0, len, src.data());
+    for (jsize i = 0; i < len; ++i) ints[i] = src[i] != JNI_FALSE ? 1 : 0;
+  }
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_vector_bool(
+      from_jlong<bison_handle>(handle), key, ints.data(), static_cast<size_t>(len), attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldVectorInt(
+    JNIEnv* env, jclass, jlong handle, jint key, jintArray values, jobject meta) {
+  jsize len = values ? env->GetArrayLength(values) : 0;
+  std::vector<jint> buf(len);
+  if (len > 0) env->GetIntArrayRegion(values, 0, len, buf.data());
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_vector_int(
+      from_jlong<bison_handle>(handle), key, reinterpret_cast<const int32_t*>(buf.data()), static_cast<size_t>(len),
+      attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldVectorFloat(
+    JNIEnv* env, jclass, jlong handle, jint key, jfloatArray values, jobject meta) {
+  jsize len = values ? env->GetArrayLength(values) : 0;
+  std::vector<jfloat> buf(len);
+  if (len > 0) env->GetFloatArrayRegion(values, 0, len, buf.data());
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_vector_float(
+      from_jlong<bison_handle>(handle), key, buf.data(), static_cast<size_t>(len), attrs.ptr());
+  if (err != BISON_OK) throw_bison_exception(env, err);
+}
+
+JNIEXPORT void JNICALL Java_com_bdg_bison_Dynamic_nativeAddFieldVectorBytes(
+    JNIEnv* env, jclass, jlong handle, jint key, jbyteArray values, jobject meta) {
+  jsize len = values ? env->GetArrayLength(values) : 0;
+  std::vector<jbyte> buf(len);
+  if (len > 0) env->GetByteArrayRegion(values, 0, len, buf.data());
+  attributes_view attrs(env, meta);
+  bison_error err = bison_add_field_vector_bytes(
+      from_jlong<bison_handle>(handle), key, reinterpret_cast<const uint8_t*>(buf.data()), static_cast<size_t>(len),
+      attrs.ptr());
   if (err != BISON_OK) throw_bison_exception(env, err);
 }
 
@@ -424,6 +687,18 @@ JNIEXPORT jbyteArray JNICALL Java_com_bdg_bison_Dynamic_nativeSerialize(JNIEnv* 
 JNIEXPORT jstring JNICALL Java_com_bdg_bison_Dynamic_nativeToJson(JNIEnv* env, jclass, jlong handle, jint indent) {
   char* out = nullptr;
   bison_error err = bison_to_json(from_jlong<bison_handle>(handle), indent, &out);
+  if (err != BISON_OK) {
+    throw_bison_exception(env, err);
+    return nullptr;
+  }
+  jstring result = env->NewStringUTF(out);
+  bison_free_string(out);
+  return result;
+}
+
+JNIEXPORT jstring JNICALL Java_com_bdg_bison_Dynamic_nativeToYaml(JNIEnv* env, jclass, jlong handle) {
+  char* out = nullptr;
+  bison_error err = bison_to_yaml(from_jlong<bison_handle>(handle), &out);
   if (err != BISON_OK) {
     throw_bison_exception(env, err);
     return nullptr;

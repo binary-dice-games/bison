@@ -27,7 +27,15 @@ line_editor::impl_ptr line_editor::create_impl() {
   auto* state = new impl();
   tcgetattr(STDIN_FILENO, &state->saved_termios);
   struct termios raw = state->saved_termios;
-  cfmakeraw(&raw);
+  // Disable canonical mode, echo, and signal generation so every keystroke
+  // -- including Ctrl+C -- arrives as a plain byte for decode_byte_stream()
+  // to interpret. Deliberately leave c_oflag (OPOST/ONLCR) untouched: unlike
+  // cfmakeraw(), which also strips output processing, this keeps '\n' -> "\r\n"
+  // translation working for ordinary stdout writes elsewhere in the CLI.
+  raw.c_lflag &= ~(static_cast<tcflag_t>(ECHO | ICANON | ISIG | IEXTEN));
+  raw.c_iflag &= ~(static_cast<tcflag_t>(IXON | ICRNL | BRKINT | INPCK | ISTRIP));
+  raw.c_cc[VMIN] = 1;
+  raw.c_cc[VTIME] = 0;
   tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 
   return impl_ptr(state, [](impl* s) {

@@ -4,66 +4,49 @@
 // RMI client example using the Bison C ABI (rmi_c.h / bison_abi.dll).
 //
 // This file intentionally uses only the stable C ABI — no C++ templates or
-// internal headers.  Include only "rmi_c.h".  Command-line flags mirror the
-// --transport/--host/--port/--name names used by bison-cli
-// (src/app/cli/main.cpp), so usage is consistent across the project.
-// --transport=term take no --host/--port/--name: like bison-cli, this
-// process wraps its own already-connected fd 0/1 rather than spawning
-// anything.
+// internal headers.  Include only "rmi_c.h".  Command-line flags (parsed
+// with gflags) mirror the --transport/--host/--port/--name names used by
+// bison-cli (src/app/cli/main.cpp), so usage is consistent across the
+// project.  Only tcp and pipe are supported here; use rmi_client_example
+// for the full set of transports (including term).
 //
 // Run rmi_abi_server_example (tcp/pipe) or rmi_server_example (any
 // transport) with matching flags before starting this client.
 
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+
+#include <gflags/gflags.h>
 
 #include "rmi_c.h"
 
-static void print_usage(const char* program) {
-  fprintf(stderr, "Usage: %s [--transport=tcp|pipe|term] [--host=HOST] [--port=PORT] [--name=PATH]\n", program);
-}
+// bison_abi already defines --transport/--host/--port/--name (src/app/abi_flags.cpp,
+// linked into every process that links bison_abi), so this example declares
+// rather than redefines them, only overriding the defaults it wants below.
+DECLARE_string(transport);
+DECLARE_string(host);
+DECLARE_int32(port);
+DECLARE_string(name);
 
 int main(int argc, char** argv) {
-  const char* transport = "tcp";
-  const char* host = "127.0.0.1";
-  uint16_t port = 7070;
-  const char* name = "";
+  gflags::SetCommandLineOptionWithMode("transport", "tcp", gflags::SET_FLAGS_DEFAULT);
+  gflags::SetCommandLineOptionWithMode("host", "127.0.0.1", gflags::SET_FLAGS_DEFAULT);
+  gflags::SetUsageMessage("RMI Calculator client example using the Bison C ABI.");
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  for (int i = 1; i < argc; ++i) {
-    const char* arg = argv[i];
-    if (strcmp(arg, "--help") == 0 || strcmp(arg, "-h") == 0) {
-      print_usage(argv[0]);
-      return 0;
-    } else if (strncmp(arg, "--transport=", 12) == 0) {
-      transport = arg + 12;
-    } else if (strncmp(arg, "--host=", 7) == 0) {
-      host = arg + 7;
-    } else if (strncmp(arg, "--port=", 7) == 0) {
-      unsigned long parsed = strtoul(arg + 7, NULL, 10);
-      if (parsed == 0 || parsed > 65535) {
-        fprintf(stderr, "Invalid --port: %s\n", arg + 7);
-        return 1;
-      }
-      port = (uint16_t)parsed;
-    } else if (strncmp(arg, "--name=", 7) == 0) {
-      name = arg + 7;
-    } else {
-      fprintf(stderr, "Unknown option: %s\n", arg);
-      print_usage(argv[0]);
-      return 1;
-    }
+  if (FLAGS_port <= 0 || FLAGS_port > 65535) {
+    fprintf(stderr, "Invalid --port: %d\n", FLAGS_port);
+    return 1;
   }
 
   // ── Create and connect the client ────────────────────────────────────────
   rmi_client_handle client;
-  if (strcmp(transport, "tcp") == 0) {
-    client = rmi_client_tcp_create(host, port);
-  } else if (strcmp(transport, "pipe") == 0) {
-    client = rmi_client_pipe_create(name);
+  if (FLAGS_transport == "tcp") {
+    client = rmi_client_tcp_create(FLAGS_host.c_str(), (uint16_t)FLAGS_port);
+  } else if (FLAGS_transport == "pipe") {
+    client = rmi_client_pipe_create(FLAGS_name.c_str());
   } else {
-    fprintf(stderr, "Invalid --transport: %s (expected tcp, pipe, term)\n", transport);
+    fprintf(stderr, "Invalid --transport: %s (expected tcp, pipe)\n", FLAGS_transport.c_str());
     return 1;
   }
   if (!client) {

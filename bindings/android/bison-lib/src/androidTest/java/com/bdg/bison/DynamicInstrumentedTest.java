@@ -7,6 +7,7 @@ package com.bdg.bison;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -51,7 +52,11 @@ public class DynamicInstrumentedTest {
       try (Dynamic restored = Dynamic.deserialize(bytes)) {
         assertEquals(42, restored.getInt("hp"));
       }
-      assertTrue(obj.toJson().contains("hp"));
+      // Field keys are emitted as "#<hash>" via the C ABI (no key-name map
+      // is exposed across it -- see bison_c.h's bison_to_json), so this
+      // checks structural validity/values rather than matching on field
+      // names, matching the Python/C# bindings' equivalent tests.
+      assertTrue(obj.toJson().contains("42"));
     }
   }
 
@@ -120,6 +125,77 @@ public class DynamicInstrumentedTest {
         }
       }
       client.disconnect();
+    }
+  }
+
+  @Test
+  public void indexedFieldAccessRoundTrips() {
+    try (Dynamic obj = new Dynamic()) {
+      obj.setIntAt(0, 10);
+      obj.setIntAt(1, 20);
+      obj.setStringAt(2, "hero");
+      assertEquals(3, obj.size());
+      assertEquals(10, obj.getIntAt(0));
+      assertEquals(20, obj.getIntAt(1));
+      assertEquals("hero", obj.getStringAt(2));
+    }
+  }
+
+  @Test
+  public void classInstantiationWalksInheritanceChain() {
+    try (Dynamic parentProto = new Dynamic("InstrumentedParent")) {
+      parentProto.addFieldInt("baseHp", 100, null);
+      Dynamic.registerClass(parentProto, null, null, null);
+    }
+    try (Dynamic childProto = new Dynamic("InstrumentedChild")) {
+      childProto.addFieldInt("childOnly", 7, null);
+      Dynamic.registerClass(childProto, "InstrumentedParent", null, null);
+    }
+
+    // instantiate() walks the registered prototype chain, so a child
+    // instance sees fields declared on its parent without redeclaring them.
+    try (Dynamic child = Dynamic.instantiate("InstrumentedChild", null)) {
+      assertEquals(100, child.getInt("baseHp"));
+      assertEquals(7, child.getInt("childOnly"));
+    }
+
+    try (Dynamic found = Dynamic.findClass("InstrumentedChild", null)) {
+      assertEquals(Key.of("InstrumentedChild"), found.getKey("__class"));
+    }
+  }
+
+  @Test
+  public void fieldAndClassAttributesRoundTrip() {
+    try (Dynamic proto = new Dynamic("InstrumentedAttrsClass")) {
+      Attributes fieldMeta =
+          new Attributes("HP", "Hit points", "stats", false, null, true);
+      proto.addFieldInt("hp", 100, fieldMeta);
+
+      Attributes read = proto.fieldAttributes("hp");
+      assertEquals("HP", read.displayName);
+      assertEquals("Hit points", read.description);
+      assertEquals("stats", read.category);
+      assertTrue(read.required);
+      assertFalse(read.obsolete);
+
+      Attributes classMeta = new Attributes("Attrs Class", null, null, false, null, false);
+      Dynamic.registerClass(proto, null, null, classMeta);
+    }
+
+    Attributes classRead = Dynamic.classAttributes("InstrumentedAttrsClass", null);
+    assertEquals("Attrs Class", classRead.displayName);
+  }
+
+  @Test
+  public void yamlRoundTrips() {
+    try (Dynamic obj = new Dynamic()) {
+      obj.setInt("hp", 99);
+      String yaml = obj.toYaml();
+      assertTrue(yaml.contains("99"));
+      try (Dynamic restored = Dynamic.fromYaml(yaml)) {
+        // Same "#<hash>" key limitation as toJson() -- see serializationRoundTrips().
+        assertTrue(restored.toYaml().contains("99"));
+      }
     }
   }
 }

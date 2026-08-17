@@ -143,10 +143,15 @@ Or open `bindings/android/` directly in Android Studio and run the
 Device Manager** if needed -- an x86_64 system image gives the emulator
 native-speed CPU emulation, unlike `arm64-v8a` on an x86_64 host).
 
-The app runs its demo automatically on launch and again on "Run Demo"; a
-successful run ends with "All steps completed successfully." To validate
-just the binding itself (no UI) the same way CI would, run its instrumented
-test suite instead:
+The app runs its demo automatically on launch; a successful run ends with
+"All steps completed successfully." There is no re-run button: the demo's
+RMI step registers a class into bison's process-lifetime class registry
+(no unregister call exists), so a second run in the same process would
+throw "attempted to add a duplicate class or method" -- relaunch via
+`adb shell am force-stop com.bdg.bison.example && adb shell am start -n
+com.bdg.bison.example/.MainActivity` instead. To validate just the binding
+itself (no UI) the same way CI would, run its instrumented test suite
+instead:
 
 ```bash
 ./gradlew :bison-lib:connectedAndroidTest

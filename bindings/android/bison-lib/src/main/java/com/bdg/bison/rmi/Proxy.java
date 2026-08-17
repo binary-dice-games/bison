@@ -13,11 +13,10 @@ import com.bdg.bison.NativeLibrary;
  * A handle to an object hosted by an RMI server, returned by
  * {@link Client#instantiate}. Wraps {@code rmi_proxy_handle}.
  *
- * <p>Every operation is synchronous with a timeout, matching {@code
- * rmi_c.h}'s {@code rmi_proxy_*} (non-{@code _async}) functions -- the
- * async/{@code rmi_future_handle} half of the C ABI is not yet exposed by
- * this binding, and neither is {@code rmi_proxy_on_event} (server-pushed
- * events); both are documented gaps for a follow-up.
+ * <p>Every {@code rmi_c.h} {@code rmi_proxy_*} operation has both a
+ * synchronous form (blocking with a timeout) and an {@code *Async} form
+ * returning a {@link Future}. {@link #onEvent} subscribes to server-pushed
+ * events ({@code rmi_proxy_on_event}).
  */
 public final class Proxy implements AutoCloseable {
   static {
@@ -41,6 +40,11 @@ public final class Proxy implements AutoCloseable {
     nativeSet(handle, fields == null ? 0 : fields.handle(), timeoutMs);
   }
 
+  /** Async counterpart to {@link #set}; wait on the returned {@link Future}, then {@link Future#close} it. */
+  public Future setAsync(Dynamic fields) {
+    return new Future(nativeSetAsync(handle, fields == null ? 0 : fields.handle()));
+  }
+
   /** Retrieves a full snapshot of the remote object's fields. */
   public Dynamic get() {
     return get(null, DEFAULT_TIMEOUT_MS);
@@ -50,12 +54,22 @@ public final class Proxy implements AutoCloseable {
     return Dynamic.wrapOwned(nativeGet(handle, projection == null ? 0 : projection.handle(), timeoutMs));
   }
 
+  /** Async counterpart to {@link #get}; consume with {@link Future#getDynamic}. */
+  public Future getAsync(Dynamic projection) {
+    return new Future(nativeGetAsync(handle, projection == null ? 0 : projection.handle()));
+  }
+
   public void clear() {
     clear(DEFAULT_TIMEOUT_MS);
   }
 
   public void clear(long timeoutMs) {
     nativeClear(handle, timeoutMs);
+  }
+
+  /** Async counterpart to {@link #clear}; wait on the returned {@link Future}, then {@link Future#close} it. */
+  public Future clearAsync() {
+    return new Future(nativeClearAsync(handle));
   }
 
   public Dynamic call(String method, Dynamic args) {
@@ -67,6 +81,22 @@ public final class Proxy implements AutoCloseable {
         nativeCall(handle, Key.of(method), args == null ? 0 : args.handle(), timeoutMs));
   }
 
+  /** Async counterpart to {@link #call}; consume with {@link Future#getDynamic}. */
+  public Future callAsync(String method, Dynamic args) {
+    return new Future(nativeCallAsync(handle, Key.of(method), args == null ? 0 : args.handle()));
+  }
+
+  /**
+   * Subscribes to a server-initiated event named {@code name}. The
+   * subscription is not undone by {@link #close} -- it lives as long as the
+   * underlying proxy handle does, matching {@code rmi_proxy_on_event}'s
+   * lifetime contract (fixed once registered, same as a server's auth
+   * handler -- see {@link Server#listen}).
+   */
+  public void onEvent(String name, ProxyEvent handler) {
+    nativeOnEvent(handle, Key.of(name), handler);
+  }
+
   @Override
   public void close() {
     if (handle != 0) {
@@ -76,8 +106,13 @@ public final class Proxy implements AutoCloseable {
   }
 
   private static native void nativeSet(long handle, long fieldsHandle, long timeoutMs);
+  private static native long nativeSetAsync(long handle, long fieldsHandle);
   private static native long nativeGet(long handle, long projectionHandle, long timeoutMs);
+  private static native long nativeGetAsync(long handle, long projectionHandle);
   private static native void nativeClear(long handle, long timeoutMs);
+  private static native long nativeClearAsync(long handle);
   private static native long nativeCall(long handle, int methodHash, long paramsHandle, long timeoutMs);
+  private static native long nativeCallAsync(long handle, int methodHash, long paramsHandle);
+  private static native void nativeOnEvent(long handle, int eventHash, ProxyEvent handler);
   private static native void nativeRelease(long handle);
 }

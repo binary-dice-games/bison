@@ -1,2 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for com.bdg.bison.rmi's TCP/TLS transports (rmi_client_tcp_create,
+         rmi_server_tcp_create, etc.): Android enforces this even for
+         localhost-only sockets. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

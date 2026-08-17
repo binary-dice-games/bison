@@ -457,6 +457,36 @@ calc.addMethod("add", (self, params, result) ->
     result.setInt("value", params.getInt("a") + params.getInt("b")));
 ```
 
+Class inheritance and cross-namespace lookup, indexed (numeric) field
+access, field/class/method attribute metadata (`Attributes`), and YAML text
+interop are all exposed too, matching the Python/C++/C# bindings:
+
+```java
+try (Dynamic parent = new Dynamic("Base")) {
+    parent.addFieldInt("hp", 100, null);
+    Dynamic.registerClass(parent);
+}
+try (Dynamic child = Dynamic.instantiate("Base", null)) {   // walks the class registry
+    System.out.println(child.getInt("hp"));   // 100, inherited
+}
+```
+
+RMI's async operations (`rmi_future_handle`, via `Future`), server-pushed
+proxy events (`Proxy.onEvent`), and the server's connection-authentication
+callback (`Server.listen(params, authHandler)`) are exposed as well:
+
+```java
+try (Future f = proxy.callAsync("add", args)) {
+    f.waitFor();
+    try (Dynamic result = f.getDynamic()) { /* ... */ }
+}
+```
+
+Apps using the TCP transport (`Client.tcp`/`Server.tcp`) need the
+`android.permission.INTERNET` manifest permission — `bison-lib`'s own
+manifest declares it, but Android enforces it even for localhost-only
+sockets, so double-check it survives manifest merging in your app.
+
 **Requirements:** Android NDK r26+, `compileSdk`/`targetSdk` 34, `minSdk` 24
 (see [docs/building.md](building.md#building-for-android) for why 24, not
 21, is the floor). No separate `bison_abi` build step to run by hand —
@@ -471,28 +501,3 @@ cd bindings/android
 See [docs/examples.md](examples.md) for running the example app and its
 instrumented tests on an emulator specifically.
 
-### Gaps versus the internal C++ API
-
-This is a first pass at the Android platform, so its API surface is smaller
-than the Python/C#/C++ bindings':
-
-- **Indexed (numeric) field access** (`obj[0]`) is not exposed — named
-  fields only.
-- **Class inheritance and cross-namespace lookup** aren't exposed.
-  `Dynamic.registerClass(prototype)` covers registering a root (parentless)
-  class in the global namespace — enough to host a class for RMI, which is
-  all the example app needs — but there's no `instantiate(parent)` or
-  `findClass()` yet.
-- **Field/class/method attribute metadata** (`bison_attributes`) isn't
-  exposed.
-- **YAML text interop** isn't exposed (JSON is, via `toJson()`/`fromJson()`).
-- **RMI**: only the `standalone` and TCP socket transports are bound (no
-  named-pipe or `--transport=term` — neither is meaningful for an Android
-  app process), only the synchronous `rmi_proxy_*`/`rmi_client_instantiate`
-  calls (no `rmi_future_handle`/async), and `rmi_proxy_on_event` (server-
-  pushed events) and `rmi_server_listen`'s `auth_handler` aren't exposed.
-
-None of these are architectural dead ends — each is a straightforward
-extension of the same JNI-glue-plus-Java-wrapper shape already in place for
-the rest of the surface (see `bindings/android/jni/bison_jni.cpp` and
-`rmi_jni.cpp`).

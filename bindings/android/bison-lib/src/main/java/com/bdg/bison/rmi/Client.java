@@ -60,6 +60,17 @@ public final class Client implements AutoCloseable {
     return new Proxy(proxyHandle);
   }
 
+  /** Async counterpart to {@link #instantiate(String, Dynamic)}; consume with {@link Future#getProxy}. */
+  public Future instantiateAsync(String className, Dynamic params) {
+    return instantiateAsync(0, className, params);
+  }
+
+  public Future instantiateAsync(int namespaceHash, String className, Dynamic params) {
+    long futureHandle = nativeInstantiateAsync(
+        handle, namespaceHash, Key.of(className), params == null ? 0 : params.handle());
+    return new Future(futureHandle);
+  }
+
   public void disconnect() {
     nativeDisconnect(handle);
   }
@@ -76,6 +87,7 @@ public final class Client implements AutoCloseable {
   private static native long nativeTcpCreate(String host, int port);
   private static native void nativeConnect(long handle, long paramsHandle);
   private static native long nativeInstantiate(long handle, int nsHash, int classHash, long paramsHandle);
+  private static native long nativeInstantiateAsync(long handle, int nsHash, int classHash, long paramsHandle);
   private static native void nativeDisconnect(long handle);
   private static native void nativeRelease(long handle);
 }

@@ -77,8 +77,8 @@ target_include_directories(rmi_bridge_example PRIVATE ${PROJECT_SOURCE_DIR})
 
 target_link_libraries(bison_examples PRIVATE bison)
 target_link_libraries(bison_abi_examples PRIVATE bison_abi)
-target_link_libraries(rmi_abi_server_example PRIVATE bison_abi)
-target_link_libraries(rmi_abi_client_example PRIVATE bison_abi)
+target_link_libraries(rmi_abi_server_example PRIVATE bison_abi gflags)
+target_link_libraries(rmi_abi_client_example PRIVATE bison_abi gflags)
 target_link_libraries(rmi_abi_standalone_example PRIVATE bison_abi)
 
 foreach(_abi_target bison_abi_examples rmi_abi_server_example rmi_abi_client_example rmi_abi_standalone_example)
