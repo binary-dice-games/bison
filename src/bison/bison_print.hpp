@@ -13,25 +13,20 @@
  *
  * Field and method keys are resolved in this order:
  *   1. `DisplayName` attribute on the field or method.
- *   2. Entry in the caller-supplied `dict` (hash → display-name map).
+ *   2. The live `_rkey` / `register_key_name` registry, consulted via
+ *      `lookup_registered_key_name()` (see `bison_common.hpp`).
  *   3. Raw hash (`#xxxxxxxx`) or array index (`[n]`).
  *
- * The companion free function `build_display_dict()` populates a dictionary
- * from the global class registry so callers can pass it to `print_options::dict`
- * without repeating the traversal logic.
+ * Step 2 reads the registry directly on every lookup, so a key registered
+ * (via `_rkey`) after an object was built -- or after an earlier `print()`
+ * call -- still resolves correctly; there is no dictionary to build or
+ * cache.
  *
  * ## Usage
  * @code{.cpp}
  * #include "src/bison/bison_print.hpp"
  *
- * // Simple print (uses DisplayName attributes only).
  * std::cout << bison::print(obj) << '\n';
- *
- * // Print with registry-based name resolution.
- * auto dict = bison::build_display_dict();
- * bison::print_options opts;
- * opts.dict = &dict;
- * std::cout << bison::print(obj, opts) << '\n';
  * @endcode
  */
 
@@ -50,14 +45,6 @@ struct print_options {
   /** @brief String prepended once per nesting level in multiline mode. */
   std::string indent{"  "};
   /**
-   * @brief Optional hash→display-name dictionary used as a fallback when a
-   *        field or method key has no `DisplayName` attribute.
-   *
-   * Build one with `build_display_dict()`.  Null (the default) means no
-   * dictionary lookup is performed and unknown hashes are printed raw.
-   */
-  const std::unordered_map<hash_t, std::string>* dict{nullptr};
-  /**
    * @brief When `true`, suppress the internal `__class`, `__parent`, and
    *        `__namespace` fields from the output.
    *
@@ -72,22 +59,9 @@ struct print_options {
  * @brief Convert @p obj to a human-readable string.
  *
  * @param obj   Source object.
- * @param opts  Format options; defaults to multiline with two-space indent and
- *              no dictionary lookup.
+ * @param opts  Format options; defaults to multiline with two-space indent.
  * @return Formatted string representation of @p obj.
  */
 std::string print(const dynamic& obj, const print_options& opts = {});
-
-/**
- * @brief Build a hash→display-name dictionary from all registered classes.
- *
- * Traverses the global class registry and collects `DisplayName` attributes
- * from class keys, field keys, method keys, and method parameter field keys.
- * Pass the result (or a pointer to it) to `print_options::dict` so that
- * `print()` can resolve unknown hashes to human-readable names.
- *
- * @return Dictionary mapping `hash_t` values to their display names.
- */
-std::unordered_map<hash_t, std::string> build_display_dict();
 
 } // namespace bdg::bison

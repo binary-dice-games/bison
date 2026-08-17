@@ -396,6 +396,27 @@ static field yaml_sequence_to_field(yaml_parser_t* parser) {
   return field{yaml_items_to_indexed_dynamic(items)};
 }
 
+/**
+ * @brief True if @p k is the reserved `__class`/`__namespace` bookkeeping
+ *        field and @p f holds the "unset" sentinel value `0` -- `dynamic`'s
+ *        default "anonymous object" class, or the global namespace.
+ *
+ * Every `dynamic` gets an explicit `__class` field at construction time
+ * (see the `dynamic` constructor), and `resolveNamespace()` lazily caches
+ * an explicit `__namespace` field the first time it's consulted -- both
+ * default to `0` when the object was never assigned a real class/namespace.
+ * That `0` carries no identifying information (there is no class or
+ * namespace named "0"), so `print()`, `to_json()`, and `to_yaml()` omit the
+ * field entirely instead of rendering a meaningless `"#0"`. A non-zero
+ * value (a real registered class/namespace hash) is still emitted.
+ */
+static bool is_zero_bookkeeping_field_p(key_t k, const field& f) {
+  const hash_t h = static_cast<hash_t>(k);
+  if (h != dynamic::CLASS && h != dynamic::NAMESPACE)
+    return false;
+  return f.is<key_t>() && f.as<key_t>().id == 0;
+}
+
 // ─── JSON export helpers
 // ──────────────────────────────────────────────────
 
@@ -407,10 +428,13 @@ static json dynamic_to_json(const dynamic& d, const key_map& keys);
 /**
  * @brief Resolve a field/hash key id to a human-readable name for export.
  *
- * Looks @p id up in @p keys (typically produced by `build_display_dict`
- * or supplied by the caller of `to_json` / `to_yaml`). Falls back to a
- * `#<id>` placeholder when no display name is registered, so the key is
- * still stable and greppable in the exported document.
+ * Looks @p id up in @p keys, which the caller of `to_json` / `to_yaml`
+ * supplies. This name must be the exact original field-name string --
+ * never a `DisplayName` attribute -- so that re-importing the exported
+ * document via `from_json`/`from_yaml` (which re-hashes the key string)
+ * reproduces the original key. Falls back to a `#<id>` placeholder when no
+ * name is registered, so the key is still stable and greppable in the
+ * exported document.
  *
  * @param id   Raw `hash_t` key id.
  * @param keys Id-to-name lookup table.
@@ -482,6 +506,8 @@ static json field_to_json(const field& f, const key_map& keys) {
  * attributes are not exported. This always produces a JSON object, even
  * for a `dynamic` that is being used array-like (numeric-indexed fields
  * are keyed by their resolved index name, not rendered as a JSON array).
+ * `__class`/`__namespace` fields holding the `0` "unset" sentinel are
+ * skipped (see `is_zero_bookkeeping_field_p`).
  *
  * @param d    Object to convert.
  * @param keys Id-to-name lookup used to resolve field keys.
@@ -489,7 +515,11 @@ static json field_to_json(const field& f, const key_map& keys) {
  */
 static json dynamic_to_json(const dynamic& d, const key_map& keys) {
   auto obj = json::object();
-  d.forEach([&](key_t k, const field& f) { obj[resolve_key(k.id, keys)] = field_to_json(f, keys); });
+  d.forEach([&](key_t k, const field& f) {
+    if (is_zero_bookkeeping_field_p(k, f))
+      return;
+    obj[resolve_key(k.id, keys)] = field_to_json(f, keys);
+  });
   return obj;
 }
 
@@ -574,7 +604,11 @@ dynamic_ptr from_yaml(std::string text) {
  *
  * @param d      Object to serialize.
  * @param keys   Id-to-name lookup used to resolve field keys (see
- *               `resolve_key`); typically `build_display_dict()`.
+ *               `resolve_key`); populate with the caller's own literal
+ *               field-name strings. Must map each hash back to its exact
+ *               original field name so `from_json` can re-derive the same
+ *               key on import -- never populate this with `DisplayName`
+ *               attribute text.
  * @param indent Passed through to `nlohmann::json::dump`; a negative
  *               value produces compact output, `0` or greater (`2` by
  *               default) produces pretty-printed output with that many
@@ -741,6 +775,8 @@ static void emit_field_yaml(yaml_emitter_t* e, const field& f, const key_map& ke
  * Only named fields are visited (via `dynamic::forEach`); methods and
  * attributes are not exported. Mirrors `dynamic_to_json`'s scope, but
  * always produces a block mapping rather than JSON's flat object.
+ * `__class`/`__namespace` fields holding the `0` "unset" sentinel are
+ * skipped (see `is_zero_bookkeeping_field_p`).
  *
  * @param e    Target emitter.
  * @param d    Object to emit.
@@ -751,6 +787,8 @@ static void emit_dynamic_yaml(yaml_emitter_t* e, const dynamic& d, const key_map
   yaml_mapping_start_event_initialize(&ev, nullptr, nullptr, /*implicit=*/1, YAML_BLOCK_MAPPING_STYLE);
   yaml_send(e, ev);
   d.forEach([&](key_t k, const field& f) {
+    if (is_zero_bookkeeping_field_p(k, f))
+      return;
     yaml_scalar_plain(e, resolve_key(k.id, keys));
     emit_field_yaml(e, f, keys);
   });
@@ -769,7 +807,11 @@ static void emit_dynamic_yaml(yaml_emitter_t* e, const dynamic& d, const key_map
  *
  * @param d    Object to serialize.
  * @param keys Id-to-name lookup used to resolve field keys (see
- *             `resolve_key`); typically `build_display_dict()`.
+ *             `resolve_key`); populate with the caller's own literal
+ *             field-name strings. Must map each hash back to its exact
+ *             original field name so `from_yaml` can re-derive the same
+ *             key on import -- never populate this with `DisplayName`
+ *             attribute text.
  * @return The YAML document text.
  * @throws std::runtime_error on an emitter initialization or emit
  *         failure.
@@ -883,13 +925,6 @@ std::string format_key_p(key_t k) {
   return oss.str();
 }
 
-/** @brief Look up @p h in the optional display-name dictionary @p d. */
-const std::string* dict_lookup_p(hash_t h, const std::unordered_map<hash_t, std::string>* d) {
-  if (!d)
-    return nullptr;
-  auto it = d->find(h);
-  return it != d->end() ? &it->second : nullptr;
-}
 
 /**
  * @brief Format a `float` for pretty-printed output, always with a
@@ -917,22 +952,25 @@ std::string repeat_str_p(const std::string& s, int n) {
  * @brief Resolve the display label for a field key in pretty-printed
  *        output.
  *
- * Precedence: the field's own `DisplayName` attribute, then
- * `opts.dict`, then a raw `format_key_p` fallback.
+ * Precedence: the field's own `DisplayName` attribute, then the live
+ * `_rkey` / `register_key_name` registry (via `lookup_registered_key_name`),
+ * then a raw `format_key_p` fallback. The registry is consulted directly
+ * (not a caller-supplied snapshot) so a key registered after this object was
+ * built is still resolved correctly.
  */
-std::string format_field_key_p(key_t k, const field& f, const print_options& opts) {
+std::string format_field_key_p(key_t k, const field& f) {
   if (const auto* dn = f.findAttribute<DisplayName>())
     return dn->name();
-  if (const auto* s = dict_lookup_p(static_cast<hash_t>(k), opts.dict))
+  if (auto s = lookup_registered_key_name(static_cast<hash_t>(k)))
     return *s;
   return format_key_p(k);
 }
 
 /** @brief Same precedence as `format_field_key_p`, but for method keys. */
-std::string format_method_key_p(key_t k, const method& m, const print_options& opts) {
+std::string format_method_key_p(key_t k, const method& m) {
   if (const auto* dn = m.findAttribute<DisplayName>())
     return dn->name();
-  if (const auto* s = dict_lookup_p(static_cast<hash_t>(k), opts.dict))
+  if (auto s = lookup_registered_key_name(static_cast<hash_t>(k)))
     return *s;
   return format_key_p(k);
 }
@@ -945,13 +983,14 @@ std::string print_dynamic_p(const dynamic& obj, const print_options& opts, int d
  * @brief Render a single `field`'s value for pretty-printed output.
  *
  * Dispatches on the active `field_base` alternative: `hash_t`/`key_t`
- * prefer a `opts.dict` display name and fall back to `format_hash_p`,
+ * prefer a name from the live `_rkey` / `register_key_name` registry (via
+ * `lookup_registered_key_name`) and fall back to `format_hash_p`,
  * `dynamic_ptr` recurses via `print_dynamic_p`, and vector types are
  * rendered as bracketed, comma-separated element lists (`vector<uint8_t>`
  * is summarized as `<N bytes>` instead of dumping raw bytes).
  *
  * @param f     Field to render.
- * @param opts  Formatting options (dictionary, indentation, etc).
+ * @param opts  Formatting options (indentation, etc).
  * @param depth Current nesting depth, forwarded to nested `dynamic_ptr`
  *              rendering.
  */
@@ -962,11 +1001,11 @@ std::string print_field_value_p(const field& f, const print_options& opts, int d
         if constexpr (std::is_same_v<T, std::monostate>) {
           return "null";
         } else if constexpr (std::is_same_v<T, hash_t>) {
-          if (const auto* s = dict_lookup_p(v, opts.dict))
+          if (auto s = lookup_registered_key_name(v))
             return *s;
           return format_hash_p(v);
         } else if constexpr (std::is_same_v<T, key_t>) {
-          if (const auto* s = dict_lookup_p(static_cast<hash_t>(v), opts.dict))
+          if (auto s = lookup_registered_key_name(static_cast<hash_t>(v)))
             return *s;
           return format_hash_p(static_cast<hash_t>(v));
         } else if constexpr (std::is_same_v<T, bool>) {
@@ -1064,7 +1103,10 @@ std::string print_method_value_p(const method& m) {
  *        `opts.multiline`.
  *
  * Internal bookkeeping fields (`__class`, `__parent`, `__namespace`) are
- * skipped when `opts.hide_internal` is set.
+ * skipped when `opts.hide_internal` is set. Independent of that flag,
+ * `__class`/`__namespace` holding the `0` "unset" sentinel are always
+ * skipped (see `is_zero_bookkeeping_field_p`) since that value never
+ * carries identifying information.
  *
  * @param obj   Object to render.
  * @param opts  Formatting options.
@@ -1073,18 +1115,21 @@ std::string print_method_value_p(const method& m) {
 std::string print_dynamic_p(const dynamic& obj, const print_options& opts, int depth) {
   std::string result;
   auto is_internal = [](hash_t h) { return h == dynamic::CLASS || h == dynamic::PARENT || h == dynamic::NAMESPACE; };
+  auto skip_field = [&](key_t k, const field& f) {
+    return (opts.hide_internal && is_internal(static_cast<hash_t>(k))) || is_zero_bookkeeping_field_p(k, f);
+  };
   if (opts.multiline) {
     const std::string cur = repeat_str_p(opts.indent, depth);
     const std::string next = repeat_str_p(opts.indent, depth + 1);
     result = "{\n";
     obj.forEach([&](key_t k, const field& f) {
-      if (opts.hide_internal && is_internal(static_cast<hash_t>(k)))
+      if (skip_field(k, f))
         return;
-      result += next + format_field_key_p(k, f, opts) + ": ";
+      result += next + format_field_key_p(k, f) + ": ";
       result += print_field_value_p(f, opts, depth + 1) + '\n';
     });
     obj.forEachMethod([&](key_t k, const method& m) {
-      result += next + format_method_key_p(k, m, opts) + ": ";
+      result += next + format_method_key_p(k, m) + ": ";
       result += print_method_value_p(m) + '\n';
     });
     result += cur + '}';
@@ -1092,18 +1137,18 @@ std::string print_dynamic_p(const dynamic& obj, const print_options& opts, int d
     result = '{';
     bool first = true;
     obj.forEach([&](key_t k, const field& f) {
-      if (opts.hide_internal && is_internal(static_cast<hash_t>(k)))
+      if (skip_field(k, f))
         return;
       if (!first)
         result += ", ";
-      result += format_field_key_p(k, f, opts) + ": ";
+      result += format_field_key_p(k, f) + ": ";
       result += print_field_value_p(f, opts, depth + 1);
       first = false;
     });
     obj.forEachMethod([&](key_t k, const method& m) {
       if (!first)
         result += ", ";
-      result += format_method_key_p(k, m, opts) + ": ";
+      result += format_method_key_p(k, m) + ": ";
       result += print_method_value_p(m);
       first = false;
     });
@@ -1143,8 +1188,8 @@ synchronized<std::unordered_map<hash_t, std::string>>& key_name_registry() {
  *        registry.
  *
  * Called by the `_rkey` literal (see `bison_common.hpp`) and directly by
- * callers who want a name available for `build_display_dict()` without
- * a corresponding `DisplayName` attribute.
+ * callers who want a name available via `lookup_registered_key_name()`
+ * without using the `_rkey` literal itself.
  *
  * @param h    Hash produced by `hash()` or `_key` / `_rkey`.
  * @param name Human-readable name to associate with @p h.
@@ -1159,75 +1204,6 @@ std::optional<std::string> lookup_registered_key_name(hash_t h) {
   if (it == lp->end())
     return std::nullopt;
   return it->second;
-}
-
-/**
- * @brief Build a combined hash → display-name dictionary for use with
- *        `print_options::dict`, `to_json`, and `to_yaml`.
- *
- * Seeds the dictionary from the global key-name registry
- * (`register_key_name` / `_rkey`), then walks every registered class
- * prototype and overlays any `DisplayName` attributes found on the class
- * key itself, its fields, its methods, and its methods' input/output
- * param specs — skipping the internal bookkeeping fields (`__class`,
- * `__parent`, `__namespace`), since those share one key across every
- * prototype and would otherwise collide. `DisplayName` entries take
- * precedence over the registry because they are more specific (hand
- * written per-field, rather than derived from a literal's spelling).
- *
- * @return Combined hash → display-name map.
- */
-std::unordered_map<hash_t, std::string> build_display_dict() {
-  // Seed from the explicit key-name registry (populated by _rkey literals and
-  // by direct register_key_name() calls).
-  std::unordered_map<hash_t, std::string> d = key_name_registry().copy();
-
-  // Merge DisplayName attributes from registered class prototypes.
-  // DisplayName entries take precedence over the registry (they are more
-  // specific — written by hand rather than auto-derived from a key string).
-  auto lp = dynamic::getRegistry().rlock();
-  for (const auto& [ns_key, classes] : *lp) {
-    for (const auto& [klass_key, proto] : classes) {
-      if (!proto)
-        continue;
-      // Map the class key (hash of the class name) to its display name.
-      const auto* cf = proto->findField(dynamic::CLASS);
-      if (cf) {
-        if (const auto* dn = cf->findAttribute<DisplayName>())
-          d[static_cast<hash_t>(klass_key)] = dn->name();
-      }
-      // Map field keys — but skip the internal bookkeeping fields (__class,
-      // __parent, __namespace).  Those fields carry the class's DisplayName as
-      // an attribute (added by addClass()), but they all share the same key
-      // across every prototype; merging them would map hash("__class") to
-      // whichever class was registered last, producing confusing output.
-      proto->forEach([&](key_t k, const field& f) {
-        if (static_cast<hash_t>(k) == dynamic::CLASS || static_cast<hash_t>(k) == dynamic::PARENT ||
-            static_cast<hash_t>(k) == dynamic::NAMESPACE)
-          return;
-        if (const auto* dn = f.findAttribute<DisplayName>())
-          d[static_cast<hash_t>(k)] = dn->name();
-      });
-      proto->forEachMethod([&](key_t k, const method& m) {
-        if (const auto* dn = m.findAttribute<DisplayName>())
-          d[static_cast<hash_t>(k)] = dn->name();
-        auto add_params = [&](const dynamic* spec) {
-          if (!spec)
-            return;
-          spec->forEach([&](key_t fk, const field& ff) {
-            if (static_cast<hash_t>(fk) == dynamic::CLASS || static_cast<hash_t>(fk) == dynamic::PARENT ||
-                static_cast<hash_t>(fk) == dynamic::NAMESPACE)
-              return;
-            if (const auto* dn = ff.findAttribute<DisplayName>())
-              d[static_cast<hash_t>(fk)] = dn->name();
-          });
-        };
-        add_params(m.inputSpec());
-        add_params(m.outputSpec());
-      });
-    }
-  }
-  return d;
 }
 
 // ─── bison_flags ──────────────────────────────────────────────────────────────

@@ -801,17 +801,14 @@ TEST(KeyNameRegistryTests, UnregisteredHashReturnsNullopt) {
 }
 
 TEST(KeyNameRegistryTests, LookupIsNotAffectedByDisplayNameOverlay) {
-  // build_display_dict() prefers DisplayName over the _rkey-registered name;
-  // lookup_registered_key_name() must not -- it should always return the
-  // literal registered string, regardless of any DisplayName attached
-  // elsewhere to a class/field sharing the same hash.
+  // lookup_registered_key_name() must always return the literal registered
+  // string, regardless of any DisplayName attached elsewhere to a
+  // class/field sharing the same hash -- the two mechanisms are
+  // independent, and name recovery must stay reversible.
   clearClassRegistry();
   auto proto = dynamic_ptr{"LiteralClassName"_rkey, {}};
   (*proto)[dynamic::CLASS].addAttribute(attr<DisplayName>("A Much Prettier Name"));
   dynamic::addClass(bison_key_t{0U}, proto);
-
-  auto dict = build_display_dict();
-  EXPECT_EQ(dict.at(static_cast<hash_t>("LiteralClassName"_key)), "A Much Prettier Name");
 
   auto literal = lookup_registered_key_name(hash("LiteralClassName"));
   ASSERT_TRUE(literal.has_value());
@@ -1968,6 +1965,33 @@ TEST(PrintTest, MethodsAppearsInOutput) {
   EXPECT_NE(out.find("<method>"), std::string::npos);
   // Field is still present.
   EXPECT_NE(out.find("value"), std::string::npos);
+}
+
+TEST(PrintTest, ResolvesFieldKeyFromLiveRkeyRegistry) {
+  // A field with no DisplayName still gets a readable key if it was
+  // registered via _rkey, resolved live rather than from a caller-built
+  // dictionary.
+  dynamic obj;
+  obj["UniquePrintFieldName"_rkey] = field{int32_t{7}};
+
+  const std::string out = print(obj);
+  EXPECT_NE(out.find("UniquePrintFieldName"), std::string::npos);
+}
+
+TEST(PrintTest, ResolvesHashValueRegisteredAfterFieldWasBuilt) {
+  // print() consults the registry live on every call, so a name registered
+  // after the field was constructed (and even after an earlier print())
+  // still resolves -- there is no dictionary snapshot to go stale.
+  dynamic obj;
+  obj["ref"_key] = field{hash("UniqueLatePrintName")};
+
+  print_options opts;
+  opts.multiline = false;
+  EXPECT_EQ(print(obj, opts).find("UniqueLatePrintName"), std::string::npos);
+
+  (void)"UniqueLatePrintName"_rkey; // register after the object was built
+
+  EXPECT_NE(print(obj, opts).find("UniqueLatePrintName"), std::string::npos);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

@@ -44,20 +44,14 @@ static const char* op_to_label(bison::key_t op) {
   return it != labels.end() ? it->second : "unknown    ";
 }
 
-// Built lazily on first trace call; thread-safe via static-local init.
-static const std::unordered_map<bison::hash_t, std::string>& trace_dict() {
-  static auto dict = bison::build_display_dict();
-  return dict;
-}
-
+// Reads the live `_rkey` / `register_key_name` registry on every call, so a
+// class/method registered after an earlier trace line still resolves.
 static std::string resolve(bison::hash_t h) {
-  const auto& d = trace_dict();
-  auto it = d.find(h);
-  return it != d.end() ? it->second : ("#" + [&] {
-    std::ostringstream s;
-    s << std::hex << std::setw(8) << std::setfill('0') << h;
-    return s.str();
-  }());
+  if (auto name = bison::lookup_registered_key_name(h))
+    return *name;
+  std::ostringstream s;
+  s << '#' << std::hex << std::setw(8) << std::setfill('0') << h;
+  return s.str();
 }
 
 } // namespace
@@ -65,7 +59,6 @@ static std::string resolve(bison::hash_t h) {
 void server::on_request_trace(context& ctx, const shared::envelope& env) {
   bison::print_options popts;
   popts.multiline = false;
-  popts.dict = &trace_dict();
   popts.hide_internal = true;
 
   std::ostringstream oss;
@@ -108,7 +101,6 @@ void server::on_response_trace(
     const bison::dynamic& response_payload) {
   bison::print_options popts;
   popts.multiline = false;
-  popts.dict = &trace_dict();
   popts.hide_internal = true;
 
   std::ostringstream oss;

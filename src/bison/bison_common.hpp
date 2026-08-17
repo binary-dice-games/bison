@@ -180,17 +180,13 @@ constexpr key_t operator""_key(const char* name, std::size_t size) noexcept {
 void register_key_name(hash_t h, std::string_view name);
 
 /**
- * @brief Look up a name registered via `_rkey` / `register_key_name`,
- *        without the `DisplayName`-attribute overlay `build_display_dict()`
- *        applies.
+ * @brief Look up a name registered via `_rkey` / `register_key_name`.
  *
- * `build_display_dict()` deliberately prefers a class/field's `DisplayName`
- * attribute over its `_rkey`-registered name (see that function's doc
- * comment) -- correct for producing human-friendly trace/print output, but
- * unsuitable when a caller needs the *exact literal string* a key was
- * registered under (e.g. recovering "TextEditor" from its hash, when its
- * `DisplayName` is the different, prettier "Text Editor"). This function
- * reads the raw registry directly, with no such override.
+ * Reads the raw registry directly: the exact literal string a key was
+ * registered under (e.g. recovering "TextEditor" from its hash). Never
+ * overridden by a `DisplayName` attribute -- `DisplayName` is a separate
+ * mechanism for reflection-tool UI labels (see `bison_object.hpp`) and is
+ * not reversible, so it is never mixed into name recovery.
  *
  * @param h  Hash produced by `hash()`, `_key`, or `_rkey`.
  * @return The exact string last registered for @p h via `register_key_name`/
@@ -202,17 +198,22 @@ std::optional<std::string> lookup_registered_key_name(hash_t h);
  * @brief Registering key literal — hashes @p name like `_key` and also records
  *        the string in the global key-name registry.
  *
- * Use this literal in `addMethod`, `addField`, and `register_key_name` call
- * sites where human-readable trace output is desired:
+ * Use this literal only at registration sites -- `addClass`, `addMethod`,
+ * `addField`, and method input/output spec field keys -- where a name needs
+ * to be recoverable for trace/print output later:
  * @code{.cpp}
  *   addMethod("preset"_rkey, method{...});
  *   addField("label"_rkey, field{...});
  * @endcode
- * The registered string becomes available to `build_display_dict()` as a
- * fallback when the key has no `DisplayName` attribute.
+ * The registered string becomes available via `lookup_registered_key_name()`,
+ * and `print()` consults it automatically as a fallback for any field or
+ * method key without a `DisplayName` attribute.
  *
- * This literal is **not** `constexpr` because it writes to a runtime registry.
- * Use `_key` wherever a compile-time constant is required.
+ * This literal is **not** `constexpr`: it takes a registry lock and writes
+ * to a process-wide map on every evaluation, so it is far more costly than
+ * `_key`. Do not use it for ordinary field access (`obj["a"_rkey]`) --
+ * use plain `_key` there, and reserve `_rkey` for the one-time registration
+ * call sites above.
  *
  * @param name  Null-terminated string literal.
  * @param size  Length of the literal (unused; provided by the compiler).
@@ -309,9 +310,9 @@ using namespace_map = std::unordered_map<key_t, collection, key_t, key_t>;
 /**
  * @brief Register a human-readable name for a hash key.
  *
- * Stores @p name in the global key-name registry, which
- * `build_display_dict()` merges as a fallback for keys that do not carry a
- * `DisplayName` attribute.  Thread-safe; may be called from any thread.
+ * Stores @p name in the global key-name registry, readable back via
+ * `lookup_registered_key_name()`.  Thread-safe; may be called from any
+ * thread.
  *
  * Use the `_rkey` literal (e.g. `(void)"descriptor"_rkey`) as a concise way
  * to register a name at startup without an explicit call here.

@@ -14,16 +14,17 @@ void calc_server::register_classes() {
 
   // ── Prototype ─────────────────────────────────────────────────────────────
 
-  auto proto = dynamic_ptr{"Calculator"_key};
+  auto proto = dynamic_ptr{"Calculator"_rkey};
 
   // User-accessible accumulator field.
   proto->addField(
-      "memory"_key, field{0.0f, attr<DisplayName>("Memory"), attr<Description>("User-accessible accumulator value")});
+      "memory"_rkey,
+      field{0.0f, attr<DisplayName>("Memory"), attr<Description>("User-accessible accumulator value")});
 
   // ── Methods ───────────────────────────────────────────────────────────────
 
   proto->addMethod(
-      "add"_key,
+      "add"_rkey,
       method{
           [](dynamic& /*self*/, const dynamic& params) -> dynamic {
             float a = params["a"_key];
@@ -33,13 +34,14 @@ void calc_server::register_classes() {
             return result;
           },
           /*input=*/
-          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          dynamic{
+              0U, {{"a"_rkey, field{0.0f, attr<DisplayName>("A")}}, {"b"_rkey, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/dynamic{0U, {{"result"_rkey, field{0.0f, attr<DisplayName>("Result")}}}},
           attr<DisplayName>("Add"),
           attr<Description>("Return a + b")});
 
   proto->addMethod(
-      "subtract"_key,
+      "subtract"_rkey,
       method{
           [](dynamic& /*self*/, const dynamic& params) -> dynamic {
             float a = params["a"_key];
@@ -49,13 +51,14 @@ void calc_server::register_classes() {
             return result;
           },
           /*input=*/
-          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          dynamic{
+              0U, {{"a"_rkey, field{0.0f, attr<DisplayName>("A")}}, {"b"_rkey, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/dynamic{0U, {{"result"_rkey, field{0.0f, attr<DisplayName>("Result")}}}},
           attr<DisplayName>("Subtract"),
           attr<Description>("Return a - b")});
 
   proto->addMethod(
-      "multiply"_key,
+      "multiply"_rkey,
       method{
           [](dynamic& /*self*/, const dynamic& params) -> dynamic {
             float a = params["a"_key];
@@ -65,13 +68,14 @@ void calc_server::register_classes() {
             return result;
           },
           /*input=*/
-          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
-          /*output=*/dynamic{0U, {{"result"_key, field{0.0f, attr<DisplayName>("Result")}}}},
+          dynamic{
+              0U, {{"a"_rkey, field{0.0f, attr<DisplayName>("A")}}, {"b"_rkey, field{0.0f, attr<DisplayName>("B")}}}},
+          /*output=*/dynamic{0U, {{"result"_rkey, field{0.0f, attr<DisplayName>("Result")}}}},
           attr<DisplayName>("Multiply"),
           attr<Description>("Return a * b")});
 
   proto->addMethod(
-      "divide"_key,
+      "divide"_rkey,
       method{
           [](dynamic& /*self*/, const dynamic& params) -> dynamic {
             float a = params["a"_key];
@@ -86,12 +90,13 @@ void calc_server::register_classes() {
             return result;
           },
           /*input=*/
-          dynamic{0U, {{"a"_key, field{0.0f, attr<DisplayName>("A")}}, {"b"_key, field{0.0f, attr<DisplayName>("B")}}}},
+          dynamic{
+              0U, {{"a"_rkey, field{0.0f, attr<DisplayName>("A")}}, {"b"_rkey, field{0.0f, attr<DisplayName>("B")}}}},
           /*output=*/
           dynamic{
               0U,
-              {{"result"_key, field{0.0f, attr<DisplayName>("Result")}},
-               {"error"_key, field{std::string{}, attr<DisplayName>("Error")}}}},
+              {{"result"_rkey, field{0.0f, attr<DisplayName>("Result")}},
+               {"error"_rkey, field{std::string{}, attr<DisplayName>("Error")}}}},
           attr<DisplayName>("Divide"),
           attr<Description>("Return a / b; sets error key on division by zero")});
 
