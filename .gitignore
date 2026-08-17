@@ -5,6 +5,7 @@ build-linux/
 build-msys2/
 build_asan/
 build-tsan/
+build-release/
 bin/
 obj/
 __pycache__/
