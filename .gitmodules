@@ -1,18 +1,24 @@
 [submodule "extern/googletest"]
 	path = extern/googletest
 	url = https://github.com/google/googletest.git
+	branch = v1.18.0
 [submodule "extern/json"]
 	path = extern/json
 	url = https://github.com/nlohmann/json.git
+	branch = v3.12.0
 [submodule "extern/yaml"]
 	path = extern/yaml
 	url = https://github.com/yaml/libyaml.git
+	branch = 0.2.5
 [submodule "extern/gflags"]
 	path = extern/gflags
 	url = https://github.com/gflags/gflags.git
+	branch = v2.3.1
 [submodule "extern/libuv"]
 	path = extern/libuv
 	url = https://github.com/libuv/libuv.git
+	branch = v1.52.1
 [submodule "extern/mbedtls"]
 	path = extern/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
+	branch = mbedtls-3.6.7
