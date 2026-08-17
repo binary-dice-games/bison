@@ -260,10 +260,7 @@ endif()
 # the SKBUILD branch above); skip both entirely in that mode.
 if(NOT SKBUILD)
   # ─── bison-cli executable ───────────────────────────────────────────────
-  add_executable(bison-cli src/app/cli/main.cpp)
-  target_link_libraries(bison-cli PRIVATE bison nlohmann_json::nlohmann_json gflags)
-  target_include_directories(bison-cli PRIVATE src/rmi)
-  install(TARGETS bison-cli RUNTIME DESTINATION bin COMPONENT bison)
+  add_subdirectory(src/app/cli)
 
   # Non-target install() rules (docs, license, binding sources/examples) plus
   # the CPack ZIP config live in cmake/Packaging.cmake. Only include it when
