@@ -8,6 +8,14 @@
             "name": "(Windows) Attach",
             "type": "cppvsdbg",
             "request": "attach",
+        },
+        {
+            "name": "(Linux) Attach",
+            "type": "cppdbg",
+            "request": "attach",
+            "program": "${workspaceFolder}/build/src/srv/calc/calc-server",
+            "processId": "${command:pickProcess}",
+            "MIMode": "gdb"
         }
     ]
 }
