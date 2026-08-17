@@ -85,6 +85,14 @@ set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
 # concurrent-handshake design (see cmake/mbedtls_user_config.h) depends on.
 set(MBEDTLS_USER_CONFIG_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/mbedtls_user_config.h" CACHE FILEPATH "" FORCE)
 add_subdirectory("extern/mbedtls")
+# On MBEDTLS_THREADING_ALT builds (native Windows -- see
+# cmake/mbedtls_user_config.h), extern/mbedtls's own library sources
+# #include "threading_alt.h" by that bare name; cmake/threading_alt.h
+# supplies it. A no-op on MBEDTLS_THREADING_PTHREAD builds (Linux/MSYS2),
+# which never reach that #include.
+foreach(mbedtls_target mbedcrypto mbedx509 mbedtls)
+  target_include_directories(${mbedtls_target} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/cmake")
+endforeach()
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
@@ -95,6 +103,11 @@ add_library(bison STATIC
 target_include_directories(bison
     PRIVATE
     src/bison
+    # cmake/threading_alt.h: mbedTLS's own threading.h #includes
+    # "threading_alt.h" by that bare name on MBEDTLS_THREADING_ALT builds
+    # (see cmake/mbedtls_user_config.h) -- needed by
+    # src/rmi/transport/mbedtls_threading_win.cpp.
+    cmake
     PUBLIC
         include
 )
@@ -150,6 +163,7 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
     src/term/scoped_terminal_config_win.cpp
     src/app/debugger_win.cpp
     src/app/client/line_editor_win.cpp
+    src/rmi/transport/mbedtls_threading_win.cpp
   )
 else()
   if(WIN32)
@@ -160,6 +174,7 @@ else()
     src/term/scoped_terminal_config_posix.cpp
     src/app/debugger_posix.cpp
     src/app/client/line_editor_posix.cpp
+    src/rmi/transport/mbedtls_threading_posix.cpp
   )
 endif()
 
@@ -175,6 +190,18 @@ add_library(bison_abi SHARED
 if(WIN32 AND NOT MSYS AND NOT CYGWIN)
   target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN BISON_NATIVE_WINDOWS _WIN32_WINNT=0x0A00)
   target_sources(bison_abi PRIVATE src/app/debugger_win.cpp)
+  # abi_flags.cpp's gflags DEFINE_*(...) variables (fLS::FLAGS_transport,
+  # etc.) have no dllexport annotation -- gflags only adds one when gflags
+  # itself is built as a DLL (its own GFLAGS_DLL_DECL), which it isn't here
+  # (bundled as a static lib, see extern/gflags add_subdirectory() above).
+  # rmi_abi_server_example/rmi_abi_client_example DECLARE_* the same flags
+  # to read the values bison_abi's own client_app/server_app parse (see
+  # abi_flags.cpp's doc comment), which on MSVC needs those globals actually
+  # exported from the DLL. MinGW/GNU ld already export all symbols by
+  # default for SHARED libraries (why the MSYS2 build needs none of this);
+  # WINDOWS_EXPORT_ALL_SYMBOLS gives MSVC the same behavior instead of
+  # hand-annotating each gflags global individually.
+  set_target_properties(bison_abi PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 else()
   if(WIN32)
     target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

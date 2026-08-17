@@ -33,10 +33,24 @@
  * cryptographic operation's correctness, but disabling the dead
  * instrumentation entirely is cleaner than suppressing an open-ended set of
  * call sites that increment it.
+ *
+ * MBEDTLS_THREADING_PTHREAD requires <pthread.h>, which Linux and MSYS2
+ * both provide (MSYS2 is a POSIX layer over Windows -- see CLAUDE.md's
+ * platform-support rule -- and its gcc, unlike mingw64's, leaves _WIN32
+ * undefined). Genuinely native Windows (MSVC or mingw64 outside MSYS2) has
+ * no <pthread.h>, so it uses MBEDTLS_THREADING_ALT instead, with mutex
+ * callbacks supplied by src/rmi/transport/mbedtls_threading_win.cpp
+ * (mbedtls_threading_mutex_t itself comes from cmake/threading_alt.h,
+ * mbedTLS's required name for the alt header).
  */
 #pragma once
 
 #define MBEDTLS_THREADING_C
+
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#define MBEDTLS_THREADING_ALT
+#else
 #define MBEDTLS_THREADING_PTHREAD
+#endif
 
 #undef MBEDTLS_SELF_TEST

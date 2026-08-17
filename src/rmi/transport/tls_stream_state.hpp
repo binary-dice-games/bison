@@ -26,6 +26,7 @@
 
 #include "src/bison/bison.hpp"
 #include "src/rmi/transport/frame_parser.hpp"
+#include "src/rmi/transport/mbedtls_threading.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <mbedtls/ctr_drbg.h>
@@ -248,6 +249,7 @@ struct tls_stream_state {
   bool mbedtls_freed_{false};
 
   tls_stream_state() {
+    ensure_mbedtls_threading_initialized();
     mbedtls_entropy_init(&entropy);
     mbedtls_ctr_drbg_init(&drbg);
     mbedtls_x509_crt_init(&own_cert);

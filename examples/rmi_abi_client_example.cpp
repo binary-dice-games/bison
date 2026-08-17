@@ -16,6 +16,22 @@
 #include <stdint.h>
 #include <stdio.h>
 
+// bison_abi.dll exports these flags (src/app/abi_flags.cpp), but MSVC never
+// auto-imports DLL *data* symbols the way it does functions: without an
+// explicit dllimport, the compiler emits a direct reference to the plain
+// symbol name, which the linker can't resolve against the DLL's import
+// library (LNK2001). Override gflags' own DLL_DECLARE_FLAG macro (used only
+// by DECLARE_string/DECLARE_int32 below) so it expands with dllimport on
+// native Windows; bundled gflags is built static here, so its generated
+// default leaves this macro empty. Deliberately scoped to just the flag
+// declarations, not GFLAGS_DLL_DECL itself -- that one also covers gflags'
+// own API functions (ParseCommandLineFlags, SetUsageMessage, ...), which
+// this example calls directly against the statically-linked gflags in its
+// own binary, not against bison_abi.dll (nothing there references them, so
+// they aren't part of its export table).
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#define GFLAGS_DLL_DECLARE_FLAG __declspec(dllimport)
+#endif
 #include <gflags/gflags.h>
 
 #include "rmi_c.h"
