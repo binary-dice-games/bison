@@ -197,11 +197,15 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
   # rmi_abi_server_example/rmi_abi_client_example DECLARE_* the same flags
   # to read the values bison_abi's own client_app/server_app parse (see
   # abi_flags.cpp's doc comment), which on MSVC needs those globals actually
-  # exported from the DLL. MinGW/GNU ld already export all symbols by
-  # default for SHARED libraries (why the MSYS2 build needs none of this);
-  # WINDOWS_EXPORT_ALL_SYMBOLS gives MSVC the same behavior instead of
-  # hand-annotating each gflags global individually.
-  set_target_properties(bison_abi PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+  # exported from the DLL. abi_flags.cpp handles this itself by predefining
+  # gflags' GFLAGS_DLL_DEFINE_FLAG to __declspec(dllexport) under
+  # BISON_NATIVE_WINDOWS before including <gflags/gflags.h>, so only that
+  # handful of globals is exported rather than every symbol in the DLL
+  # (WINDOWS_EXPORT_ALL_SYMBOLS would also export internal C++ symbols
+  # pulled in from the statically-linked `bison` library, polluting the
+  # DLL's export table beyond the intended C ABI). MinGW/GNU ld already
+  # exports all symbols by default for SHARED libraries, which is why the
+  # MSYS2 build needs none of this.
 else()
   if(WIN32)
     target_compile_definitions(bison_abi PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)

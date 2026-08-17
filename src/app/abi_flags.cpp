@@ -9,6 +9,15 @@
  * This file must NOT be compiled into the bison static library, only into
  * bison_abi, to avoid duplicate-symbol conflicts with host executables.
  */
+// bison_abi.dll must export these flag globals so rmi_abi_server_example /
+// rmi_abi_client_example can DECLARE_* and read them (see those files'
+// comments on GFLAGS_DLL_DECLARE_FLAG). Without an explicit dllexport
+// annotation, gflags leaves them with default (non-exported) linkage on
+// MSVC. Scoped to BISON_NATIVE_WINDOWS only: MinGW/GNU ld already exports
+// all symbols by default for SHARED libraries, so MSYS2 needs nothing here.
+#if defined(BISON_NATIVE_WINDOWS)
+#define GFLAGS_DLL_DEFINE_FLAG __declspec(dllexport)
+#endif
 #include <gflags/gflags.h>
 
 // ── Transport flags — consumed by server_app and client_app ──────────────────
