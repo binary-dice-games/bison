@@ -32,6 +32,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def default_generator() -> str:
+    # Ninja needs its own executable on PATH plus an MSVC dev environment
+    # (vcvars) already loaded to find cl.exe -- neither is set up on a bare
+    # native Windows machine. A genuine MSYS2 shell provides its own
+    # pacman-installed gcc/Ninja, same POSIX toolchain as Linux, so it's
+    # fine to keep using Ninja there. Checking MSYSTEM alone isn't enough,
+    # though: Git for Windows' bundled Git Bash also sets MSYSTEM (e.g.
+    # MINGW64) but ships no compiler of its own -- gcc on PATH is what
+    # actually distinguishes a real MSYS2 dev install from that.
+    if platform.system() == "Windows" and not (
+        os.environ.get("MSYSTEM") and shutil.which("gcc")
+    ):
+        return "Visual Studio 17 2022"
+    return "Ninja"
+
+
 def run(cmd, cwd=None):
     print(f"+ {' '.join(str(c) for c in cmd)}")
     subprocess.run(cmd, cwd=cwd, check=True)
@@ -142,7 +158,9 @@ def main():
     parser.add_argument("--build-dir", default="build-release",
                          help="CMake build directory (default: build-release; "
                               "kept separate from the developer build/ dirs)")
-    parser.add_argument("--generator", default="Ninja")
+    parser.add_argument("--generator", default=None,
+                         help="CMake generator (default: Visual Studio 17 "
+                              "2022 on native Windows, Ninja elsewhere)")
     parser.add_argument("--output-dir", default="dist")
     parser.add_argument("--version", default=None,
                          help="Release version, e.g. 1.2.3 (default: the "
@@ -154,8 +172,9 @@ def main():
     build_dir = (REPO_ROOT / args.build_dir).resolve()
     output_dir = (REPO_ROOT / args.output_dir).resolve()
 
+    generator = args.generator or default_generator()
     if not args.skip_configure:
-        configure(build_dir, args.generator, args.version)
+        configure(build_dir, generator, args.version)
     if not args.skip_build:
         build(build_dir)
 
