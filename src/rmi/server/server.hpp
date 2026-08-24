@@ -136,6 +136,31 @@ class server {
   void enable_profiling(std::filesystem::path output_dir);
 
   /**
+   * @brief Start capture directly from the server's own process, without
+   *        going through an RMI client/proxy call.
+   *
+   * No-op (returns `false`) if `enable_profiling()` was never called.
+   * Idempotent if capture is already active (mirrors the RMI-facing
+   * `startCapture` method's behavior).
+   *
+   * @param label Cosmetic label recorded with the session; not used for
+   *              path construction.
+   * @return `true` if capture is active after the call.
+   */
+  bool start_capture_now(std::string_view label = {});
+
+  /**
+   * @brief Stop capture and finalize the trace file, direct C++ call
+   *        equivalent of the RMI-facing `stopCapture` method.
+   *
+   * No-op if profiling was never enabled or capture is already inactive.
+   */
+  void stop_capture_now();
+
+  /** @brief `true` if profiling is enabled and capture is currently active. */
+  bool is_capture_active_now() const;
+
+  /**
    * @brief Per-session context holder: an individually lockable slot in
    *        `session_contexts_`.
    *

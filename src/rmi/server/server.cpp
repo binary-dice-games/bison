@@ -259,6 +259,29 @@ void server::enable_profiling(std::filesystem::path output_dir) {
   profiler_service_ = register_profiler_class(std::move(output_dir));
 }
 
+/** @copydoc bdg::bison::rmi::server::start_capture_now */
+bool server::start_capture_now(std::string_view label) {
+  if (!profiler_service_)
+    return false;
+  bison::dynamic resp = profiler_service_->start_capture(std::string{label});
+  return resp[FIELD_PROFILER_OK].as<bool>();
+}
+
+/** @copydoc bdg::bison::rmi::server::stop_capture_now */
+void server::stop_capture_now() {
+  if (!profiler_service_)
+    return;
+  profiler_service_->stop_capture();
+}
+
+/** @copydoc bdg::bison::rmi::server::is_capture_active_now */
+bool server::is_capture_active_now() const {
+  if (!profiler_service_)
+    return false;
+  bison::dynamic resp = profiler_service_->is_capture_active();
+  return resp[FIELD_PROFILER_ACTIVE].as<bool>();
+}
+
 /**
  * @brief Join the bounded dispatch worker pool.
  *
