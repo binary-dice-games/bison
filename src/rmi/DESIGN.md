@@ -835,6 +835,97 @@ Concurrency tests:
 - many in-flight requests and ordered response matching
 - concurrent sessions with object id overlap safety
 
+## 16.1 Profiling Subsystem (Perfetto Trace Export)
+
+Bison can record execution traces in Perfetto's track-event protobuf wire
+format (openable at https://ui.perfetto.dev/), without depending on the
+Perfetto SDK or a protobuf library. The pure wire-format encoder lives in
+`src/bison/bison_perfetto.hpp`/`.cpp` (namespace `bdg::bison::perfetto`,
+zero RMI/threading dependency — see FORMAT.md §7 for the byte-level spec);
+everything else described here builds on top of it under
+`bdg::bison::rmi::profiling` and `bdg::bison::rmi`.
+
+**Client-buffers/server-writes split.** The RMI **server** owns the single
+output trace file for the whole process (`profiler_service`,
+`src/rmi/server/profiler_service.hpp`). RMI **clients**, and the server's
+own native code, record spans into a cheap in-memory buffer local to a
+`profiling::recorder` (`src/rmi/shared/profiling.hpp`) and only
+periodically ship an already-encoded batch to whatever sink actually
+writes bytes — over RMI for clients (`client_recorder`,
+`src/rmi/client/profiler_client.hpp`), directly to the open file for the
+server's own code (`profiler_service::server_local_recorder`). This keeps
+the hot path (`BISON_TRACE_SCOPE`/`BISON_TRACE_INSTANT`, ultimately
+`recorder::record_slice_begin/end`/`record_instant`) to a single relaxed
+atomic load (no-op when capture is inactive) plus, when active, one lock
+and a `push_back` into an in-memory vector — no allocation, no protobuf
+encoding, and no I/O ever happens on the thread being profiled.
+
+**Singleton pattern.** A server opts in via
+`server::enable_profiling(std::filesystem::path output_dir)`, which
+registers the `__BisonProfiler` class under `constants::NS_BISON` and
+constructs one process-wide `profiler_service`. `server::on_create_object`
+hands back that same shared instance for every client that instantiates
+`__BisonProfiler`, so there is exactly one profiler and one open trace
+file per server process regardless of how many clients attach. `output_dir`
+is supplied by the server operator, never by client input — `start_capture`
+only ever builds a path underneath it.
+
+**Flush-trigger design.** Each `recorder` runs a background flush thread,
+started/stopped by `set_capture_active(bool)`, that wakes on whichever
+comes first: the in-memory buffer reaching `kFlushEventThreshold` (2048
+events, checked inline on the hot path so a burst flushes promptly without
+waiting for the timer) or the `kFlushInterval` timer (200ms, so a quiet
+recorder still flushes its tail promptly). Both conditions are expressed
+as a single `synchronized<vector<raw_event>>::wait_for(kFlushInterval,
+pred)` call — no separate condition variable or timer thread. Encoding
+(building `TrackDescriptor`/`TrackEvent` packets via
+`bison::perfetto::encode_*`) and the actual write both happen off the hot
+path, inside the flush thread's `flush_once()` → `flush_sink()` call.
+Deactivating capture triggers one final synchronous flush before the
+thread stops, so no events already in the buffer are silently dropped on
+a clean stop (a still-buffered tail below both thresholds at the moment of
+an unclean shutdown is the one accepted, documented loss).
+
+**Sequence-id/track-uuid allocation.** `profiler_service` hands out a
+distinct `int32_t sequence_id` per client from an atomic counter
+(`begin_profiling_session`); the server's own local recorder always uses
+`0`. Each `recorder` derives a globally-unique-within-the-trace
+`track_uuid` per OS thread on first use, with zero cross-process
+coordination beyond that one sequence-id allocation:
+`track_uuid = (uint64_t(sequence_id) << 32) | thread_local_index`, where
+`thread_local_index` is an atomically-incremented per-recorder counter.
+The first event recorded on a not-yet-seen `track_uuid` causes the flush
+thread to prepend one `TrackDescriptor` packet (auto-named
+`"thread-<tid>"`, or the name set via `set_thread_track_name()`) ahead of
+that batch's `TrackEvent` packets — tracked via a per-recorder
+`std::unordered_set<uint64_t>` of already-emitted track uuids, checked
+only on the flush thread, never the hot path.
+
+**RMI control surface** (all under `constants::CLASS_PROFILER` /
+`NS_BISON`, see `src/rmi/shared/constants.hpp`):
+
+| Method | Shape | Notes |
+|---|---|---|
+| `begin_profiling_session` | `()` → `{sequence_id, active}` | One call per client; seeds initial recorder state. |
+| `is_capture_active` | `()` → `{active}` | Cheap read of the server's atomic flag. |
+| `start_capture` | `{label}` → `{ok, path}` | Idempotent while already active; server-controlled output path. |
+| `stop_capture` | `()` → `{ok}` | Idempotent while inactive; drains and closes the file. |
+| `submit_trace_block` | `{bytes, sequence_id}` → `{accepted, active}` | Fast-path rejects (`accepted:false`, no file write) when capture is inactive at call time. Bytes are already fully protobuf-framed by the sender, so the server does zero re-encoding — a straight append under the file's write lock. |
+
+There is deliberately no server→client push notification for capture
+state changes: adding one would require threading a per-session "current
+context" into method bodies (the pattern `wish::server` uses for its own
+event emission is wish-specific, not present in bison core, and wiring it
+into bison's base dispatch hook wouldn't reach wish sessions today either,
+since `wish::server::on_before_dispatch` doesn't call the base). Instead,
+every `begin_profiling_session` and `submit_trace_block` response simply
+echoes the server's current `active` state, so each client's recorder
+self-corrects on its own natural ~200ms flush cadence with no extra round
+trips. One consequence: a client's `submit_trace_block` call issued after
+`stop_capture()` has already run, but before that client's flush thread
+has observed the change, is rejected rather than silently buffered —
+by design, not a bug.
+
 ## 17. Resolved Decisions
 
 - `call(oneway=true)` resolves its returned future immediately with an empty dynamic result.

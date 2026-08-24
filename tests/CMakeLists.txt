@@ -18,8 +18,14 @@ endmacro()
 
 package_add_test(bison_test bison_tests.cpp)
 
+# Perfetto track-event wire-format encoder tests.
+package_add_test(bison_perfetto_test bison_perfetto_tests.cpp)
+
 # RMI framework tests (header-only, no extra link deps beyond bison)
 package_add_test(rmi_test rmi_tests.cpp)
+
+# RMI Perfetto profiler tests (recorder unit tests + server/client integration).
+package_add_test(rmi_profiler_test rmi_profiler_tests.cpp)
 
 # Bridge multiplexer tests
 package_add_test(bridge_test bridge_tests.cpp)

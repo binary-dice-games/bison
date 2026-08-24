@@ -36,10 +36,12 @@ set(BISON_PUBLIC_HEADERS
   "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_sync.hpp"
   "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_serialization.hpp"
   "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_object.hpp"
+  "${CMAKE_CURRENT_LIST_DIR}/src/bison/bison_perfetto.hpp"
 )
 
 set(BISON_PRIVATE_SOURCES
   src/bison/bison.cpp
+  src/bison/bison_perfetto.cpp
 )
 
 include_directories(. include)
@@ -130,7 +132,9 @@ target_sources(bison PRIVATE
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
+  src/rmi/client/profiler_client.cpp
   src/rmi/server/server.cpp
+  src/rmi/server/profiler_service.cpp
   src/rmi/standalone/standalone.cpp
   src/app/bridge/bridge_app.cpp
   src/app/client/client_app.cpp

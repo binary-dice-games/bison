@@ -221,6 +221,7 @@ doxygen Doxyfile
 | [docs/bindings.md](docs/bindings.md) | C++ (header-only), Python, C#, and Android (Java/Kotlin) binding setup and usage |
 | [docs/tls.md](docs/tls.md) | Configuring `tls_socket_transport`: server-only vs. mutual TLS, certificate setup |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |
+| [docs/profiling.md](docs/profiling.md) | Recording Perfetto traces: `BISON_TRACE_SCOPE`, start/stop capture, viewing in ui.perfetto.dev |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |
 
 ## License

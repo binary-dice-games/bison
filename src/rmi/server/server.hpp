@@ -8,11 +8,13 @@
 #include "src/bison/bison.hpp"
 #include "src/rmi/server/auth.hpp"
 #include "src/rmi/server/context.hpp"
+#include "src/rmi/server/profiler_service.hpp"
 #include "src/rmi/shared/envelope.hpp"
 #include "src/rmi/transport/transport_iface.hpp"
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -117,6 +119,21 @@ class server {
 
   /** @brief Stop accept loop, close active workers, and release resources. */
   void stop();
+
+  /**
+   * @brief Opt into Perfetto-format profiling: registers the process-wide
+   *        `__BisonProfiler` singleton so clients can start/stop capture
+   *        and stream trace blocks, and lets the server's own native code
+   *        record via `BISON_TRACE_SCOPE`/`BISON_TRACE_INSTANT`
+   *        (`src/rmi/shared/profiling.hpp`).
+   *
+   * Call before `listen()`. Trace files are written under @p output_dir,
+   * which is server-controlled -- never derived from client input.
+   *
+   * @param output_dir Directory `startCapture` writes `.perfetto-trace`
+   *                    files into.
+   */
+  void enable_profiling(std::filesystem::path output_dir);
 
   /**
    * @brief Per-session context holder: an individually lockable slot in
@@ -258,6 +275,8 @@ class server {
    */
   virtual bison::dynamic_ptr on_create_object(context& ctx, bison::key_t ns, bison::key_t klass) {
     (void)ctx;
+    if (profiler_service_ && ns == shared::constants::NS_BISON && klass == shared::constants::CLASS_PROFILER)
+      return bison::dynamic_ptr{std::static_pointer_cast<bison::dynamic>(profiler_service_)};
     return bison::dynamic::create_instance(ns, klass);
   }
 
@@ -547,6 +566,9 @@ class server {
   std::vector<std::unique_ptr<dispatch_worker_state>> dispatch_workers_;
 
   bison::synchronized<std::unordered_map<bison::hash_t, context_holder>> session_contexts_;
+
+  /** @brief Set by `enable_profiling()`; null unless profiling was opted into. */
+  std::shared_ptr<profiler_service> profiler_service_;
 };
 
 } // namespace bdg::bison::rmi

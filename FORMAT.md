@@ -28,7 +28,7 @@ and write; on big-endian hosts the bytes are passed through unchanged.
 > big-endian `size_t`. Version 2 (current) switched to the varint encoding
 > in §1.4, since real payloads' counts are almost always well under 2^16 --
 > see §4.1's version-bump note. The two versions are wire-incompatible;
-> `__version` must match between reader and writer (§7 point 6).
+> `__version` must match between reader and writer (§8 point 6).
 
 ### 1.3 Name hashing (FNV-1a)
 
@@ -528,7 +528,126 @@ Object of class `"Point"` (registered in global namespace) with fields
 
 ---
 
-## 7. Implementation Notes
+## 7. Perfetto Track-Event Wire Format
+
+Bison's RMI profiling subsystem (`src/rmi/DESIGN.md` §16.1) writes trace
+files in Perfetto's track-event protobuf wire format, openable directly at
+https://ui.perfetto.dev/. This is **not** the bison binary format described
+in §1-§6 above — it is a separate, third-party wire format that bison emits
+via a small hand-rolled encoder (`src/bison/bison_perfetto.hpp`/`.cpp`,
+namespace `bdg::bison::perfetto`) with no dependency on the Perfetto SDK or
+any protobuf library.
+
+### 7.1 Protobuf primitives used
+
+Only two protobuf wire types are needed:
+
+- **Varint** (wire type 0): standard protobuf/LEB128 varint, identical in
+  shape to §1.4's ULEB128 (least-significant group first, continuation bit
+  in each byte's MSB). Used for both a field's tag byte and any integer
+  field value.
+- **Length-delimited** (wire type 2): a varint length followed by that many
+  raw bytes. Used for strings and for nested (sub-)messages.
+
+A field tag is `(field_number << 3) | wire_type`, itself varint-encoded.
+
+### 7.2 Message field numbers
+
+These field numbers are fixed by the upstream Perfetto `.proto` sources,
+not chosen by bison — an implementation must match them exactly for the
+Perfetto UI to parse the file.
+
+**`Trace`** (top-level; never explicitly constructed — see §7.3):
+
+| Field | Number | Wire type |
+|---|---|---|
+| `packet` (repeated `TracePacket`) | 1 | 2 (length-delimited) |
+
+**`TracePacket`:**
+
+| Field | Number | Wire type | Type |
+|---|---|---|---|
+| `timestamp` | 8 | 0 (varint) | `uint64` nanoseconds |
+| `trusted_packet_sequence_id` | 10 | 0 (varint) | `uint32` |
+| `track_event` | 11 | 2 (length-delimited) | nested `TrackEvent` |
+| `track_descriptor` | 60 | 2 (length-delimited) | nested `TrackDescriptor` |
+
+**`TrackEvent`:**
+
+| Field | Number | Wire type | Type |
+|---|---|---|---|
+| `type` | 9 | 0 (varint) | enum, see §7.4 |
+| `track_uuid` | 11 | 0 (varint) | `uint64` |
+| `name` | 23 | 2 (length-delimited) | UTF-8 string; omitted for `SLICE_END` |
+
+**`TrackDescriptor`:**
+
+| Field | Number | Wire type | Type |
+|---|---|---|---|
+| `uuid` | 1 | 0 (varint) | `uint64` |
+| `name` | 2 | 2 (length-delimited) | UTF-8 string |
+
+### 7.3 File structure
+
+A Perfetto trace file is the raw concatenation of independently
+length-framed `TracePacket` messages — there is no outer container object
+and no file header. Each packet is framed exactly as if it were one
+occurrence of `Trace.packet` (field 1, length-delimited):
+
+```
+[varint tag = 0x0A]        ← (1 << 3) | 2
+[varint: packet length]
+[packet length bytes: TracePacket body]
+```
+
+Concatenating any number of these framed packets — from one flush batch or
+across many — produces a valid trace file or a valid trace file fragment;
+a reader walks the buffer purely by repeatedly reading `[tag][varint
+length][length bytes]` until the buffer is exhausted. This is exactly how
+`bdg::bison::rmi::profiling::recorder` batches events: `flush_sink()`
+receives one `bison::buffer` that is such a concatenation, ready to append
+directly to an open file (`profiler_service`) or ship over RMI as opaque
+bytes (`client_recorder`) with no re-encoding at the receiving end.
+
+Before any `TrackEvent` referencing a given `track_uuid` is guaranteed to
+render correctly, at least one `TrackDescriptor` packet for that
+`track_uuid` must appear earlier in the file. Bison's recorder emits this
+automatically: the first time a batch contains a not-yet-seen
+`track_uuid`, a `TrackDescriptor` packet is prepended ahead of that
+batch's `TrackEvent` packets.
+
+### 7.4 `TrackEvent.type` enum values
+
+| Name | Value | Meaning |
+|---|---|---|
+| `TYPE_UNSPECIFIED` | 0 | Unused by bison's encoder |
+| `TYPE_SLICE_BEGIN` | 1 | Start of a named, nestable duration span |
+| `TYPE_SLICE_END` | 2 | End of the most recently begun slice on this track |
+| `TYPE_INSTANT` | 3 | Zero-duration named point event |
+
+### 7.5 Worked example
+
+`encode_track_event_packet(timestamp_ns=1, trusted_packet_sequence_id=1,
+track_uuid=1, type=slice_begin, name="a")` produces:
+
+```
+0A 12                          Trace.packet, length=18
+   40 01                       TracePacket.timestamp = 1
+   50 01                       TracePacket.trusted_packet_sequence_id = 1
+   5A 08                       TracePacket.track_event, length=8
+      48 01                    TrackEvent.type = 1 (SLICE_BEGIN)
+      58 01                    TrackEvent.track_uuid = 1
+      BA 01 01 61              TrackEvent.name = "a"
+```
+
+(`BA 01` is the two-byte varint tag for field 23 with wire type 2:
+`(23 << 3) | 2 = 186 = 0xBA`, which exceeds 7 bits and continues into a
+second byte `0x01`.) This exact byte sequence is asserted in
+`tests/bison_perfetto_tests.cpp`'s `TrackEventByteExactForFixedInput`.
+
+---
+
+## 8. Implementation Notes
 
 1. **Field type stability.** Once a field is written with a given tag, the same
    tag must be used for all subsequent writes of that field.  The reference

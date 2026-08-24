@@ -254,6 +254,11 @@ void server::stop() {
   join_workers();
 }
 
+/** @copydoc bdg::bison::rmi::server::enable_profiling */
+void server::enable_profiling(std::filesystem::path output_dir) {
+  profiler_service_ = register_profiler_class(std::move(output_dir));
+}
+
 /**
  * @brief Join the bounded dispatch worker pool.
  *

@@ -156,6 +156,39 @@ inline const bison::key_t FIELD_FIELDS = "__fields"_key;
  */
 inline const bison::key_t FIELD_METHODS = "__methods"_key;
 
+// ── Bison-owned RMI namespace ────────────────────────────────────────────────
+/** @brief Namespace reserved for classes bison core itself registers. */
+inline const bison::key_t NS_BISON = "bison"_key;
+
+// ── Perfetto profiler service (see src/rmi/shared/profiling.hpp) ────────────
+/** @brief Class key for the process-wide profiler singleton. */
+inline const bison::key_t CLASS_PROFILER = "__BisonProfiler"_key;
+/** @brief Method: allocate this client's sequence id and report capture state. */
+inline const bison::key_t METHOD_BEGIN_PROFILING_SESSION = "beginProfilingSession"_key;
+/** @brief Method: cheap read of whether capture is currently active. */
+inline const bison::key_t METHOD_IS_CAPTURE_ACTIVE = "isCaptureActive"_key;
+/** @brief Method: start writing a new trace file. */
+inline const bison::key_t METHOD_START_CAPTURE = "startCapture"_key;
+/** @brief Method: stop capture and close the trace file. */
+inline const bison::key_t METHOD_STOP_CAPTURE = "stopCapture"_key;
+/** @brief Method: submit one pre-encoded batch of trace packets. */
+inline const bison::key_t METHOD_SUBMIT_TRACE_BLOCK = "submitTraceBlock"_key;
+
+/** @brief Profiler RMI field: this client's allocated sequence id (int32). */
+inline const bison::key_t FIELD_PROFILER_SEQUENCE_ID = "sequenceId"_key;
+/** @brief Profiler RMI field: whether capture is currently active (bool). */
+inline const bison::key_t FIELD_PROFILER_ACTIVE = "active"_key;
+/** @brief Profiler RMI field: optional capture label (string). */
+inline const bison::key_t FIELD_PROFILER_LABEL = "label"_key;
+/** @brief Profiler RMI field: whether the requested operation succeeded (bool). */
+inline const bison::key_t FIELD_PROFILER_OK = "ok"_key;
+/** @brief Profiler RMI field: server-side trace file path (string). */
+inline const bison::key_t FIELD_PROFILER_PATH = "path"_key;
+/** @brief Profiler RMI field: pre-encoded trace packet bytes (vector<uint8_t>). */
+inline const bison::key_t FIELD_PROFILER_BYTES = "bytes"_key;
+/** @brief Profiler RMI field: whether a submitted block was accepted (bool). */
+inline const bison::key_t FIELD_PROFILER_ACCEPTED = "accepted"_key;
+
 // ── Protocol version ─────────────────────────────────────────────────────────
 /**
  * @brief Current wire protocol version expected by client and server.
