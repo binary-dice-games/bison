@@ -168,6 +168,37 @@ def _set_vector_field(lib, h, k: int, name: Any, values: Sequence[Any]) -> None:
         _check(lib.bison_set_vector_float(h, k, arr, len(values)), f"set_vector_float[{name}]")
 
 
+def _set_object_array_field(lib, h, k: int, name: Any, values: Sequence[Any]) -> None:
+    """Build @p values (a list/tuple of ``dict``/:class:`Dynamic`) as a bison
+    array-of-objects field: a scratch :class:`Dynamic` with sequential
+    integer keys ``0..len(values)-1``, each holding one converted element,
+    assigned to field @p k the same way a single nested :class:`Dynamic`
+    value already is (`__setitem__`'s `Dynamic` branch). A plain ``dict``
+    element is converted via a fresh :class:`Dynamic` populated field-by-field
+    through `__setitem__` itself, so a `dict` field whose own value is a
+    list of dicts recurses back into this same function -- nesting "just
+    works" without a separate recursive-conversion helper.
+    """
+    arr = Dynamic()
+    try:
+        for i, item in enumerate(values):
+            if isinstance(item, Dynamic):
+                arr[i] = item
+            elif isinstance(item, dict):
+                child = Dynamic()
+                try:
+                    for ck, cv in item.items():
+                        child[ck] = cv
+                    arr[i] = child
+                finally:
+                    child.release()
+            else:
+                raise TypeError(f"Unsupported object-array element type: {type(item)}")
+        _check(lib.bison_set_object(h, k, arr._handle), f"set_object[{name}]")
+    finally:
+        arr.release()
+
+
 def _get_vector_field(lib, h, k: int) -> Any:
     """Try each vector getter in turn. Returns :data:`_NOT_A_VECTOR` if the
     field holds none of them (see the callers' cascade-ordering notes)."""
@@ -303,7 +334,15 @@ class Dynamic:
             arr = (ctypes.c_uint8 * len(value))(*value) if value else None
             _check(lib.bison_set_vector_bytes(h, k, arr, len(value)), f"set_vector_bytes[{name}]")
         elif isinstance(value, (list, tuple)):
-            _set_vector_field(lib, h, k, name, value)
+            # A list/tuple of dict/Dynamic elements (e.g. a JSON-array-of-
+            # objects param, one dict per row) builds an array-of-objects
+            # field instead of the scalar-only vector path -- see
+            # _set_object_array_field()'s doc comment. Classified the same
+            # way _vector_kind() classifies scalars: by its first element.
+            if value and isinstance(value[0], (dict, Dynamic)):
+                _set_object_array_field(lib, h, k, name, value)
+            else:
+                _set_vector_field(lib, h, k, name, value)
         else:
             raise TypeError(f"Unsupported value type: {type(value)}")
 

@@ -270,6 +270,69 @@ class TestVectorFields(unittest.TestCase):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Object-array fields (list-of-dict / list-of-Dynamic)
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestObjectArrayFields(unittest.TestCase):
+    def setUp(self):
+        self.obj = Dynamic()
+
+    def tearDown(self):
+        self.obj.release()
+
+    def test_list_of_dicts_round_trips(self):
+        self.obj["rows"] = [{"pid": 1, "name": "init"}, {"pid": 2, "name": "sh"}]
+        rows = self.obj["rows"]
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["pid"], 1)
+        self.assertEqual(rows[0]["name"], "init")
+        self.assertEqual(rows[1]["pid"], 2)
+        self.assertEqual(rows[1]["name"], "sh")
+
+    def test_dict_element_with_scalar_list_field(self):
+        # A dict element's OWN field can still be a plain scalar list --
+        # exercises that _set_object_array_field()'s per-element conversion
+        # falls through to the ordinary vector path for a non-dict list.
+        self.obj["rows"] = [{"cores": [0, 1, 2]}]
+        self.assertEqual(self.obj["rows"][0]["cores"], [0, 1, 2])
+
+    def test_nested_list_of_dicts_recurses(self):
+        # A dict element's field that is itself a list of dicts must also
+        # build as an object array, not raise -- see _set_object_array_field()'s
+        # doc comment on recursing back through Dynamic.__setitem__.
+        self.obj["rows"] = [{"children": [{"id": 1}, {"id": 2}]}]
+        children = self.obj["rows"][0]["children"]
+        self.assertEqual(len(children), 2)
+        self.assertEqual(children[0]["id"], 1)
+        self.assertEqual(children[1]["id"], 2)
+
+    def test_list_of_dynamic_round_trips(self):
+        item = Dynamic()
+        try:
+            item["pid"] = 42
+            self.obj["rows"] = [item]
+        finally:
+            item.release()
+        self.assertEqual(self.obj["rows"][0]["pid"], 42)
+
+    def test_empty_dict_element_round_trips_as_empty_object(self):
+        self.obj["rows"] = [{}]
+        self.assertEqual(len(self.obj["rows"]), 1)
+
+    def test_unsupported_element_type_raises(self):
+        with self.assertRaises(TypeError):
+            self.obj["rows"] = [{"a": 1}, object()]
+
+    def test_assignment_replaces_existing_contents(self):
+        self.obj["rows"] = [{"a": 1}, {"a": 2}]
+        self.obj["rows"] = [{"a": 9}]
+        rows = self.obj["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["a"], 9)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Methods
 # ═════════════════════════════════════════════════════════════════════════════
 
