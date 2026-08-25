@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <string>
 #include <thread>
 #include <vector>
@@ -307,6 +308,110 @@ TEST_F(RmiProfilerE2E, StopCaptureIsIdempotentWhileInactive) {
   EXPECT_TRUE(resp.as<bool>(FIELD_PROFILER_OK));
 
   c.disconnect();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// submit_trace_block hands blocks to a background writer thread instead of
+// writing them inline (see profiler_service::writer_loop). These tests cover
+// the two behaviors that split introduces: stop_capture must not lose a
+// block that was accepted but not yet written, and the queue must drop
+// (not block on, not grow unbounded for) a producer that outpaces the
+// writer.
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST_F(RmiProfilerE2E, StopCaptureDrainsQueuedBlocksBeforeClosingFile) {
+  auto c = make_client();
+  c.connect();
+  auto proxy = c.instantiate(NS_BISON, CLASS_PROFILER).get();
+
+  dynamic start_resp = proxy.call(METHOD_START_CAPTURE, dynamic{}).get();
+  ASSERT_TRUE(start_resp.as<bool>(FIELD_PROFILER_OK));
+  const std::string trace_path = start_resp.as<std::string>(FIELD_PROFILER_PATH);
+
+  // Fire a batch of submits without waiting on each individually, then stop
+  // immediately: a single session's requests are serviced strictly in
+  // order (see src/rmi/DESIGN.md §9.2), so by the time the server executes
+  // this stop_capture, every one of these submits has already been
+  // dequeued off the wire and pushed into profiler_service's pending
+  // block queue -- whether or not writer_thread_ has gotten around to
+  // writing them yet. stop_capture must drain that queue before closing
+  // the file, or an accepted-but-unwritten block would be silently lost.
+  constexpr int kBlocks = 50;
+  constexpr uint8_t kPayload[3] = {1, 2, 3};
+  std::vector<std::future<dynamic>> submit_futures;
+  submit_futures.reserve(kBlocks);
+  for (int i = 0; i < kBlocks; ++i) {
+    dynamic params;
+    params[FIELD_PROFILER_BYTES] = std::vector<uint8_t>(kPayload, kPayload + sizeof(kPayload));
+    params[FIELD_PROFILER_SEQUENCE_ID] = int32_t{1};
+    submit_futures.push_back(proxy.call(METHOD_SUBMIT_TRACE_BLOCK, std::move(params)));
+  }
+
+  dynamic stop_resp = proxy.call(METHOD_STOP_CAPTURE, dynamic{}).get();
+  EXPECT_TRUE(stop_resp.as<bool>(FIELD_PROFILER_OK));
+
+  int accepted = 0;
+  for (auto& f : submit_futures) {
+    if (f.get().as<bool>(FIELD_PROFILER_ACCEPTED))
+      ++accepted;
+  }
+  EXPECT_EQ(accepted, kBlocks);
+
+  c.disconnect();
+
+  ASSERT_TRUE(std::filesystem::exists(trace_path));
+  EXPECT_EQ(std::filesystem::file_size(trace_path), static_cast<uintmax_t>(accepted) * sizeof(kPayload));
+}
+
+TEST_F(RmiProfilerE2E, SubmitTraceBlockDropsExcessBlocksUnderQueuePressure) {
+  auto c = make_client();
+  c.connect();
+  auto proxy = c.instantiate(NS_BISON, CLASS_PROFILER).get();
+
+  dynamic start_resp = proxy.call(METHOD_START_CAPTURE, dynamic{}).get();
+  ASSERT_TRUE(start_resp.as<bool>(FIELD_PROFILER_OK));
+  const std::string trace_path = start_resp.as<std::string>(FIELD_PROFILER_PATH);
+
+  // Flood far more blocks than the queue can hold (profiler_service's
+  // kMaxQueuedTraceBlocks is 256) without waiting on any individual
+  // response, so they pile up in the server's pending queue faster than
+  // the below-normal-priority writer thread can write+flush them to disk.
+  constexpr int kBlocks = 20000;
+  constexpr uint8_t kPayload[3] = {1, 2, 3};
+  std::vector<std::future<dynamic>> submit_futures;
+  submit_futures.reserve(kBlocks);
+  for (int i = 0; i < kBlocks; ++i) {
+    dynamic params;
+    params[FIELD_PROFILER_BYTES] = std::vector<uint8_t>(kPayload, kPayload + sizeof(kPayload));
+    params[FIELD_PROFILER_SEQUENCE_ID] = int32_t{1};
+    submit_futures.push_back(proxy.call(METHOD_SUBMIT_TRACE_BLOCK, std::move(params)));
+  }
+
+  int accepted = 0, rejected = 0;
+  for (auto& f : submit_futures) {
+    dynamic resp = f.get();
+    // Capture must never be reported inactive just because a block was
+    // dropped -- dropping is a queue-capacity decision, not a state change.
+    EXPECT_TRUE(resp.as<bool>(FIELD_PROFILER_ACTIVE));
+    if (resp.as<bool>(FIELD_PROFILER_ACCEPTED))
+      ++accepted;
+    else
+      ++rejected;
+  }
+  EXPECT_EQ(accepted + rejected, kBlocks);
+  EXPECT_GT(rejected, 0) << "expected queue pressure to drop at least one block";
+  EXPECT_GT(accepted, 0);
+
+  dynamic stop_resp = proxy.call(METHOD_STOP_CAPTURE, dynamic{}).get();
+  EXPECT_TRUE(stop_resp.as<bool>(FIELD_PROFILER_OK));
+
+  c.disconnect();
+
+  // Every accepted block, and nothing else, must have made it to disk --
+  // this also rules out a dropped block being written anyway or an
+  // accepted block being written twice.
+  ASSERT_TRUE(std::filesystem::exists(trace_path));
+  EXPECT_EQ(std::filesystem::file_size(trace_path), static_cast<uintmax_t>(accepted) * sizeof(kPayload));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

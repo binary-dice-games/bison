@@ -20,9 +20,11 @@
 #include "src/rmi/shared/profiling.hpp"
 
 #include <atomic>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <thread>
 
 namespace bdg::bison::rmi {
 
@@ -72,15 +74,55 @@ class profiler_service : public bison::dynamic {
 
   void append_to_file(const bison::buffer& encoded_batch);
 
+  /**
+   * @brief Queue a client-submitted trace block for the writer thread, or
+   *        drop it if the queue is already at `kMaxQueuedTraceBlocks`.
+   *
+   * @return `false` if the block was dropped (writer thread can't keep up
+   *         with the producer), `true` if it was queued.
+   */
+  bool enqueue_trace_block(std::vector<uint8_t> bytes);
+
+  /**
+   * @brief Body of `writer_thread_`: lowers its own scheduling priority,
+   *        then repeatedly drains `pending_blocks_` into the trace file
+   *        until `writer_stopping_` is set.
+   */
+  void writer_loop();
+
+  /** @brief Pop and write every block currently in `pending_blocks_`. */
+  void write_pending_blocks();
+
   struct state {
     std::ofstream file;
     std::filesystem::path current_path;
   };
 
+  /**
+   * @brief Upper bound on not-yet-written blocks held in `pending_blocks_`.
+   *
+   * Bounds memory use against a producer that outpaces the disk -- once
+   * full, `enqueue_trace_block` drops new blocks rather than growing the
+   * queue or blocking the caller (the RMI dispatch thread).
+   */
+  static constexpr size_t kMaxQueuedTraceBlocks = 256;
+
   std::filesystem::path output_dir_;
   std::atomic<bool> capture_active_{false};
   std::atomic<int32_t> next_sequence_id_{1};
   bison::synchronized<state> state_;
+
+  /** @brief Trace blocks submitted by clients, awaiting `writer_thread_`. */
+  bison::synchronized<std::deque<std::vector<uint8_t>>> pending_blocks_;
+  /**
+   * @brief Below-normal-priority thread that performs all file writes for
+   *        client-submitted blocks, so `submit_trace_block` (called on an
+   *        RMI dispatch thread, see `server::dispatch_worker_state`) never
+   *        blocks on file I/O.
+   */
+  std::thread writer_thread_;
+  std::atomic<bool> writer_stopping_{false};
+
   server_local_recorder local_recorder_;
 };
 

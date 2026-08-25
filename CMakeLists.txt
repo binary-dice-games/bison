@@ -168,6 +168,7 @@ if(WIN32 AND NOT MSYS AND NOT CYGWIN)
     src/app/debugger_win.cpp
     src/app/client/line_editor_win.cpp
     src/rmi/transport/mbedtls_threading_win.cpp
+    src/rmi/server/worker_thread_priority_win.cpp
   )
 else()
   if(WIN32)
@@ -179,6 +180,7 @@ else()
     src/app/debugger_posix.cpp
     src/app/client/line_editor_posix.cpp
     src/rmi/transport/mbedtls_threading_posix.cpp
+    src/rmi/server/worker_thread_priority_posix.cpp
   )
 endif()
 

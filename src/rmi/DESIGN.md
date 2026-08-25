@@ -935,8 +935,34 @@ descriptors.
 | `begin_profiling_session` | `()` → `{sequence_id, active}` | One call per client; seeds initial recorder state. |
 | `is_capture_active` | `()` → `{active}` | Cheap read of the server's atomic flag. |
 | `start_capture` | `{label}` → `{ok, path}` | Idempotent while already active; server-controlled output path. |
-| `stop_capture` | `()` → `{ok}` | Idempotent while inactive; drains and closes the file. |
-| `submit_trace_block` | `{bytes, sequence_id}` → `{accepted, active}` | Fast-path rejects (`accepted:false`, no file write) when capture is inactive at call time. Bytes are already fully protobuf-framed by the sender, so the server does zero re-encoding — a straight append under the file's write lock. |
+| `stop_capture` | `()` → `{ok}` | Idempotent while inactive; drains the pending-block queue (see below), then closes the file. |
+| `submit_trace_block` | `{bytes, sequence_id}` → `{accepted, active}` | Fast-path rejects (`accepted:false`, no file write) when capture is inactive at call time, or when the pending-block queue is full (see below). Bytes are already fully protobuf-framed by the sender, so the server does zero re-encoding. |
+
+**Writer thread.** `submit_trace_block` runs on an RMI dispatch thread
+(`server::dispatch_worker_state`, §9.2), which must never block on file
+I/O. Rather than writing inline, it pushes the block onto
+`profiler_service::pending_blocks_` (a `synchronized<deque<vector<uint8_t>>>`,
+capped at `kMaxQueuedTraceBlocks` = 256) and returns immediately;
+`profiler_service::writer_thread_` -- a dedicated thread that lowers its
+own OS scheduling priority to "below normal" via
+`lower_thread_priority_to_below_normal()` (`src/rmi/server/
+worker_thread_priority.hpp`, split into `_posix.cpp`/`_win.cpp` per §3.1's
+platform pattern since adjusting one thread's priority is OS-specific) --
+drains the queue and calls `append_to_file()` for each block. This keeps a
+slow or momentarily saturated disk from adding latency to the RMI dispatch
+path or to any other session sharing that dispatch worker. If a burst of
+submissions outpaces the writer (queue already at `kMaxQueuedTraceBlocks`),
+`enqueue_trace_block` drops the new block and returns `accepted:false`
+rather than growing the queue unboundedly or blocking the caller --
+matching the recorder's own accepted tail-loss-on-backpressure posture
+(§16.1's "Flush-trigger design"), just enforced server-side instead of
+client-side. `stop_capture` calls the same drain routine
+(`write_pending_blocks()`) synchronously before closing the file, so a
+block that was already `accepted:true` is never silently lost to a race
+between the writer thread and a `stop_capture` that lands first --
+without that drain, closing the file would make any still-queued block's
+subsequent `append_to_file()` a silent no-op (`state_.file.is_open()`
+false).
 
 There is deliberately no server→client push notification for capture
 state changes: adding one would require threading a per-session "current

@@ -1,6 +1,7 @@
 // MIT License © 2025 Binary Dice Games
 #include "src/rmi/server/profiler_service.hpp"
 
+#include "src/rmi/server/worker_thread_priority.hpp"
 #include "src/rmi/shared/constants.hpp"
 
 using bdg::bison::attr;
@@ -17,12 +18,18 @@ profiler_service::profiler_service(bison::dynamic&& base, std::filesystem::path 
   // Makes the server's own native code (BISON_TRACE_SCOPE / BISON_TRACE_INSTANT)
   // record into this process's trace file, alongside client-submitted blocks.
   profiling::recorder::install(&local_recorder_);
+  writer_thread_ = std::thread([this] { writer_loop(); });
 }
 
 profiler_service::~profiler_service() {
   if (profiling::recorder::local() == &local_recorder_)
     profiling::recorder::install(nullptr);
   local_recorder_.stop();
+
+  writer_stopping_.store(true, std::memory_order_relaxed);
+  pending_blocks_.notify_all();
+  if (writer_thread_.joinable())
+    writer_thread_.join();
 }
 
 void profiler_service::append_to_file(const bison::buffer& encoded_batch) {
@@ -31,6 +38,43 @@ void profiler_service::append_to_file(const bison::buffer& encoded_batch) {
     return;
   lp->file.write(reinterpret_cast<const char*>(encoded_batch.data()), static_cast<std::streamsize>(encoded_batch.size()));
   lp->file.flush();
+}
+
+bool profiler_service::enqueue_trace_block(std::vector<uint8_t> bytes) {
+  auto lp = pending_blocks_.wlock();
+  if (lp->size() >= kMaxQueuedTraceBlocks)
+    return false;
+  lp->push_back(std::move(bytes));
+  lp.unlock();
+  pending_blocks_.notify_one();
+  return true;
+}
+
+void profiler_service::writer_loop() {
+  lower_thread_priority_to_below_normal();
+  while (!writer_stopping_.load(std::memory_order_relaxed)) {
+    pending_blocks_.wait([this](std::deque<std::vector<uint8_t>>& q) {
+      return !q.empty() || writer_stopping_.load(std::memory_order_relaxed);
+    });
+    write_pending_blocks();
+  }
+  // Drain whatever is left so a clean shutdown doesn't silently drop the
+  // trace's tail.
+  write_pending_blocks();
+}
+
+void profiler_service::write_pending_blocks() {
+  for (;;) {
+    std::vector<uint8_t> block;
+    {
+      auto lp = pending_blocks_.wlock();
+      if (lp->empty())
+        return;
+      block = std::move(lp->front());
+      lp->pop_front();
+    }
+    append_to_file(block);
+  }
 }
 
 bison::dynamic profiler_service::begin_profiling_session() {
@@ -96,6 +140,13 @@ bison::dynamic profiler_service::stop_capture() {
   capture_active_.store(false, std::memory_order_relaxed);
   local_recorder_.set_capture_active(false);
 
+  // Drain blocks writer_thread_ hasn't gotten to yet, so an already-queued
+  // (accepted:true) block isn't silently lost when the file closes below.
+  // Safe to call from this thread too: both the queue and the file are
+  // protected by their own locks, so this can run concurrently with
+  // writer_thread_ without either dropping or duplicating a block.
+  write_pending_blocks();
+
   auto lp = state_.wlock();
   if (lp->file.is_open())
     lp->file.close();
@@ -113,8 +164,10 @@ bison::dynamic profiler_service::submit_trace_block(std::vector<uint8_t> bytes, 
     resp[FIELD_PROFILER_ACTIVE] = active;
     return resp;
   }
-  append_to_file(bytes);
-  resp[FIELD_PROFILER_ACCEPTED] = true;
+  // Hand off to writer_thread_ rather than writing here: this method runs on
+  // an RMI dispatch thread (server::dispatch_worker_state), which must never
+  // block on file I/O.
+  resp[FIELD_PROFILER_ACCEPTED] = enqueue_trace_block(std::move(bytes));
   resp[FIELD_PROFILER_ACTIVE] = true;
   return resp;
 }
