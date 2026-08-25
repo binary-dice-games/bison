@@ -1190,8 +1190,43 @@ class dynamic {
     return field.as<T>();
   }
 
+  /**
+   * @brief Return field @p k converted to @p T, or `T{}` if @p k is absent
+   *        anywhere in the prototype chain.
+   *
+   * A default-argument overload (`T dflt = T{}`) used to serve both the
+   * "no default" and "explicit default" callers, but (as with
+   * `field::as<T>()`, see its own comment) the default argument is
+   * constructed at every no-arg call site regardless of whether the field
+   * was actually found -- wasteful for a `T` with a non-trivial default
+   * constructor (e.g. `dynamic_ptr`). This overload only constructs `T{}`
+   * on the miss path; see the explicit-default overload below for callers
+   * who want a specific fallback value.
+   *
+   * @tparam T Requested value type (see `field::get_as<T>()` for the
+   *           supported conversions).
+   * @param  k Hash key of the field to look up.
+   * @return Converted value, or `T{}` if @p k is absent.
+   */
   template <typename T>
-  T get_as(key_t k, T dflt = T{}) const {
+  T get_as(key_t k) const {
+    const auto* f = findField(k);
+    if (!f)
+      return T{};
+    return f->get_as<T>();
+  }
+
+  /**
+   * @brief Return field @p k converted to @p T, seeding an absent field
+   *        with @p dflt instead of `T{}`.
+   *
+   * @tparam T    Requested value type.
+   * @param  k    Hash key of the field to look up.
+   * @param  dflt Value returned if @p k is absent anywhere in the chain.
+   * @return Converted value, or @p dflt if @p k is absent.
+   */
+  template <typename T>
+  T get_as(key_t k, T dflt) const {
     const auto* f = findField(k);
     if (!f)
       return dflt;

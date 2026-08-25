@@ -1076,6 +1076,29 @@ TEST(DynamicTests, RepeatedMissesOnAbsentFieldStayNullptr) {
   EXPECT_TRUE(obj.get_as<bool>("ghost"_key, true));
 }
 
+TEST(DynamicTests, GetAsNoArgReturnsValueInitializedOnMiss) {
+  dynamic obj;
+  EXPECT_EQ(obj.get_as<int32_t>("ghost"_key), 0);
+}
+
+TEST(DynamicTests, GetAsNoArgOnPresentFieldDoesNotConstructFreshDynamic) {
+  // Regression test: dynamic::get_as<T>() used to take `T dflt = T{}`, a
+  // default argument evaluated at every no-arg call site regardless of
+  // whether the field was found. For T = dynamic_ptr, `T{}` heap-allocates
+  // a brand-new `dynamic` -- so every no-arg `get_as<dynamic_ptr>()` call on
+  // an already-present field wastefully allocated and threw away an object.
+  // Confirm the field's existing dynamic_ptr identity (and refcount) is
+  // untouched by the call.
+  auto child = dynamic_ptr{"Marker"_key, {}};
+  dynamic obj;
+  obj["x"_key] = child;
+  EXPECT_EQ(child.use_count(), 2); // obj's copy + `child`
+
+  dynamic_ptr result = obj.get_as<dynamic_ptr>("x"_key);
+  EXPECT_EQ(result.get(), child.get());
+  EXPECT_EQ(child.use_count(), 3); // obj's copy + `child` + `result`
+}
+
 TEST(DynamicTests, AddFieldAfterCachedMissIsFound) {
   dynamic obj;
   ASSERT_EQ(obj.findField("late"_key), nullptr); // caches the miss
