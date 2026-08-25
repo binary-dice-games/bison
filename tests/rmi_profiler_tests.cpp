@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace bdg::bison;
@@ -306,4 +307,53 @@ TEST_F(RmiProfilerE2E, StopCaptureIsIdempotentWhileInactive) {
   EXPECT_TRUE(resp.as<bool>(FIELD_PROFILER_OK));
 
   c.disconnect();
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// standalone::enable_profiling + direct-call capture control (no transport,
+// no remote client -- standalone drives its own recorder in-process).
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(RmiProfilerStandalone, StartCaptureNowWritesReadableTraceFile) {
+  clearClassRegistry();
+  scoped_temp_dir temp_dir;
+
+  standalone sa;
+  sa.enable_profiling(temp_dir.path());
+  EXPECT_FALSE(sa.is_capture_active_now());
+
+  ASSERT_TRUE(sa.start_capture_now("standalone_test"));
+  EXPECT_TRUE(sa.is_capture_active_now());
+
+  BISON_TRACE_SCOPE("standalone_work");
+
+  // local_recorder flushes on its own periodic cadence; poll for a
+  // non-empty trace file rather than sleeping a fixed amount.
+  std::filesystem::path trace_file;
+  bool file_has_bytes = false;
+  for (int i = 0; i < 40 && !file_has_bytes; ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    for (auto& entry : std::filesystem::directory_iterator(temp_dir.path())) {
+      if (entry.path().extension() != ".perfetto-trace")
+        continue;
+      trace_file = entry.path();
+      std::error_code ec;
+      file_has_bytes = std::filesystem::file_size(trace_file, ec) > 0 && !ec;
+    }
+  }
+  ASSERT_TRUE(file_has_bytes);
+
+  sa.stop_capture_now();
+  EXPECT_FALSE(sa.is_capture_active_now());
+
+  ASSERT_TRUE(std::filesystem::exists(trace_file));
+  EXPECT_GT(std::filesystem::file_size(trace_file), 0u);
+}
+
+TEST(RmiProfilerStandalone, StartCaptureNowIsNoOpWithoutEnableProfiling) {
+  clearClassRegistry();
+  standalone sa;
+  EXPECT_FALSE(sa.start_capture_now());
+  EXPECT_FALSE(sa.is_capture_active_now());
+  sa.stop_capture_now(); // no-op; must not throw or crash.
 }

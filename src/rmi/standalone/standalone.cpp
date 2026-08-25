@@ -157,6 +157,36 @@ standalone::~standalone() {
   lp->objects.clear();
 }
 
+// ── Profiling ────────────────────────────────────────────────────────────
+
+/** @copydoc bdg::bison::rmi::standalone::enable_profiling */
+void standalone::enable_profiling(std::filesystem::path output_dir) {
+  profiler_service_ = register_profiler_class(std::move(output_dir));
+}
+
+/** @copydoc bdg::bison::rmi::standalone::start_capture_now */
+bool standalone::start_capture_now(std::string_view label) {
+  if (!profiler_service_)
+    return false;
+  bison::dynamic resp = profiler_service_->start_capture(std::string{label});
+  return resp[FIELD_PROFILER_OK].as<bool>();
+}
+
+/** @copydoc bdg::bison::rmi::standalone::stop_capture_now */
+void standalone::stop_capture_now() {
+  if (!profiler_service_)
+    return;
+  profiler_service_->stop_capture();
+}
+
+/** @copydoc bdg::bison::rmi::standalone::is_capture_active_now */
+bool standalone::is_capture_active_now() const {
+  if (!profiler_service_)
+    return false;
+  bison::dynamic resp = profiler_service_->is_capture_active();
+  return resp[FIELD_PROFILER_ACTIVE].as<bool>();
+}
+
 // ── Client-compatible public methods ──────────────────────────────────────
 
 /** @copydoc bdg::bison::rmi::standalone::connect */

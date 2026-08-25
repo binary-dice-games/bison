@@ -12,12 +12,15 @@
 #include "src/bison/bison.hpp"
 #include "src/rmi/client/proxy.hpp"
 #include "src/rmi/server/context.hpp"
+#include "src/rmi/server/profiler_service.hpp"
 
 #include <atomic>
+#include <filesystem>
 #include <functional>
 #include <future>
 #include <memory>
 #include <queue>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 
@@ -224,6 +227,48 @@ class standalone : public proxy_backend {
     return ctx_;
   }
 
+  // ── Profiling ─────────────────────────────────────────────────────────
+
+  /**
+   * @brief Opt into Perfetto trace capture for this standalone process.
+   *
+   * Registers the `__BisonProfiler` class and installs a
+   * `server_local_recorder` as the process-wide active `recorder`, so this
+   * process's own `BISON_TRACE_SCOPE`/`BISON_TRACE_INSTANT` calls record
+   * into a trace file under @p output_dir. Mirrors
+   * `bdg::bison::rmi::server::enable_profiling()`; unlike `server`, no
+   * remote client ever requests `__BisonProfiler` over RMI here, so
+   * `on_create_object` is not involved.
+   *
+   * @param output_dir Directory `startCapture` writes `.perfetto-trace`
+   *                    files into.
+   */
+  void enable_profiling(std::filesystem::path output_dir);
+
+  /**
+   * @brief Start capture directly from this process, without going through
+   *        an RMI client/proxy call.
+   *
+   * No-op (returns `false`) if `enable_profiling()` was never called.
+   * Idempotent if capture is already active.
+   *
+   * @param label Optional cosmetic label recorded with the session; not used
+   *              for path construction.
+   * @return `true` if capture is active after the call.
+   */
+  bool start_capture_now(std::string_view label = {});
+
+  /**
+   * @brief Stop capture and finalize the trace file, direct C++ call
+   *        equivalent of the RMI-facing `stopCapture` method.
+   *
+   * No-op if profiling was never enabled or capture is already inactive.
+   */
+  void stop_capture_now();
+
+  /** @brief `true` if profiling is enabled and capture is currently active. */
+  bool is_capture_active_now() const;
+
  protected:
   // ── Extensibility hooks (mirror bison::rmi::server's hooks of the same
   //    name/signature) ───────────────────────────────────────────────────
@@ -393,6 +438,9 @@ class standalone : public proxy_backend {
   /// Guards one-time firing of on_session_created()/on_session_destroyed().
   std::atomic<bool> session_created_{false};
   std::atomic<bool> session_destroyed_{false};
+
+  /** @brief Set by `enable_profiling()`; null unless profiling was opted into. */
+  std::shared_ptr<profiler_service> profiler_service_;
 };
 
 } // namespace bdg::bison::rmi
