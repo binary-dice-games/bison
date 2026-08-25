@@ -540,12 +540,16 @@ any protobuf library.
 
 ### 7.1 Protobuf primitives used
 
-Only two protobuf wire types are needed:
+Three protobuf wire types are needed:
 
 - **Varint** (wire type 0): standard protobuf/LEB128 varint, identical in
   shape to §1.4's ULEB128 (least-significant group first, continuation bit
   in each byte's MSB). Used for both a field's tag byte and any integer
   field value.
+- **Fixed64** (wire type 1): exactly 8 raw bytes, **little-endian** on the
+  wire (this is protobuf's fixed64 convention and does not follow bison's
+  usual big-endian `buffer_serializer::write<T>()`; the encoder writes these
+  bytes by hand). Used only for `TrackEvent.double_counter_value` (§7.2).
 - **Length-delimited** (wire type 2): a varint length followed by that many
   raw bytes. Used for strings and for nested (sub-)messages.
 
@@ -579,6 +583,13 @@ Perfetto UI to parse the file.
 | `type` | 9 | 0 (varint) | enum, see §7.4 |
 | `track_uuid` | 11 | 0 (varint) | `uint64` |
 | `name` | 23 | 2 (length-delimited) | UTF-8 string; omitted for `SLICE_END` |
+| `counter_value` | 30 | 0 (varint) | `int64`; set only when `type = TYPE_COUNTER` |
+| `double_counter_value` | 44 | 1 (fixed64) | IEEE-754 `double`, little-endian; set only when `type = TYPE_COUNTER` |
+
+A `TYPE_COUNTER` event carries exactly one of `counter_value` or
+`double_counter_value`, never both — bison's encoder picks one at the
+call site (`record_counter(name, int64_t)` vs. `record_counter(name,
+double)`).
 
 **`TrackDescriptor`:**
 
@@ -586,6 +597,13 @@ Perfetto UI to parse the file.
 |---|---|---|---|
 | `uuid` | 1 | 0 (varint) | `uint64` |
 | `name` | 2 | 2 (length-delimited) | UTF-8 string |
+| `counter` | 8 | 2 (length-delimited) | nested `CounterDescriptor`; only on counter tracks |
+
+**`CounterDescriptor`:**
+
+| Field | Number | Wire type | Type |
+|---|---|---|---|
+| `unit` | 3 | 0 (varint) | enum, see §7.4; omitted when `UNIT_UNSPECIFIED` |
 
 ### 7.3 File structure
 
@@ -616,7 +634,9 @@ automatically: the first time a batch contains a not-yet-seen
 `track_uuid`, a `TrackDescriptor` packet is prepended ahead of that
 batch's `TrackEvent` packets.
 
-### 7.4 `TrackEvent.type` enum values
+### 7.4 `TrackEvent.type` and `CounterDescriptor.unit` enum values
+
+`TrackEvent.type`:
 
 | Name | Value | Meaning |
 |---|---|---|
@@ -624,6 +644,17 @@ batch's `TrackEvent` packets.
 | `TYPE_SLICE_BEGIN` | 1 | Start of a named, nestable duration span |
 | `TYPE_SLICE_END` | 2 | End of the most recently begun slice on this track |
 | `TYPE_INSTANT` | 3 | Zero-duration named point event |
+| `TYPE_COUNTER` | 4 | Value-over-time sample on a counter track |
+
+`CounterDescriptor.unit` (labels a counter track for display; a subset of
+the upstream enum):
+
+| Name | Value | Meaning |
+|---|---|---|
+| `UNIT_UNSPECIFIED` | 0 | No unit; field omitted from the wire entirely |
+| `UNIT_TIME_NS` | 1 | Nanoseconds |
+| `UNIT_COUNT` | 2 | Unitless count |
+| `UNIT_SIZE_BYTES` | 3 | Bytes |
 
 ### 7.5 Worked example
 

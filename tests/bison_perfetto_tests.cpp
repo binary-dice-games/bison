@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -22,8 +23,15 @@ struct decoded_field {
   uint64_t field_number = 0;
   uint64_t wire_type = 0;
   uint64_t varint_value = 0;
+  uint64_t fixed64_value = 0;
   std::vector<uint8_t> bytes;
 };
+
+double fixed64_as_double(uint64_t bits) {
+  double value;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
 
 uint64_t read_varint(const std::vector<uint8_t>& buf, size_t& pos) {
   uint64_t value = 0;
@@ -48,6 +56,10 @@ std::vector<decoded_field> decode_fields(const std::vector<uint8_t>& buf) {
     f.wire_type = tag & 0x7;
     if (f.wire_type == 0) {
       f.varint_value = read_varint(buf, pos);
+    } else if (f.wire_type == 1) {
+      // Fixed64, little-endian on the wire.
+      for (int i = 0; i < 8; ++i)
+        f.fixed64_value |= static_cast<uint64_t>(buf[pos++]) << (8 * i);
     } else if (f.wire_type == 2) {
       const uint64_t len = read_varint(buf, pos);
       f.bytes.assign(buf.begin() + static_cast<long>(pos), buf.begin() + static_cast<long>(pos + len));
@@ -192,6 +204,82 @@ TEST(BisonPerfetto, TrackDescriptorRoundTrips) {
   const auto* name = find_field(descriptor_fields, /*TrackDescriptor.name=*/2);
   ASSERT_NE(name, nullptr);
   EXPECT_EQ(std::string(name->bytes.begin(), name->bytes.end()), "worker-thread");
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Counter track/event packets
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(BisonPerfetto, CounterTrackDescriptorOmitsUnitByDefault) {
+  const auto framed = encode_counter_track_descriptor_packet(0, 1, 9, "my-counter");
+  const auto packet_body = unwrap_trace_packet(framed);
+  const auto packet_fields = decode_fields(packet_body);
+
+  const auto* descriptor = find_field(packet_fields, /*TracePacket.track_descriptor=*/60);
+  ASSERT_NE(descriptor, nullptr);
+  const auto descriptor_fields = decode_fields(descriptor->bytes);
+
+  const auto* uuid = find_field(descriptor_fields, /*TrackDescriptor.uuid=*/1);
+  ASSERT_NE(uuid, nullptr);
+  EXPECT_EQ(uuid->varint_value, 9u);
+
+  const auto* name = find_field(descriptor_fields, /*TrackDescriptor.name=*/2);
+  ASSERT_NE(name, nullptr);
+  EXPECT_EQ(std::string(name->bytes.begin(), name->bytes.end()), "my-counter");
+
+  // Unit unspecified -> CounterDescriptor sub-message omitted entirely.
+  EXPECT_EQ(find_field(descriptor_fields, /*TrackDescriptor.counter=*/8), nullptr);
+}
+
+TEST(BisonPerfetto, CounterTrackDescriptorCarriesUnit) {
+  const auto framed = encode_counter_track_descriptor_packet(0, 1, 9, "bytes-sent", counter_unit::size_bytes);
+  const auto packet_body = unwrap_trace_packet(framed);
+  const auto packet_fields = decode_fields(packet_body);
+  const auto descriptor_fields = decode_fields(find_field(packet_fields, 60)->bytes);
+
+  const auto* counter = find_field(descriptor_fields, /*TrackDescriptor.counter=*/8);
+  ASSERT_NE(counter, nullptr);
+  const auto counter_fields = decode_fields(counter->bytes);
+
+  const auto* unit = find_field(counter_fields, /*CounterDescriptor.unit=*/3);
+  ASSERT_NE(unit, nullptr);
+  EXPECT_EQ(unit->varint_value, static_cast<uint64_t>(counter_unit::size_bytes));
+}
+
+TEST(BisonPerfetto, CounterEventCarriesIntValue) {
+  const auto framed = encode_counter_event_packet(100, 1, 9, -42);
+  const auto packet_body = unwrap_trace_packet(framed);
+  const auto packet_fields = decode_fields(packet_body);
+  const auto event_fields = decode_fields(find_field(packet_fields, 11)->bytes);
+
+  const auto* type = find_field(event_fields, /*TrackEvent.type=*/9);
+  ASSERT_NE(type, nullptr);
+  EXPECT_EQ(type->varint_value, static_cast<uint64_t>(event_type::counter));
+
+  const auto* uuid = find_field(event_fields, /*TrackEvent.track_uuid=*/11);
+  ASSERT_NE(uuid, nullptr);
+  EXPECT_EQ(uuid->varint_value, 9u);
+
+  const auto* value = find_field(event_fields, /*TrackEvent.counter_value=*/30);
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(value->wire_type, 0u);
+  EXPECT_EQ(static_cast<int64_t>(value->varint_value), -42);
+}
+
+TEST(BisonPerfetto, DoubleCounterEventCarriesFixed64Value) {
+  const auto framed = encode_double_counter_event_packet(100, 1, 9, 3.5);
+  const auto packet_body = unwrap_trace_packet(framed);
+  const auto packet_fields = decode_fields(packet_body);
+  const auto event_fields = decode_fields(find_field(packet_fields, 11)->bytes);
+
+  const auto* type = find_field(event_fields, 9);
+  ASSERT_NE(type, nullptr);
+  EXPECT_EQ(type->varint_value, static_cast<uint64_t>(event_type::counter));
+
+  const auto* value = find_field(event_fields, /*TrackEvent.double_counter_value=*/44);
+  ASSERT_NE(value, nullptr);
+  EXPECT_EQ(value->wire_type, 1u);
+  EXPECT_EQ(fixed64_as_double(value->fixed64_value), 3.5);
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

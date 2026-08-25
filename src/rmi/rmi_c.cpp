@@ -15,8 +15,10 @@
 #include "src/term/terminal.hpp"
 
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi;
@@ -876,4 +878,82 @@ RMI_API void rmi_server_release(rmi_server_handle h) {
     // Suppress exceptions during cleanup
   }
   delete as_server_state(h);
+}
+
+// ─── Profiling ───────────────────────────────────────────────────────────
+
+RMI_API rmi_error rmi_server_enable_profiling(rmi_server_handle h, const char* output_dir) {
+  server* s = server_deref(h);
+  if (!s || !output_dir)
+    return RMI_ERR_NULL;
+  try {
+    s->enable_profiling(std::filesystem::path(output_dir));
+    return RMI_OK;
+  } catch (...) {
+    return RMI_ERR_EXCEPTION;
+  }
+}
+
+RMI_API rmi_error rmi_server_start_capture(rmi_server_handle h, const char* label, bool* out_started) {
+  server* s = server_deref(h);
+  if (!s)
+    return RMI_ERR_NULL;
+  try {
+    const bool started = s->start_capture_now(label ? std::string_view(label) : std::string_view{});
+    if (out_started)
+      *out_started = started;
+    return RMI_OK;
+  } catch (...) {
+    return RMI_ERR_EXCEPTION;
+  }
+}
+
+RMI_API rmi_error rmi_server_stop_capture(rmi_server_handle h) {
+  server* s = server_deref(h);
+  if (!s)
+    return RMI_ERR_NULL;
+  try {
+    s->stop_capture_now();
+    return RMI_OK;
+  } catch (...) {
+    return RMI_ERR_EXCEPTION;
+  }
+}
+
+RMI_API rmi_error rmi_server_is_capture_active(rmi_server_handle h, bool* out_active) {
+  server* s = server_deref(h);
+  if (!s || !out_active)
+    return RMI_ERR_NULL;
+  try {
+    *out_active = s->is_capture_active_now();
+    return RMI_OK;
+  } catch (...) {
+    return RMI_ERR_EXCEPTION;
+  }
+}
+
+RMI_API void rmi_trace_scope_begin(const char* name) {
+  if (profiling::recorder* r = profiling::recorder::local())
+    r->record_slice_begin(name);
+}
+
+RMI_API void rmi_trace_scope_end(void) {
+  if (profiling::recorder* r = profiling::recorder::local())
+    r->record_slice_end();
+}
+
+RMI_API void rmi_trace_instant(const char* name) {
+  profiling::record_instant(name);
+}
+
+RMI_API void rmi_trace_counter_int(const char* name, int64_t value) {
+  profiling::record_counter(name, value);
+}
+
+RMI_API void rmi_trace_counter_double(const char* name, double value) {
+  profiling::record_counter(name, value);
+}
+
+RMI_API bool rmi_trace_is_active(void) {
+  return profiling::recorder::local() != nullptr;
 }

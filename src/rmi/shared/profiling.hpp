@@ -13,6 +13,12 @@
  * protobuf encoding, no I/O. Encoding and I/O both happen off the hot path,
  * in a background flush thread woken by a size or time threshold.
  *
+ * `record_counter` (`BISON_TRACE_COUNTER`) records the value-over-time of a
+ * named counter track instead of a per-thread slice/instant -- all samples
+ * for one counter name share a single track regardless of which thread
+ * records them. Counter tracks and their samples still flow through the
+ * same buffer/flush/sink pipeline as slices and instants.
+ *
  * See `src/bison/bison_perfetto.hpp` for the wire-format encoder this
  * module drives, and `src/rmi/DESIGN.md` for the overall client-buffers/
  * server-writes architecture.
@@ -40,12 +46,19 @@ namespace bdg::bison::rmi::profiling {
  * `name` must point at a string literal or otherwise static-storage-
  * duration string -- the hot path never copies or allocates it, only the
  * background flush thread reads through the pointer when encoding.
+ *
+ * `counter_int_value`/`counter_double_value`/`counter_is_double` are only
+ * meaningful when `type == event_type::counter`; slices and instants leave
+ * them at their defaults.
  */
 struct raw_event {
   uint64_t timestamp_ns = 0;
   uint64_t track_uuid = 0;
   const char* name = "";
   bison::perfetto::event_type type = bison::perfetto::event_type::unspecified;
+  int64_t counter_int_value = 0;
+  double counter_double_value = 0.0;
+  bool counter_is_double = false;
 };
 
 /**
@@ -111,6 +124,48 @@ class recorder {
   /** @brief Record a zero-duration instant event on the calling thread's track. */
   void record_instant(const char* name) {
     record(bison::perfetto::event_type::instant, name);
+  }
+
+  /**
+   * @brief Record a new integer sample for the named counter track.
+   *
+   * Unlike slices/instants, a counter is not tied to the calling thread --
+   * all samples recorded under the same @p name land on one shared counter
+   * track, so its value-over-time renders as a single row in the Perfetto
+   * UI regardless of which thread updates it. @p name is resolved to a
+   * `track_uuid` via a locked map keyed on the string contents (not the
+   * pointer), so, unlike `record_slice_begin`/`record_instant`, this is not
+   * allocation-free on a not-yet-seen name -- acceptable since counters are
+   * typically updated far less often than slices/instants.
+   */
+  void record_counter(const char* name, int64_t value) {
+    if (!capture_active_.load(std::memory_order_relaxed))
+      return;
+    raw_event evt;
+    evt.timestamp_ns = now_ns();
+    evt.track_uuid = counter_track_uuid(name);
+    evt.type = bison::perfetto::event_type::counter;
+    evt.counter_int_value = value;
+    push(evt);
+  }
+
+  /** @brief Record a new floating-point sample for the named counter track. */
+  void record_counter(const char* name, double value) {
+    if (!capture_active_.load(std::memory_order_relaxed))
+      return;
+    raw_event evt;
+    evt.timestamp_ns = now_ns();
+    evt.track_uuid = counter_track_uuid(name);
+    evt.type = bison::perfetto::event_type::counter;
+    evt.counter_double_value = value;
+    evt.counter_is_double = true;
+    push(evt);
+  }
+
+  /** @brief Set the unit shown for a counter track's values in the Perfetto UI. */
+  void set_counter_unit(const char* name, bison::perfetto::counter_unit unit) {
+    auto lp = counter_units_.wlock();
+    (*lp)[counter_track_uuid(name)] = unit;
   }
 
   // ── Lifecycle ───────────────────────────────────────────────────────────
@@ -192,6 +247,37 @@ class recorder {
     return state.track_uuid;
   }
 
+  /**
+   * @brief Resolve a counter's name to a stable `track_uuid`, allocating one
+   *        (and registering its name/kind) on first use.
+   *
+   * Counter track uuids live in a namespace disjoint from
+   * `thread_track_uuid()`'s: the latter counts up from 1 in
+   * `next_thread_index_`, while counters count up from 1 in
+   * `next_counter_index_` with `kCounterTrackFlag` set, so the two schemes
+   * can never collide for any process short of ~2 billion threads or
+   * counters.
+   */
+  uint64_t counter_track_uuid(const char* name) {
+    {
+      auto lp = counter_track_uuids_.rlock();
+      auto it = lp->find(name);
+      if (it != lp->end())
+        return it->second;
+    }
+    auto lp = counter_track_uuids_.wlock();
+    auto it = lp->find(name);
+    if (it != lp->end())
+      return it->second;
+    const uint32_t index = static_cast<uint32_t>(next_counter_index_.fetch_add(1, std::memory_order_relaxed));
+    const uint64_t uuid = (static_cast<uint64_t>(trusted_packet_sequence_id_) << 32) | kCounterTrackFlag | index;
+    (*lp)[name] = uuid;
+    lp.unlock();
+    auto names = track_names_.wlock();
+    (*names)[uuid] = name;
+    return uuid;
+  }
+
   static uint64_t now_ns() {
     return static_cast<uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
@@ -201,7 +287,10 @@ class recorder {
   void record(bison::perfetto::event_type type, const char* name) {
     if (!capture_active_.load(std::memory_order_relaxed))
       return;
-    raw_event evt{now_ns(), thread_track_uuid(), name, type};
+    push(raw_event{now_ns(), thread_track_uuid(), name, type});
+  }
+
+  void push(const raw_event& evt) {
     auto lp = buffer_.wlock();
     lp->push_back(evt);
     const bool should_flush = lp->size() >= kFlushEventThreshold;
@@ -241,6 +330,7 @@ class recorder {
     }
     bison::buffer encoded;
     for (const raw_event& evt : batch) {
+      const bool is_counter = evt.type == bison::perfetto::event_type::counter;
       if (emitted_tracks_.insert(evt.track_uuid).second) {
         std::string track_name;
         {
@@ -249,23 +339,54 @@ class recorder {
           if (it != lp->end())
             track_name = it->second;
         }
-        auto descriptor = bison::perfetto::encode_track_descriptor_packet(
-            evt.timestamp_ns, trusted_packet_sequence_id_, evt.track_uuid, track_name);
+        bison::buffer descriptor;
+        if (is_counter) {
+          // Best-effort: reflects whatever unit was set via
+          // set_counter_unit() by the time this, the first sample on this
+          // track, reaches the flush thread -- a later set_counter_unit()
+          // call does not retroactively rewrite an already-emitted
+          // TrackDescriptor.
+          bison::perfetto::counter_unit unit = bison::perfetto::counter_unit::unspecified;
+          auto units = counter_units_.rlock();
+          auto uit = units->find(evt.track_uuid);
+          if (uit != units->end())
+            unit = uit->second;
+          descriptor = bison::perfetto::encode_counter_track_descriptor_packet(
+              evt.timestamp_ns, trusted_packet_sequence_id_, evt.track_uuid, track_name, unit);
+        } else {
+          descriptor = bison::perfetto::encode_track_descriptor_packet(
+              evt.timestamp_ns, trusted_packet_sequence_id_, evt.track_uuid, track_name);
+        }
         encoded.insert(encoded.end(), descriptor.begin(), descriptor.end());
       }
-      auto packet = bison::perfetto::encode_track_event_packet(
-          evt.timestamp_ns, trusted_packet_sequence_id_, evt.track_uuid, evt.type, evt.name);
+      bison::buffer packet;
+      if (is_counter) {
+        packet = evt.counter_is_double
+                     ? bison::perfetto::encode_double_counter_event_packet(evt.timestamp_ns,
+                           trusted_packet_sequence_id_, evt.track_uuid, evt.counter_double_value)
+                     : bison::perfetto::encode_counter_event_packet(evt.timestamp_ns, trusted_packet_sequence_id_,
+                           evt.track_uuid, evt.counter_int_value);
+      } else {
+        packet = bison::perfetto::encode_track_event_packet(
+            evt.timestamp_ns, trusted_packet_sequence_id_, evt.track_uuid, evt.type, evt.name);
+      }
       encoded.insert(encoded.end(), packet.begin(), packet.end());
     }
     if (!encoded.empty())
       flush_sink(std::move(encoded));
   }
 
+  /** @brief Set in a counter track_uuid's low 32 bits to keep it disjoint from thread indices. */
+  static constexpr uint64_t kCounterTrackFlag = uint64_t{1} << 31;
+
   const uint32_t trusted_packet_sequence_id_;
   std::atomic<bool> capture_active_{false};
   std::atomic<uint64_t> next_thread_index_{1};
+  std::atomic<uint64_t> next_counter_index_{1};
   bison::synchronized<std::vector<raw_event>> buffer_;
   bison::synchronized<std::unordered_map<uint64_t, std::string>> track_names_;
+  bison::synchronized<std::unordered_map<std::string, uint64_t>> counter_track_uuids_;
+  bison::synchronized<std::unordered_map<uint64_t, bison::perfetto::counter_unit>> counter_units_;
   std::unordered_set<uint64_t> emitted_tracks_;
   std::thread flush_thread_;
   std::atomic<bool> stopping_{false};
@@ -293,6 +414,18 @@ inline void record_instant(const char* name) {
     r->record_instant(name);
 }
 
+/** @brief Record an integer counter sample on the process-wide active recorder, if any. */
+inline void record_counter(const char* name, int64_t value) {
+  if (recorder* r = recorder::local())
+    r->record_counter(name, value);
+}
+
+/** @brief Record a floating-point counter sample on the process-wide active recorder, if any. */
+inline void record_counter(const char* name, double value) {
+  if (recorder* r = recorder::local())
+    r->record_counter(name, value);
+}
+
 } // namespace bdg::bison::rmi::profiling
 
 /** @brief Scope-lifetime trace slice; no-op if no recorder is installed/active. */
@@ -300,3 +433,9 @@ inline void record_instant(const char* name) {
 
 /** @brief Zero-duration trace event; no-op if no recorder is installed/active. */
 #define BISON_TRACE_INSTANT(name) ::bdg::bison::rmi::profiling::record_instant(name)
+
+/**
+ * @brief Record a new sample for the named counter track (int64_t or
+ * double); no-op if no recorder is installed/active.
+ */
+#define BISON_TRACE_COUNTER(name, value) ::bdg::bison::rmi::profiling::record_counter(name, value)

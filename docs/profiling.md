@@ -38,6 +38,23 @@ void render_frame() {
 `BISON_TRACE_INSTANT` records a zero-duration point event. Both are no-ops
 when no capture is active, so they are safe to leave in place permanently.
 
+Use `BISON_TRACE_COUNTER` to track a numeric value over time instead of a
+per-thread slice or instant:
+
+```cpp
+BISON_TRACE_COUNTER("queue_depth", queue.size());
+BISON_TRACE_COUNTER("cpu_load", 0.72); // int64 or double values
+```
+
+All samples for a given counter name share a single track in the trace,
+regardless of which thread records them. Optionally set the unit shown in
+the Perfetto UI before capture starts:
+
+```cpp
+if (auto* r = bdg::bison::rmi::profiling::recorder::local())
+  r->set_counter_unit("queue_depth", bdg::bison::perfetto::counter_unit::count);
+```
+
 ## Attaching a client recorder
 
 A connected RMI client that wants its own code traced (in addition to the
@@ -74,6 +91,36 @@ proxy.call(METHOD_STOP_CAPTURE, bison::dynamic{}).get();
 `enable_profiling()` — it is never derived from client input. After
 `stop_capture()` returns, the file at `trace_path` is complete and ready to
 open.
+
+## C ABI
+
+Third-party applications embedding Bison through the pure-C ABI
+(`include/rmi_c.h`) control profiling the same way, without linking against
+the C++ headers above. This surface is not exposed through the language
+bindings (Python/C#/Java/etc.) — only through `rmi_c.h` directly.
+
+```c
+#include "rmi_c.h"
+
+rmi_server_enable_profiling(server, "/var/log/myapp/traces");
+
+bool started = false;
+rmi_server_start_capture(server, "startup", &started);
+
+// ... exercise the code paths you want traced ...
+rmi_trace_scope_begin("render_frame");
+rmi_trace_instant("frame_submitted");
+rmi_trace_counter_int("queue_depth", 42);
+rmi_trace_counter_double("cpu_load", 0.72);
+rmi_trace_scope_end();
+
+rmi_server_stop_capture(server);
+```
+
+`rmi_trace_is_active()` reports whether a capture is currently running in
+this process. All `rmi_trace_*` functions are safe no-ops when no capture is
+active, matching `BISON_TRACE_SCOPE`/`BISON_TRACE_INSTANT`/
+`BISON_TRACE_COUNTER` above.
 
 ## Viewing a trace
 

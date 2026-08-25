@@ -615,6 +615,125 @@ RMI_API void rmi_server_stop(rmi_server_handle server);
  */
 RMI_API void rmi_server_release(rmi_server_handle server);
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ *                                Profiling
+ * ═════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * @brief Opt a server into Perfetto trace capture.
+ *
+ * Must be called before `rmi_server_start_capture()`. Installs the
+ * server-local profiler service that owns the trace output file; has no
+ * effect on capture state by itself (see `rmi_server_start_capture()`).
+ *
+ * @param server        Valid server handle.
+ * @param output_dir    Directory trace files are written into; created if it
+ *                       does not already exist.
+ * @return `RMI_OK`, or `RMI_ERR_NULL` if @p server or @p output_dir is NULL.
+ */
+RMI_API rmi_error rmi_server_enable_profiling(rmi_server_handle server, const char* output_dir);
+
+/**
+ * @brief Start Perfetto capture on a server that has profiling enabled.
+ *
+ * No-op (returns `RMI_OK`, @p out_started set false) if
+ * `rmi_server_enable_profiling()` was never called. Idempotent while capture
+ * is already active.
+ *
+ * @param server        Valid server handle.
+ * @param label         Optional human-readable label embedded in the trace
+ *                       file name; may be NULL.
+ * @param out_started   Set to `true` if capture is active after this call,
+ *                       `false` if profiling was never enabled. May be NULL.
+ * @return `RMI_OK`, or `RMI_ERR_NULL` if @p server is NULL.
+ */
+RMI_API rmi_error rmi_server_start_capture(rmi_server_handle server, const char* label, bool* out_started);
+
+/**
+ * @brief Stop Perfetto capture and finalize the trace file.
+ *
+ * No-op if capture is not currently active.
+ *
+ * @param server    Valid server handle.
+ * @return `RMI_OK`, or `RMI_ERR_NULL` if @p server is NULL.
+ */
+RMI_API rmi_error rmi_server_stop_capture(rmi_server_handle server);
+
+/**
+ * @brief Query whether a server currently has Perfetto capture active.
+ *
+ * @param server        Valid server handle.
+ * @param out_active    Set to `true` if profiling is enabled and capture is
+ *                       currently active.
+ * @return `RMI_OK`, or `RMI_ERR_NULL` if @p server or @p out_active is NULL.
+ */
+RMI_API rmi_error rmi_server_is_capture_active(rmi_server_handle server, bool* out_active);
+
+/**
+ * @brief Begin a named trace slice on the calling thread.
+ *
+ * Every `rmi_trace_scope_begin()` must be matched by a later
+ * `rmi_trace_scope_end()` on the same thread. No-op if no server or client
+ * in this process currently has an active profiling recorder.
+ *
+ * @param name    Slice name; must outlive the slice (a string literal is
+ *                typical -- the name is not copied on the hot path).
+ */
+RMI_API void rmi_trace_scope_begin(const char* name);
+
+/**
+ * @brief End the most recently begun trace slice on the calling thread.
+ *
+ * No-op if no server or client in this process currently has an active
+ * profiling recorder.
+ */
+RMI_API void rmi_trace_scope_end(void);
+
+/**
+ * @brief Record a zero-duration named instant event on the calling thread.
+ *
+ * No-op if no server or client in this process currently has an active
+ * profiling recorder.
+ *
+ * @param name    Event name; must outlive the call (a string literal is
+ *                typical -- the name is not copied on the hot path).
+ */
+RMI_API void rmi_trace_instant(const char* name);
+
+/**
+ * @brief Record an integer-valued sample on a named counter track.
+ *
+ * All samples sharing @p name land on the same track regardless of which
+ * thread records them. No-op if no server or client in this process
+ * currently has an active profiling recorder.
+ *
+ * @param name     Counter track name; must outlive the call.
+ * @param value    New value of the counter.
+ */
+RMI_API void rmi_trace_counter_int(const char* name, int64_t value);
+
+/**
+ * @brief Record a floating-point sample on a named counter track.
+ *
+ * All samples sharing @p name land on the same track regardless of which
+ * thread records them. No-op if no server or client in this process
+ * currently has an active profiling recorder.
+ *
+ * @param name     Counter track name; must outlive the call.
+ * @param value    New value of the counter.
+ */
+RMI_API void rmi_trace_counter_double(const char* name, double value);
+
+/**
+ * @brief Check whether this process currently has an active profiling
+ *        recorder (server or client) that trace calls will be recorded to.
+ *
+ * @return `true` if `rmi_trace_scope_begin()`/`rmi_trace_instant()`/
+ *         `rmi_trace_counter_int()`/`rmi_trace_counter_double()` calls made
+ *         right now will actually be recorded.
+ */
+RMI_API bool rmi_trace_is_active(void);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

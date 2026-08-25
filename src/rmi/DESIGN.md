@@ -860,6 +860,12 @@ atomic load (no-op when capture is inactive) plus, when active, one lock
 and a `push_back` into an in-memory vector — no allocation, no protobuf
 encoding, and no I/O ever happens on the thread being profiled.
 
+`BISON_TRACE_COUNTER(name, value)` (`recorder::record_counter`) records a
+value-over-time sample on a named counter track instead of a per-thread
+slice/instant track — see "Counter tracks" below. It shares the same
+`push()` helper, buffer, flush thread, and sink as slices/instants; only
+the track-uuid lookup and the encoded packet shape differ.
+
 **Singleton pattern.** A server opts in via
 `server::enable_profiling(std::filesystem::path output_dir)`, which
 registers the `__BisonProfiler` class under `constants::NS_BISON` and
@@ -900,6 +906,26 @@ thread to prepend one `TrackDescriptor` packet (auto-named
 that batch's `TrackEvent` packets — tracked via a per-recorder
 `std::unordered_set<uint64_t>` of already-emitted track uuids, checked
 only on the flush thread, never the hot path.
+
+**Counter tracks.** Unlike slices/instants, a counter sample isn't tied to
+the calling thread — all samples for one counter name must land on the
+same track no matter which thread records them. `recorder` therefore keys
+counter tracks by name (`counter_track_uuids_`, a
+`synchronized<unordered_map<string, uint64_t>>`) rather than by
+thread-local state, so allocating a counter's `track_uuid` costs a lock
+and a map lookup/insert — not allocation-free like the slice/instant hot
+path, but acceptable since counters update far less often than scope
+entry/exit. Counter track uuids are drawn from a disjoint index space so
+they can never collide with a thread's `track_uuid`:
+`track_uuid = (uint64_t(sequence_id) << 32) | kCounterTrackFlag |
+counter_index`, where `kCounterTrackFlag = 1u << 31` and both
+`thread_local_index` and `counter_index` are independent
+atomically-incremented counters starting at 1. A counter's unit
+(`counter_unit`, e.g. `size_bytes`) can be set via
+`recorder::set_counter_unit()` before first use; it's read once, when the
+flush thread emits that counter's `TrackDescriptor`, so calling it after
+the counter has already been flushed has no effect on already-emitted
+descriptors.
 
 **RMI control surface** (all under `constants::CLASS_PROFILER` /
 `NS_BISON`, see `src/rmi/shared/constants.hpp`):

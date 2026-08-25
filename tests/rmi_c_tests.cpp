@@ -977,6 +977,76 @@ TEST_F(DescribeAbiTests, DescribeSpecificClassIncludesMethodMetadata) {
   bison_release(desc);
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. Profiling
+// ═════════════════════════════════════════════════════════════════════════════
+
+TEST(ProfilingAbiTests, EnableProfilingNullServerReturnsError) {
+  EXPECT_EQ(rmi_server_enable_profiling(nullptr, "some/dir"), RMI_ERR_NULL);
+}
+
+TEST(ProfilingAbiTests, EnableProfilingNullOutputDirReturnsError) {
+  ScopedServerHandle server{make_test_server()};
+  ASSERT_NE(server.h, nullptr);
+  EXPECT_EQ(rmi_server_enable_profiling(server, nullptr), RMI_ERR_NULL);
+}
+
+TEST(ProfilingAbiTests, StartCaptureNullServerReturnsError) {
+  bool started = false;
+  EXPECT_EQ(rmi_server_start_capture(nullptr, "label", &started), RMI_ERR_NULL);
+}
+
+TEST(ProfilingAbiTests, StopCaptureNullServerReturnsError) {
+  EXPECT_EQ(rmi_server_stop_capture(nullptr), RMI_ERR_NULL);
+}
+
+TEST(ProfilingAbiTests, IsCaptureActiveNullServerReturnsError) {
+  bool active = false;
+  EXPECT_EQ(rmi_server_is_capture_active(nullptr, &active), RMI_ERR_NULL);
+}
+
+TEST(ProfilingAbiTests, IsCaptureActiveNullOutputReturnsError) {
+  ScopedServerHandle server{make_test_server()};
+  ASSERT_NE(server.h, nullptr);
+  EXPECT_EQ(rmi_server_is_capture_active(server, nullptr), RMI_ERR_NULL);
+}
+
+TEST(ProfilingAbiTests, EnableStartStopCaptureRoundTrips) {
+  ScopedServerHandle server{make_test_server()};
+  ASSERT_NE(server.h, nullptr);
+
+  ASSERT_EQ(rmi_server_enable_profiling(server, "."), RMI_OK);
+
+  bool started = false;
+  ASSERT_EQ(rmi_server_start_capture(server, "abi_test", &started), RMI_OK);
+  EXPECT_TRUE(started);
+
+  bool active = false;
+  ASSERT_EQ(rmi_server_is_capture_active(server, &active), RMI_OK);
+  EXPECT_TRUE(active);
+
+  EXPECT_EQ(rmi_server_stop_capture(server), RMI_OK);
+
+  active = true;
+  ASSERT_EQ(rmi_server_is_capture_active(server, &active), RMI_OK);
+  EXPECT_FALSE(active);
+}
+
+TEST(ProfilingAbiTests, TraceIsActiveFalseWithoutCapture) {
+  // No server in this process has enabled profiling/started capture, so the
+  // process-wide recorder must be absent.
+  EXPECT_FALSE(rmi_trace_is_active());
+}
+
+TEST(ProfilingAbiTests, TraceFunctionsAreSafeNoOpsWithoutActiveCapture) {
+  // With no active recorder, these must not crash and must simply do nothing.
+  rmi_trace_scope_begin("scope");
+  rmi_trace_scope_end();
+  rmi_trace_instant("instant");
+  rmi_trace_counter_int("counter_i", 7);
+  rmi_trace_counter_double("counter_d", 1.5);
+}
+
 TEST_F(DescribeAbiTests, GetMethodAttributesReturnsCorrectMeta) {
   ScopedBisonHandle proto{bison_create(bison_key("AttrCheckClass"))};
   ASSERT_NE(proto.h, nullptr);
