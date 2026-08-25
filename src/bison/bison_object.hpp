@@ -540,7 +540,38 @@ class field : public field_base {
   /**
    * @brief Return a mutable reference to the value as type @p T.
    *
-   * If the field is empty it is default-initialised to @p def first.
+   * If the field is empty it is default-initialised to `T{}` first.
+   * Throws `std::runtime_error` if the active alternative is not @p T.
+   *
+   * A default-argument overload (`T def = T{}`) used to serve both the
+   * "no default" and "explicit default" callers, but C++ evaluates a
+   * default argument at *every* call site regardless of whether the
+   * function body ends up using it -- for a `T` with a non-trivial default
+   * constructor (e.g. `dynamic_ptr`, which heap-allocates a fresh `dynamic`)
+   * that cost was paid on every single call, including the overwhelmingly
+   * common case where the field already holds a value and `def` is
+   * discarded unused. Split into this zero-arg overload, which only
+   * constructs `T{}` inside the branch that actually needs it, and the
+   * explicit-default overload below for callers who want a specific
+   * fallback value.
+   *
+   * @tparam T  Requested alternative type.
+   * @return Mutable reference to the stored `T` value.
+   */
+  template <typename T>
+  T& as() {
+    if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
+      static_cast<field_base&>(*this) = T{};
+    } else if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
+      throw std::runtime_error("Invalid type");
+    }
+    return std::get<T>(static_cast<field_base&>(*this));
+  }
+
+  /**
+   * @brief Return a mutable reference to the value as type @p T, seeding an
+   *        empty field with @p def instead of `T{}`.
+   *
    * Throws `std::runtime_error` if the active alternative is not @p T.
    *
    * @tparam T    Requested alternative type.
@@ -548,7 +579,7 @@ class field : public field_base {
    * @return Mutable reference to the stored `T` value.
    */
   template <typename T>
-  T& as(T def = T{}) {
+  T& as(T def) {
     if (std::holds_alternative<std::monostate>(static_cast<const field_base&>(*this))) {
       static_cast<field_base&>(*this) = std::move(def);
     } else if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
@@ -562,12 +593,11 @@ class field : public field_base {
    *
    * Throws `std::runtime_error` if the active alternative is not @p T.
    *
-   * @tparam T    Requested alternative type.
-   * @param  def  Unused; kept for symmetry with the mutable overload.
+   * @tparam T  Requested alternative type.
    * @return Const reference to the stored `T` value.
    */
   template <typename T>
-  const T& as(T def = T{}) const {
+  const T& as() const {
     if (!std::holds_alternative<T>(static_cast<const field_base&>(*this))) {
       throw std::runtime_error("Invalid type");
     }
@@ -1127,11 +1157,10 @@ class dynamic {
    *
    * @tparam T    Requested alternative type.
    * @param  name Key of the field to access.
-   * @param  def  Unused (kept for API symmetry with `field::as<T>(T def)`).
    * @return Mutable reference to the stored `T` value.
    */
   template <typename T>
-  T& as(key_t name, T def = T{}) {
+  T& as(key_t name) {
     auto& field = fields_[name];
     // Keep the cache correct in case `name` was previously cached as a
     // confirmed miss by `findField()`. Note this intentionally does not
@@ -1150,11 +1179,10 @@ class dynamic {
    *
    * @tparam T    Requested alternative type.
    * @param  name Key of the field to access.
-   * @param  def  Unused (kept for API symmetry with `field::as<T>(T def)`).
    * @return Const reference to the stored `T` value.
    */
   template <typename T>
-  const T& as(key_t name, T def = T{}) const {
+  const T& as(key_t name) const {
     auto& field = fields_[name];
     // See the mutable overload's comment: keeps the cache correct in case
     // `name` was previously cached as a confirmed miss by `findField()`.

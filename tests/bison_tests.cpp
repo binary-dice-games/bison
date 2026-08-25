@@ -594,6 +594,31 @@ TEST(FieldTests, AsDefaultInitializesMonostate) {
   EXPECT_TRUE(f.is<int32_t>());
 }
 
+TEST(FieldTests, AsNoArgInitializesMonostateToValueInitialized) {
+  field f;
+  int32_t& v = f.as<int32_t>();
+  EXPECT_EQ(v, 0);
+  EXPECT_TRUE(f.is<int32_t>());
+}
+
+TEST(FieldTests, AsNoArgOnPopulatedFieldDoesNotConstructFreshDynamic) {
+  // Regression test: field::as<T>() used to take `T def = T{}`, a default
+  // argument evaluated at every call site regardless of whether the body
+  // used it. For T = dynamic_ptr, `T{}` invokes dynamic_ptr's
+  // key_t-constructor, which heap-allocates a brand-new `dynamic` -- so
+  // every no-arg `as<dynamic_ptr>()` call on an already-populated field
+  // wastefully allocated and threw away an object. Confirm the field's
+  // existing dynamic_ptr identity (and refcount) is untouched by the call.
+  auto original = dynamic_ptr{"Marker"_key, {}};
+  auto* raw = original.get();
+  field f{original};
+  EXPECT_EQ(original.use_count(), 2); // f's copy + `original`
+
+  dynamic_ptr& v = f.as<dynamic_ptr>();
+  EXPECT_EQ(v.get(), raw);
+  EXPECT_EQ(original.use_count(), 2); // unchanged -- no fresh object substituted in
+}
+
 TEST(FieldTests, AsWrongTypeThrows) {
   field f{int32_t{5}};
   EXPECT_THROW(f.as<float>(), std::runtime_error);
