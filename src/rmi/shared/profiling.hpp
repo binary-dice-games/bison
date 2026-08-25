@@ -397,15 +397,21 @@ class recorder {
 class scoped_slice {
  public:
   explicit scoped_slice(const char* name) {
-    if (recorder* r = recorder::local())
-      r->record_slice_begin(name);
+    enabled_ = (name != nullptr);
+    if (enabled_)
+      if (recorder* r = recorder::local())
+        r->record_slice_begin(name);
   }
   ~scoped_slice() {
-    if (recorder* r = recorder::local())
-      r->record_slice_end();
+    if (enabled_)
+      if (recorder* r = recorder::local())
+        r->record_slice_end();
   }
   scoped_slice(const scoped_slice&) = delete;
   scoped_slice& operator=(const scoped_slice&) = delete;
+
+ private:
+  bool enabled_ = false;
 };
 
 /** @brief Record a zero-duration instant event on the process-wide active recorder, if any. */
