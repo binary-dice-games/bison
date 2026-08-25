@@ -1033,7 +1033,12 @@ class dynamic {
    * @return Mutable reference to the field at @p pos.
    */
   inline field& operator[](size_t pos) {
-    return fields_[static_cast<hash_t>(pos)];
+    auto key = static_cast<hash_t>(pos);
+    auto& v = fields_[key];
+    // Keep the cache correct in case `key` was previously cached as a
+    // confirmed miss by `findField()`.
+    field_lookup_[key] = &v;
+    return v;
   }
 
   /**
@@ -1046,7 +1051,12 @@ class dynamic {
    * @return Const reference to the field at @p pos.
    */
   inline const field& operator[](size_t pos) const {
-    return fields_[static_cast<hash_t>(pos)];
+    auto key = static_cast<hash_t>(pos);
+    auto& v = fields_[key];
+    // Keep the cache correct in case `key` was previously cached as a
+    // confirmed miss by `findField()`.
+    field_lookup_[key] = &v;
+    return v;
   }
 
   /**
@@ -1123,6 +1133,11 @@ class dynamic {
   template <typename T>
   T& as(key_t name, T def = T{}) {
     auto& field = fields_[name];
+    // Keep the cache correct in case `name` was previously cached as a
+    // confirmed miss by `findField()`. Note this intentionally does not
+    // search the prototype chain (unlike `operator[](key_t)`) -- it only
+    // ever reads/creates the field local to this instance.
+    field_lookup_[name] = &field;
     return field.as<T>();
   }
 
@@ -1141,6 +1156,9 @@ class dynamic {
   template <typename T>
   const T& as(key_t name, T def = T{}) const {
     auto& field = fields_[name];
+    // See the mutable overload's comment: keeps the cache correct in case
+    // `name` was previously cached as a confirmed miss by `findField()`.
+    field_lookup_[name] = &field;
     return field.as<T>();
   }
 
@@ -1249,7 +1267,11 @@ class dynamic {
   inline bool addField(key_t name, field value) {
     auto result = fields_.emplace(std::make_pair(name, std::move(value)));
     if (result.second)
-      field_lookup_.emplace(name, &result.first->second);
+      // Assignment, not emplace: `findField()` may have already cached
+      // `name` as a confirmed miss (nullptr) before this field existed; that
+      // stale entry must be overwritten, not left in place by a no-op
+      // emplace onto an already-present key.
+      field_lookup_[name] = &result.first->second;
     return result.second;
   }
 
@@ -1479,14 +1501,23 @@ class dynamic {
    * @brief Find a field on this instance or its class prototype chain.
    *
    * Returns a mutable pointer to the field (caching into `fields_` on first
-   * inherited hit), or `nullptr` if not found anywhere in the chain.
+   * inherited hit), or `nullptr` if not found anywhere in the chain. A
+   * confirmed miss is also cached in `field_lookup_` as a `nullptr` entry, so
+   * repeated lookups of a field that genuinely does not exist (e.g. an
+   * optional attribute like "visible" that most instances never set) take
+   * the O(1) fast path instead of re-walking the prototype chain -- under
+   * the registry lock -- on every call. Any write path that later inserts
+   * `name` directly into `fields_` (`addField`, `as<T>`, the numeric-index
+   * `operator[]`) overwrites this entry rather than leaving it stale; see
+   * their own comments.
    * The correct namespace collection is resolved via `resolveNamespace`.
    *
    * @param name  Hash key to look up.
    * @return Pointer to the resolved field, or `nullptr`.
    */
   field* findField(key_t name) const {
-    // O(1): check the pointer cache first.
+    // O(1): check the pointer cache first (a nullptr entry here is a cached
+    // "confirmed absent", distinct from no entry at all).
     {
       auto it = field_lookup_.find(name);
       if (it != field_lookup_.end())
@@ -1549,6 +1580,11 @@ class dynamic {
       field_lookup_.emplace(name, &it->second);
       return &it->second;
     }
+    // Confirmed absent anywhere in the chain: cache the miss itself so the
+    // next lookup of `name` is O(1) instead of repeating the registry-locked
+    // prototype walk. Assignment (not emplace) so this always wins even if a
+    // stale nullptr entry from an earlier miss is already present.
+    field_lookup_[name] = nullptr;
     return nullptr;
   }
 

@@ -1037,6 +1037,61 @@ TEST(DynamicTests, AddFieldReturnsFalseOnDuplicate) {
   EXPECT_EQ(obj["x"_key].as<int32_t>(), 1);
 }
 
+// Regression tests for findField()'s negative-result cache: a confirmed miss
+// is cached as a nullptr entry in field_lookup_ so repeated lookups of a
+// genuinely absent field are O(1), but every write path that can insert the
+// field afterwards must overwrite that stale cache entry rather than leave
+// callers stuck seeing "not found" forever.
+TEST(DynamicTests, RepeatedMissesOnAbsentFieldStayNullptr) {
+  dynamic obj;
+  EXPECT_EQ(obj.findField("ghost"_key), nullptr);
+  // Second lookup takes the cached-miss fast path; must still be nullptr.
+  EXPECT_EQ(obj.findField("ghost"_key), nullptr);
+  EXPECT_FALSE(obj.get_as<bool>("ghost"_key, true) == false);
+  EXPECT_TRUE(obj.get_as<bool>("ghost"_key, true));
+}
+
+TEST(DynamicTests, AddFieldAfterCachedMissIsFound) {
+  dynamic obj;
+  ASSERT_EQ(obj.findField("late"_key), nullptr); // caches the miss
+  ASSERT_EQ(obj.findField("late"_key), nullptr); // hits the cached miss
+  ASSERT_TRUE(obj.addField("late"_key, field{int32_t{7}}));
+  auto* f = obj.findField("late"_key);
+  ASSERT_NE(f, nullptr) << "addField() must overwrite a stale negative-cache entry";
+  EXPECT_EQ(f->as<int32_t>(), 7);
+}
+
+TEST(DynamicTests, BracketAssignmentAfterCachedMissIsFound) {
+  dynamic obj;
+  ASSERT_EQ(obj.findField("late2"_key), nullptr);
+  ASSERT_EQ(obj.findField("late2"_key), nullptr);
+  obj["late2"_key] = int32_t{11};
+  auto* f = obj.findField("late2"_key);
+  ASSERT_NE(f, nullptr);
+  EXPECT_EQ(f->as<int32_t>(), 11);
+}
+
+TEST(DynamicTests, AsAfterCachedMissIsFound) {
+  dynamic obj;
+  ASSERT_EQ(obj.findField("late3"_key), nullptr);
+  ASSERT_EQ(obj.findField("late3"_key), nullptr);
+  obj.as<int32_t>("late3"_key) = 42;
+  auto* f = obj.findField("late3"_key);
+  ASSERT_NE(f, nullptr) << "as<T>() must overwrite a stale negative-cache entry";
+  EXPECT_EQ(f->as<int32_t>(), 42);
+}
+
+TEST(DynamicTests, NumericIndexAfterCachedMissIsFound) {
+  dynamic obj;
+  const auto idx_key = key_t{static_cast<hash_t>(3)};
+  ASSERT_EQ(obj.findField(idx_key), nullptr);
+  ASSERT_EQ(obj.findField(idx_key), nullptr);
+  obj[3] = int32_t{55};
+  auto* f = obj.findField(idx_key);
+  ASSERT_NE(f, nullptr) << "numeric operator[] must overwrite a stale negative-cache entry";
+  EXPECT_EQ(f->as<int32_t>(), 55);
+}
+
 TEST(DynamicTests, AtAliasesSubscriptOperator) {
   dynamic obj;
   obj["k"_key] = int32_t{5};
