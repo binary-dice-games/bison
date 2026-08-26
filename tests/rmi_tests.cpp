@@ -473,6 +473,22 @@ TEST_F(RmiE2E, ConnectAndDisconnect) {
   EXPECT_NO_THROW(c.disconnect());
 }
 
+// Regression test: a non-oneway request issued after the client has already
+// stopped (e.g. a cleanup call like destroy_object() made after the server
+// disconnected) must fail fast instead of hanging forever. fail_all_pending()
+// only runs once, when the worker loop exits, so any promise inserted into
+// pending_ *after* that point would otherwise never be resolved.
+TEST_F(RmiE2E, RequestAfterDisconnectFailsFastInsteadOfHanging) {
+  auto c = make_client();
+  c.connect();
+  c.disconnect();
+
+  auto fut = c.send_request(OP_GET, bison_key_t{1u}, dynamic{}, false);
+  ASSERT_EQ(fut.wait_for(std::chrono::milliseconds{500}), std::future_status::ready)
+      << "request issued after disconnect must fail immediately, not hang";
+  EXPECT_THROW(fut.get(), std::runtime_error);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 6b. End-to-end: auth_module_iface
 // ═════════════════════════════════════════════════════════════════════════════

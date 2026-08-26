@@ -18,6 +18,15 @@ namespace {
 // anyway. Bounds the wait against a peer that is slow, already gone, or
 // (e.g. the in-process test transport) doesn't implement is_connected().
 constexpr std::chrono::milliseconds kDisconnectAckTimeout{2000};
+
+// Builds the exception used to fail a pending/rejected request with a
+// transport-level RMI error. Shared by fail_all_pending() and
+// send_request_with_group()'s early-reject path so both report errors in
+// the same format.
+std::exception_ptr make_transport_error(bison::key_t code, const std::string& message) {
+  return std::make_exception_ptr(
+      std::runtime_error(message + " (code=" + std::to_string(code.id) + ")"));
+}
 } // namespace
 
 /** @brief Ensures active transport resources are shut down before destruction.
@@ -154,6 +163,17 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
 /** @copydoc bdg::bison::rmi::client::send_request_with_group */
 std::future<bison::dynamic> client::send_request_with_group(
     bison::key_t op, bison::key_t object_id, bison::key_t group, bison::dynamic payload, bool oneway) {
+  // Once the worker loop has stopped (disconnect detected, or shutdown in
+  // progress), fail new non-oneway requests immediately instead of queuing
+  // them into pending_: fail_all_pending() already ran and won't run again,
+  // so nothing would ever resolve a promise inserted after that point --
+  // the caller's future::get() would block forever.
+  if (!oneway && !running_.load(std::memory_order_acquire)) {
+    std::promise<bison::dynamic> promise;
+    promise.set_exception(make_transport_error(ERR_TRANSPORT_ERROR, "Client disconnected"));
+    return promise.get_future();
+  }
+
   const bison::key_t request_id = shared::generate_id();
   auto frame = [&]() {
     shared::envelope env;
