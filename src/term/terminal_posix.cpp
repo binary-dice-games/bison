@@ -1,11 +1,18 @@
 // MIT License © 2025 Binary Dice Games
 /**
  * @file terminal_posix.cpp
- * @brief Linux/MSYS2 implementation of terminal using forkpty().
+ * @brief POSIX (Linux/MSYS2/macOS) implementation of terminal using forkpty().
  */
 #include "src/term/terminal.hpp"
 
+#if defined(__APPLE__)
+// macOS/BSD declare forkpty()/openpty() in <util.h>; glibc and MSYS2 use
+// <pty.h>. The forkpty() implementation itself lives in libSystem on macOS,
+// so no separate libutil link is needed (see the CMakeLists.txt guard).
+#include <util.h>
+#else
 #include <pty.h>
+#endif
 
 #include <poll.h>
 #if defined(__linux__)

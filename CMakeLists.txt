@@ -234,8 +234,10 @@ target_link_libraries(bison_abi PRIVATE bison nlohmann_json::nlohmann_json yaml 
 # explicitly. Bionic (Android's libc) has never had that split -- it has
 # exported forkpty()/openpty() directly from libc.so since API 23, and the
 # NDK sysroot ships no libutil.so to link against -- so Android is excluded
-# here the same way native Windows already is.
-if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN) AND NOT ANDROID)
+# here the same way native Windows already is. macOS keeps forkpty() in
+# libSystem (linked into every binary), and provides no standalone libutil
+# to link -- so Apple is excluded too.
+if(NOT (WIN32 AND NOT MSYS AND NOT CYGWIN) AND NOT ANDROID AND NOT APPLE)
   target_link_libraries(bison_abi PRIVATE util)
 endif()
 
