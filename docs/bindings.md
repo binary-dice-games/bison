@@ -225,30 +225,14 @@ Two ways to get `bison`, `import`able either way:
 
 ### Publishing wheels to PyPI
 
-`pip install bison-abi` resolves to a pre-built wheel; the release pipeline
-that produces those wheels lives in
-[`.github/workflows/release-pypi.yml`](../.github/workflows/release-pypi.yml).
+`pip install bison-abi` resolves to a pre-built wheel produced by
+[`.github/workflows/release-pypi.yml`](../.github/workflows/release-pypi.yml)
+(cibuildwheel, driven by `[tool.cibuildwheel]` in
+`bindings/python/pyproject.toml`) on a `py-v<version>` tag.
 
-One-time setup:
-
-1. Reserve the `bison-abi` project on PyPI and add this repository's
-   `release-pypi.yml` workflow as a
-   [Trusted Publisher](https://docs.pypi.org/trusted-publishers/) (OIDC) —
-   no API-token secret is stored in the repo. Add a GitHub Environment
-   named `pypi` for the `publish` job.
-
-Each release:
-
-1. Bump `project.version` in `bindings/python/pyproject.toml` (the wheel
-   version is read from that file; the tag only starts the run).
-2. Tag and push: `git tag py-v<version> && git push origin py-v<version>`.
-3. `build-wheels` runs [cibuildwheel](https://cibuildwheel.pypa.io/) on
-   Linux / macOS / Windows — configured by `[tool.cibuildwheel]` in
-   `bindings/python/pyproject.toml`. It must run from the repo root with
-   submodules checked out, because `cmake.source-dir` points there; the
-   workflow's `actions/checkout` uses `submodules: recursive`.
-4. `publish` uploads every wheel to PyPI via
-   `pypa/gh-action-pypi-publish`.
+The full release runbook — one-time Trusted Publishing / GitHub Environment
+setup, the TestPyPI rehearsal, per-release steps, and gotchas — is in
+[docs/publishing-python.md](publishing-python.md).
 
 To dry-run the wheel build locally:
 

@@ -7,8 +7,7 @@ covers what the automation does and the per-release steps.
 For the packaging mechanics (what goes in the zip, how to build one
 locally, PATH-setup scripts), see
 [docs/building.md](building.md#packaging-a-release). For the `bison-abi`
-PyPI package, see
-[`.github/workflows/release-pypi.yml`](../.github/workflows/release-pypi.yml).
+PyPI package, see [docs/publishing-python.md](publishing-python.md).
 
 ## How it works
 

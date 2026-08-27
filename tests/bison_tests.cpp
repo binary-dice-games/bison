@@ -1131,7 +1131,7 @@ TEST(DynamicTests, AsAfterCachedMissIsFound) {
 
 TEST(DynamicTests, NumericIndexAfterCachedMissIsFound) {
   dynamic obj;
-  const auto idx_key = key_t{static_cast<hash_t>(3)};
+  const auto idx_key = bdg::bison::key_t{static_cast<hash_t>(3)};
   ASSERT_EQ(obj.findField(idx_key), nullptr);
   ASSERT_EQ(obj.findField(idx_key), nullptr);
   obj[3] = int32_t{55};
