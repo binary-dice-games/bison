@@ -114,6 +114,13 @@ manylinux-aarch64-image = "manylinux_2_28"
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
+# Apple's libc++ marks all of `std::filesystem` (including
+# `std::filesystem::path`, used in bison's server/profiler public headers)
+# unavailable below macOS 10.15 -- the filesystem runtime first shipped in
+# the platform dylib in 10.15.  cibuildwheel's default deployment target for
+# the x86_64 build is 10.13, so bump it here; cibuildwheel auto-clamps the
+# arm64 build to 11.0, so this only affects the Intel wheel.
+environment = { MACOSX_DEPLOYMENT_TARGET = "10.15" }
 
 [tool.cibuildwheel.windows]
 before-build = "pip install delvewheel"
