@@ -1,0 +1,70 @@
+name: Build and publish Python wheels
+
+# Builds pre-built `bison-abi` wheels for Linux / macOS / Windows with
+# cibuildwheel (see [tool.cibuildwheel] in bindings/python/pyproject.toml)
+# and publishes them to PyPI, so `pip install bison-abi` needs no compiler,
+# CMake, or submodule checkout.
+#
+# `bison-abi` is a dependency of `wish-abi` (binary-dice-games/wish), so its
+# wheels must exist on PyPI before the first `wish-abi` release.
+#
+# Trigger: push a `py-v<version>` tag whose <version> matches
+# bindings/python/pyproject.toml's `project.version` (the wheel version
+# comes from that file, not the tag -- the tag only starts the run).
+#
+#   git tag py-v1.0.0 && git push origin py-v1.0.0
+#
+# Publishing uses PyPI Trusted Publishing (OIDC) -- configure this workflow
+# as a trusted publisher for the `bison-abi` project on PyPI; no API token
+# secret is needed.
+on:
+  push:
+    tags: ["py-v*"]
+  workflow_dispatch:
+
+jobs:
+  build-wheels:
+    name: Wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-24.04-arm gives native aarch64 wheels (no QEMU); macos-14
+        # is arm64 and cross-builds the x86_64 mac wheel (archs in
+        # [tool.cibuildwheel.macos]), testing only the native one.
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        with:
+          # cmake.source-dir points at the repo root, so cibuildwheel runs
+          # from the checkout root and targets the package subdirectory.
+          package-dir: bindings/python
+          output-dir: wheelhouse
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+
+  publish:
+    name: Publish to PyPI
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    # Only publish for an actual release tag, not a manual dry run.
+    if: startsWith(github.ref, 'refs/tags/py-v')
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

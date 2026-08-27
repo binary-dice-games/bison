@@ -22,6 +22,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/binary-dice-games/bison"
+Repository = "https://github.com/binary-dice-games/bison"
 Documentation = "https://github.com/binary-dice-games/bison/blob/main/docs/bindings.md"
 
 [project.optional-dependencies]
@@ -76,6 +77,37 @@ PACKAGE_TESTS = "OFF"
 # sys.path for the redirect mode's site-packages/bison/libbison_abi.so to
 # compensate for the one gap redirect mode leaves (it relocates only .py
 # imports back to this source tree, not the compiled library).
+
+# ─── cibuildwheel ──────────────────────────────────────────────────────────
+# Produces the pre-built platform wheels published to PyPI, so end users get
+# `pip install bison-abi` with no compiler, no CMake, and no submodule
+# checkout -- pip only falls back to a source build when no wheel matches.
+# `.github/workflows/release-pypi.yml` runs this on a `py-v*` tag.
+#
+# Because `cmake.source-dir = "../.."`, cibuildwheel must run from the repo
+# root (with submodules already checked out) so the whole tree is in the
+# build context:
+#
+#   git submodule update --init --recursive
+#   pipx run cibuildwheel --output-dir wheelhouse bindings/python
+#
+# `wheel.py-api = "py3"` above means one wheel per platform serves every
+# CPython 3.8+, so we build against a single interpreter rather than the
+# full matrix. bison_abi links libuv and mbedtls statically (root
+# CMakeLists.txt forces LIBUV_BUILD_SHARED / USE_SHARED_MBEDTLS_LIBRARY
+# off), so the wheel needs no system runtime libraries and no `before-all`.
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = ["*_i686", "*-musllinux_*", "pp*"]
+build-verbosity = 1
+test-command = "python -c \"import bison, bison.dynamic, bison.rmi\""
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+
+[tool.cibuildwheel.windows]
+before-build = "pip install delvewheel"
+repair-wheel-command = "delvewheel repair -w {dest_dir} {wheel}"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

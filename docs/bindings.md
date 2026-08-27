@@ -190,10 +190,22 @@ directly — use `.release()`, a `with` block, or let the wrapper's
 
 Two ways to get `bison`, `import`able either way:
 
-- **`pip install`** (`bindings/python/pyproject.toml`, built via
-  [scikit-build-core](https://scikit-build-core.readthedocs.io/)): compiles
-  `bison_abi` from source and ships the shared library inside the installed
-  `bison` package, so nothing further needs building or setting afterwards.
+- **`pip install bison-abi`** — pre-built platform wheels from PyPI, no
+  compiler / CMake / git checkout needed. Wheels bundle `bison_abi` with
+  libuv and mbedtls linked statically (no system runtime deps). pip only
+  falls back to a source build when no wheel matches the platform. Wheels
+  are published for Linux (x86_64 / aarch64), macOS (x86_64 / arm64), and
+  Windows (amd64) by
+  [`.github/workflows/release-pypi.yml`](../.github/workflows/release-pypi.yml)
+  (cibuildwheel, driven by `[tool.cibuildwheel]` in
+  `bindings/python/pyproject.toml`) on a `py-v<version>` tag. `bison-abi`
+  is also a dependency of `wish-abi`, so its wheels must be on PyPI before
+  the first `wish-abi` release.
+- **`pip install` from a source checkout** (`bindings/python/pyproject.toml`,
+  built via [scikit-build-core](https://scikit-build-core.readthedocs.io/)):
+  compiles `bison_abi` from source and ships the shared library inside the
+  installed `bison` package, so nothing further needs building or setting
+  afterwards.
   ```bash
   git clone --recurse-submodules https://github.com/binary-dice-games/bison.git
   pip install ./bison/bindings/python
@@ -210,6 +222,40 @@ Two ways to get `bison`, `import`able either way:
   `_find_library()` finds it either way. This is the lower-friction path
   when you're already building the rest of the repo (e.g. running the test
   suite against a local checkout, as below).
+
+### Publishing wheels to PyPI
+
+`pip install bison-abi` resolves to a pre-built wheel; the release pipeline
+that produces those wheels lives in
+[`.github/workflows/release-pypi.yml`](../.github/workflows/release-pypi.yml).
+
+One-time setup:
+
+1. Reserve the `bison-abi` project on PyPI and add this repository's
+   `release-pypi.yml` workflow as a
+   [Trusted Publisher](https://docs.pypi.org/trusted-publishers/) (OIDC) —
+   no API-token secret is stored in the repo. Add a GitHub Environment
+   named `pypi` for the `publish` job.
+
+Each release:
+
+1. Bump `project.version` in `bindings/python/pyproject.toml` (the wheel
+   version is read from that file; the tag only starts the run).
+2. Tag and push: `git tag py-v<version> && git push origin py-v<version>`.
+3. `build-wheels` runs [cibuildwheel](https://cibuildwheel.pypa.io/) on
+   Linux / macOS / Windows — configured by `[tool.cibuildwheel]` in
+   `bindings/python/pyproject.toml`. It must run from the repo root with
+   submodules checked out, because `cmake.source-dir` points there; the
+   workflow's `actions/checkout` uses `submodules: recursive`.
+4. `publish` uploads every wheel to PyPI via
+   `pypa/gh-action-pypi-publish`.
+
+To dry-run the wheel build locally:
+
+```bash
+git submodule update --init --recursive
+pipx run cibuildwheel --output-dir wheelhouse bindings/python
+```
 
 Fields support both attribute (`obj.field`) and dict (`obj["field"]`)
 notation — pick whichever reads best; array-style numeric indices
