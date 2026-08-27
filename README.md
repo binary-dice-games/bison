@@ -222,6 +222,7 @@ doxygen Doxyfile
 | [docs/tls.md](docs/tls.md) | Configuring `tls_socket_transport`: server-only vs. mutual TLS, certificate setup |
 | [docs/performance.md](docs/performance.md) | Benchmark architecture and optimization notes |
 | [docs/profiling.md](docs/profiling.md) | Recording Perfetto traces: `BISON_TRACE_SCOPE`, start/stop capture, viewing in ui.perfetto.dev |
+| [docs/publishing-binaries.md](docs/publishing-binaries.md) | Release runbook for the downloadable binary zips attached to each GitHub Release: the CI workflow, platform coverage, per-release steps |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |
 
 ## License
