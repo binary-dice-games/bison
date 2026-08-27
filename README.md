@@ -225,6 +225,7 @@ doxygen Doxyfile
 | [docs/publishing-binaries.md](docs/publishing-binaries.md) | Release runbook for the downloadable binary zips attached to each GitHub Release: the CI workflow, platform coverage, per-release steps |
 | [docs/publishing-python.md](docs/publishing-python.md) | Release runbook for the `bison-abi` PyPI package: one-time Trusted Publishing setup, TestPyPI rehearsal, per-release steps |
 | [FORMAT.md](FORMAT.md) | Binary wire format specification |
+| [CHANGELOG.md](CHANGELOG.md) | User-facing changes between releases |
 
 ## License
 
