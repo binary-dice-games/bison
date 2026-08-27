@@ -75,7 +75,12 @@ void install_shutdown_signal_handlers() {
 
 class bridged_server : public rmi::server {
  public:
-  bridged_server(rmi::transport::server_transport_iface& t, server_app& app) : rmi::server(t), app_(app) {}
+  bridged_server(rmi::transport::server_transport_iface& t, server_app& app) : rmi::server(t), app_(app) {
+    // `--verbose` is this app's "give me full detail" switch: it already
+    // gates whether trace lines are printed at all (see on_print below), so
+    // let it also opt into the decoded payloads that are off by default.
+    set_trace_payloads(FLAGS_verbose);
+  }
 
  protected:
   void on_session_created(rmi::context& ctx) override {

@@ -2153,6 +2153,94 @@ TEST(RmiResponseTrace, ErrorResponseIsTracedAsError) {
   EXPECT_TRUE(found_error);
 }
 
+// Captures the default-formatted trace lines produced by the base
+// on_request_trace()/on_response_trace() (not overridden here) so the
+// set_trace_payloads() gate can be asserted on the actual strings.
+class PrintCapturingServer : public server {
+ public:
+  explicit PrintCapturingServer(transport::server_transport_iface& t) : server(t) {}
+
+  std::vector<std::string> lines;
+
+ protected:
+  void on_print(bison_key_t /*session_id*/, const std::string& line) override {
+    lines.push_back(line);
+  }
+};
+
+namespace {
+
+// Drives one instantiate + set + get + call against a `Payloaded` object and
+// returns every captured trace line joined by '\n'. `trace_payloads`: <0 to
+// leave the server at its default, 0/1 to call set_trace_payloads(false/true).
+std::string collect_trace_lines(int trace_payloads) {
+  clearClassRegistry();
+
+  auto proto = dynamic_ptr{"Payloaded"_key, {{"v"_key, std::string{}}}};
+  proto->addMethod("echo"_key, method{[](dynamic& /*self*/, const dynamic& /*params*/) -> dynamic {
+                     dynamic result;
+                     result["out"_key] = std::string{"RESP_SENTINEL"};
+                     return result;
+                   }});
+  dynamic::addClass(0U, proto, 0U);
+
+  memory_server_transport mt;
+  PrintCapturingServer srv{mt};
+  if (trace_payloads >= 0)
+    srv.set_trace_payloads(trace_payloads != 0);
+  srv.listen(dynamic{});
+
+  client c{mt.connect()};
+  c.connect();
+
+  auto proxy = c.instantiate(0U, "Payloaded"_key).get();
+
+  dynamic f;
+  f["v"_key] = std::string{"SET_SENTINEL"};
+  proxy.set(std::move(f)).get();
+  proxy.get().get();
+
+  dynamic params;
+  params["in"_key] = std::string{"ARG_SENTINEL"};
+  proxy.call("echo"_key, std::move(params)).get();
+
+  c.destroy(std::move(proxy));
+  c.disconnect();
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  srv.stop();
+
+  std::string joined;
+  for (const auto& l : srv.lines) {
+    joined += l;
+    joined += '\n';
+  }
+  return joined;
+}
+
+} // namespace
+
+TEST(RmiTracePayloads, EnabledIncludesDecodedPayloads) {
+  const std::string out = collect_trace_lines(/*trace_payloads=*/1);
+  EXPECT_NE(out.find("args="), std::string::npos);
+  EXPECT_NE(out.find("ARG_SENTINEL"), std::string::npos);  // call args
+  EXPECT_NE(out.find("SET_SENTINEL"), std::string::npos);  // set value
+  EXPECT_NE(out.find("RESP_SENTINEL"), std::string::npos); // call/get response body
+}
+
+TEST(RmiTracePayloads, DefaultOmitsDecodedPayloadsButKeepsMetadata) {
+  for (int mode : {-1, 0}) { // server default, and explicit false
+    const std::string out = collect_trace_lines(mode);
+    EXPECT_EQ(out.find("args="), std::string::npos) << "mode=" << mode;
+    EXPECT_EQ(out.find("ARG_SENTINEL"), std::string::npos) << "mode=" << mode;
+    EXPECT_EQ(out.find("SET_SENTINEL"), std::string::npos) << "mode=" << mode;
+    EXPECT_EQ(out.find("RESP_SENTINEL"), std::string::npos) << "mode=" << mode;
+    // Envelope metadata (operation label + session id) is still traced.
+    EXPECT_NE(out.find("[rmi] call"), std::string::npos) << "mode=" << mode;
+    EXPECT_NE(out.find("sid=0x"), std::string::npos) << "mode=" << mode;
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 23. Bounded dispatch worker pool (server.cpp's dispatch_worker())
 // ═════════════════════════════════════════════════════════════════════════════

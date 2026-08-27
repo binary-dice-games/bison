@@ -136,6 +136,22 @@ class server {
   void enable_profiling(std::filesystem::path output_dir);
 
   /**
+   * @brief Control whether request/response trace lines include decoded
+   *        payloads.
+   *
+   * When `false` (the default), trace lines carry only envelope metadata
+   * (operation, session id, object id, method name). When `true`,
+   * `on_request_trace()` / `on_response_trace()` also append the decoded
+   * call arguments (`args=...`), `set` values, and response bodies to each
+   * trace line -- useful for close debugging, but noisy enough to bloat a
+   * log file, hence off by default. No effect if the trace hooks are
+   * overridden.
+   */
+  void set_trace_payloads(bool on) {
+    trace_payloads_ = on;
+  }
+
+  /**
    * @brief Start capture directly from the server's own process, without
    *        going through an RMI client/proxy call.
    *
@@ -594,6 +610,9 @@ class server {
 
   /** @brief Set by `enable_profiling()`; null unless profiling was opted into. */
   std::shared_ptr<profiler_service> profiler_service_;
+
+  /** @brief Whether trace lines carry decoded payloads; see `set_trace_payloads()`. */
+  bool trace_payloads_ = false;
 };
 
 } // namespace bdg::bison::rmi

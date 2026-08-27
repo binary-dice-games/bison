@@ -76,14 +76,14 @@ void server::on_request_trace(context& ctx, const shared::envelope& env) {
     if (f && f->is<bison::key_t>())
       oss << " method=" << resolve(f->as<bison::key_t>().id);
     const auto* pf = env.payload.findField(FIELD_PARAMS);
-    if (pf && pf->is<bison::dynamic_ptr>()) {
+    if (trace_payloads_ && pf && pf->is<bison::dynamic_ptr>()) {
       auto ptr = pf->as<bison::dynamic_ptr>();
       if (ptr && !ptr->empty())
         oss << " args=" << bison::print(*ptr, popts);
     }
   } else if (op == OP_SET) {
     oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << env.object_id.id;
-    if (!env.payload.empty())
+    if (trace_payloads_ && !env.payload.empty())
       oss << " " << bison::print(env.payload, popts);
   } else if (op == OP_GET || op == OP_DESTROY || op == OP_CLEAR) {
     oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << env.object_id.id;
@@ -119,7 +119,7 @@ void server::on_response_trace(
         oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << of->as<bison::key_t>().id;
     } else if (op == OP_CALL || op == OP_GET) {
       oss << std::dec << " obj=0x" << std::hex << std::setw(8) << std::setfill('0') << request_env.object_id.id;
-      if (!response_payload.empty())
+      if (trace_payloads_ && !response_payload.empty())
         oss << " " << bison::print(response_payload, popts);
     }
   }
