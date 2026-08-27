@@ -60,7 +60,22 @@ void client::connect(bison::dynamic params) {
 
   payload[FIELD_VERSION] = int32_t{PROTOCOL_VERSION};
   auto f = send_request(OP_CONNECT, {}, std::move(payload), false);
-  f.get();
+  try {
+    f.get();
+  } catch (const std::exception&) {
+    if (running_.load())
+      throw; // Server answered OP_CONNECT with an error -- surface it verbatim.
+    // The transport opened but the worker loop has already stopped: the peer
+    // never completed the handshake (wrong endpoint, not a bison server, or
+    // -- for --transport=term -- no host framing this terminal) or the
+    // connection dropped first. Report that plainly rather than leaking the
+    // internal "Worker thread exiting (code=<hash>)" text to the operator.
+    if (worker_.joinable())
+      worker_.join();
+    if (event_thread_.joinable())
+      event_thread_.join();
+    throw std::runtime_error("RMI connection handshake failed: no response from the peer");
+  }
   on_connect();
 }
 

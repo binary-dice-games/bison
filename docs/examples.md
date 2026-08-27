@@ -120,6 +120,13 @@ inherited stdin/stdout in OSC-99 framing. Non-OSC-99 bytes (shell prompts,
 operator-typed output) pass straight through, so the session stays fully
 interactive.
 
+Running `bison-cli` (whose default is `--transport=term`) directly from an
+ordinary shell — with no `--transport=term` host framing the terminal —
+fails the handshake with `RMI connection handshake failed: no response from
+the peer`. To reach a standalone server instead, pass `--transport=tcp`
+(with `--host`/`--port`), `--transport=pipe` (with `--name`), or
+`--transport=tls`.
+
 ## Android Example (emulator)
 
 `bindings/android/examples/BisonExample` is a small Kotlin app exercising the

@@ -70,6 +70,22 @@ void client_app::on_error(const std::string& msg) const {
   std::cerr << "[client_app] error: " << msg << '\n';
 }
 
+std::string client_app::connect_failure_hint(const std::string& raw) const {
+  transport_kind tk;
+  try {
+    tk = selected_transport();
+  } catch (...) {
+    return raw;
+  }
+  if (tk != transport_kind::term)
+    return raw;
+  return raw +
+      "\nNo RMI peer detected on this terminal. --transport=term must be run from "
+      "inside a terminal spawned by a bison host also started with --transport=term; "
+      "to connect to a standalone server use --transport=tcp (with --host/--port), "
+      "--transport=pipe (with --name), or --transport=tls.";
+}
+
 // ── Console input ─────────────────────────────────────────────────────────────
 
 bool client_app::read_console_line(std::string_view prompt, std::string& line) {
@@ -83,7 +99,12 @@ int client_app::run_with_transport(std::unique_ptr<rmi::transport::client_transp
 
   bison::dynamic params;
   on_connect_params(params);
-  c->connect(std::move(params));
+  try {
+    c->connect(std::move(params));
+  } catch (const std::exception& ex) {
+    on_error(connect_failure_hint(ex.what()));
+    return 1;
+  }
   on_connected();
 
   const int result = on_session(*c);
