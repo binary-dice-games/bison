@@ -20,7 +20,7 @@ fires on `release: published`. Its matrix:
 | `ubuntu-latest` | Ninja + GCC | `bison-<ver>-Linux-x86_64.zip` |
 | `ubuntu-24.04-arm` | Ninja + GCC | `bison-<ver>-Linux-aarch64.zip` |
 | `macos-14` | Ninja + AppleClang | `bison-<ver>-Darwin-arm64.zip` |
-| `windows-latest` | MSVC (Visual Studio 17 2022) | `bison-<ver>-Windows-AMD64.zip` |
+| `windows-latest` | Ninja + MSVC (`cl.exe` via `ilammy/msvc-dev-cmd`) | `bison-<ver>-Windows-AMD64.zip` |
 
 Each job runs
 [`scripts/package_release.py`](../scripts/package_release.py), then
@@ -36,8 +36,12 @@ feeds `-DBISON_PACKAGE_VERSION`).
 
 ### Platform notes
 
-- **Windows** zips are MSVC builds. libuv and mbedTLS are linked
-  statically, so the only runtime requirement is the
+- **Windows** zips are MSVC (`cl.exe`) builds via the Ninja generator. The
+  build steps run under `bash`, which strips the `ProgramFiles(x86)` env
+  var that CMake's "Visual Studio" generator relies on to find a VS
+  instance, so the workflow sets up the compiler explicitly with
+  `ilammy/msvc-dev-cmd` and builds with Ninja instead. libuv and mbedTLS
+  are linked statically, so the only runtime requirement is the
   [Microsoft Visual C++ redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe).
   A self-contained mingw build can still be produced by hand
   (`package_release.py` from an MSYS2 shell bundles the mingw runtime DLLs
