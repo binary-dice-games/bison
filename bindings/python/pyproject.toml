@@ -102,6 +102,16 @@ skip = ["*_i686", "*-musllinux_*", "pp*"]
 build-verbosity = 1
 test-command = "python -c \"import bison, bison.dynamic, bison.rmi\""
 
+[tool.cibuildwheel.linux]
+# The default manylinux2014 image ships devtoolset-10 (GCC 10), whose
+# libstdc++ lacks `std::bit_cast` and other C++20 library features bison
+# uses.  manylinux_2_28 (AlmaLinux 8) provides gcc-toolset-12, which links
+# the newer libstdc++/libgcc bits statically -- so the wheel still runs
+# against the stock system runtime and gains no dependencies; it only
+# raises the glibc floor to 2.28 (RHEL/Debian/Ubuntu 2018+).
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
 

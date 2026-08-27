@@ -68,7 +68,10 @@ const size_t native = []() {
  * @brief Swap the byte order of a scalar value on little-endian hosts.
  *
  * On big-endian hosts this is a no-op.  Compiler intrinsics are used where
- * available (`__builtin_bswap*` on GCC/Clang).
+ * available (`__builtin_bswap*` on GCC/Clang).  `__builtin_bit_cast` is used
+ * rather than `std::bit_cast` so the header also builds on GCC 10 (e.g. the
+ * devtoolset-10 toolchain in older manylinux images), whose libstdc++ ships
+ * `<bit>` but not `std::bit_cast` (added in GCC 11).
  *
  * @tparam T  A trivially-copyable type of size 1, 2, 4, or 8 bytes.
  * @param  value  The value to byte-swap.
@@ -82,17 +85,17 @@ constexpr T byte_swap(T value) {
     return value;
 #if defined(__GNUC__) || defined(__clang__)
   if constexpr (sizeof(T) == 2) {
-    uint16_t u = std::bit_cast<uint16_t>(value);
+    uint16_t u = __builtin_bit_cast(uint16_t, value);
     u = __builtin_bswap16(u);
-    return std::bit_cast<T>(u);
+    return __builtin_bit_cast(T, u);
   } else if constexpr (sizeof(T) == 4) {
-    uint32_t u = std::bit_cast<uint32_t>(value);
+    uint32_t u = __builtin_bit_cast(uint32_t, value);
     u = __builtin_bswap32(u);
-    return std::bit_cast<T>(u);
+    return __builtin_bit_cast(T, u);
   } else if constexpr (sizeof(T) == 8) {
-    uint64_t u = std::bit_cast<uint64_t>(value);
+    uint64_t u = __builtin_bit_cast(uint64_t, value);
     u = __builtin_bswap64(u);
-    return std::bit_cast<T>(u);
+    return __builtin_bit_cast(T, u);
   }
 #endif
 
