@@ -152,6 +152,23 @@ class server {
   }
 
   /**
+   * @brief Control whether request/response trace lines are produced at all.
+   *
+   * When `true` (the default), every dispatched request runs
+   * `on_request_trace()` / `on_response_trace()`, which format a
+   * human-readable trace string and hand it to `on_print()`. Formatting that
+   * string (an `ostringstream`, dictionary key resolves, and -- when
+   * `set_trace_payloads(true)` -- a full `bison::print` of the payload) is
+   * not free, so a server whose `on_print()` discards the line (or that only
+   * wants traces above a certain verbosity) can call `set_trace_lines(false)`
+   * to skip the hooks entirely. Independent of `set_trace_payloads()`, which
+   * only controls the decoded-payload suffix once a line is being built.
+   */
+  void set_trace_lines(bool on) {
+    trace_lines_ = on;
+  }
+
+  /**
    * @brief Start capture directly from the server's own process, without
    *        going through an RMI client/proxy call.
    *
@@ -613,6 +630,9 @@ class server {
 
   /** @brief Whether trace lines carry decoded payloads; see `set_trace_payloads()`. */
   bool trace_payloads_ = false;
+
+  /** @brief Whether the trace hooks run at all; see `set_trace_lines()`. */
+  bool trace_lines_ = true;
 };
 
 } // namespace bdg::bison::rmi

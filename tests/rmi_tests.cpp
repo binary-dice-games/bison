@@ -2171,9 +2171,10 @@ class PrintCapturingServer : public server {
 namespace {
 
 // Drives one instantiate + set + get + call against a `Payloaded` object and
-// returns every captured trace line joined by '\n'. `trace_payloads`: <0 to
-// leave the server at its default, 0/1 to call set_trace_payloads(false/true).
-std::string collect_trace_lines(int trace_payloads) {
+// returns every captured trace line joined by '\n'. `trace_payloads` /
+// `trace_lines`: <0 to leave the server at its default, 0/1 to call
+// set_trace_payloads / set_trace_lines with false/true.
+std::string collect_trace_lines(int trace_payloads, int trace_lines = -1) {
   clearClassRegistry();
 
   auto proto = dynamic_ptr{"Payloaded"_key, {{"v"_key, std::string{}}}};
@@ -2188,6 +2189,8 @@ std::string collect_trace_lines(int trace_payloads) {
   PrintCapturingServer srv{mt};
   if (trace_payloads >= 0)
     srv.set_trace_payloads(trace_payloads != 0);
+  if (trace_lines >= 0)
+    srv.set_trace_lines(trace_lines != 0);
   srv.listen(dynamic{});
 
   client c{mt.connect()};
@@ -2236,6 +2239,19 @@ TEST(RmiTracePayloads, DefaultOmitsDecodedPayloadsButKeepsMetadata) {
     EXPECT_EQ(out.find("SET_SENTINEL"), std::string::npos) << "mode=" << mode;
     EXPECT_EQ(out.find("RESP_SENTINEL"), std::string::npos) << "mode=" << mode;
     // Envelope metadata (operation label + session id) is still traced.
+    EXPECT_NE(out.find("[rmi] call"), std::string::npos) << "mode=" << mode;
+    EXPECT_NE(out.find("sid=0x"), std::string::npos) << "mode=" << mode;
+  }
+}
+
+TEST(RmiTraceLines, DisabledSuppressesAllTraceOutput) {
+  const std::string out = collect_trace_lines(/*trace_payloads=*/-1, /*trace_lines=*/0);
+  EXPECT_TRUE(out.empty()) << out;
+}
+
+TEST(RmiTraceLines, EnabledIsDefaultAndKeepsMetadata) {
+  for (int mode : {-1, 1}) { // server default, and explicit true
+    const std::string out = collect_trace_lines(/*trace_payloads=*/-1, mode);
     EXPECT_NE(out.find("[rmi] call"), std::string::npos) << "mode=" << mode;
     EXPECT_NE(out.find("sid=0x"), std::string::npos) << "mode=" << mode;
   }

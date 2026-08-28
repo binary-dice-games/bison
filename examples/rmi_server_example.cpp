@@ -24,7 +24,7 @@ DEFINE_string(host, "0.0.0.0", "Bind host address (transport=tcp/tls)");
 DEFINE_int32(port, 7070, "Listen port (transport=tcp/tls)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
 DEFINE_string(cmd, "", "Command to spawn (transport=term)");
-DEFINE_bool(verbose, false, "Print request/response trace messages to stdout");
+DEFINE_string(verbose, "none", "Trace verbosity: none|info|trace");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 DEFINE_string(cert_file, "", "Server certificate chain file (transport=tls)");
 DEFINE_string(cert_pem, "", "Server certificate chain PEM (transport=tls)");

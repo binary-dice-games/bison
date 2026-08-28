@@ -507,7 +507,8 @@ void server::send_response(
   response_env.oneway = false;
   response_env.payload = std::move(payload);
   conn.send(response_env.encode());
-  on_response_trace(ctx, env, op, false, bison::key_t{0u}, response_env.payload);
+  if (trace_lines_)
+    on_response_trace(ctx, env, op, false, bison::key_t{0u}, response_env.payload);
 }
 
 /**
@@ -532,7 +533,8 @@ void server::send_error(
   response_env.oneway = false;
   response_env.error = std::move(error_payload);
   conn.send(response_env.encode());
-  on_response_trace(ctx, env, op, true, code, bison::dynamic{});
+  if (trace_lines_)
+    on_response_trace(ctx, env, op, true, code, bison::dynamic{});
 }
 
 // ── Request dispatch
@@ -571,7 +573,8 @@ void server::handle_request(context& ctx, const shared::envelope& env, transport
   // request.
   ctx.current_group = env.group;
 
-  on_request_trace(ctx, env);
+  if (trace_lines_)
+    on_request_trace(ctx, env);
 
   using handler_fn = void (server::*)(context&, const shared::envelope&, transport::server_connection_iface&);
   static const std::unordered_map<bison::key_t, handler_fn, bison::key_t, bison::key_t> handler_map = {
