@@ -8,6 +8,12 @@
 
 #include <gtest/gtest.h>
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <shared_mutex>
@@ -299,6 +305,118 @@ TEST(SocketTransport, AcceptTimeoutReturnsNullopt) {
   auto server_transport = make_socket_server_transport();
   auto result = server_transport.accept(std::chrono::milliseconds{50});
   EXPECT_EQ(result, nullptr);
+  server_transport.stop();
+}
+
+// named_pipe_server_transport::start() docs its `path` param as a Win32
+// pipe name (`\\.\pipe\name`) on native Windows/MSYS2 vs. a file-system
+// Unix-socket path on Linux/macOS -- generate whichever form this platform
+// needs, matching the same `_WIN32 || __CYGWIN__` split as
+// named_pipe_util.hpp itself (MSYS2 is a mingw/Windows-toolchain build, so
+// libuv's uv_pipe_t backs it with a real Win32 named pipe here too, not a
+// Unix domain socket).
+static std::string make_named_pipe_path() {
+  static std::atomic<int> next_id{0};
+  const int id = next_id.fetch_add(1);
+#if defined(_WIN32) || defined(__CYGWIN__)
+  return "\\\\.\\pipe\\bison_test_pipe_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(id);
+#else
+  const std::string path = "/tmp/bison_test_pipe_" + std::to_string(::getpid()) + "_" + std::to_string(id) + ".sock";
+  ::unlink(path.c_str()); // clear any stale socket file left by a crashed prior run
+  return path;
+#endif
+}
+
+// named_pipe_server_transport has no move constructor (unlike
+// socket_server_transport), so -- unlike make_socket_server_transport()
+// above -- this can't be a factory returning by value; each test
+// constructs its own transport in place instead.
+
+// Regression coverage for the accept-path loop mismatch fixed alongside
+// named_pipe_util.hpp: on_new_connection() used to uv_accept() a fresh
+// per-connection uv_pipe_t initialized on its own uv_loop_t instead of the
+// listener's, which trips libuv's `server->loop == client->loop` assertion
+// on every single accepted connection (see src/rmi/DESIGN.md §2).
+TEST(NamedPipeTransport, SendReceivePair) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{path};
+  client_t.open(dynamic{});
+
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  const buffer frame{'H', 'i'};
+  client_t.send(frame);
+
+  buffer received;
+  const bool ok = server_conn->receive(received, std::chrono::milliseconds{500});
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(received, frame);
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+TEST(NamedPipeTransport, ServerToClientSend) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{path};
+  client_t.open(dynamic{});
+
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  const buffer reply{'O', 'K'};
+  server_conn->send(reply);
+
+  buffer got;
+  const bool ok = client_t.receive(got, std::chrono::milliseconds{500});
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(got, reply);
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+TEST(NamedPipeTransport, AcceptTimeoutReturnsNullopt) {
+  named_pipe_server_transport server_transport{make_named_pipe_path()};
+  server_transport.start(dynamic{});
+  auto result = server_transport.accept(std::chrono::milliseconds{50});
+  EXPECT_EQ(result, nullptr);
+  server_transport.stop();
+}
+
+// Exercises on_new_connection() more than once against the same listener
+// loop -- each accepted connection must get its own dedicated loop without
+// disturbing the listener's, or a subsequent accept would also crash.
+TEST(NamedPipeTransport, MultipleSequentialConnections) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+
+  for (int i = 0; i < 3; ++i) {
+    named_pipe_client_transport client_t{path};
+    client_t.open(dynamic{});
+
+    auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+    ASSERT_TRUE(server_conn != nullptr) << "connection #" << i;
+
+    const buffer frame{static_cast<uint8_t>('0' + i)};
+    client_t.send(frame);
+
+    buffer received;
+    ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{500})) << "connection #" << i;
+    EXPECT_EQ(received, frame);
+
+    client_t.shutdown();
+    server_conn->close();
+  }
+
   server_transport.stop();
 }
 

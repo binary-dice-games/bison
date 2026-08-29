@@ -27,18 +27,22 @@ Source tree:
 - `memory_transport.cpp` — in-process memory transport (no I/O, no libuv)
 - `stream_transport.cpp` — wraps an external `std::iostream`
 
-`socket_transport.cpp` and `tls_socket_transport.cpp` share one small
-platform-facing step: accepted connections are moved from the listener's
-`uv_loop_t` to their own dedicated loop by duplicating the underlying OS
-socket descriptor (libuv's `uv_accept()` requires the client handle to
-already share the listener's loop, so the connection's own loop can't be
-used directly). Duplicating a socket has no libuv-portable API, so
-`duplicate_tcp_socket()` (hoisted into the shared `tcp_socket_util.hpp` so
-both transports use one implementation) calls POSIX `dup()` directly (shared
-by every non-native-Windows target — Linux, MSYS2, and Android, whose
-Bionic libc is POSIX-complete here). This does not change transport
-*behavior* across platforms — it is a single OS primitive with no libuv
-equivalent.
+`socket_transport.cpp`, `tls_socket_transport.cpp`, and
+`named_pipe_transport.cpp` share one small platform-facing step: accepted
+connections are moved from the listener's `uv_loop_t` to their own dedicated
+loop by duplicating the underlying OS descriptor (libuv's `uv_accept()`
+requires the client handle to already share the listener's loop, so the
+connection's own loop can't be used directly). Duplicating a socket has no
+libuv-portable API, so `duplicate_tcp_socket()` (hoisted into the shared
+`tcp_socket_util.hpp` so the two TCP-backed transports use one
+implementation) calls POSIX `dup()` on non-native-Windows targets and
+`WSADuplicateSocketW()` on native Windows, where a Winsock `SOCKET` isn't a
+plain fd. `named_pipe_transport.cpp` needs the same hand-off but for a
+different descriptor kind — a Unix-domain-socket fd on POSIX, a named-pipe
+`HANDLE` on native Windows — so it has its own `duplicate_pipe_handle()` in
+`named_pipe_util.hpp`, following the identical `dup()`/`DuplicateHandle()`
+split. This does not change transport *behavior* across platforms — it is a
+single OS primitive with no libuv equivalent.
 
 Both TCP-backed transports also share `frame_parser.hpp` (the incremental
 `[4-byte length][payload]` reassembly state machine, §5.3) and build on
@@ -59,7 +63,7 @@ All transport I/O is implemented using **libuv** (`extern/libuv`, static target 
 - Every transport file is a single `.cpp` file with no platform conditionals in I/O behavior.
 - libuv handles OS differences transparently: process spawning, TTY raw mode, and socket I/O.
 - The only permitted `#ifdef` in transport code is for narrow, single-line differences, not a behavioral split.
-- `socket_transport.cpp`'s socket-duplication step (see §2) is implemented directly with POSIX `dup()`, since every non-native-Windows target (Linux, MSYS2, Android) shares that API; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
+- `socket_transport.cpp`'s and `named_pipe_transport.cpp`'s descriptor-duplication step (see §2) is the one narrow, inline `#ifdef` exception, since POSIX `dup()`/native-Windows `DuplicateHandle()`/`WSADuplicateSocketW()` have no libuv-portable equivalent; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
 
 ### 3.3 libuv Dependency
 

@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `bison-cli` (and other client apps) now report a clear diagnostic when a connection fails because no RMI peer answered the handshake — including a hint to use `--transport=tcp`/`pipe`/`tls` when run outside a `--transport=term` host — instead of the internal `Worker thread exiting (code=...)` message.
 
+### Fixed
+
+- `--transport=pipe` (named-pipe / Unix-socket RMI transport): the server crashed on every incoming connection with a libuv assertion failure (`uv_accept: Assertion 'server->loop == client->loop' failed`).
+
 ## [1.0.0] - 2026-08-27
 
 Initial release.

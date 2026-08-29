@@ -9,6 +9,7 @@
  * Framing: 4-byte big-endian length prefix followed by payload.
  */
 #include "src/rmi/transport/named_pipe_transport.hpp"
+#include "src/rmi/transport/named_pipe_util.hpp"
 #include "src/rmi/transport/uv_stream_state.hpp"
 
 #include <uv.h>
@@ -65,12 +66,28 @@ void named_pipe_server_state::on_new_connection(uv_stream_t* server, int status)
     return;
   auto* ss = static_cast<named_pipe_server_state*>(server->data);
 
-  // Build connection state on its own loop.
+  // uv_accept() requires the client handle to share the listener's loop,
+  // but each connection runs on its own dedicated uv_loop_t/thread (same
+  // hand-off pattern as socket_server_transport -- see
+  // named_pipe_util.hpp / src/rmi/DESIGN.md §2). Accept into a temporary
+  // handle on the listener's own loop, then hand a duplicate of the
+  // underlying pipe fd/HANDLE off to a fresh handle on the connection's own
+  // loop via uv_pipe_open().
+  uv_pipe_t temp{};
+  uv_pipe_init(&ss->loop, &temp, 0);
+  if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&temp)) != 0) {
+    uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+    return;
+  }
+  const uv_file dup_fd = duplicate_pipe_handle(&temp);
+  uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+  if (dup_fd < 0)
+    return;
+
   auto cs = std::make_unique<pipe_conn_state>();
   uv_loop_init(&cs->loop);
   uv_pipe_init(&cs->loop, &cs->handle, 0);
-
-  if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&cs->handle)) != 0)
+  if (uv_pipe_open(&cs->handle, dup_fd) != 0)
     return;
 
   cs->init_asyncs();
