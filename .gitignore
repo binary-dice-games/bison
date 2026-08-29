@@ -18,6 +18,8 @@ bindings/csharp/tests/obj/
 bindings/csharp/tests/bin/
 # Java build artifacts
 bindings/java/target/
+# Rust build artifacts
+bindings/rust/target/
 # Generated Doxygen output
 docs/doxygen/
 # Android/Gradle build artifacts (bindings/android)

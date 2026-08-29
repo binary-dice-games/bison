@@ -427,6 +427,131 @@ type is `dynamic`.
 
 ---
 
+## Rust (`bindings/rust/`)
+
+Hand-maintained `extern "C"` wrapper (`bindings/rust/src/sys.rs`) over the
+same `bison_abi` shared library, plus a safe layer (`bison::dynamic`,
+`bison::rmi`) exposing both APIs through typed getters/setters
+(`get_int`/`set_int`, ...), an ergonomic `Dynamic::get`/`Dynamic::set` pair
+backed by a `Value` enum, and `Result<T, BisonError>`/`Result<T, RmiError>`
+instead of raw return codes. Every handle is an RAII wrapper (`Dynamic`,
+`Client`, `Server`, `Proxy`, `Future`) that releases itself on `Drop`; none
+of the `bison_*_release` / `rmi_*_release` functions need to be called
+directly.
+
+Rust links `bison_abi` at **build** time via `build.rs`, the same model the
+header-only C++ binding uses — `cargo build` resolves `bison_c.h`/`rmi_c.h`'s
+C symbols against the shared library the way linking any other precompiled
+library would, rather than `dlopen`/P-Invoke-ing it at run time the way the
+Python and C# bindings do. `build.rs` follows the same resolution order every
+other binding documents: the `BISON_LIB` environment variable (a full path to
+the shared library) first, then a sibling `build/` directory next to
+`bindings/rust/` (trying `Debug`/`Release` subdirectories on Windows), then
+the OS's normal library search path. On Linux, an rpath is also embedded for
+a resolved `BISON_LIB`/`build/` directory so built binaries find the `.so` at
+run time without `LD_LIBRARY_PATH` — there is no install step for this
+binding. No `bindgen`/header-codegen tool is used, for consistency with the
+other bindings (none of which use one) and to avoid a new libclang
+build-dependency; `sys.rs` hand-mirrors every function in `bison_c.h` and
+`rmi_c.h`, grouped by the same section dividers the headers use.
+
+A field the C++ side declares as `bison::key_t` (e.g. an object's `"id"`, or
+an enum-like selector) is a distinct field-variant type from `int32_t` — a
+plain Rust `i32` handed to `Dynamic::set` is always written as int32 (there's
+no way to tell "this int should become a key_t field" from a bare `i32`
+value), so use `obj.set_key("id", value)` (`value` is an already-hashed `u32`,
+e.g. from `bison::key()`) to write one instead. Reading is transparent:
+`obj.get("id")` falls back to `get_key` automatically once
+int/float/bool/string/object all fail by type mismatch, returning
+`Value::Key(u32)`. `obj.add_field_key(name, value, meta)` is the
+`add_field()` counterpart for schema declarations; `obj.set_key_at(index,
+value)` is the indexed counterpart, for the same reason `obj.set_at(index,
+value)` can't dispatch to it from a bare `i32`.
+
+Every scalar/indexed getter and setter in `bison_c.h` has a 1:1 typed method
+(`get_int_at`/`set_int_at`, `get_bool`/`set_bool`, ...), plus the ergonomic
+`Dynamic::get`/`Dynamic::get_at` cascade (int → float → bool → string →
+object → key → vectors, matching the Python/C# bindings' cascade order) and
+`Dynamic::set`/`Dynamic::set_at`, which accept anything implementing
+`Into<Value>` — `d.set("hp", 100)`, `d.set("name", "hero")`, `d.set("active",
+true)` all work directly. Vector-typed fields (`Vec<bool>`/`Vec<i32>`/
+`Vec<f32>`, and `Vec<u8>` for `vector<uint8_t>`) are named-field only —
+`bison_c.h` has no indexed vector accessors — read them back with
+`get_vector_int`/etc., or generically via `Dynamic::get` (never through
+`get_at`, which only cascades the scalar getters). `add_method`'s closure
+must be `Send + 'static`, since it may be invoked from any worker thread that
+dispatches a call into the object (an RMI server worker thread for a remote
+call, in particular) — not necessarily the thread that registered it; a class
+prototype registered via `add_class` is moved into a process-wide keep-alive
+list so its methods keep working for as long as the class stays registered,
+mirroring `bison.dynamic._registered_prototypes`. `Dynamic` implements
+`Clone` via `bison_clone` (a full deep copy, matching Rust's `Clone`
+convention) rather than `bison_add_ref` — use `add_ref()` for a second handle
+sharing the same underlying object.
+
+`Server::listen()`'s optional `auth` parameter gates connections with a
+closure, evaluated once per `OP_CONNECT` handshake — it takes the connect
+payload as a `&Dynamic` and returns `(bool, String)`: whether to accept, and
+(if accepted) an identity string:
+
+```rust
+server.listen(None, Some(|payload: &Dynamic| {
+    if payload.get_string("token").unwrap_or_default() != "secret" {
+        return (false, String::new());
+    }
+    (true, "user-42".to_string())
+})).unwrap();
+```
+
+RMI's profiling/tracing functions (`rmi_server_enable_profiling`,
+`start_capture`/`stop_capture`/`is_capture_active` on `Server`, and the
+free-standing `bison::rmi::trace_scope_begin`/`trace_scope_end`/
+`trace_instant`/`trace_counter_int`/`trace_counter_double`/`trace_is_active`)
+are exposed as thin pass-throughs.
+
+**Requirements:** A `bison_abi` build (any platform) and a Rust toolchain
+(1.74+; edition 2021).
+
+```bash
+# Build bison_abi first (see the shared instructions above), then:
+cd bindings/rust
+export BISON_LIB=$(pwd)/../../build/libbison_abi.so   # if not auto-detected
+cargo build
+
+# Run examples:
+cargo run --example bison_example
+cargo run --example rmi_standalone_example
+cargo run --example rmi_server_example -- --transport=tcp --port=7070   # separate terminal
+cargo run --example rmi_client_example -- --transport=tcp --port=7070
+
+# Run tests:
+cargo test
+```
+
+Quick-start snippet:
+
+```rust
+use bison::dynamic::Dynamic;
+
+let mut p = Dynamic::new("Player");
+p.set("hp", 100).unwrap();
+p.set("name", "hero").unwrap();
+println!("{}", p.get_int("hp").unwrap());   // 100
+
+use bison::rmi::Client;
+
+let mut client = Client::standalone();
+client.connect(None).unwrap();
+let calc = client.instantiate("Calculator", "", None).unwrap();
+let mut args = Dynamic::default();
+args.set("a", 1.0f32).unwrap();
+args.set("b", 2.0f32).unwrap();
+let result = calc.call("add", Some(&args), -1).unwrap();   // calls the "add" remote method
+println!("{}", result.get_float("result").unwrap());
+```
+
+---
+
 ## Android (Java / Kotlin) (`bindings/android/`)
 
 Unlike the other bindings, which load a precompiled `bison_abi` at run time
