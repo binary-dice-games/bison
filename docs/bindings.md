@@ -552,6 +552,147 @@ println!("{}", result.get_float("result").unwrap());
 
 ---
 
+## Go (`bindings/go/`)
+
+A `cgo`-based wrapper over the same `bison_abi` shared library, split across
+`bison/native.go` (the cgo preamble, plus the C-callable trampolines that
+dispatch method/event/auth callbacks into Go closures), `bison/dynamic.go`
+(`bison_c.h`), and `bison/rmi.go` (`rmi_c.h`), each exposing typed
+getters/setters (`GetInt`/`SetInt`, ...), an ergonomic `Get`/`Set` pair
+operating on `interface{}`, and `error` return values (a `*BisonError` /
+`*RmiError` carrying the raw C error code) instead of raw return codes.
+`Dynamic`, `Client`, `Server`, `Proxy`, and `Future` all release their
+underlying handle in `Close`; a `runtime.SetFinalizer` safety net also calls
+`Close` if a caller forgets, but its timing is not guaranteed, so `Close`
+(typically via `defer`) is the primary pattern, matching every other
+binding's own documented caveat.
+
+Go links `bison_abi` at **build** time via `cgo`, the same model the
+header-only C++ binding and the Rust binding use — `go build` resolves
+`bison_c.h`/`rmi_c.h`'s C symbols against the shared library the way linking
+any other precompiled library would, rather than `dlopen`/P-Invoke-ing it at
+run time the way the Python and C# bindings do. cgo is also the only
+practical way for this binding to hand C a function pointer that calls back
+into Go (`bison_method_fn`, `rmi_proxy_event_fn`, and `rmi_auth_fn` all need
+this), since Go's `//export` mechanism requires it — there is no realistic
+pure-Go alternative here. `native.go`'s `#cgo CFLAGS`/`#cgo LDFLAGS`
+directives resolve `include/` and `build/` against this checkout by default
+(three directories up from `bindings/go/bison/`); a consumer building
+against a `bison_abi` installed elsewhere overrides this the idiomatic Go
+way, via the `CGO_CFLAGS`/`CGO_LDFLAGS` environment variables (the Go
+toolchain merges env-supplied flags with the `#cgo` directives
+automatically) — the Go-native equivalent of every other binding's
+`BISON_LIB` override. `bison_add_method`/`rmi_proxy_on_event`/
+`rmi_server_listen`'s `void* user` context parameter is a
+`runtime/cgo.Handle` under the hood; since cgo's pointer-passing rules (and
+`go vet`'s `unsafeptr` check) disallow converting that handle to
+`unsafe.Pointer` directly on the Go side, `bison/shim.c` — an ordinary C
+file cgo compiles alongside the Go sources — provides three tiny shims that
+accept the handle as a `uintptr_t` and perform the cast to `void*` entirely
+in C.
+
+A field the C++ side declares as `bison::key_t` (e.g. an object's `"id"`, or
+an enum-like selector) is a distinct field-variant type from `int32_t` — a
+plain Go `int32` handed to `Set` is always written as int32 (there's no way
+to tell "this int should become a key_t field" from a bare `int32` value),
+so use `obj.SetKey("id", value)` instead, where `value` is either an
+already-hashed `uint32` (e.g. from `bison.Key()`) or a plain string name,
+hashed the same way `bison.Key()` would. Reading is transparent:
+`obj.Get("id")` falls back to `GetKey` automatically once
+int/float/bool/string/object all fail by type mismatch, returning a
+`uint32`. `obj.AddFieldKey(name, value, meta)` is the `AddField()`
+counterpart for schema declarations; `obj.SetKeyAt(index, value)` is the
+indexed counterpart, for the same reason `obj.SetAt(index, value)` can't
+dispatch to it from a bare `int32`.
+
+Every scalar/indexed getter and setter in `bison_c.h` has a 1:1 typed method
+(`GetIntAt`/`SetIntAt`, `GetBool`/`SetBool`, ...), plus the ergonomic
+`Get`/`GetAt` cascade (int → float → bool → string → object → key →
+vectors, matching the Python/C#/Rust bindings' cascade order) and
+`Set`/`SetAt`, which type-switch on the value's concrete Go type —
+`d.Set("hp", 100)`, `d.Set("name", "hero")`, `d.Set("active", true)` all
+work directly (a plain `int` is range-checked and written as `int32`, since
+an untyped integer literal handed to an `interface{}` parameter defaults to
+Go's `int`, not `int32`). Vector-typed fields (`[]bool`/`[]int32`/
+`[]float32`, and `[]byte` for `vector<uint8_t>`) are named-field only —
+`bison_c.h` has no indexed vector accessors — read them back with
+`GetVectorInt`/etc., or generically via `Get` (never through `GetAt`, which
+only cascades the scalar getters). `AddMethod`'s closure may be invoked from
+any goroutine that dispatches a call into the object (an RMI server worker,
+in particular) — not necessarily the one that registered it — and a panic
+inside it is recovered and swallowed at the C ABI boundary rather than
+allowed to unwind into C++; a class prototype registered via `AddClass` is
+kept alive by a package-level reference for as long as the class stays
+registered, so its `AddMethod` trampolines keep working, mirroring
+`bison.dynamic._registered_prototypes` / Rust's
+`registered_prototypes()`. `Dynamic.Clone` performs a full deep copy
+(`bison_clone`); use `AddRef` for a second handle sharing the same
+underlying object.
+
+`Server.Listen`'s optional `auth` parameter gates connections with a
+closure, evaluated once per `OP_CONNECT` handshake — it takes the connect
+payload as a `*Dynamic` and returns `(bool, string)`: whether to accept, and
+(if accepted) an identity string:
+
+```go
+server.Listen(nil, func(payload *bison.Dynamic) (bool, string) {
+    token, _ := payload.GetString("token")
+    if token != "secret" {
+        return false, ""
+    }
+    return true, "user-42"
+})
+```
+
+RMI's profiling/tracing functions (`EnableProfiling`,
+`StartCapture`/`StopCapture`/`IsCaptureActive` on `Server`, and the
+package-level `bison.TraceScopeBegin`/`TraceScopeEnd`/`TraceInstant`/
+`TraceCounterInt`/`TraceCounterDouble`/`TraceIsActive`) are exposed as thin
+pass-throughs.
+
+**Requirements:** A `bison_abi` build (any platform), Go 1.21+, `CGO_ENABLED=1`
+(the default), and a C compiler on `PATH` for cgo to invoke.
+
+```bash
+# Build bison_abi first (see the shared instructions above), then:
+cd bindings/go
+go build ./...
+
+# Run examples:
+go run ./examples/bison_example
+go run ./examples/rmi_standalone_example
+go run ./examples/rmi_server_example -transport=tcp -port=7070   # separate terminal
+go run ./examples/rmi_client_example -transport=tcp -port=7070
+
+# Run tests:
+go test ./...
+```
+
+Quick-start snippet:
+
+```go
+p, _ := bison.New("Player")
+defer p.Close()
+p.SetInt("hp", 100)
+p.SetString("name", "hero")
+hp, _ := p.GetInt("hp") // 100
+
+client, _ := bison.NewStandaloneClient()
+defer client.Close()
+client.Connect(nil)
+calc, _ := client.Instantiate("Calculator", "", nil)
+defer calc.Close()
+args, _ := bison.New("")
+defer args.Close()
+args.SetFloat("a", 1.0)
+args.SetFloat("b", 2.0)
+result, _ := calc.Call("add", args, -1) // calls the "add" remote method
+defer result.Close()
+sum, _ := result.GetFloat("result")
+```
+
+---
+
 ## Android (Java / Kotlin) (`bindings/android/`)
 
 Unlike the other bindings, which load a precompiled `bison_abi` at run time
