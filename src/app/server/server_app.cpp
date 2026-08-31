@@ -36,7 +36,7 @@ DECLARE_string(host);
 DECLARE_int32(port);
 DECLARE_string(name);
 DECLARE_string(cmd);
-DECLARE_bool(verbose);
+DECLARE_string(verbose);
 DECLARE_bool(debugger);
 DECLARE_string(cert_file);
 DECLARE_string(cert_pem);
@@ -52,6 +52,16 @@ namespace bdg::bison::app {
 // ── Internal server subclass that bridges rmi hooks to server_app hooks ───────
 
 namespace {
+
+// `--verbose` is a verbosity level: `none` (default) prints nothing, `info`
+// prints envelope-metadata trace lines, `trace` also appends decoded
+// payloads. Anything else is treated as `none`.
+bool verbose_wants_lines() {
+  return FLAGS_verbose == "info" || FLAGS_verbose == "trace";
+}
+bool verbose_wants_payloads() {
+  return FLAGS_verbose == "trace";
+}
 
 // Set from a signal handler, so it must only ever be touched with an atomic
 // store/load (no locks, no allocation, no I/O -- the handler itself must
@@ -75,7 +85,12 @@ void install_shutdown_signal_handlers() {
 
 class bridged_server : public rmi::server {
  public:
-  bridged_server(rmi::transport::server_transport_iface& t, server_app& app) : rmi::server(t), app_(app) {}
+  bridged_server(rmi::transport::server_transport_iface& t, server_app& app) : rmi::server(t), app_(app) {
+    // `--verbose` selects the detail level: skip the trace hooks entirely
+    // below `info`, and append decoded payloads only at `trace`.
+    set_trace_lines(verbose_wants_lines());
+    set_trace_payloads(verbose_wants_payloads());
+  }
 
  protected:
   void on_session_created(rmi::context& ctx) override {
@@ -96,7 +111,7 @@ class bridged_server : public rmi::server {
   }
 
   void on_print(bison::key_t session_id, const std::string& line) override {
-    if (FLAGS_verbose)
+    if (verbose_wants_lines())
       app_.on_verbose_trace(session_id, line);
   }
 

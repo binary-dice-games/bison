@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
@@ -60,14 +61,35 @@ void registerCalculator() {
 
 class test_client_app : public app::client_app {
  public:
+  using app::client_app::connect_failure_hint;
   using app::client_app::on_connect_params;
   using app::client_app::run_with_transport;
 
   std::function<int(rmi::client&)> session_fn;
+  mutable std::string last_error;
 
  protected:
   int on_session(rmi::client& c) override {
     return session_fn ? session_fn(c) : 0;
+  }
+
+  void on_error(const std::string& msg) const override {
+    last_error = msg;
+  }
+};
+
+// A client transport that opens cleanly but never delivers a frame and reports
+// itself disconnected, so the RMI connection handshake can never complete.
+class unresponsive_client_transport : public transport::client_transport_iface {
+ public:
+  void open(dynamic /*params*/) override {}
+  void send(buffer /*frame*/) override {}
+  bool receive(buffer& /*frame*/, std::chrono::milliseconds /*timeout*/) override {
+    return false;
+  }
+  void shutdown() override {}
+  bool is_connected() const override {
+    return false;
   }
 };
 
@@ -203,4 +225,46 @@ TEST(ClientAppTest, MutualTlsClientCertIsForwardedFromFlags) {
   FLAGS_cert_pem.clear();
   FLAGS_key_pem.clear();
   server_srv.stop();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// connect() failure reporting
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST(ClientAppTest, ConnectFailureReportsCleanHandshakeMessage) {
+  FLAGS_transport = "tcp";
+
+  test_client_app app;
+  EXPECT_EQ(app.run_with_transport(std::make_unique<unresponsive_client_transport>()), 1);
+
+  // The internal "Worker thread exiting (code=<hash>)" text never surfaces.
+  EXPECT_NE(app.last_error.find("no response from the peer"), std::string::npos);
+  EXPECT_EQ(app.last_error.find("code="), std::string::npos);
+  EXPECT_EQ(app.last_error.find("Worker thread exiting"), std::string::npos);
+  // Non-term transports get no extra guidance line.
+  EXPECT_EQ(app.last_error.find("No RMI peer detected on this terminal"), std::string::npos);
+}
+
+TEST(ClientAppTest, ConnectFailureOverTermTransportAppendsGuidance) {
+  FLAGS_transport = "term";
+
+  test_client_app app;
+  EXPECT_EQ(app.run_with_transport(std::make_unique<unresponsive_client_transport>()), 1);
+
+  EXPECT_NE(app.last_error.find("no response from the peer"), std::string::npos);
+  EXPECT_NE(app.last_error.find("No RMI peer detected on this terminal"), std::string::npos);
+  EXPECT_NE(app.last_error.find("--transport=tcp"), std::string::npos);
+
+  FLAGS_transport = "tcp";
+}
+
+TEST(ClientAppTest, ConnectFailureHintLeavesNonTermMessagesUnchanged) {
+  FLAGS_transport = "tcp";
+  test_client_app app;
+  EXPECT_EQ(app.connect_failure_hint("boom"), "boom");
+
+  FLAGS_transport = "term";
+  EXPECT_NE(app.connect_failure_hint("boom").find("No RMI peer detected on this terminal"), std::string::npos);
+
+  FLAGS_transport = "tcp";
 }

@@ -136,6 +136,39 @@ class server {
   void enable_profiling(std::filesystem::path output_dir);
 
   /**
+   * @brief Control whether request/response trace lines include decoded
+   *        payloads.
+   *
+   * When `false` (the default), trace lines carry only envelope metadata
+   * (operation, session id, object id, method name). When `true`,
+   * `on_request_trace()` / `on_response_trace()` also append the decoded
+   * call arguments (`args=...`), `set` values, and response bodies to each
+   * trace line -- useful for close debugging, but noisy enough to bloat a
+   * log file, hence off by default. No effect if the trace hooks are
+   * overridden.
+   */
+  void set_trace_payloads(bool on) {
+    trace_payloads_ = on;
+  }
+
+  /**
+   * @brief Control whether request/response trace lines are produced at all.
+   *
+   * When `true` (the default), every dispatched request runs
+   * `on_request_trace()` / `on_response_trace()`, which format a
+   * human-readable trace string and hand it to `on_print()`. Formatting that
+   * string (an `ostringstream`, dictionary key resolves, and -- when
+   * `set_trace_payloads(true)` -- a full `bison::print` of the payload) is
+   * not free, so a server whose `on_print()` discards the line (or that only
+   * wants traces above a certain verbosity) can call `set_trace_lines(false)`
+   * to skip the hooks entirely. Independent of `set_trace_payloads()`, which
+   * only controls the decoded-payload suffix once a line is being built.
+   */
+  void set_trace_lines(bool on) {
+    trace_lines_ = on;
+  }
+
+  /**
    * @brief Start capture directly from the server's own process, without
    *        going through an RMI client/proxy call.
    *
@@ -594,6 +627,12 @@ class server {
 
   /** @brief Set by `enable_profiling()`; null unless profiling was opted into. */
   std::shared_ptr<profiler_service> profiler_service_;
+
+  /** @brief Whether trace lines carry decoded payloads; see `set_trace_payloads()`. */
+  bool trace_payloads_ = false;
+
+  /** @brief Whether the trace hooks run at all; see `set_trace_lines()`. */
+  bool trace_lines_ = true;
 };
 
 } // namespace bdg::bison::rmi

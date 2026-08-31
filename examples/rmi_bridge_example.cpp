@@ -46,7 +46,7 @@ DEFINE_string(upstream_key_pem, "", "Upstream client private key PEM, for mutual
 DEFINE_string(upstream_key_password, "", "Passphrase for an encrypted upstream private key (upstream_transport=tls)");
 
 DEFINE_int32(timeout, 30000, "Upstream per-request timeout in milliseconds");
-DEFINE_bool(verbose, false, "Print downstream request/response trace messages to stdout");
+DEFINE_string(verbose, "none", "Downstream trace verbosity: none|info|trace");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");
 
 namespace {

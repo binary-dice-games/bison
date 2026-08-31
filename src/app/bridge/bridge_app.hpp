@@ -79,8 +79,9 @@ namespace bdg::bison::app {
  *     `--upstream_key_password` optional upstream client certificate/key,
  *                                used only for mutual TLS
  *   - `--timeout MS`             upstream per-request timeout
- *   - `--verbose`                print request/response trace lines for the
- *                                downstream side (same as `server_app`)
+ *   - `--verbose`                trace verbosity for the downstream side:
+ *                                `none` (default) | `info` | `trace`
+ *                                (same as `server_app`)
  *
  * Typical lifecycle:
  * 1. Build the downstream transport and the upstream transport from flags.

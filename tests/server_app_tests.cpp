@@ -26,7 +26,7 @@ DEFINE_string(host, "127.0.0.1", "test default");
 DEFINE_int32(port, 7070, "test default");
 DEFINE_string(name, "", "test default");
 DEFINE_string(cmd, "", "test default");
-DEFINE_bool(verbose, false, "test default");
+DEFINE_string(verbose, "none", "test default");
 DEFINE_bool(debugger, false, "test default");
 DEFINE_string(cert_file, "", "test default");
 DEFINE_string(cert_pem, "", "test default");

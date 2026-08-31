@@ -26,6 +26,6 @@ DEFINE_string(host, "0.0.0.0", "Bind/connect host address (transport=tcp)");
 DEFINE_int32(port, 7070, "Listen/connect port (transport=tcp)");
 DEFINE_string(name, "", "Named-pipe / Unix-socket path (transport=pipe)");
 DEFINE_string(cmd, "", "Command to spawn (transport=term, server_app only)");
-DEFINE_bool(verbose, false, "Print session trace messages to stdout");
+DEFINE_string(verbose, "none", "Trace verbosity: none|info|trace (none = no trace lines, trace = include decoded payloads)");
 DEFINE_int32(timeout, 30000, "Connection timeout in milliseconds");
 DEFINE_bool(debugger, false, "Wait for debugger attachment before starting");

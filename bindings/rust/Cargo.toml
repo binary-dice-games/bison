@@ -1,0 +1,17 @@
+[package]
+name = "bison"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.74"
+description = "Rust bindings for the Bison dynamic-object and RMI C ABI"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "bison"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]

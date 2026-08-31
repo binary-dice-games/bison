@@ -8,6 +8,12 @@
 
 #include <gtest/gtest.h>
 
+#if defined(_WIN32) || defined(__CYGWIN__)
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <shared_mutex>
@@ -299,6 +305,118 @@ TEST(SocketTransport, AcceptTimeoutReturnsNullopt) {
   auto server_transport = make_socket_server_transport();
   auto result = server_transport.accept(std::chrono::milliseconds{50});
   EXPECT_EQ(result, nullptr);
+  server_transport.stop();
+}
+
+// named_pipe_server_transport::start() docs its `path` param as a Win32
+// pipe name (`\\.\pipe\name`) on native Windows/MSYS2 vs. a file-system
+// Unix-socket path on Linux/macOS -- generate whichever form this platform
+// needs, matching the same `_WIN32 || __CYGWIN__` split as
+// named_pipe_util.hpp itself (MSYS2 is a mingw/Windows-toolchain build, so
+// libuv's uv_pipe_t backs it with a real Win32 named pipe here too, not a
+// Unix domain socket).
+static std::string make_named_pipe_path() {
+  static std::atomic<int> next_id{0};
+  const int id = next_id.fetch_add(1);
+#if defined(_WIN32) || defined(__CYGWIN__)
+  return "\\\\.\\pipe\\bison_test_pipe_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(id);
+#else
+  const std::string path = "/tmp/bison_test_pipe_" + std::to_string(::getpid()) + "_" + std::to_string(id) + ".sock";
+  ::unlink(path.c_str()); // clear any stale socket file left by a crashed prior run
+  return path;
+#endif
+}
+
+// named_pipe_server_transport has no move constructor (unlike
+// socket_server_transport), so -- unlike make_socket_server_transport()
+// above -- this can't be a factory returning by value; each test
+// constructs its own transport in place instead.
+
+// Regression coverage for the accept-path loop mismatch fixed alongside
+// named_pipe_util.hpp: on_new_connection() used to uv_accept() a fresh
+// per-connection uv_pipe_t initialized on its own uv_loop_t instead of the
+// listener's, which trips libuv's `server->loop == client->loop` assertion
+// on every single accepted connection (see src/rmi/DESIGN.md §2).
+TEST(NamedPipeTransport, SendReceivePair) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{path};
+  client_t.open(dynamic{});
+
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  const buffer frame{'H', 'i'};
+  client_t.send(frame);
+
+  buffer received;
+  const bool ok = server_conn->receive(received, std::chrono::milliseconds{500});
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(received, frame);
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+TEST(NamedPipeTransport, ServerToClientSend) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{path};
+  client_t.open(dynamic{});
+
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  const buffer reply{'O', 'K'};
+  server_conn->send(reply);
+
+  buffer got;
+  const bool ok = client_t.receive(got, std::chrono::milliseconds{500});
+  ASSERT_TRUE(ok);
+  EXPECT_EQ(got, reply);
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+TEST(NamedPipeTransport, AcceptTimeoutReturnsNullopt) {
+  named_pipe_server_transport server_transport{make_named_pipe_path()};
+  server_transport.start(dynamic{});
+  auto result = server_transport.accept(std::chrono::milliseconds{50});
+  EXPECT_EQ(result, nullptr);
+  server_transport.stop();
+}
+
+// Exercises on_new_connection() more than once against the same listener
+// loop -- each accepted connection must get its own dedicated loop without
+// disturbing the listener's, or a subsequent accept would also crash.
+TEST(NamedPipeTransport, MultipleSequentialConnections) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+
+  for (int i = 0; i < 3; ++i) {
+    named_pipe_client_transport client_t{path};
+    client_t.open(dynamic{});
+
+    auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+    ASSERT_TRUE(server_conn != nullptr) << "connection #" << i;
+
+    const buffer frame{static_cast<uint8_t>('0' + i)};
+    client_t.send(frame);
+
+    buffer received;
+    ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{500})) << "connection #" << i;
+    EXPECT_EQ(received, frame);
+
+    client_t.shutdown();
+    server_conn->close();
+  }
+
   server_transport.stop();
 }
 
@@ -2151,6 +2269,110 @@ TEST(RmiResponseTrace, ErrorResponseIsTracedAsError) {
                        return static_cast<hash_t>(r.op) == static_cast<hash_t>(OP_INSTANTIATE) && r.is_error;
                      }) != recs.end();
   EXPECT_TRUE(found_error);
+}
+
+// Captures the default-formatted trace lines produced by the base
+// on_request_trace()/on_response_trace() (not overridden here) so the
+// set_trace_payloads() gate can be asserted on the actual strings.
+class PrintCapturingServer : public server {
+ public:
+  explicit PrintCapturingServer(transport::server_transport_iface& t) : server(t) {}
+
+  std::vector<std::string> lines;
+
+ protected:
+  void on_print(bison_key_t /*session_id*/, const std::string& line) override {
+    lines.push_back(line);
+  }
+};
+
+namespace {
+
+// Drives one instantiate + set + get + call against a `Payloaded` object and
+// returns every captured trace line joined by '\n'. `trace_payloads` /
+// `trace_lines`: <0 to leave the server at its default, 0/1 to call
+// set_trace_payloads / set_trace_lines with false/true.
+std::string collect_trace_lines(int trace_payloads, int trace_lines = -1) {
+  clearClassRegistry();
+
+  auto proto = dynamic_ptr{"Payloaded"_key, {{"v"_key, std::string{}}}};
+  proto->addMethod("echo"_key, method{[](dynamic& /*self*/, const dynamic& /*params*/) -> dynamic {
+                     dynamic result;
+                     result["out"_key] = std::string{"RESP_SENTINEL"};
+                     return result;
+                   }});
+  dynamic::addClass(0U, proto, 0U);
+
+  memory_server_transport mt;
+  PrintCapturingServer srv{mt};
+  if (trace_payloads >= 0)
+    srv.set_trace_payloads(trace_payloads != 0);
+  if (trace_lines >= 0)
+    srv.set_trace_lines(trace_lines != 0);
+  srv.listen(dynamic{});
+
+  client c{mt.connect()};
+  c.connect();
+
+  auto proxy = c.instantiate(0U, "Payloaded"_key).get();
+
+  dynamic f;
+  f["v"_key] = std::string{"SET_SENTINEL"};
+  proxy.set(std::move(f)).get();
+  proxy.get().get();
+
+  dynamic params;
+  params["in"_key] = std::string{"ARG_SENTINEL"};
+  proxy.call("echo"_key, std::move(params)).get();
+
+  c.destroy(std::move(proxy));
+  c.disconnect();
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{100});
+  srv.stop();
+
+  std::string joined;
+  for (const auto& l : srv.lines) {
+    joined += l;
+    joined += '\n';
+  }
+  return joined;
+}
+
+} // namespace
+
+TEST(RmiTracePayloads, EnabledIncludesDecodedPayloads) {
+  const std::string out = collect_trace_lines(/*trace_payloads=*/1);
+  EXPECT_NE(out.find("args="), std::string::npos);
+  EXPECT_NE(out.find("ARG_SENTINEL"), std::string::npos);  // call args
+  EXPECT_NE(out.find("SET_SENTINEL"), std::string::npos);  // set value
+  EXPECT_NE(out.find("RESP_SENTINEL"), std::string::npos); // call/get response body
+}
+
+TEST(RmiTracePayloads, DefaultOmitsDecodedPayloadsButKeepsMetadata) {
+  for (int mode : {-1, 0}) { // server default, and explicit false
+    const std::string out = collect_trace_lines(mode);
+    EXPECT_EQ(out.find("args="), std::string::npos) << "mode=" << mode;
+    EXPECT_EQ(out.find("ARG_SENTINEL"), std::string::npos) << "mode=" << mode;
+    EXPECT_EQ(out.find("SET_SENTINEL"), std::string::npos) << "mode=" << mode;
+    EXPECT_EQ(out.find("RESP_SENTINEL"), std::string::npos) << "mode=" << mode;
+    // Envelope metadata (operation label + session id) is still traced.
+    EXPECT_NE(out.find("[rmi] call"), std::string::npos) << "mode=" << mode;
+    EXPECT_NE(out.find("sid=0x"), std::string::npos) << "mode=" << mode;
+  }
+}
+
+TEST(RmiTraceLines, DisabledSuppressesAllTraceOutput) {
+  const std::string out = collect_trace_lines(/*trace_payloads=*/-1, /*trace_lines=*/0);
+  EXPECT_TRUE(out.empty()) << out;
+}
+
+TEST(RmiTraceLines, EnabledIsDefaultAndKeepsMetadata) {
+  for (int mode : {-1, 1}) { // server default, and explicit true
+    const std::string out = collect_trace_lines(/*trace_payloads=*/-1, mode);
+    EXPECT_NE(out.find("[rmi] call"), std::string::npos) << "mode=" << mode;
+    EXPECT_NE(out.find("sid=0x"), std::string::npos) << "mode=" << mode;
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

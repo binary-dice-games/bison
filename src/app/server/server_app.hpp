@@ -46,9 +46,12 @@ namespace bdg::bison::app {
  *                       TLS mode, for `--transport=tls`
  *   - `--ca_file`/`--ca_pem` trust anchor for verifying client certificates,
  *                       required when `--client_auth` is not `none`
- *   - `--verbose`       print one request trace line and one response trace
- *                       line per RMI operation to stdout (open, connect,
- *                       instantiate, call, get, set, destroy, disconnect, …)
+ *   - `--verbose`       trace verbosity: `none` (default) | `info` | `trace`.
+ *                       `info` prints one request + one response trace line
+ *                       per RMI operation to stdout (open, connect,
+ *                       instantiate, call, get, set, destroy, disconnect, …);
+ *                       `trace` also appends decoded payloads. Below `info`
+ *                       the trace hooks are skipped entirely.
  *
  * Run with `--help` to see all available flags.
  *
@@ -139,7 +142,7 @@ class server_app {
 
   /**
    * @brief Called once per formatted verbose trace line when `--verbose` is
-   *        active.
+   *        `info` or `trace`.
    *
    * The default implementation writes @p line followed by `'\n'` to
    * `std::cout` (or, in `--transport=pty` mode, directly to fd 1 with `\r\n`

@@ -136,17 +136,34 @@ class client_app {
   virtual void on_error(const std::string& msg) const;
 
   /**
+   * @brief Return @p raw with transport-specific guidance appended.
+   *
+   * For `--transport=term`, a bare connection failure almost always means
+   * the client was not launched from inside a terminal spawned by a matching
+   * `--transport=term` bison host, so there is no RMI peer on this terminal;
+   * the returned string points the operator at the socket transports. For
+   * every other transport (and when `--transport` is unset/invalid) @p raw
+   * is returned unchanged.
+   *
+   * @param raw Underlying error message (e.g. from a caught exception).
+   * @return @p raw, possibly with an extra guidance line appended.
+   */
+  std::string connect_failure_hint(const std::string& raw) const;
+
+  /**
    * @brief Take ownership of @p transport, connect, call hooks, run session,
    *        then disconnect.
    *
    * Subclasses that control transport construction call this directly
    * instead of going through `run()`.
    *
-   * Does NOT catch exceptions — the caller (`run()` or the subclass override)
-   * is responsible for catching and routing them to `on_error()`.
+   * A failure in `connect()` is caught here, routed to `on_error()` (with
+   * `connect_failure_hint()` applied), and reported as a return value of 1.
+   * Exceptions from `on_session()` are NOT caught — the caller (`run()` or
+   * the subclass override) routes those to `on_error()`.
    *
    * @param transport  Heap-allocated transport to take ownership of.
-   * @return Return value of `on_session()`.
+   * @return Return value of `on_session()`, or 1 if `connect()` failed.
    */
   virtual int run_with_transport(std::unique_ptr<rmi::transport::client_transport_iface> transport);
 
