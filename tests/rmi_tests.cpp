@@ -1652,6 +1652,7 @@ class hook_tracking_standalone : public standalone {
   std::atomic<int> create_object_calls{0};
   std::atomic<int> before_dispatch_calls{0};
   std::atomic<int> after_dispatch_calls{0};
+  std::atomic<hash_t> last_after_dispatch_op{0};
 
  protected:
   void on_session_created(context& ctx) override {
@@ -1670,8 +1671,9 @@ class hook_tracking_standalone : public standalone {
     (void)ctx;
     ++before_dispatch_calls;
   }
-  void on_after_dispatch(context& ctx) noexcept override {
+  void on_after_dispatch(context& ctx, bison_key_t op) noexcept override {
     (void)ctx;
+    last_after_dispatch_op.store(static_cast<hash_t>(op));
     ++after_dispatch_calls;
   }
 };
@@ -1716,6 +1718,30 @@ TEST_F(StandaloneTests, DispatchHooksBracketEveryOperation) {
   sa.destroy(std::move(proxy));
   EXPECT_EQ(sa.before_dispatch_calls.load(), sa.after_dispatch_calls.load());
   EXPECT_EQ(sa.create_object_calls.load(), 1); // destroy does not re-create
+}
+
+TEST_F(StandaloneTests, AfterDispatchReceivesTheOperation) {
+  auto proto = dynamic_ptr{"OpTracked"_key, {{"v"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  hook_tracking_standalone sa;
+
+  auto proxy = sa.instantiate(0U, "OpTracked"_key).get();
+  EXPECT_EQ(sa.last_after_dispatch_op.load(), static_cast<hash_t>(OP_INSTANTIATE));
+
+  dynamic fields;
+  fields["v"_key] = int32_t{7};
+  proxy.set(std::move(fields)).get();
+  EXPECT_EQ(sa.last_after_dispatch_op.load(), static_cast<hash_t>(OP_SET));
+
+  proxy.get().get();
+  EXPECT_EQ(sa.last_after_dispatch_op.load(), static_cast<hash_t>(OP_GET));
+
+  sa.get_help().get();
+  EXPECT_EQ(sa.last_after_dispatch_op.load(), static_cast<hash_t>(OP_HELP));
+
+  sa.destroy(std::move(proxy));
+  EXPECT_EQ(sa.last_after_dispatch_op.load(), static_cast<hash_t>(OP_DESTROY));
 }
 
 // A hook that calls back into instantiate().get() from within

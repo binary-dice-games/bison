@@ -436,9 +436,14 @@ class server {
    * `on_before_dispatch`.
    *
    * @param ctx Session context for the request, or being torn down.
+   * @param op  The request's operation (`OP_GET`, `OP_SET`, `OP_CALL`, ...)
+   *            so an override can tell a read-only request apart from one
+   *            that may have mutated session state. `OP_DESTROY` for the
+   *            session-teardown bracket (which has no request envelope).
    */
-  virtual void on_after_dispatch(context& ctx) noexcept {
+  virtual void on_after_dispatch(context& ctx, bison::key_t op) noexcept {
     (void)ctx;
+    (void)op;
   }
 
   /**

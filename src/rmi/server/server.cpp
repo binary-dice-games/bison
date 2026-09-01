@@ -449,9 +449,9 @@ void server::service_session(session_slot& slot) {
   on_before_dispatch(ctx);
   try {
     handle_request(ctx, env, *slot.conn);
-    on_after_dispatch(ctx);
+    on_after_dispatch(ctx, env.op);
   } catch (const std::exception& e) {
-    on_after_dispatch(ctx);
+    on_after_dispatch(ctx, env.op);
     try {
       send_error(ctx, *slot.conn, env, env.op, ERR_INVALID_REQUEST, e.what());
     } catch (...) {
@@ -480,7 +480,7 @@ void server::teardown_session(session_slot& slot) {
     on_before_dispatch(ctx);
     on_session_destroyed(ctx);
     cleanup_context(ctx);
-    on_after_dispatch(ctx);
+    on_after_dispatch(ctx, OP_DESTROY);
   }
 
   // Unregister and clear emit_event to prevent dangling references to conn.

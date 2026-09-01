@@ -353,9 +353,13 @@ class standalone : public proxy_backend {
    * `on_before_dispatch`.
    *
    * @param ctx The standalone session's context.
+   * @param op  The operation that ran (`OP_GET`, `OP_SET`, `OP_CALL`, ...),
+   *            so an override can tell a read-only operation apart from one
+   *            that may have mutated session state.
    */
-  virtual void on_after_dispatch(context& ctx) noexcept {
+  virtual void on_after_dispatch(context& ctx, bison::key_t op) noexcept {
     (void)ctx;
+    (void)op;
   }
 
  private:
@@ -409,11 +413,15 @@ class standalone : public proxy_backend {
    *
    * Obtains a stable `context&` via a brief `ctx_` lock that is released
    * before the hooks or @p work run, then calls `on_before_dispatch(ctx)`,
-   * runs @p work, and calls `on_after_dispatch(ctx)` -- even if @p work
+   * runs @p work, and calls `on_after_dispatch(ctx, op)` -- even if @p work
    * throws.  Called from the worker thread for every queued operation
    * (`instantiate` and each `send_request` op).
+   *
+   * @param op   The operation being dispatched, forwarded to
+   *             `on_after_dispatch`.
+   * @param work The operation body.
    */
-  bison::dynamic dispatch(const std::function<bison::dynamic()>& work);
+  bison::dynamic dispatch(bison::key_t op, const std::function<bison::dynamic()>& work);
 
   // ── State ─────────────────────────────────────────────────────────────────
 

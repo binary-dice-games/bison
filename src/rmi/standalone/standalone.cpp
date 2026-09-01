@@ -208,13 +208,13 @@ void standalone::connect(bison::dynamic /*params*/) {
 /** @copydoc bdg::bison::rmi::standalone::describe */
 std::future<bison::dynamic> standalone::describe(bison::key_t ns, bison::key_t klass) {
   return enqueue([this, ns, klass]() -> bison::dynamic {
-    return dispatch([this, ns, klass]() -> bison::dynamic { return handle_describe(ns, klass); });
+    return dispatch(OP_DESCRIBE, [this, ns, klass]() -> bison::dynamic { return handle_describe(ns, klass); });
   });
 }
 
 std::future<proxy::dynamic> standalone::instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params) {
   auto f = enqueue([this, ns, klass, params = std::move(params)]() mutable -> bison::dynamic {
-    return dispatch([this, ns, klass, &params]() -> bison::dynamic {
+    return dispatch(OP_INSTANTIATE, [this, ns, klass, &params]() -> bison::dynamic {
       return handle_instantiate(ns, klass, std::move(params));
     });
   });
@@ -239,7 +239,7 @@ void standalone::destroy(proxy::dynamic&& proxy) {
 /** @copydoc bdg::bison::rmi::standalone::destroy_object */
 void standalone::destroy_object(bison::key_t object_id) {
   enqueue([this, object_id]() -> bison::dynamic {
-    return dispatch([this, object_id]() -> bison::dynamic { return handle_destroy(object_id); });
+    return dispatch(OP_DESTROY, [this, object_id]() -> bison::dynamic { return handle_destroy(object_id); });
   }).get();
 }
 
@@ -260,19 +260,21 @@ void standalone::disconnect() {
 
 /** @copydoc bdg::bison::rmi::standalone::get_dictionary */
 std::future<bison::dynamic> standalone::get_dictionary() {
-  return enqueue([this]() -> bison::dynamic { return dispatch([this]() -> bison::dynamic { return handle_dictionary(); }); });
+  return enqueue(
+      [this]() -> bison::dynamic { return dispatch(OP_DICTIONARY, [this]() -> bison::dynamic { return handle_dictionary(); }); });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::get_help */
 std::future<bison::dynamic> standalone::get_help() {
-  return enqueue([this]() -> bison::dynamic { return dispatch([this]() -> bison::dynamic { return handle_help(); }); });
+  return enqueue(
+      [this]() -> bison::dynamic { return dispatch(OP_HELP, [this]() -> bison::dynamic { return handle_help(); }); });
 }
 
 /** @copydoc bdg::bison::rmi::standalone::send_request */
 std::future<bison::dynamic>
 standalone::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic payload, bool oneway) {
   return enqueue([this, op, object_id, payload = std::move(payload), oneway]() mutable -> bison::dynamic {
-    return dispatch([this, op, object_id, &payload, oneway]() -> bison::dynamic {
+    return dispatch(op, [this, op, object_id, &payload, oneway]() -> bison::dynamic {
       if (op == OP_CLEAR) {
         return handle_clear(object_id);
       }
@@ -372,7 +374,7 @@ void standalone::stop_worker() {
  * Called from the worker thread. Obtains a stable context& via a brief
  * ctx_ lock released before the hooks or @p work run.
  */
-bison::dynamic standalone::dispatch(const std::function<bison::dynamic()>& work) {
+bison::dynamic standalone::dispatch(bison::key_t op, const std::function<bison::dynamic()>& work) {
   context* ctx_ptr;
   {
     auto lp = ctx_.wlock();
@@ -381,10 +383,10 @@ bison::dynamic standalone::dispatch(const std::function<bison::dynamic()>& work)
   on_before_dispatch(*ctx_ptr);
   try {
     bison::dynamic result = work();
-    on_after_dispatch(*ctx_ptr);
+    on_after_dispatch(*ctx_ptr, op);
     return result;
   } catch (...) {
-    on_after_dispatch(*ctx_ptr);
+    on_after_dispatch(*ctx_ptr, op);
     throw;
   }
 }

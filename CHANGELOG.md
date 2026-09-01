@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `rmi::server::on_after_dispatch` and `rmi::standalone::on_after_dispatch` now take a second `bison::key_t op` argument (the dispatched operation, `OP_DESTROY` for the session-teardown bracket) so overrides can distinguish read-only requests from mutating ones. Overrides must add the parameter.
+
 - Request/response trace lines now omit decoded payloads by default, showing only envelope metadata (operation, session id, object id, method). Pass `--verbose=trace` to `bison-cli`/other server apps, or call `rmi::server::set_trace_payloads(true)`, to restore the full payloads.
 
 - `--verbose` on server apps is now a verbosity level (`none` | `info` | `trace`, default `none`) instead of a boolean flag. `none` skips the trace hooks entirely, `info` prints envelope-metadata trace lines, `trace` also includes decoded payloads.
