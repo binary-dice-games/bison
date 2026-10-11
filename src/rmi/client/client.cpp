@@ -178,17 +178,6 @@ client::send_request(bison::key_t op, bison::key_t object_id, bison::dynamic pay
 /** @copydoc bdg::bison::rmi::client::send_request_with_group */
 std::future<bison::dynamic> client::send_request_with_group(
     bison::key_t op, bison::key_t object_id, bison::key_t group, bison::dynamic payload, bool oneway) {
-  // Once the worker loop has stopped (disconnect detected, or shutdown in
-  // progress), fail new non-oneway requests immediately instead of queuing
-  // them into pending_: fail_all_pending() already ran and won't run again,
-  // so nothing would ever resolve a promise inserted after that point --
-  // the caller's future::get() would block forever.
-  if (!oneway && !running_.load(std::memory_order_acquire)) {
-    std::promise<bison::dynamic> promise;
-    promise.set_exception(make_transport_error(ERR_TRANSPORT_ERROR, "Client disconnected"));
-    return promise.get_future();
-  }
-
   const bison::key_t request_id = shared::generate_id();
   auto frame = [&]() {
     shared::envelope env;
@@ -211,7 +200,22 @@ std::future<bison::dynamic> client::send_request_with_group(
 
   std::promise<bison::dynamic> promise;
   auto future = promise.get_future();
-  pending_.wlock()->operator[](request_id.id) = std::move(promise);
+  {
+    auto lp = pending_.wlock();
+    // Once the worker loop has stopped (disconnect detected, or shutdown in
+    // progress), fail new requests immediately instead of queuing them:
+    // nothing would resolve a promise inserted after the last
+    // fail_all_pending(), and the caller's future::get() would block
+    // forever. Checked under pending_'s lock, because every
+    // fail_all_pending() runs after running_ turned false and takes this
+    // lock: a request either sees running_ false here, or is inserted
+    // before that final sweep and failed by it.
+    if (!running_.load(std::memory_order_acquire)) {
+      promise.set_exception(make_transport_error(ERR_TRANSPORT_ERROR, "Client disconnected"));
+      return future;
+    }
+    (*lp)[request_id.id] = std::move(promise);
+  }
   try {
     transport_.withRLock([&](auto& t) { t->send(std::move(frame)); });
   } catch (...) {

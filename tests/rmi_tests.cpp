@@ -16,9 +16,11 @@
 
 #include <atomic>
 #include <chrono>
+#include <future>
 #include <shared_mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace bdg::bison;
 using namespace bdg::bison::rmi;
@@ -605,6 +607,43 @@ TEST_F(RmiE2E, RequestAfterDisconnectFailsFastInsteadOfHanging) {
   ASSERT_EQ(fut.wait_for(std::chrono::milliseconds{500}), std::future_status::ready)
       << "request issued after disconnect must fail immediately, not hang";
   EXPECT_THROW(fut.get(), std::runtime_error);
+}
+
+// Regression test: a request racing disconnect() must still be resolved. The
+// request used to check running_ and only then insert its promise into
+// pending_, so a disconnect that ran its final fail_all_pending() in between
+// left that promise unresolved and the caller's future::get() blocked
+// forever.
+TEST_F(RmiE2E, RequestsRacingDisconnectAreAllResolved) {
+  for (int round = 0; round < 50; ++round) {
+    auto c = make_client();
+    c.connect();
+    std::atomic<bool> stop{false};
+    std::vector<std::vector<std::future<dynamic>>> futures(4);
+    std::vector<std::thread> senders;
+    for (auto& mine : futures) {
+      senders.emplace_back([&c, &stop, &mine] {
+        while (!stop.load()) {
+          try {
+            mine.push_back(c.send_request(OP_GET, bison_key_t{1u}, dynamic{}, false));
+          } catch (...) {
+          }
+        }
+      });
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    c.disconnect();
+    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    stop.store(true);
+    for (auto& t : senders)
+      t.join();
+    for (auto& mine : futures) {
+      for (auto& fut : mine) {
+        ASSERT_EQ(fut.wait_for(std::chrono::seconds{5}), std::future_status::ready)
+            << "a request racing disconnect() was never resolved (round " << round << ")";
+      }
+    }
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
