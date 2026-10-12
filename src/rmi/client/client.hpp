@@ -198,6 +198,15 @@ class client : public proxy_backend {
   void destroy(proxy::dynamic&& proxy);
 
   /**
+   * @brief `true` from connect() until disconnect(), or until the server
+   *        closed the connection (for transports that report it, see
+   *        `client_transport_iface::is_connected()`).
+   */
+  bool is_connected() const {
+    return running_.load();
+  }
+
+  /**
    * @brief Gracefully disconnect from the server and stop worker threads.
    *
    * Also completes the teardown after the server closed the connection

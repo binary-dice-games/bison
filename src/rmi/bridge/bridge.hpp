@@ -125,6 +125,15 @@ class bridge : public server {
   /** @brief Stop the downstream accept loop and disconnect from upstream. */
   void stop();
 
+  /**
+   * @brief `false` once the upstream server closed the connection (and
+   *        before start() / after stop()). An application can poll this to
+   *        shut down when its upstream server is gone.
+   */
+  bool upstream_connected() const {
+    return upstream_client_.is_connected();
+  }
+
  protected:
   /**
    * @brief Called after a downstream client session is registered.

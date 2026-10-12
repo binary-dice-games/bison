@@ -8,6 +8,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <string>
 #include <thread>
 
 using namespace bdg::bison;
@@ -524,6 +526,41 @@ TEST_F(BridgeTest, DisconnectDestroysObjectsCreatedIndirectlyByAMethodCall) {
 // ═════════════════════════════════════════════════════════════════════════════
 // 9. CALL_FALLBACK constant is backward-compatible
 // ═════════════════════════════════════════════════════════════════════════════
+
+// A bridge must notice its upstream server going away (wish desktop exits
+// on it). Uses a pipe upstream: the in-memory test transport does not report
+// is_connected().
+TEST(BridgeUpstream, UpstreamClientNoticesTheServerGoingAway) {
+  clearClassRegistry();
+  register_all_schemas();
+  const std::string name =
+#if defined(_WIN32) || defined(__CYGWIN__)
+      "\\\\.\\pipe\\bison_bridge_upstream_" + std::to_string(generate_id().id);
+#else
+      "/tmp/bison_bridge_upstream_" + std::to_string(generate_id().id) + ".sock";
+#endif
+  auto upstream_transport = std::make_unique<named_pipe_server_transport>(name);
+  auto upstream_srv = std::make_unique<server>(*upstream_transport);
+  upstream_srv->listen();
+
+  memory_server_transport downstream_transport;
+  bridge br{downstream_transport, std::make_unique<named_pipe_client_transport>(name)};
+  br.start();
+  EXPECT_TRUE(br.upstream_connected());
+
+  upstream_srv->stop();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (br.upstream_connected() && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  EXPECT_FALSE(br.upstream_connected());
+
+  br.stop();
+  upstream_srv.reset();
+  upstream_transport.reset();
+#if !defined(_WIN32) && !defined(__CYGWIN__)
+  std::remove(name.c_str());
+#endif
+}
 
 TEST(CallFallback, KnownMethodTakesPriorityOverFallback) {
   clearClassRegistry();
