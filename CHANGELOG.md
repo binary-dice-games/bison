@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--transport=pipe` (named-pipe / Unix-socket RMI transport): the server crashed on every incoming connection with a libuv assertion failure (`uv_accept: Assertion 'server->loop == client->loop' failed`).
 - `named_pipe_client_transport::open()` no longer hangs when the connect fails immediately, and a failed `named_pipe_server_transport::start()` no longer leaks its event loop.
 - `named_pipe_server_transport`: accepting a connection no longer touches freed stack memory.
+- `named_pipe_server_transport`: `stop()` no longer frees state that a concurrent `accept()` (e.g. `rmi::server`'s accept loop during `server::stop()`) is still using, which could crash on shutdown; the transport can also be started again after `stop()`.
 
 ## [1.0.0] - 2026-08-27
 

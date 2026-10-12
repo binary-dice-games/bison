@@ -455,6 +455,25 @@ TEST(NamedPipeTransport, ClientOpenFailsWithoutServerThenSucceedsLater) {
   server_transport.stop();
 }
 
+// rmi::server stops its transport while its accept loop may still be
+// inside accept() on another thread; that must not touch freed state.
+TEST(NamedPipeTransport, StopWhileAnotherThreadIsInAcceptIsSafe) {
+  for (int i = 0; i < 20; ++i) {
+    named_pipe_server_transport server_transport{make_named_pipe_path()};
+    server_transport.start(dynamic{});
+    std::atomic<bool> done{false};
+    std::thread acceptor([&] {
+      while (!done.load())
+        (void)server_transport.accept(std::chrono::milliseconds{5});
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    server_transport.stop();
+    EXPECT_EQ(server_transport.accept(std::chrono::milliseconds{50}), nullptr);
+    done.store(true);
+    acceptor.join();
+  }
+}
+
 #if defined(__linux__)
 // Linux abstract-namespace sockets, named `@name`.
 static std::string make_abstract_pipe_name() {
@@ -502,6 +521,21 @@ TEST(NamedPipeTransport, AbstractSocketIsExclusiveAndReleasedOnStop) {
   named_pipe_server_transport again{name};
   EXPECT_NO_THROW(again.start(dynamic{}));
   again.stop();
+}
+
+TEST(NamedPipeTransport, AbstractSocketServerRestartsAfterStop) {
+  const std::string name = make_abstract_pipe_name();
+  named_pipe_server_transport server_transport{name};
+  server_transport.start(dynamic{});
+  server_transport.stop();
+  server_transport.start(dynamic{});
+
+  named_pipe_client_transport client_t{name};
+  client_t.open(dynamic{});
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  EXPECT_NE(server_conn, nullptr);
+  client_t.shutdown();
+  server_transport.stop();
 }
 
 TEST(NamedPipeTransport, AbstractSocketConnectWithoutServerFails) {

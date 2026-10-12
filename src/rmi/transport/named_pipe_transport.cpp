@@ -242,8 +242,9 @@ named_pipe_server_transport::~named_pipe_server_transport() {
 }
 
 void named_pipe_server_transport::start(bison::dynamic /*params*/) {
-  if (state_)
+  if (state_ && !stopped_.load())
     return; // already started
+  state_.reset(); // left behind by a previous stop()
 
   auto ss = std::make_unique<named_pipe_server_state>();
   uv_loop_init(&ss->loop);
@@ -289,7 +290,7 @@ void named_pipe_server_transport::start(bison::dynamic /*params*/) {
 
 std::unique_ptr<server_connection_iface> named_pipe_server_transport::accept(
     std::chrono::milliseconds timeout) {
-  if (!state_)
+  if (!state_ || stopped_.load())
     return nullptr;
   if (!state_->accept_queue.wait_for(timeout,
                                      [this](auto& q) { return !q.empty() || stopped_.load(); }))
@@ -310,7 +311,11 @@ void named_pipe_server_transport::stop() {
   uv_async_send(&state_->stop_async);
   if (state_->loop_thread.joinable())
     state_->loop_thread.join();
-  state_.reset();
+  // state_ is kept until the next start() or destruction: another thread
+  // may still be inside accept(), waiting on state_->accept_queue (as
+  // rmi::server's accept loop is while server::stop() runs). It sees
+  // stopped_ and returns nullptr.
+  state_->accept_queue.notify_all();
 }
 
 } // namespace bdg::bison::rmi::transport
