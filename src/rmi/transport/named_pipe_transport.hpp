@@ -12,6 +12,16 @@
  * - **Linux / macOS** — Unix domain socket (`AF_UNIX`, `SOCK_STREAM`).
  *   Semantics are identical to the socket transport but scoped to the
  *   local machine and addressed by a file-system path.
+ * - **Linux only** — a name starting with `@` (e.g. `@wish-desktop`) is an
+ *   abstract-namespace Unix socket: it has no file-system entry, so nothing
+ *   is left behind after a crash, and the kernel releases the name as soon
+ *   as the listening process exits.
+ *
+ * Only one process can listen on a given name at a time (on Windows the
+ * first pipe instance is created with `FILE_FLAG_FIRST_PIPE_INSTANCE`), so
+ * `named_pipe_server_transport::start()` throws `address_in_use_error`
+ * while another process holds it. With an abstract socket or a Windows pipe
+ * this makes the name usable as a single-instance lock.
  *
  * Framing: same 4-byte big-endian length prefix as `pipe_transport` and
  * `stream_transport`.
@@ -24,9 +34,22 @@
 #include <atomic>
 #include <chrono>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace bdg::bison::rmi::transport {
+
+/**
+ * @brief Thrown by `named_pipe_server_transport::start()` when another
+ *        endpoint is already listening on the requested name.
+ *
+ * On Linux this is also thrown for a stale socket *file* left by a crashed
+ * process; abstract `@name` sockets never leave one.
+ */
+class address_in_use_error : public std::runtime_error {
+ public:
+  using std::runtime_error::runtime_error;
+};
 
 /** @brief Opaque connection state (platform-specific; defined in .cpp). */
 struct named_pipe_conn;
@@ -80,6 +103,7 @@ class named_pipe_server_connection : public server_connection_iface {
  *
  * @param path  On Windows: full pipe path (`\\.\pipe\name`).
  *              On Linux/macOS: file-system socket path (`/tmp/wish.sock`).
+ *              On Linux also `@name` for an abstract-namespace socket.
  */
 class named_pipe_client_transport : public client_transport_iface {
  public:
@@ -128,6 +152,7 @@ class named_pipe_client_transport : public client_transport_iface {
  *
  * @param path  On Windows: full pipe path (`\\.\pipe\name`).
  *              On Linux/macOS: file-system socket path (`/tmp/wish.sock`).
+ *              On Linux also `@name` for an abstract-namespace socket.
  */
 class named_pipe_server_transport : public server_transport_iface {
  public:
@@ -137,7 +162,12 @@ class named_pipe_server_transport : public server_transport_iface {
   named_pipe_server_transport(const named_pipe_server_transport&) = delete;
   named_pipe_server_transport& operator=(const named_pipe_server_transport&) = delete;
 
-  /** @brief Open the listening endpoint. */
+  /**
+   * @brief Open the listening endpoint. Does nothing if already started.
+   * @throws address_in_use_error if another endpoint already listens on
+   *         the name.
+   * @throws std::runtime_error on any other bind or listen failure.
+   */
   void start(bison::dynamic params) override;
 
   /**

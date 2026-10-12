@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <future>
 #include <shared_mutex>
 #include <string>
@@ -421,6 +422,93 @@ TEST(NamedPipeTransport, MultipleSequentialConnections) {
 
   server_transport.stop();
 }
+
+// Only one endpoint may listen on a name; the second start() must report it
+// with the dedicated error type so callers can use the name as a lock.
+TEST(NamedPipeTransport, SecondServerOnSameNameThrowsAddressInUse) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport first{path};
+  first.start(dynamic{});
+
+  named_pipe_server_transport second{path};
+  EXPECT_THROW(second.start(dynamic{}), address_in_use_error);
+
+  first.stop();
+}
+
+// A failed open() must leave the transport reusable, so a client can keep
+// retrying until a server appears.
+TEST(NamedPipeTransport, ClientOpenFailsWithoutServerThenSucceedsLater) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_client_transport client_t{path};
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  client_t.open(dynamic{});
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+#if defined(__linux__)
+// Linux abstract-namespace sockets, named `@name`.
+static std::string make_abstract_pipe_name() {
+  static std::atomic<int> next_id{0};
+  return "@bison_test_abstract_" + std::to_string(::getpid()) + "_" + std::to_string(next_id.fetch_add(1));
+}
+
+TEST(NamedPipeTransport, AbstractSocketSendReceive) {
+  const std::string name = make_abstract_pipe_name();
+  named_pipe_server_transport server_transport{name};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{name};
+  client_t.open(dynamic{});
+
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  const buffer frame{'H', 'i'};
+  client_t.send(frame);
+  buffer received;
+  ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{500}));
+  EXPECT_EQ(received, frame);
+
+  // No file-system entry is created for an abstract name.
+  EXPECT_FALSE(std::filesystem::exists(name));
+  EXPECT_FALSE(std::filesystem::exists(name.substr(1)));
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+TEST(NamedPipeTransport, AbstractSocketIsExclusiveAndReleasedOnStop) {
+  const std::string name = make_abstract_pipe_name();
+  {
+    named_pipe_server_transport first{name};
+    first.start(dynamic{});
+    named_pipe_server_transport second{name};
+    EXPECT_THROW(second.start(dynamic{}), address_in_use_error);
+    first.stop();
+  }
+
+  // Unlike a socket file, the name is free again as soon as the listener
+  // closes, with no cleanup by the caller.
+  named_pipe_server_transport again{name};
+  EXPECT_NO_THROW(again.start(dynamic{}));
+  again.stop();
+}
+
+TEST(NamedPipeTransport, AbstractSocketConnectWithoutServerFails) {
+  named_pipe_client_transport client_t{make_abstract_pipe_name()};
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+}
+#endif
 
 TEST(MemoryTransport, SendReceivePair) {
   memory_server_transport server_transport;

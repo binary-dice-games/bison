@@ -64,6 +64,7 @@ All transport I/O is implemented using **libuv** (`extern/libuv`, static target 
 - libuv handles OS differences transparently: process spawning, TTY raw mode, and socket I/O.
 - The only permitted `#ifdef` in transport code is for narrow, single-line differences, not a behavioral split.
 - `socket_transport.cpp`'s and `named_pipe_transport.cpp`'s descriptor-duplication step (see §2) is the one narrow, inline `#ifdef` exception, since POSIX `dup()`/native-Windows `DuplicateHandle()`/`WSADuplicateSocketW()` have no libuv-portable equivalent; every other transport needs no platform-specific code at all because libuv covers the rest of their I/O.
+- `named_pipe_transport.cpp` has one more single-line `#if defined(__linux__)`: a name starting with `@` is mapped to libuv's leading-NUL form for a Linux abstract-namespace socket. Abstract sockets leave no file behind and are released by the kernel when the listener exits, so, like a Windows named pipe (whose first instance libuv creates with `FILE_FLAG_FIRST_PIPE_INSTANCE`), the name works as a crash-safe single-instance lock: a second `start()` throws `address_in_use_error`. Other platforms have no abstract namespace, so the mapping is not applied there.
 
 ### 3.3 libuv Dependency
 

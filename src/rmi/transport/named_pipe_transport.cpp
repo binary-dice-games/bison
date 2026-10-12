@@ -26,6 +26,22 @@ namespace bdg::bison::rmi::transport {
 
 using pipe_conn_state = uv_stream_state<uv_pipe_t>;
 
+/**
+ * @brief Name in the form libuv expects: on Linux a leading `@` (the
+ *        abstract-namespace notation `ss` and systemd use) becomes the
+ *        leading NUL byte libuv takes for abstract sockets.
+ *
+ * Pass the result to `uv_pipe_bind2()`/`uv_pipe_connect2()` with its
+ * `size()`: it may contain a NUL, so it cannot go through `c_str()`.
+ */
+static std::string native_pipe_name(const std::string& path) {
+#if defined(__linux__)
+  if (!path.empty() && path[0] == '@')
+    return std::string(1, '\0') + path.substr(1);
+#endif
+  return path;
+}
+
 // ── named_pipe_conn ────────────────────────────────────────────────────────────
 
 /** @brief Connection-state bundle; one instance per open connection. */
@@ -73,14 +89,20 @@ void named_pipe_server_state::on_new_connection(uv_stream_t* server, int status)
   // handle on the listener's own loop, then hand a duplicate of the
   // underlying pipe fd/HANDLE off to a fresh handle on the connection's own
   // loop via uv_pipe_open().
-  uv_pipe_t temp{};
-  uv_pipe_init(&ss->loop, &temp, 0);
-  if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&temp)) != 0) {
-    uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+  //
+  // The temporary handle lives on the heap: uv_close() finishes on a later
+  // loop iteration, after this function has returned.
+  auto* temp = new uv_pipe_t{};
+  uv_pipe_init(&ss->loop, temp, 0);
+  auto close_temp = [temp] {
+    uv_close(reinterpret_cast<uv_handle_t*>(temp), [](uv_handle_t* h) { delete reinterpret_cast<uv_pipe_t*>(h); });
+  };
+  if (uv_accept(server, reinterpret_cast<uv_stream_t*>(temp)) != 0) {
+    close_temp();
     return;
   }
-  const uv_file dup_fd = duplicate_pipe_handle(&temp);
-  uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+  const uv_file dup_fd = duplicate_pipe_handle(temp);
+  close_temp();
   if (dup_fd < 0)
     return;
 
@@ -161,15 +183,25 @@ void named_pipe_client_transport::open(bison::dynamic /*params*/) {
 
   uv_connect_t connect_req{};
   connect_req.data = &ctx;
-  uv_pipe_connect(&connect_req, &cs->handle, path_.c_str(), [](uv_connect_t* req, int status) {
-    auto* c = static_cast<connect_ctx*>(req->data);
-    c->status = status;
-    c->done = true;
-  });
+  const std::string name = native_pipe_name(path_);
+  // A synchronous error (e.g. an invalid name) is returned without ever
+  // invoking the callback, so record it here or the loop below never ends.
+  const int r =
+      uv_pipe_connect2(&connect_req, &cs->handle, name.data(), name.size(), 0, [](uv_connect_t* req, int status) {
+        auto* c = static_cast<connect_ctx*>(req->data);
+        c->status = status;
+        c->done = true;
+      });
+  if (r != 0) {
+    ctx.status = r;
+    ctx.done = true;
+  }
 
   while (!ctx.done)
     uv_run(&cs->loop, UV_RUN_NOWAIT);
 
+  // On failure, ~uv_stream_state() releases the handle and the loop
+  // (init_asyncs() has not run yet).
   if (ctx.status != 0)
     throw std::runtime_error(
         std::string{"named_pipe_client_transport::open: connect to '"} + path_ + "': " + uv_strerror(ctx.status));
@@ -220,14 +252,31 @@ void named_pipe_server_transport::start(bison::dynamic /*params*/) {
   uv_async_init(&ss->loop, &ss->stop_async, named_pipe_server_state::on_stop);
   ss->stop_async.data = ss.get();
 
-  int r = uv_pipe_bind(&ss->listener, path_.c_str());
-  if (r != 0)
-    throw std::runtime_error(
-        std::string{"named_pipe_server_transport::start: uv_pipe_bind '"} + path_ + "': " + uv_strerror(r));
+  // On failure, close the handles and the loop before throwing, so a
+  // caller probing a name (e.g. a single-instance check) leaks nothing.
+  auto release = [&ss] {
+    uv_close(reinterpret_cast<uv_handle_t*>(&ss->listener), nullptr);
+    uv_close(reinterpret_cast<uv_handle_t*>(&ss->stop_async), nullptr);
+    uv_run(&ss->loop, UV_RUN_DEFAULT);
+    uv_loop_close(&ss->loop);
+  };
+
+  const std::string name = native_pipe_name(path_);
+  int r = uv_pipe_bind2(&ss->listener, name.data(), name.size(), 0);
+  if (r != 0) {
+    release();
+    const std::string msg =
+        std::string{"named_pipe_server_transport::start: uv_pipe_bind '"} + path_ + "': " + uv_strerror(r);
+    if (r == UV_EADDRINUSE)
+      throw address_in_use_error(msg);
+    throw std::runtime_error(msg);
+  }
 
   r = uv_listen(reinterpret_cast<uv_stream_t*>(&ss->listener), 128, named_pipe_server_state::on_new_connection);
-  if (r != 0)
+  if (r != 0) {
+    release();
     throw std::runtime_error(std::string{"named_pipe_server_transport::start: uv_listen: "} + uv_strerror(r));
+  }
 
   stopped_.store(false);
   state_ = std::move(ss);

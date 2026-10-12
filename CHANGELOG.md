@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rmi::server::set_trace_lines(bool)`: when `false`, skip the request/response trace hooks entirely so the trace string is never formatted. Default `true` (unchanged behavior).
 - Rust language bindings (`bindings/rust/`).
 - Go language bindings (`bindings/go/`).
+- `named_pipe_*_transport`: on Linux, a name starting with `@` is an abstract-namespace socket (no socket file, released when the process exits).
+- `named_pipe_server_transport::start()` throws `address_in_use_error` when another endpoint already listens on the name.
 
 ### Changed
 
@@ -28,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `rmi::client`: a request sent while the client was disconnecting could be left unresolved, blocking its `future::get()` forever; it now fails with a transport error.
 - `--transport=pipe` (named-pipe / Unix-socket RMI transport): the server crashed on every incoming connection with a libuv assertion failure (`uv_accept: Assertion 'server->loop == client->loop' failed`).
+- `named_pipe_client_transport::open()` no longer hangs when the connect fails immediately, and a failed `named_pipe_server_transport::start()` no longer leaks its event loop.
+- `named_pipe_server_transport`: accepting a connection no longer touches freed stack memory.
 
 ## [1.0.0] - 2026-08-27
 
