@@ -606,6 +606,77 @@ TEST(NamedPipeTransport, AbstractSocketConnectWithoutServerFails) {
 }
 #endif
 
+// ── Session cleanup when the client goes away ──────────────────────────────
+//
+// A client process that dies (or a connection that drops) never sends
+// OP_DISCONNECT; the server must still tear its session down once the
+// connection reports the peer's EOF.
+
+class session_counting_server : public server {
+ public:
+  using server::server;
+  bdg::bison::synchronized<int> created{0};
+  bdg::bison::synchronized<int> destroyed{0};
+
+ protected:
+  void on_session_created(context&) override {
+    created.withWLock([](int& n) { ++n; });
+    created.notify_all();
+  }
+  void on_session_destroyed(context&) override {
+    destroyed.withWLock([](int& n) { ++n; });
+    destroyed.notify_all();
+  }
+};
+
+namespace {
+bool wait_for_count(bdg::bison::synchronized<int>& counter, int n) {
+  return counter.wait_for(std::chrono::seconds{5}, [n](int& v) { return v >= n; });
+}
+} // namespace
+
+TEST(ServerSessionCleanup, PipeClientThatVanishesIsDropped) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  session_counting_server srv{server_transport};
+  srv.listen(dynamic{});
+
+  named_pipe_client_transport raw{path};
+  raw.open(dynamic{});
+  ASSERT_TRUE(wait_for_count(srv.created, 1));
+  raw.shutdown(); // no OP_DISCONNECT, as when the client process is killed
+  EXPECT_TRUE(wait_for_count(srv.destroyed, 1));
+  srv.stop();
+}
+
+TEST(ServerSessionCleanup, TcpClientThatVanishesIsDropped) {
+  static std::atomic<uint16_t> next_port{static_cast<uint16_t>(29000 + (generate_id().id % 500) * 2)};
+  socket_server_transport server_transport{"127.0.0.1", next_port.fetch_add(1)};
+  session_counting_server srv{server_transport};
+  srv.listen(dynamic{});
+
+  auto raw = server_transport.connect();
+  raw.open(dynamic{});
+  ASSERT_TRUE(wait_for_count(srv.created, 1));
+  raw.shutdown();
+  EXPECT_TRUE(wait_for_count(srv.destroyed, 1));
+  srv.stop();
+}
+
+TEST(ServerSessionCleanup, ClientThatDisconnectsIsDroppedOnce) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  session_counting_server srv{server_transport};
+  srv.listen(dynamic{});
+
+  client c{std::make_unique<named_pipe_client_transport>(path)};
+  c.connect();
+  c.disconnect();
+  EXPECT_TRUE(wait_for_count(srv.destroyed, 1));
+  srv.stop();
+  EXPECT_EQ(srv.destroyed.withRLock([](const int& n) { return n; }), 1);
+}
+
 TEST(MemoryTransport, SendReceivePair) {
   memory_server_transport server_transport;
   server_transport.start(dynamic{});

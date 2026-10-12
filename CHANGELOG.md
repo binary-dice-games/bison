@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `named_pipe_server_transport`: accepting a connection no longer touches freed stack memory.
 - `named_pipe_server_transport`: `stop()` no longer frees state that a concurrent `accept()` (e.g. `rmi::server`'s accept loop during `server::stop()`) is still using, which could crash on shutdown; the transport can also be started again after `stop()`.
 - `rmi::client`: after the server closed the connection, `disconnect()` now completes the teardown and `connect()` can start a new session; previously reconnecting called `std::terminate`.
+- `rmi::server` now tears down the session of a client that went away without disconnecting (killed process, dropped connection) over TCP, TLS and pipes: their server connections report the peer's close through `is_closed()` once its frames are processed. Before, such sessions and their objects stayed until the server stopped.
+- TCP and TLS server transports: accepting a connection no longer touches freed stack memory.
 
 ## [1.0.0] - 2026-08-27
 

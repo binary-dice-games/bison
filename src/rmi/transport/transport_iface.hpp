@@ -99,7 +99,12 @@ struct server_connection_iface {
   /** @brief Close this connection. */
   virtual void close() = 0;
 
-  /** @brief Return whether this connection has been closed. */
+  /**
+   * @brief Return whether this connection has been closed: by close(), or
+   *        (socket, TLS and pipe transports) by the peer, once every frame
+   *        it sent has been received. `rmi::server` tears the session down
+   *        when this turns true.
+   */
   virtual bool is_closed() const = 0;
 
   virtual ~server_connection_iface() = default;

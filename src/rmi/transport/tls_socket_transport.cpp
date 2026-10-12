@@ -256,7 +256,7 @@ void tls_socket_server_connection::close() {
 }
 
 bool tls_socket_server_connection::is_closed() const {
-  return !impl_ || impl_->closed;
+  return !impl_ || impl_->closed || (impl_->st && impl_->st->io.peer_closed_and_drained());
 }
 
 // ── tls_socket_server_transport::impl ─────────────────────────────────────────
@@ -292,14 +292,19 @@ struct tls_socket_server_transport::impl {
     // uv_accept() requires the client handle to share the listener's loop,
     // so accept into a temporary handle here, then duplicate the underlying
     // socket onto a fresh handle on the connection's own dedicated loop.
-    uv_tcp_t temp{};
-    uv_tcp_init(&im->accept_loop, &temp);
-    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(&temp)) != 0) {
-      uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+    // The temporary handle lives on the heap: uv_close() finishes on a later
+    // loop iteration, after this function has returned.
+    auto* temp = new uv_tcp_t{};
+    uv_tcp_init(&im->accept_loop, temp);
+    auto close_temp = [temp] {
+      uv_close(reinterpret_cast<uv_handle_t*>(temp), [](uv_handle_t* h) { delete reinterpret_cast<uv_tcp_t*>(h); });
+    };
+    if (uv_accept(server, reinterpret_cast<uv_stream_t*>(temp)) != 0) {
+      close_temp();
       return;
     }
-    const uv_os_sock_t dup_sock = duplicate_tcp_socket(&temp);
-    uv_close(reinterpret_cast<uv_handle_t*>(&temp), nullptr);
+    const uv_os_sock_t dup_sock = duplicate_tcp_socket(temp);
+    close_temp();
     if (dup_sock == static_cast<uv_os_sock_t>(-1))
       return;
 

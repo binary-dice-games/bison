@@ -285,6 +285,17 @@ struct uv_stream_state {
     return got;
   }
 
+  /**
+   * @brief `true` once the peer closed the connection and every frame it
+   *        sent has been dequeued: nothing is left to deliver. Server
+   *        connections report this through `is_closed()`, so `rmi::server`
+   *        drops the session of a client that went away without
+   *        disconnecting (e.g. a killed process).
+   */
+  bool peer_closed_and_drained() const {
+    return recv_closed.load() && recv_queue.withRLock([](const auto& q) { return q.empty(); });
+  }
+
   // ── Static libuv callbacks ─────────────────────────────────────────────────
 
   static void alloc_cb(uv_handle_t* h, size_t /*suggested*/, uv_buf_t* buf) {

@@ -155,7 +155,7 @@ void named_pipe_server_connection::close() {
 }
 
 bool named_pipe_server_connection::is_closed() const {
-  return !conn_ || conn_->closed;
+  return !conn_ || conn_->closed || conn_->cs->peer_closed_and_drained();
 }
 
 // ── named_pipe_client_transport ───────────────────────────────────────────────
