@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Go language bindings (`bindings/go/`).
 - `named_pipe_*_transport`: on Linux, a name starting with `@` is an abstract-namespace socket (no socket file, released when the process exits).
 - `named_pipe_server_transport::start()` throws `address_in_use_error` when another endpoint already listens on the name.
+- `named_pipe_client_transport::is_connected()`: reports when the server closed the connection, so an `rmi::client` over a pipe now notices a server that went away (`on_disconnect()`), as it already did over TCP.
 
 ### Changed
 

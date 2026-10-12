@@ -233,6 +233,10 @@ void named_pipe_client_transport::shutdown() {
   conn_->cs->stop();
 }
 
+bool named_pipe_client_transport::is_connected() const {
+  return conn_ && !conn_->closed && !conn_->cs->recv_closed.load();
+}
+
 // ── named_pipe_server_transport ───────────────────────────────────────────────
 
 named_pipe_server_transport::named_pipe_server_transport(std::string path) : path_(std::move(path)) {}

@@ -136,6 +136,13 @@ class named_pipe_client_transport : public client_transport_iface {
   /** @brief Disconnect; pending receives return `false`. */
   void shutdown() override;
 
+  /**
+   * @brief `false` once the server closed the connection (EOF), or before
+   *        open() / after shutdown(). Lets `rmi::client` notice a server
+   *        that went away.
+   */
+  bool is_connected() const override;
+
  private:
   std::string path_;
   std::unique_ptr<named_pipe_conn> conn_;

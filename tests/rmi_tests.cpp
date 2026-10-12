@@ -455,6 +455,29 @@ TEST(NamedPipeTransport, ClientOpenFailsWithoutServerThenSucceedsLater) {
   server_transport.stop();
 }
 
+// rmi::client relies on is_connected() to notice a server that went away.
+TEST(NamedPipeTransport, ClientSeesTheServerClosingTheConnection) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{path};
+  EXPECT_FALSE(client_t.is_connected());
+  client_t.open(dynamic{});
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_NE(server_conn, nullptr);
+  EXPECT_TRUE(client_t.is_connected());
+
+  server_conn->close();
+  buffer frame;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (client_t.is_connected() && std::chrono::steady_clock::now() < deadline)
+    (void)client_t.receive(frame, std::chrono::milliseconds{20});
+  EXPECT_FALSE(client_t.is_connected());
+
+  client_t.shutdown();
+  server_transport.stop();
+}
+
 // rmi::server stops its transport while its accept loop may still be
 // inside accept() on another thread; that must not touch freed state.
 TEST(NamedPipeTransport, StopWhileAnotherThreadIsInAcceptIsSafe) {
