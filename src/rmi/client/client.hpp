@@ -197,7 +197,22 @@ class client : public proxy_backend {
    */
   void destroy(proxy::dynamic&& proxy);
 
-  /** @brief Gracefully disconnect from the server and stop worker threads. */
+  /**
+   * @brief `true` from connect() until disconnect(), or until the server
+   *        closed the connection (for transports that report it, see
+   *        `client_transport_iface::is_connected()`).
+   */
+  bool is_connected() const {
+    return running_.load();
+  }
+
+  /**
+   * @brief Gracefully disconnect from the server and stop worker threads.
+   *
+   * Also completes the teardown after the server closed the connection
+   * (the worker already stopped and called `on_disconnect()`), so the client
+   * can `connect()` again.
+   */
   void disconnect();
 
   /**
@@ -291,6 +306,9 @@ class client : public proxy_backend {
   // ── Private methods (defined in client.cpp) ───────────────────────────────
 
   void worker_loop();
+  /// After the server closed the connection: joins the finished threads and
+  /// shuts the transport down, so connect() can start a new session.
+  void release_closed_session();
   void event_loop();
   void process_frame(const shared::envelope& env);
   void fail_all_pending(bison::key_t code, const std::string& message);

@@ -42,6 +42,11 @@ class bridge_upstream_transport : public transport::client_transport_iface {
   void shutdown() override {
     inner_->shutdown();
   }
+  // Without this the wrapper reported the interface's default (always
+  // connected), so the upstream client never noticed the server go away.
+  bool is_connected() const override {
+    return inner_->is_connected();
+  }
 
   bool receive(bison::buffer& frame, std::chrono::milliseconds timeout) override {
     auto deadline = std::chrono::steady_clock::now() + timeout;

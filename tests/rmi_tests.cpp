@@ -16,6 +16,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <future>
 #include <shared_mutex>
 #include <string>
@@ -420,6 +421,260 @@ TEST(NamedPipeTransport, MultipleSequentialConnections) {
   }
 
   server_transport.stop();
+}
+
+// Only one endpoint may listen on a name; the second start() must report it
+// with the dedicated error type so callers can use the name as a lock.
+TEST(NamedPipeTransport, SecondServerOnSameNameThrowsAddressInUse) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport first{path};
+  first.start(dynamic{});
+
+  named_pipe_server_transport second{path};
+  EXPECT_THROW(second.start(dynamic{}), address_in_use_error);
+
+  first.stop();
+}
+
+// A failed open() must leave the transport reusable, so a client can keep
+// retrying until a server appears.
+TEST(NamedPipeTransport, ClientOpenFailsWithoutServerThenSucceedsLater) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_client_transport client_t{path};
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  client_t.open(dynamic{});
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+// rmi::client relies on is_connected() to notice a server that went away.
+TEST(NamedPipeTransport, ClientSeesTheServerClosingTheConnection) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{path};
+  EXPECT_FALSE(client_t.is_connected());
+  client_t.open(dynamic{});
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_NE(server_conn, nullptr);
+  EXPECT_TRUE(client_t.is_connected());
+
+  server_conn->close();
+  buffer frame;
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+  while (client_t.is_connected() && std::chrono::steady_clock::now() < deadline)
+    (void)client_t.receive(frame, std::chrono::milliseconds{20});
+  EXPECT_FALSE(client_t.is_connected());
+
+  client_t.shutdown();
+  server_transport.stop();
+}
+
+// rmi::server stops its transport while its accept loop may still be
+// inside accept() on another thread; that must not touch freed state.
+TEST(NamedPipeTransport, StopWhileAnotherThreadIsInAcceptIsSafe) {
+  for (int i = 0; i < 20; ++i) {
+    named_pipe_server_transport server_transport{make_named_pipe_path()};
+    server_transport.start(dynamic{});
+    std::atomic<bool> done{false};
+    std::thread acceptor([&] {
+      while (!done.load())
+        (void)server_transport.accept(std::chrono::milliseconds{5});
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds{2});
+    server_transport.stop();
+    EXPECT_EQ(server_transport.accept(std::chrono::milliseconds{50}), nullptr);
+    done.store(true);
+    acceptor.join();
+  }
+}
+
+#if defined(__linux__)
+// Linux abstract-namespace sockets, named `@name`.
+static std::string make_abstract_pipe_name() {
+  static std::atomic<int> next_id{0};
+  return "@bison_test_abstract_" + std::to_string(::getpid()) + "_" + std::to_string(next_id.fetch_add(1));
+}
+
+TEST(NamedPipeTransport, AbstractSocketSendReceive) {
+  const std::string name = make_abstract_pipe_name();
+  named_pipe_server_transport server_transport{name};
+  server_transport.start(dynamic{});
+  named_pipe_client_transport client_t{name};
+  client_t.open(dynamic{});
+
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  ASSERT_TRUE(server_conn != nullptr);
+
+  const buffer frame{'H', 'i'};
+  client_t.send(frame);
+  buffer received;
+  ASSERT_TRUE(server_conn->receive(received, std::chrono::milliseconds{500}));
+  EXPECT_EQ(received, frame);
+
+  // No file-system entry is created for an abstract name.
+  EXPECT_FALSE(std::filesystem::exists(name));
+  EXPECT_FALSE(std::filesystem::exists(name.substr(1)));
+
+  client_t.shutdown();
+  server_conn->close();
+  server_transport.stop();
+}
+
+TEST(NamedPipeTransport, AbstractSocketIsExclusiveAndReleasedOnStop) {
+  const std::string name = make_abstract_pipe_name();
+  {
+    named_pipe_server_transport first{name};
+    first.start(dynamic{});
+    named_pipe_server_transport second{name};
+    EXPECT_THROW(second.start(dynamic{}), address_in_use_error);
+    first.stop();
+  }
+
+  // Unlike a socket file, the name is free again as soon as the listener
+  // closes, with no cleanup by the caller.
+  named_pipe_server_transport again{name};
+  EXPECT_NO_THROW(again.start(dynamic{}));
+  again.stop();
+}
+
+TEST(NamedPipeTransport, AbstractSocketServerRestartsAfterStop) {
+  const std::string name = make_abstract_pipe_name();
+  named_pipe_server_transport server_transport{name};
+  server_transport.start(dynamic{});
+  server_transport.stop();
+  server_transport.start(dynamic{});
+
+  named_pipe_client_transport client_t{name};
+  client_t.open(dynamic{});
+  auto server_conn = server_transport.accept(std::chrono::milliseconds{500});
+  EXPECT_NE(server_conn, nullptr);
+  client_t.shutdown();
+  server_transport.stop();
+}
+
+// Counts on_disconnect() calls, which the worker makes when the server
+// closes the connection.
+class disconnect_counting_client : public client {
+ public:
+  using client::client;
+  bdg::bison::synchronized<int> disconnects{0};
+
+ protected:
+  void on_disconnect() override {
+    disconnects.withWLock([](int& n) { ++n; });
+    disconnects.notify_all();
+  }
+};
+
+// A client whose server went away (e.g. a service whose desktop closed) can
+// connect again once a server is back, with or without calling
+// disconnect() in between.
+TEST(NamedPipeTransport, ClientReconnectsAfterTheServerGoesAway) {
+  const std::string name = make_abstract_pipe_name();
+  disconnect_counting_client c{std::make_unique<named_pipe_client_transport>(name)};
+  for (int round = 1; round <= 2; ++round) {
+    named_pipe_server_transport server_transport{name};
+    server srv{server_transport};
+    srv.listen(dynamic{});
+    c.connect();
+    srv.stop();
+    ASSERT_TRUE(c.disconnects.wait_for(std::chrono::seconds{5}, [round](int& n) { return n >= round; }))
+        << "round " << round;
+    if (round == 1)
+      c.disconnect(); // completes the teardown; round 2 leaves it to connect()
+  }
+  named_pipe_server_transport server_transport{name};
+  server srv{server_transport};
+  srv.listen(dynamic{});
+  c.connect();
+  c.disconnect();
+  srv.stop();
+}
+
+TEST(NamedPipeTransport, AbstractSocketConnectWithoutServerFails) {
+  named_pipe_client_transport client_t{make_abstract_pipe_name()};
+  EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
+}
+#endif
+
+// ── Session cleanup when the client goes away ──────────────────────────────
+//
+// A client process that dies (or a connection that drops) never sends
+// OP_DISCONNECT; the server must still tear its session down once the
+// connection reports the peer's EOF.
+
+class session_counting_server : public server {
+ public:
+  using server::server;
+  bdg::bison::synchronized<int> created{0};
+  bdg::bison::synchronized<int> destroyed{0};
+
+ protected:
+  void on_session_created(context&) override {
+    created.withWLock([](int& n) { ++n; });
+    created.notify_all();
+  }
+  void on_session_destroyed(context&) override {
+    destroyed.withWLock([](int& n) { ++n; });
+    destroyed.notify_all();
+  }
+};
+
+namespace {
+bool wait_for_count(bdg::bison::synchronized<int>& counter, int n) {
+  return counter.wait_for(std::chrono::seconds{5}, [n](int& v) { return v >= n; });
+}
+} // namespace
+
+TEST(ServerSessionCleanup, PipeClientThatVanishesIsDropped) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  session_counting_server srv{server_transport};
+  srv.listen(dynamic{});
+
+  named_pipe_client_transport raw{path};
+  raw.open(dynamic{});
+  ASSERT_TRUE(wait_for_count(srv.created, 1));
+  raw.shutdown(); // no OP_DISCONNECT, as when the client process is killed
+  EXPECT_TRUE(wait_for_count(srv.destroyed, 1));
+  srv.stop();
+}
+
+TEST(ServerSessionCleanup, TcpClientThatVanishesIsDropped) {
+  static std::atomic<uint16_t> next_port{static_cast<uint16_t>(29000 + (generate_id().id % 500) * 2)};
+  socket_server_transport server_transport{"127.0.0.1", next_port.fetch_add(1)};
+  session_counting_server srv{server_transport};
+  srv.listen(dynamic{});
+
+  auto raw = server_transport.connect();
+  raw.open(dynamic{});
+  ASSERT_TRUE(wait_for_count(srv.created, 1));
+  raw.shutdown();
+  EXPECT_TRUE(wait_for_count(srv.destroyed, 1));
+  srv.stop();
+}
+
+TEST(ServerSessionCleanup, ClientThatDisconnectsIsDroppedOnce) {
+  const std::string path = make_named_pipe_path();
+  named_pipe_server_transport server_transport{path};
+  session_counting_server srv{server_transport};
+  srv.listen(dynamic{});
+
+  client c{std::make_unique<named_pipe_client_transport>(path)};
+  c.connect();
+  c.disconnect();
+  EXPECT_TRUE(wait_for_count(srv.destroyed, 1));
+  srv.stop();
+  EXPECT_EQ(srv.destroyed.withRLock([](const int& n) { return n; }), 1);
 }
 
 TEST(MemoryTransport, SendReceivePair) {
