@@ -53,6 +53,7 @@ client::~client() {
 void client::connect(bison::dynamic params) {
   shared::register_all_schemas();
   bison::dynamic payload = params; // copy before transport consumes it
+  release_closed_session();
   transport_.withRLock([&](auto& t) { t->open(std::move(params)); });
   running_.store(true);
   worker_ = std::thread(&client::worker_loop, this);
@@ -135,8 +136,10 @@ void client::destroy_object(bison::key_t object_id) {
 
 /** @copydoc bdg::bison::rmi::client::disconnect */
 void client::disconnect() {
-  if (!running_.load())
+  if (!running_.load()) {
+    release_closed_session();
     return;
+  }
 
   bison::dynamic payload;
   try {
@@ -167,6 +170,22 @@ void client::disconnect() {
 
   on_disconnect();
   fail_all_pending(ERR_TRANSPORT_ERROR, "Client disconnected"); // safety net
+}
+
+/** @copydoc bdg::bison::rmi::client::release_closed_session */
+void client::release_closed_session() {
+  if (running_.load() || !(worker_.joinable() || event_thread_.joinable()))
+    return;
+  // Called from the worker itself (e.g. an on_disconnect() override that
+  // calls disconnect()): it cannot join itself; connect() will later.
+  if (std::this_thread::get_id() == worker_.get_id() || std::this_thread::get_id() == event_thread_.get_id())
+    return;
+  transport_.withRLock([](auto& t) { t->shutdown(); });
+  event_queue_.notify_one();
+  if (worker_.joinable())
+    worker_.join();
+  if (event_thread_.joinable())
+    event_thread_.join();
 }
 
 /** @copydoc bdg::bison::rmi::client::send_request */

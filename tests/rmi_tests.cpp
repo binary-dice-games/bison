@@ -561,6 +561,45 @@ TEST(NamedPipeTransport, AbstractSocketServerRestartsAfterStop) {
   server_transport.stop();
 }
 
+// Counts on_disconnect() calls, which the worker makes when the server
+// closes the connection.
+class disconnect_counting_client : public client {
+ public:
+  using client::client;
+  bdg::bison::synchronized<int> disconnects{0};
+
+ protected:
+  void on_disconnect() override {
+    disconnects.withWLock([](int& n) { ++n; });
+    disconnects.notify_all();
+  }
+};
+
+// A client whose server went away (e.g. a service whose desktop closed) can
+// connect again once a server is back, with or without calling
+// disconnect() in between.
+TEST(NamedPipeTransport, ClientReconnectsAfterTheServerGoesAway) {
+  const std::string name = make_abstract_pipe_name();
+  disconnect_counting_client c{std::make_unique<named_pipe_client_transport>(name)};
+  for (int round = 1; round <= 2; ++round) {
+    named_pipe_server_transport server_transport{name};
+    server srv{server_transport};
+    srv.listen(dynamic{});
+    c.connect();
+    srv.stop();
+    ASSERT_TRUE(c.disconnects.wait_for(std::chrono::seconds{5}, [round](int& n) { return n >= round; }))
+        << "round " << round;
+    if (round == 1)
+      c.disconnect(); // completes the teardown; round 2 leaves it to connect()
+  }
+  named_pipe_server_transport server_transport{name};
+  server srv{server_transport};
+  srv.listen(dynamic{});
+  c.connect();
+  c.disconnect();
+  srv.stop();
+}
+
 TEST(NamedPipeTransport, AbstractSocketConnectWithoutServerFails) {
   named_pipe_client_transport client_t{make_abstract_pipe_name()};
   EXPECT_THROW(client_t.open(dynamic{}), std::runtime_error);
