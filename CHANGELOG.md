@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `named_pipe_server_transport::start()` throws `address_in_use_error` when another endpoint already listens on the name.
 - `rmi::client::is_connected()` and `bridge::upstream_connected()`: whether the (upstream) connection is still up.
 - `named_pipe_client_transport::is_connected()`: reports when the server closed the connection, so an `rmi::client` over a pipe now notices a server that went away (`on_disconnect()`), as it already did over TCP.
+- `app::bridge_app::make_upstream_transport()`: override to supply the upstream transport (e.g. an in-process `memory_client_transport`) instead of building it from the `--upstream_*` flags.
 
 ### Changed
 

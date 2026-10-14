@@ -87,7 +87,9 @@ class bridged_bridge : public rmi::bridge {
 
 void bridge_app::on_upstream_connect_params(bison::dynamic& params) const {
   params["timeout_ms"_key] = int32_t{FLAGS_timeout};
-  if (selected_upstream_transport() != transport_kind::tls)
+  // A transport from make_upstream_transport() takes no --upstream_* TLS
+  // material.
+  if (custom_upstream_ || selected_upstream_transport() != transport_kind::tls)
     return;
   // Only set server_name when --upstream_server_name is explicitly
   // non-empty -- see client_app::on_connect_params()'s identical comment.
@@ -183,7 +185,11 @@ int bridge_app::run(int argc, char** argv) {
 
   try {
     const transport_kind downstream_kind = selected_downstream_transport();
-    const transport_kind upstream_kind = selected_upstream_transport();
+    // A transport from make_upstream_transport() replaces the --upstream_*
+    // flags; it never claims this process's stdio the way `term` does.
+    std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport = make_upstream_transport();
+    custom_upstream_ = upstream_transport != nullptr;
+    const bool upstream_is_term = !custom_upstream_ && selected_upstream_transport() == transport_kind::term;
 
     // Unless the downstream side is already `term` (which spawns its own
     // terminal below), spawn a separate anchor terminal up front: a
@@ -210,48 +216,49 @@ int bridge_app::run(int argc, char** argv) {
     }
 
     std::unique_ptr<term::scoped_terminal_config> upstream_stc;
-    std::unique_ptr<rmi::transport::client_transport_iface> upstream_transport;
-    switch (upstream_kind) {
-      case transport_kind::pipe:
-        upstream_transport = std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_upstream_name);
-        break;
-      case transport_kind::tcp:
-        upstream_transport = std::make_unique<rmi::transport::socket_client_transport>(
-            FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
-        break;
-      case transport_kind::tls:
-        upstream_transport = std::make_unique<rmi::transport::tls_socket_client_transport>(
-            FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
-        break;
-      case transport_kind::term: {
-        upstream_stc = std::make_unique<term::scoped_terminal_config>(term::scoped_terminal_config::params{0, 1});
-        term::scoped_terminal_config* stc = upstream_stc.get();
-        rmi::transport::term_passthrough_cb passthrough;
-        if (anchor_term) {
-          // The anchor is a real pty running an interactive shell, so feed
-          // it via on_terminal_passthrough() (raw, unbuffered) rather than
-          // on_passthrough() (line-buffered, for a std::getline()-style
-          // reader) -- see on_terminal_passthrough()'s doc comment.
-          const int anchor_write_fd = anchor_term->write_handle();
-          passthrough = [anchor_write_fd](std::string_view s) {
-            term::scoped_terminal_config::on_terminal_passthrough(anchor_write_fd, s);
-          };
-        } else {
-          passthrough = [stc](std::string_view s) { stc->on_passthrough(s); };
+    if (!custom_upstream_) {
+      switch (selected_upstream_transport()) {
+        case transport_kind::pipe:
+          upstream_transport = std::make_unique<rmi::transport::named_pipe_client_transport>(FLAGS_upstream_name);
+          break;
+        case transport_kind::tcp:
+          upstream_transport = std::make_unique<rmi::transport::socket_client_transport>(
+              FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
+          break;
+        case transport_kind::tls:
+          upstream_transport = std::make_unique<rmi::transport::tls_socket_client_transport>(
+              FLAGS_upstream_host, static_cast<uint16_t>(FLAGS_upstream_port));
+          break;
+        case transport_kind::term: {
+          upstream_stc = std::make_unique<term::scoped_terminal_config>(term::scoped_terminal_config::params{0, 1});
+          term::scoped_terminal_config* stc = upstream_stc.get();
+          rmi::transport::term_passthrough_cb passthrough;
+          if (anchor_term) {
+            // The anchor is a real pty running an interactive shell, so feed
+            // it via on_terminal_passthrough() (raw, unbuffered) rather than
+            // on_passthrough() (line-buffered, for a std::getline()-style
+            // reader) -- see on_terminal_passthrough()'s doc comment.
+            const int anchor_write_fd = anchor_term->write_handle();
+            passthrough = [anchor_write_fd](std::string_view s) {
+              term::scoped_terminal_config::on_terminal_passthrough(anchor_write_fd, s);
+            };
+          } else {
+            passthrough = [stc](std::string_view s) { stc->on_passthrough(s); };
+          }
+          auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
+              stc->upstream_read_fd(),
+              stc->upstream_write_fd(),
+              std::move(passthrough),
+              rmi::transport::kDefaultHandshakeTimeout,
+              [stc] { stc->stop_output_pump(); });
+          stc->set_output_channel([raw = term_transport.get()](std::string_view s) { raw->send(s); });
+          upstream_transport = std::move(term_transport);
+          break;
         }
-        auto term_transport = std::make_unique<rmi::transport::term_client_transport>(
-            stc->upstream_read_fd(),
-            stc->upstream_write_fd(),
-            std::move(passthrough),
-            rmi::transport::kDefaultHandshakeTimeout,
-            [stc] { stc->stop_output_pump(); });
-        stc->set_output_channel([raw = term_transport.get()](std::string_view s) { raw->send(s); });
-        upstream_transport = std::move(term_transport);
-        break;
       }
     }
 
-    if (anchor_term && upstream_kind != transport_kind::term) {
+    if (anchor_term && !upstream_is_term) {
       // No upstream link is already feeding the anchor -- pump this
       // process's own (unclaimed) real stdin into it directly.
       anchor_term->start_pump();

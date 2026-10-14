@@ -3,6 +3,7 @@
 
 #include "src/app/bridge/bridge_app.hpp"
 #include "src/rmi/rmi.hpp"
+#include "src/rmi/transport/socket_transport.hpp"
 #include "src/rmi/transport/tls_socket_transport.hpp"
 #include "tests/tls_test_certs.hpp"
 
@@ -258,4 +259,86 @@ TEST(BridgeAppTlsTest, RelaysClientCallsOverTls) {
   FLAGS_downstream_key_pem.clear();
   FLAGS_upstream_transport = "tcp";
   FLAGS_upstream_ca_pem.clear();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// make_upstream_transport(): run() connects upstream through the override
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+// Connects upstream to an in-memory server instead of the --upstream_* flags.
+class memory_upstream_bridge_app : public test_bridge_app {
+ public:
+  explicit memory_upstream_bridge_app(memory_server_transport& upstream) : upstream_(upstream) {}
+
+  std::atomic<int> upstream_transports_made{0};
+
+ protected:
+  std::unique_ptr<client_transport_iface> make_upstream_transport() override {
+    upstream_transports_made++;
+    return std::make_unique<memory_client_transport>(upstream_.connect());
+  }
+
+ private:
+  memory_server_transport& upstream_;
+};
+
+} // namespace
+
+TEST_F(BridgeAppTest, RunUsesMakeUpstreamTransportInsteadOfFlags) {
+  // Not a transport name: run() fails if it still reads the upstream flags.
+  FLAGS_upstream_transport = "not-a-transport";
+  static std::atomic<uint16_t> next_port{29900};
+  FLAGS_downstream_port = next_port.fetch_add(1);
+
+  memory_upstream_bridge_app app{upstream_transport_};
+  std::atomic<int> rc{-1};
+  std::thread bridge_thread([&] {
+    std::string arg0 = "bridge_app_test";
+    char* argv[] = {arg0.data(), nullptr};
+    rc = app.run(1, argv);
+  });
+
+  {
+    client c{socket_client_transport{"127.0.0.1", static_cast<uint16_t>(FLAGS_downstream_port)}};
+    // run() listens only after it has started the anchor terminal and
+    // connected upstream; retry until it does (or it has failed).
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+    bool connected = false;
+    while (!connected && rc.load() == -1 && std::chrono::steady_clock::now() < deadline) {
+      try {
+        c.connect();
+        connected = true;
+      } catch (const std::exception&) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{50});
+      }
+    }
+    if (!connected) {
+      app.gate.stop();
+      bridge_thread.join();
+      FLAGS_upstream_transport = "tcp";
+      FAIL() << "bridge never listened downstream (run() returned " << rc.load() << ")";
+    }
+
+    auto calc = c.instantiate(0U, "Calculator"_key).get();
+    ASSERT_TRUE(calc.valid());
+    dynamic params;
+    params["a"_key] = 2.0f;
+    params["b"_key] = 5.0f;
+    auto result = calc.call("add"_key, std::move(params)).get();
+    float res = result["result"_key];
+    EXPECT_FLOAT_EQ(res, 7.0f);
+
+    c.destroy(std::move(calc));
+    c.disconnect();
+  }
+
+  app.gate.stop();
+  bridge_thread.join();
+  EXPECT_EQ(rc.load(), 0);
+  EXPECT_EQ(app.upstream_transports_made.load(), 1);
+
+  FLAGS_upstream_transport = "tcp";
+  FLAGS_downstream_port = 7070;
 }

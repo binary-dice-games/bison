@@ -178,7 +178,8 @@ class bridge_app {
    * @brief Populate upstream connection parameters before the bridge connects.
    *
    * Default: sets `timeout_ms` to the value of `FLAGS_timeout` (or 30 000 if
-   * not parsed yet); when `--upstream_transport=tls` is selected, also
+   * not parsed yet); when `--upstream_transport=tls` is selected (and no
+   * `make_upstream_transport()` override supplied the transport), also
    * populates `server_name`/`ca_file`/`ca_pem`/`insecure_skip_verify`/
    * `cert_file`/`cert_pem`/`key_file`/`key_pem`/`key_password` from the
    * corresponding `FLAGS_upstream_*` (see `docs/tls.md`).
@@ -200,6 +201,25 @@ class bridge_app {
    *               `rmi::bridge::start()` -> `server::listen()`.
    */
   virtual void on_downstream_listen_params(bison::dynamic& params) const;
+
+  /**
+   * @brief Construct the upstream transport instead of building it from the
+   *        `--upstream_*` flags.
+   *
+   * Called by `run()` before it builds the upstream transport. Override to
+   * connect upstream through a transport the flags can't describe, e.g. a
+   * `memory_client_transport` to a server running in this same process.
+   * When this returns non-null, `--upstream_transport` and the other
+   * `--upstream_*` transport flags are ignored, and the anchor terminal
+   * reads this process's stdin directly (as with any non-`term` upstream).
+   *
+   * Default: returns `nullptr` (build the transport from the flags).
+   *
+   * @return The upstream transport, or `nullptr` to use the flags.
+   */
+  virtual std::unique_ptr<rmi::transport::client_transport_iface> make_upstream_transport() {
+    return nullptr;
+  }
 
   /**
    * @brief Construct the bridge bound to the given transports.
@@ -264,6 +284,11 @@ class bridge_app {
    *        `wait_for_shutdown()`).
    */
   term::terminal* active_term_ = nullptr;
+
+ private:
+  /// Whether `run()` got its upstream transport from
+  /// `make_upstream_transport()`, so the `--upstream_*` flags don't apply.
+  bool custom_upstream_ = false;
 };
 
 } // namespace bdg::bison::app
