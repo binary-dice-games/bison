@@ -123,6 +123,22 @@ class standalone : public proxy_backend {
   instantiate(bison::key_t ns, bison::key_t klass, bison::dynamic params = bison::dynamic{});
 
   /**
+   * @brief Create a proxy for an in-process object whose ID is already known.
+   *
+   * Mirrors `client::make_proxy()`: use it when an object was created as a
+   * side effect of another call (e.g. a method that files a new object in
+   * the session context and returns its ID) rather than through
+   * `instantiate()`. The caller is responsible for ensuring @p id refers to
+   * a live object in this session.
+   *
+   * @param id Object identifier.
+   * @return A valid `proxy::dynamic` backed by this standalone.
+   */
+  proxy::dynamic make_proxy(bison::key_t id) {
+    return proxy::dynamic(this, std::move(id));
+  }
+
+  /**
    * @brief Destroy an object owned by @p proxy.
    *
    * Invokes the optional `__destruct` hook, removes the object from the

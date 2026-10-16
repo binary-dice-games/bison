@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rmi::standalone::make_proxy(id)`: a proxy for an in-process object whose ID is already known, mirroring `rmi::client::make_proxy()`.
 - `rmi::server::set_trace_payloads(bool)`: opt into decoded call payloads (`args=`, `set` values, response bodies) in request/response trace lines.
 - `rmi::server::set_trace_lines(bool)`: when `false`, skip the request/response trace hooks entirely so the trace string is never formatted. Default `true` (unchanged behavior).
 - Rust language bindings (`bindings/rust/`).

@@ -1757,6 +1757,24 @@ TEST_F(StandaloneTests, InstantiateAndDestroyRegisteredClass) {
   EXPECT_NO_THROW(sa.destroy(std::move(proxy)));
 }
 
+TEST_F(StandaloneTests, MakeProxyReachesAnObjectByItsId) {
+  auto proto = dynamic_ptr{"Counter"_key, {{"value"_key, int32_t{0}}}};
+  dynamic::addClass(0U, proto);
+
+  standalone sa;
+  auto owner = sa.instantiate(0U, "Counter"_key).get();
+  dynamic fields;
+  fields["value"_key] = int32_t{5};
+  owner.set(std::move(fields)).get();
+
+  auto view = sa.make_proxy(owner.object_id());
+  EXPECT_TRUE(view.valid());
+  EXPECT_EQ(view.object_id(), owner.object_id());
+  EXPECT_EQ(int32_t(view.get().get()["value"_key]), 5);
+
+  sa.destroy(std::move(owner));
+}
+
 TEST_F(StandaloneTests, SetAndGetField) {
   auto proto = dynamic_ptr{"Box"_key, {{"x"_key, int32_t{0}}, {"y"_key, int32_t{0}}}};
   dynamic::addClass(0U, proto);
