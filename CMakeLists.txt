@@ -10,6 +10,20 @@ project(
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(PACKAGE_TESTS "Build the tests" ON)
+
+# Network/terminal transports (socket, TLS, named pipe, term) and everything
+# built on them (the app layer, bison_abi, bison-cli, srv, examples,
+# bindings/cpp) need libuv and mbedTLS. A browser (Emscripten) build has no
+# sockets for libuv to drive, so it defaults this OFF and keeps only the
+# object model, RMI and memory_transport. When OFF, consumers see the PUBLIC
+# compile definition BISON_NO_NET_TRANSPORTS; the transport headers still
+# parse, but their classes are not linked.
+if(EMSCRIPTEN)
+  set(_bison_net_default OFF)
+else()
+  set(_bison_net_default ON)
+endif()
+option(BISON_ENABLE_NET_TRANSPORTS "Build socket/TLS/named-pipe/term transports (needs libuv, mbedTLS)" ${_bison_net_default})
   
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -51,7 +65,9 @@ add_subdirectory("extern/json")
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 add_subdirectory("extern/yaml")
 
-if(MSYS OR CYGWIN)
+if(NOT BISON_ENABLE_NET_TRANSPORTS)
+  message(STATUS "bison: network transports OFF (no libuv/mbedTLS)")
+elseif(MSYS OR CYGWIN)
   # Look for the pre-compiled system libuv provided by pacman/cygwin
   message(STATUS "Using MSYS/Cygwin system libuv via pkg-config")
   find_package(PkgConfig REQUIRED)
@@ -74,6 +90,7 @@ set(GFLAGS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(GFLAGS_BUILD_PACKAGING OFF CACHE BOOL "" FORCE)
 add_subdirectory("extern/gflags")
 
+if(BISON_ENABLE_NET_TRANSPORTS)
 # mbedTLS: static-only, no bundled programs/tests/docs (see src/rmi/DESIGN.md
 # §3.4 for why mbedTLS was chosen for the tls_socket_transport dependency).
 set(USE_STATIC_MBEDTLS_LIBRARY ON CACHE BOOL "" FORCE)
@@ -95,6 +112,7 @@ add_subdirectory("extern/mbedtls")
 foreach(mbedtls_target mbedcrypto mbedx509 mbedtls)
   target_include_directories(${mbedtls_target} PRIVATE "${CMAKE_CURRENT_LIST_DIR}/cmake")
 endforeach()
+endif()  # BISON_ENABLE_NET_TRANSPORTS (mbedTLS)
 
 # ─── Static library (C++ API) ────────────────────────────────────────────────
 add_library(bison STATIC
@@ -115,8 +133,12 @@ target_include_directories(bison
 )
 
 target_link_libraries(bison PRIVATE nlohmann_json::nlohmann_json yaml gflags)
-target_link_libraries(bison PRIVATE uv_a)
-target_link_libraries(bison PRIVATE mbedtls mbedx509 mbedcrypto)
+if(BISON_ENABLE_NET_TRANSPORTS)
+  target_link_libraries(bison PRIVATE uv_a)
+  target_link_libraries(bison PRIVATE mbedtls mbedx509 mbedcrypto)
+else()
+  target_compile_definitions(bison PUBLIC BISON_NO_NET_TRANSPORTS)
+endif()
 # Required when this static library is linked into a shared library.
 set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -124,11 +146,7 @@ set_property(TARGET bison PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_sources(bison PRIVATE
   src/rmi/shared/ids.cpp  src/rmi/shared/envelope.cpp
   src/rmi/transport/memory_transport.cpp
-  src/rmi/transport/named_pipe_transport.cpp
-  src/rmi/transport/socket_transport.cpp
-  src/rmi/transport/tls_socket_transport.cpp
   src/rmi/transport/stream_transport.cpp
-  src/rmi/transport/term_transport.cpp
   src/rmi/bridge/bridge.cpp
   src/rmi/client/client.cpp
   src/rmi/client/proxy.cpp
@@ -136,6 +154,16 @@ target_sources(bison PRIVATE
   src/rmi/server/server.cpp
   src/rmi/server/profiler_service.cpp
   src/rmi/standalone/standalone.cpp
+)
+
+target_include_directories(bison PRIVATE src/rmi)
+
+if(BISON_ENABLE_NET_TRANSPORTS)
+target_sources(bison PRIVATE
+  src/rmi/transport/named_pipe_transport.cpp
+  src/rmi/transport/socket_transport.cpp
+  src/rmi/transport/tls_socket_transport.cpp
+  src/rmi/transport/term_transport.cpp
   src/app/bridge/bridge_app.cpp
   src/app/client/client_app.cpp
   src/app/client/line_editor.cpp
@@ -147,8 +175,6 @@ target_sources(bison PRIVATE
   src/app/upstream_transport_flags.cpp
   src/term/scoped_terminal_config.cpp
 )
-
-target_include_directories(bison PRIVATE src/rmi)
 
 # ─── Platform-specific implementation pairs ────────────────────────────────
 # Bison targets Linux and MSYS2 as one shared POSIX implementation, plus a
@@ -183,7 +209,19 @@ else()
     src/rmi/server/worker_thread_priority_posix.cpp
   )
 endif()
+endif()  # BISON_ENABLE_NET_TRANSPORTS (net transports, app layer, terminal)
 
+# worker_thread_priority_*.cpp is used by the RMI server itself, so it is
+# needed with or without the network transports.
+if(NOT BISON_ENABLE_NET_TRANSPORTS)
+  if(WIN32 AND NOT MSYS AND NOT CYGWIN)
+    target_sources(bison PRIVATE src/rmi/server/worker_thread_priority_win.cpp)
+  else()
+    target_sources(bison PRIVATE src/rmi/server/worker_thread_priority_posix.cpp)
+  endif()
+endif()
+
+if(BISON_ENABLE_NET_TRANSPORTS)
 # ─── Shared library (pure-C ABI) ───────────────────────────────────────────
 add_library(bison_abi SHARED
   include/bison_c.h
@@ -282,6 +320,8 @@ endif()
 add_subdirectory(examples)
 add_subdirectory(src/srv)
 add_subdirectory(bindings/cpp)
+endif()  # BISON_ENABLE_NET_TRANSPORTS (bison_abi, tests, examples, srv, bindings)
+
 
 # ─── Android binding (JNI) ─────────────────────────────────────────────────
 # Only configured when cross-compiling with the NDK's CMake toolchain file
@@ -297,7 +337,7 @@ endif()
 # aren't needed by -- and, since scikit-build-core's `build.targets` never
 # builds bison-cli, would break -- the SKBUILD `bison_abi` wheel build (see
 # the SKBUILD branch above); skip both entirely in that mode.
-if(NOT SKBUILD)
+if(NOT SKBUILD AND BISON_ENABLE_NET_TRANSPORTS)
   # ─── bison-cli executable ───────────────────────────────────────────────
   add_subdirectory(src/app/cli)
 

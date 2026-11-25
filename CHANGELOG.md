@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `BISON_ENABLE_NET_TRANSPORTS` CMake option (default `ON`, `OFF` under Emscripten): builds bison without the socket, TLS, named-pipe and term transports (and libuv/mbedTLS, the app layer, `bison_abi`, `bison-cli`), keeping the object model, RMI and `memory_transport`. Consumers see `BISON_NO_NET_TRANSPORTS` when off.
+- Emscripten builds cap `rmi::server`'s dispatch workers at `server::kMaxEmscriptenDispatchWorkers` (4).
+
 - `rmi::standalone::make_proxy(id)`: a proxy for an in-process object whose ID is already known, mirroring `rmi::client::make_proxy()`.
 - `rmi::server::set_trace_payloads(bool)`: opt into decoded call payloads (`args=`, `set` values, response bodies) in request/response trace lines.
 - `rmi::server::set_trace_lines(bool)`: when `false`, skip the request/response trace hooks entirely so the trace string is never formatted. Default `true` (unchanged behavior).
