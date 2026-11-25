@@ -50,6 +50,14 @@ namespace bdg::bison::rmi {
 class server {
  public:
   /**
+   * @brief Upper bound on `listen()`'s dispatch worker threads in an
+   *        Emscripten (browser) build, where each thread is a Web Worker
+   *        from a fixed, preallocated pool. Elsewhere the count is
+   *        `std::thread::hardware_concurrency()`, uncapped.
+   */
+  static constexpr size_t kMaxEmscriptenDispatchWorkers = 4;
+
+  /**
    * @brief Construct a server that takes ownership of @p transport.
    * @param transport Owned transport implementation.
    */

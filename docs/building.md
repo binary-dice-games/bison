@@ -23,6 +23,12 @@ ctest --test-dir build -C Debug
 
 ## CMake Integration
 
+**Without network transports.** `-DBISON_ENABLE_NET_TRANSPORTS=OFF` (the
+default under Emscripten) builds bison without libuv/mbedTLS: no socket,
+TLS, named-pipe or term transport, app layer, `bison_abi`, `bison-cli`,
+examples or bindings -- just the object model, RMI and `memory_transport`.
+Consumers get the compile definition `BISON_NO_NET_TRANSPORTS`.
+
 `target_link_libraries` pulls in the `bison` static library, but its headers
 are consumed by path from the repo root (there is no installed/flattened
 public include tree yet), so add the cloned directory to your include path

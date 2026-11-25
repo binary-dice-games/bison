@@ -235,7 +235,16 @@ void server::listen(bison::dynamic params, auth_module_ptr auth_module) {
   running_.store(true);
   transport_.get()->start(std::move(params));
 
-  const size_t worker_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+  size_t worker_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+#ifdef __EMSCRIPTEN__
+  // Browser build: every thread is a Web Worker from the fixed pool the page
+  // preallocates (-sPTHREAD_POOL_SIZE), and a thread started before the
+  // main thread yields only runs if a pooled worker is free, otherwise the
+  // creator deadlocks. navigator.hardwareConcurrency is often 8-20, so cap
+  // the dispatch workers to keep the pool size predictable; see
+  // kMaxEmscriptenDispatchWorkers in server.hpp.
+  worker_count = std::min(worker_count, kMaxEmscriptenDispatchWorkers);
+#endif
   dispatch_workers_.reserve(worker_count);
   for (size_t i = 0; i < worker_count; ++i)
     dispatch_workers_.push_back(std::make_unique<dispatch_worker_state>());
